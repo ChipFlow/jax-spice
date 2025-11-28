@@ -11,14 +11,14 @@ crate-type = ["cdylib"]
 [dependencies]
 pyo3 = { version = "0.19", features = ["extension-module"] }
 
-# OpenVAF dependencies (relative to jax-spice/openvaf-py)
-mir = { path = "../../OpenVAF/openvaf/mir" }
-mir_interpret = { path = "../../OpenVAF/openvaf/mir_interpret" }
-sim_back = { path = "../../OpenVAF/openvaf/sim_back" }
-hir = { path = "../../OpenVAF/openvaf/hir" }
-hir_lower = { path = "../../OpenVAF/openvaf/hir_lower" }
-basedb = { path = "../../OpenVAF/openvaf/basedb" }
-paths = { path = "../../OpenVAF/lib/paths" }
+# OpenVAF dependencies (via submodule at jax-spice/OpenVAF)
+mir = { path = "../OpenVAF/openvaf/mir" }
+mir_interpret = { path = "../OpenVAF/openvaf/mir_interpret" }
+sim_back = { path = "../OpenVAF/openvaf/sim_back" }
+hir = { path = "../OpenVAF/openvaf/hir" }
+hir_lower = { path = "../OpenVAF/openvaf/hir_lower" }
+basedb = { path = "../OpenVAF/openvaf/basedb" }
+paths = { path = "../OpenVAF/lib/paths" }
 
 # Other dependencies
 lasso = "0.7"

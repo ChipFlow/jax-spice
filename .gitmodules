@@ -1,0 +1,3 @@
+[submodule "OpenVAF"]
+	path = OpenVAF
+	url = https://github.com/robtaylor/OpenVAF.git
