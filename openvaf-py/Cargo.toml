@@ -9,7 +9,7 @@ name = "openvaf_py"
 crate-type = ["cdylib"]
 
 [dependencies]
-pyo3 = { version = "0.19", features = ["extension-module"] }
+pyo3 = { version = "0.19.2", features = ["extension-module"] }
 
 # OpenVAF dependencies (via submodule at jax-spice/OpenVAF)
 mir = { path = "../OpenVAF/openvaf/mir" }
