@@ -54,18 +54,22 @@ class VerilogADevice:
     def from_va_file(
         cls,
         va_path: str,
-        default_params: Optional[Dict[str, float]] = None
+        default_params: Optional[Dict[str, float]] = None,
+        allow_analog_in_cond: bool = False
     ) -> "VerilogADevice":
         """Create a device from a Verilog-A file
 
         Args:
             va_path: Path to the .va file
             default_params: Optional default parameter values
+            allow_analog_in_cond: Allow analog operators (limexp, ddt, idt) in
+                                  conditionals. Required for some foundry models
+                                  like GF130 PDK.
 
         Returns:
             VerilogADevice instance
         """
-        modules = openvaf_py.compile_va(va_path)
+        modules = openvaf_py.compile_va(va_path, allow_analog_in_cond=allow_analog_in_cond)
         if not modules:
             raise ValueError(f"No modules found in {va_path}")
 
@@ -271,14 +275,23 @@ class VerilogADevice:
         return G_stamps, I_stamps
 
 
-def compile_va(va_path: str, **default_params) -> VerilogADevice:
+def compile_va(
+    va_path: str,
+    allow_analog_in_cond: bool = False,
+    **default_params
+) -> VerilogADevice:
     """Convenience function to compile a Verilog-A file
 
     Args:
         va_path: Path to the .va file
+        allow_analog_in_cond: Allow analog operators in conditionals (for foundry models)
         **default_params: Default parameter values
 
     Returns:
         VerilogADevice instance
     """
-    return VerilogADevice.from_va_file(va_path, default_params or None)
+    return VerilogADevice.from_va_file(
+        va_path,
+        default_params or None,
+        allow_analog_in_cond=allow_analog_in_cond
+    )

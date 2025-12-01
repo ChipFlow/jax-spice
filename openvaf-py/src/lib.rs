@@ -3,7 +3,7 @@ use pyo3::prelude::*;
 use pyo3::exceptions::PyValueError;
 
 use basedb::diagnostics::ConsoleSink;
-use hir::CompilationDB;
+use hir::{CompilationDB, CompilationOpts};
 use hir_lower::{CallBackKind, CurrentKind, ParamKind};
 use lasso::Rodeo;
 use mir::{FuncRef, Function, Param, Value};
@@ -141,17 +141,25 @@ impl VaModule {
         Python::with_gil(|py| {
             let mut result = std::collections::HashMap::new();
 
-            // Extract constants (fconst values)
+            // Extract constants (float and boolean values)
             let constants = PyDict::new(py);
+            let bool_constants = PyDict::new(py);
             for val in self.eval_func.dfg.values.iter() {
                 if let mir::ValueDef::Const(data) = self.eval_func.dfg.value_def(val) {
-                    if let mir::Const::Float(ieee64) = data {
-                        let float_val: f64 = ieee64.into();
-                        constants.set_item(format!("v{}", u32::from(val)), float_val).unwrap();
+                    match data {
+                        mir::Const::Float(ieee64) => {
+                            let float_val: f64 = ieee64.into();
+                            constants.set_item(format!("v{}", u32::from(val)), float_val).unwrap();
+                        }
+                        mir::Const::Bool(b) => {
+                            bool_constants.set_item(format!("v{}", u32::from(val)), b).unwrap();
+                        }
+                        _ => {}
                     }
                 }
             }
             result.insert("constants".to_string(), constants.into());
+            result.insert("bool_constants".to_string(), bool_constants.into());
 
             // Extract parameters as v16, v17, etc.
             let params = PyList::empty(py);
@@ -657,14 +665,22 @@ impl VaModule {
 }
 
 /// Compile a Verilog-A file and return module information
+///
+/// Args:
+///     path: Path to the .va file
+///     allow_analog_in_cond: Allow analog operators (limexp, ddt, idt) in conditionals.
+///                           Default is false. Set to true for foundry models that use
+///                           non-standard Verilog-A (like GF130 PDK).
 #[pyfunction]
-fn compile_va(path: &str) -> PyResult<Vec<VaModule>> {
+#[pyo3(signature = (path, allow_analog_in_cond=false))]
+fn compile_va(path: &str, allow_analog_in_cond: bool) -> PyResult<Vec<VaModule>> {
     let input = std::path::Path::new(path)
         .canonicalize()
         .map_err(|e| PyValueError::new_err(format!("Failed to resolve path: {}", e)))?;
     let input = AbsPathBuf::assert(input);
 
-    let db = CompilationDB::new_fs(input, &[], &[], &[])
+    let opts = CompilationOpts { allow_analog_in_cond };
+    let db = CompilationDB::new_fs(input, &[], &[], &[], &opts)
         .map_err(|e| PyValueError::new_err(format!("Failed to create compilation DB: {}", e)))?;
 
     let modules = collect_modules(&db, false, &mut ConsoleSink::new(&db))

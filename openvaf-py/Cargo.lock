@@ -72,6 +72,7 @@ dependencies = [
  "codespan-reporting",
  "indexmap 2.12.1",
  "parking_lot",
+ "rustc-hash 2.1.1",
  "salsa",
  "stdx",
  "syntax",
@@ -298,6 +299,7 @@ dependencies = [
  "indexmap 2.12.1",
  "once_cell",
  "ordered-float",
+ "rustc-hash 2.1.1",
  "salsa",
  "stdx",
  "syntax",
@@ -315,6 +317,7 @@ dependencies = [
  "lasso",
  "mir",
  "mir_build",
+ "rustc-hash 2.1.1",
  "stdx",
  "syntax",
  "typed-index-collections",
@@ -433,6 +436,7 @@ dependencies = [
  "indexmap 2.12.1",
  "lasso",
  "list_pool",
+ "rustc-hash 2.1.1",
  "stdx",
  "typed-index-collections",
  "typed_indexmap",
@@ -447,6 +451,7 @@ dependencies = [
  "bitset",
  "indexmap 2.12.1",
  "mir",
+ "rustc-hash 2.1.1",
  "stdx",
  "typed-index-collections",
  "typed_indexmap",
@@ -479,10 +484,10 @@ dependencies = [
 name = "mir_opt"
 version = "0.0.0"
 dependencies = [
- "ahash 0.8.12",
  "bitset",
  "hashbrown 0.14.5",
  "mir",
+ "rustc-hash 2.1.1",
  "stdx",
  "typed-index-collections",
  "workqueue",
@@ -695,7 +700,7 @@ dependencies = [
  "countme",
  "hashbrown 0.14.5",
  "memoffset",
- "rustc-hash",
+ "rustc-hash 1.1.0",
  "text-size",
 ]
 
@@ -704,6 +709,12 @@ name = "rustc-hash"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "08d43f7aa6b08d49f382cde6a7982047c3426db949b1424bc4b7ec9ae12c6ce2"
+
+[[package]]
+name = "rustc-hash"
+version = "2.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "357703d41365b4b27c590e3ed91eabb1b663f07c4c084095e60cbed4362dff0d"
 
 [[package]]
 name = "salsa"
@@ -719,7 +730,7 @@ dependencies = [
  "log",
  "oorandom",
  "parking_lot",
- "rustc-hash",
+ "rustc-hash 1.1.0",
  "salsa-macros",
  "smallvec",
 ]
@@ -785,6 +796,7 @@ dependencies = [
  "mir_autodiff",
  "mir_build",
  "mir_opt",
+ "rustc-hash 2.1.1",
  "smol_str",
  "stdx",
  "syntax",
@@ -887,8 +899,8 @@ dependencies = [
 name = "typed_indexmap"
 version = "0.0.0"
 dependencies = [
- "ahash 0.8.12",
  "indexmap 2.12.1",
+ "rustc-hash 2.1.1",
 ]
 
 [[package]]
@@ -931,11 +943,11 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 name = "vfs"
 version = "0.0.0"
 dependencies = [
- "ahash 0.8.12",
  "chardetng",
  "encoding_rs",
  "indexmap 2.12.1",
  "paths",
+ "rustc-hash 2.1.1",
 ]
 
 [[package]]

@@ -37,6 +37,7 @@ class OpenVAFToJAX:
 
         # Build value tracking
         self.constants = dict(self.mir_data['constants'])
+        self.bool_constants = dict(self.mir_data.get('bool_constants', {}))
         self.params = list(self.mir_data['params'])
 
         # Init function data
@@ -98,6 +99,11 @@ class OpenVAFToJAX:
                 lines.append(f"    {name} = jnp.nan")
             else:
                 lines.append(f"    {name} = {repr(value)}")
+
+        # Boolean constants
+        lines.append("    # Boolean constants")
+        for name, value in self.bool_constants.items():
+            lines.append(f"    {name} = {repr(value)}")
 
         # Ensure v3 exists (commonly used for zero)
         if 'v3' not in self.constants:
