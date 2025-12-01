@@ -85,14 +85,10 @@ class OpenVAFToJAX:
         lines.append("    from jax import lax")
         lines.append("")
 
-        # Combine all constants (init + eval)
-        all_constants = {}
-        all_constants.update(self.init_constants)
-        all_constants.update(self.constants)
-
-        # Initialize constants
-        lines.append("    # Constants")
-        for name, value in all_constants.items():
+        # Only use eval constants (init constants are prefixed separately)
+        # Initialize constants for eval function
+        lines.append("    # Constants (eval function)")
+        for name, value in self.constants.items():
             # Handle special float values
             if value == float('inf'):
                 lines.append(f"    {name} = jnp.inf")
@@ -104,7 +100,7 @@ class OpenVAFToJAX:
                 lines.append(f"    {name} = {repr(value)}")
 
         # Ensure v3 exists (commonly used for zero)
-        if 'v3' not in all_constants:
+        if 'v3' not in self.constants:
             lines.append("    v3 = 0.0")
 
         lines.append("")
@@ -173,7 +169,7 @@ class OpenVAFToJAX:
 
         # Process eval blocks in topological order
         block_order = self._topological_sort()
-        defined_vars: Set[str] = set(all_constants.keys())
+        defined_vars: Set[str] = set(self.constants.keys())
         defined_vars.update(self.params)
         defined_vars.update(init_defined)  # Include init-computed values
         defined_vars.add('v3')
@@ -278,6 +274,78 @@ class OpenVAFToJAX:
 
         return list(reversed(result))
 
+    def _build_branch_conditions(self) -> Dict[str, Dict[str, Tuple[str, bool]]]:
+        """Build a map of (block -> successor -> (condition, polarity))
+
+        For each block with 2 successors, find the condition that determines the branch.
+        Returns a dict mapping: block -> {successor: (condition_var, is_true_branch)}
+        """
+        conditions = {}
+
+        # Find branch instructions with explicit conditions
+        for inst in self.mir_data['instructions']:
+            op = inst.get('opcode', '').lower()
+            if op == 'br' and 'condition' in inst:
+                block = inst.get('block', '')
+                cond = inst['condition']
+                true_block = inst.get('true_block', '')
+                false_block = inst.get('false_block', '')
+                if block and cond and true_block and false_block:
+                    conditions[block] = {
+                        true_block: (cond, True),
+                        false_block: (cond, False),
+                    }
+
+        return conditions
+
+    def _get_phi_condition(self, phi_block: str, pred_blocks: List[str]) -> Optional[Tuple[str, str, str]]:
+        """Get the condition for a PHI node
+
+        Returns (condition_var, true_value_block, false_value_block) or None
+        """
+        blocks = self.mir_data['blocks']
+        branch_conds = self._build_branch_conditions()
+
+        if len(pred_blocks) != 2:
+            return None
+
+        pred0, pred1 = pred_blocks
+
+        # Check if either predecessor is the branching block
+        if pred0 in branch_conds:
+            # pred0 branches to phi_block and pred1
+            cond_info = branch_conds[pred0].get(phi_block)
+            if cond_info:
+                cond_var, is_true = cond_info
+                if is_true:
+                    return (cond_var, pred0, pred1)
+                else:
+                    return (cond_var, pred1, pred0)
+
+        if pred1 in branch_conds:
+            cond_info = branch_conds[pred1].get(phi_block)
+            if cond_info:
+                cond_var, is_true = cond_info
+                if is_true:
+                    return (cond_var, pred1, pred0)
+                else:
+                    return (cond_var, pred0, pred1)
+
+        # Check if there's a common dominator that branches
+        # Look for a block that is predecessor to both pred0 and pred1
+        for block_name, block_data in blocks.items():
+            succs = block_data.get('successors', [])
+            if set(succs) == set(pred_blocks) and block_name in branch_conds:
+                cond_info = branch_conds[block_name]
+                if pred0 in cond_info and pred1 in cond_info:
+                    cond_var, is_true0 = cond_info[pred0]
+                    if is_true0:
+                        return (cond_var, pred0, pred1)
+                    else:
+                        return (cond_var, pred1, pred0)
+
+        return None
+
     def _translate_init_instruction(self, inst: dict, defined_vars: Set[str]) -> Optional[str]:
         """Translate an init function instruction with prefixed variables"""
 
@@ -323,7 +391,8 @@ class OpenVAFToJAX:
 
         elif opcode == 'fdiv':
             ops = [get_operand(op) for op in operands]
-            return f"({ops[0]} / {ops[1]})"
+            # Use safe division to avoid div-by-zero when conditionals are linearized
+            return f"jnp.where({ops[1]} == 0.0, 0.0, {ops[0]} / jnp.where({ops[1]} == 0.0, 1.0, {ops[1]}))"
 
         elif opcode == 'fneg':
             ops = [get_operand(op) for op in operands]
@@ -394,14 +463,23 @@ class OpenVAFToJAX:
         elif opcode == 'phi':
             # PHI node - select value based on control flow
             phi_ops = inst.get('phi_operands', [])
+            phi_block = inst.get('block', '')
             if phi_ops and len(phi_ops) >= 2:
-                # For a 2-way PHI, use jnp.where with first predecessor's condition
-                # This is a simplification - full impl would track branch conditions
-                val0 = get_operand(phi_ops[0]['value'])
-                val1 = get_operand(phi_ops[1]['value'])
-                # Without branch condition tracking, just use first value
-                # TODO: Properly track branch conditions for PHI resolution
-                return val0
+                # Get the predecessor blocks from PHI operands
+                pred_blocks = [op['block'] for op in phi_ops]
+                val_by_block = {op['block']: get_operand(op['value']) for op in phi_ops}
+
+                # Try to find the condition that determines the branch
+                cond_info = self._get_phi_condition(phi_block, pred_blocks)
+                if cond_info:
+                    cond_var, true_block, false_block = cond_info
+                    true_val = val_by_block.get(true_block, '0.0')
+                    false_val = val_by_block.get(false_block, '0.0')
+                    return f"jnp.where({cond_var}, {true_val}, {false_val})"
+                else:
+                    # Fallback: just use first value (may be incorrect)
+                    val0 = get_operand(phi_ops[0]['value'])
+                    return val0
             elif phi_ops:
                 return get_operand(phi_ops[0]['value'])
             elif operands:
