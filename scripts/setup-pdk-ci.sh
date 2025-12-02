@@ -2,15 +2,18 @@
 # Setup script for PDK CI access
 # Run this on a machine with GitHub CLI authenticated
 #
+# This script is idempotent - safe to run multiple times.
+#
 # This script:
 # 1. Generates an SSH deploy key for CI access to private PDK repos
-# 2. Adds the public key to PDK repos as a deploy key
-# 3. Adds the private key as a secret to the jax-spice repo
+# 2. Adds the public key to PDK repos as a deploy key (skips if exists)
+# 3. Adds the private key as a secret to the jax-spice repo (overwrites if exists)
 
 set -e
 
 REPO="ChipFlow/jax-spice"
 PDK_REPOS=("ChipFlow/pdk-gf130")
+KEY_TITLE="jax-spice-ci"
 
 echo "=== PDK CI Setup Script ==="
 echo ""
@@ -27,7 +30,7 @@ if ! gh auth status &> /dev/null; then
     exit 1
 fi
 
-# Check we have admin access to the repos
+# Check we have access to the repos
 echo "Checking repository access..."
 for repo in "${PDK_REPOS[@]}"; do
     if ! gh repo view "$repo" &> /dev/null; then
@@ -44,6 +47,30 @@ fi
 echo "Access verified."
 echo ""
 
+# Check if deploy keys already exist
+KEYS_EXIST=true
+for repo in "${PDK_REPOS[@]}"; do
+    if ! gh repo deploy-key list --repo "$repo" 2>/dev/null | grep -q "$KEY_TITLE"; then
+        KEYS_EXIST=false
+        break
+    fi
+done
+
+if $KEYS_EXIST; then
+    echo "Deploy keys already exist for all PDK repos."
+    echo "To regenerate, first delete existing keys:"
+    for repo in "${PDK_REPOS[@]}"; do
+        echo "  gh repo deploy-key delete <key-id> --repo $repo"
+    done
+    echo ""
+    read -p "Continue anyway and update the secret? [y/N]: " CONFIRM
+    if [ "$CONFIRM" != "y" ] && [ "$CONFIRM" != "Y" ]; then
+        echo "Aborted."
+        exit 0
+    fi
+    echo ""
+fi
+
 # Generate deploy key
 KEY_DIR="$(mktemp -d)"
 KEY_FILE="${KEY_DIR}/pdk_deploy_key"
@@ -54,17 +81,22 @@ echo ""
 # Add deploy key to PDK repos
 echo "=== Adding Deploy Keys to PDK Repos ==="
 for repo in "${PDK_REPOS[@]}"; do
-    echo "Adding deploy key to $repo..."
-    if gh repo deploy-key add "${KEY_FILE}.pub" --repo "$repo" --title "jax-spice-ci" 2>/dev/null; then
-        echo "  Done."
+    # Check if key already exists
+    if gh repo deploy-key list --repo "$repo" 2>/dev/null | grep -q "$KEY_TITLE"; then
+        echo "Deploy key '$KEY_TITLE' already exists in $repo, skipping."
     else
-        echo "  Warning: Could not add key (may already exist or insufficient permissions)"
-        echo "  Manual: https://github.com/${repo}/settings/keys"
+        echo "Adding deploy key to $repo..."
+        if gh repo deploy-key add "${KEY_FILE}.pub" --repo "$repo" --title "$KEY_TITLE" 2>/dev/null; then
+            echo "  Done."
+        else
+            echo "  Warning: Could not add key (insufficient permissions?)"
+            echo "  Manual: https://github.com/${repo}/settings/keys"
+        fi
     fi
 done
 echo ""
 
-# Add private key as secret
+# Add private key as secret (always overwrites)
 echo "=== Adding Secret to $REPO ==="
 echo "Setting PDK_DEPLOY_KEY secret..."
 if gh secret set PDK_DEPLOY_KEY --repo "$REPO" < "$KEY_FILE"; then
@@ -72,6 +104,7 @@ if gh secret set PDK_DEPLOY_KEY --repo "$REPO" < "$KEY_FILE"; then
 else
     echo "  Error: Could not set secret"
     echo "  Manual: gh secret set PDK_DEPLOY_KEY --repo $REPO < \"$KEY_FILE\""
+    rm -rf "$KEY_DIR"
     exit 1
 fi
 echo ""
