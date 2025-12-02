@@ -17,3 +17,21 @@ cache-keys = [
     { file = "Cargo.toml" },
     { file = "src/**/*.rs" },
 ]
+
+[dependency-groups]
+dev = [
+    "maturin>=1.0,<2.0",
+    "pytest>=7.0",
+    "numpy>=1.20",
+    "jax>=0.4",
+    "jaxlib>=0.4",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_functions = ["test_*"]
+addopts = "-v --tb=short"
+filterwarnings = [
+    "ignore::DeprecationWarning",
+]
