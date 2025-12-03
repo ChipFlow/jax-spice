@@ -63,6 +63,8 @@ log_info "Enabling required APIs..."
 gcloud services enable compute.googleapis.com --quiet
 gcloud services enable secretmanager.googleapis.com --quiet
 gcloud services enable iam.googleapis.com --quiet
+gcloud services enable run.googleapis.com --quiet
+gcloud services enable artifactregistry.googleapis.com --quiet
 log_info "APIs enabled"
 
 # =============================================================================
@@ -85,9 +87,12 @@ log_info "Configuring IAM permissions..."
 
 # Define required roles
 ROLES=(
-    "roles/compute.instanceAdmin.v1"  # Start/stop VMs
+    "roles/compute.instanceAdmin.v1"   # Start/stop VMs
     "roles/iam.serviceAccountUser"     # Use VM's service account
     "roles/compute.osLogin"            # SSH access
+    "roles/run.admin"                  # Cloud Run Jobs
+    "roles/artifactregistry.admin"     # Push container images
+    "roles/logging.viewer"             # View Cloud Run logs
 )
 
 for ROLE in "${ROLES[@]}"; do

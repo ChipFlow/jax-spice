@@ -1,0 +1,141 @@
+name: GPU Tests (Cloud Run)
+
+on:
+  workflow_dispatch:
+    inputs:
+      test_type:
+        description: 'Test type to run'
+        required: true
+        default: 'quick'
+        type: choice
+        options:
+          - quick
+          - full
+          - profile
+
+env:
+  GCP_PROJECT: jax-spice-cuda-test
+  GCP_REGION: us-central1
+  JOB_NAME: jax-spice-gpu-tests
+  AR_REPO: jax-spice
+  IMAGE_NAME: gpu-tests
+
+jobs:
+  gpu-tests:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Authenticate to GCP
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SERVICE_ACCOUNT_KEY }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker for Artifact Registry
+        run: |
+          gcloud auth configure-docker ${{ env.GCP_REGION }}-docker.pkg.dev --quiet
+
+      - name: Create Artifact Registry repo if needed
+        run: |
+          gcloud artifacts repositories describe ${{ env.AR_REPO }} \
+            --location=${{ env.GCP_REGION }} 2>/dev/null || \
+          gcloud artifacts repositories create ${{ env.AR_REPO }} \
+            --repository-format=docker \
+            --location=${{ env.GCP_REGION }} \
+            --description="JAX-SPICE container images"
+
+      - name: Build and push Docker image
+        run: |
+          IMAGE_TAG="${{ env.GCP_REGION }}-docker.pkg.dev/${{ env.GCP_PROJECT }}/${{ env.AR_REPO }}/${{ env.IMAGE_NAME }}:${{ github.sha }}"
+
+          docker build -f Dockerfile.gpu-tests -t "$IMAGE_TAG" .
+          docker push "$IMAGE_TAG"
+
+          echo "IMAGE_TAG=$IMAGE_TAG" >> "$GITHUB_ENV"
+
+      - name: Determine test command
+        run: |
+          TEST_TYPE="${{ github.event.inputs.test_type || 'quick' }}"
+
+          if [ "$TEST_TYPE" = "quick" ]; then
+            TEST_ARGS="tests/test_vectorized_mna.py -v --tb=short"
+          elif [ "$TEST_TYPE" = "full" ]; then
+            TEST_ARGS="tests/ -v --tb=short -x"
+          elif [ "$TEST_TYPE" = "profile" ]; then
+            TEST_ARGS="tests/test_gpu_benchmarks.py -v -s --tb=short"
+          fi
+
+          echo "TEST_ARGS=$TEST_ARGS" >> "$GITHUB_ENV"
+
+      - name: Create or update Cloud Run Job
+        run: |
+          # Check if job exists
+          if gcloud run jobs describe ${{ env.JOB_NAME }} --region=${{ env.GCP_REGION }} 2>/dev/null; then
+            echo "Updating existing job..."
+            gcloud run jobs update ${{ env.JOB_NAME }} \
+              --region=${{ env.GCP_REGION }} \
+              --image=${{ env.IMAGE_TAG }} \
+              --gpu=1 \
+              --gpu-type=nvidia-l4 \
+              --cpu=4 \
+              --memory=16Gi \
+              --max-retries=0 \
+              --task-timeout=30m \
+              --set-env-vars="JAX_ENABLE_X64=1,RUN_GPU_BENCHMARKS=1" \
+              --args="${{ env.TEST_ARGS }}"
+          else
+            echo "Creating new job..."
+            gcloud run jobs create ${{ env.JOB_NAME }} \
+              --region=${{ env.GCP_REGION }} \
+              --image=${{ env.IMAGE_TAG }} \
+              --gpu=1 \
+              --gpu-type=nvidia-l4 \
+              --cpu=4 \
+              --memory=16Gi \
+              --max-retries=0 \
+              --task-timeout=30m \
+              --set-env-vars="JAX_ENABLE_X64=1,RUN_GPU_BENCHMARKS=1" \
+              --args="${{ env.TEST_ARGS }}"
+          fi
+
+      - name: Execute Cloud Run Job
+        run: |
+          echo "Starting GPU test job..."
+
+          # Execute and capture execution name
+          EXECUTION=$(gcloud run jobs execute ${{ env.JOB_NAME }} \
+            --region=${{ env.GCP_REGION }} \
+            --wait \
+            --format="value(metadata.name)")
+
+          echo "Execution completed: $EXECUTION"
+
+          # Get execution status
+          STATUS=$(gcloud run jobs executions describe "$EXECUTION" \
+            --region=${{ env.GCP_REGION }} \
+            --format="value(status.conditions[0].type)")
+
+          echo "Status: $STATUS"
+
+          if [ "$STATUS" != "Completed" ]; then
+            echo "Job failed!"
+            exit 1
+          fi
+
+      - name: Fetch job logs
+        if: always()
+        run: |
+          echo "=== GPU Test Logs ==="
+          gcloud logging read "resource.type=cloud_run_job AND resource.labels.job_name=${{ env.JOB_NAME }}" \
+            --limit=500 \
+            --format="value(textPayload)" \
+            --order=asc \
+            2>/dev/null || echo "No logs available yet"
