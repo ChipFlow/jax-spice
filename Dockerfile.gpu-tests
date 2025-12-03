@@ -52,6 +52,8 @@ RUN pip install -e . --no-deps
 
 # Set environment variables
 ENV JAX_ENABLE_X64=1
+# Enable both CUDA and CPU platforms so we can measure CPU<->GPU transfers
+ENV JAX_PLATFORMS=cuda,cpu
 ENV NVIDIA_VISIBLE_DEVICES=all
 ENV NVIDIA_DRIVER_CAPABILITIES=compute,utility
 
