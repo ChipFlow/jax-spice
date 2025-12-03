@@ -300,11 +300,22 @@ class TestDeviceInfo:
         print(f"\nJAX version: {jax.__version__}")
         print(f"jaxlib version: {jaxlib.__version__}")
 
+        # Check if CUDA plugin is installed
+        print("\nInstalled JAX packages:")
+        try:
+            result = subprocess.run(['pip', 'list'], capture_output=True, text=True, timeout=10)
+            for line in result.stdout.split('\n'):
+                if 'jax' in line.lower():
+                    print(f"  {line}")
+        except Exception as e:
+            print(f"  pip list error: {e}")
+
         # Check CUDA environment
         print("\nCUDA Environment:")
         print(f"  JAX_PLATFORMS env: {os.environ.get('JAX_PLATFORMS', 'not set')}")
         print(f"  CUDA_VISIBLE_DEVICES: {os.environ.get('CUDA_VISIBLE_DEVICES', 'not set')}")
         print(f"  NVIDIA_VISIBLE_DEVICES: {os.environ.get('NVIDIA_VISIBLE_DEVICES', 'not set')}")
+        print(f"  LD_LIBRARY_PATH: {os.environ.get('LD_LIBRARY_PATH', 'not set')}")
 
         # Check nvidia-smi
         try:
@@ -312,6 +323,51 @@ class TestDeviceInfo:
             print(f"  nvidia-smi: {result.stdout.strip() or result.stderr.strip() or 'no output'}")
         except Exception as e:
             print(f"  nvidia-smi: error - {e}")
+
+        # Check CUDA driver version
+        try:
+            result = subprocess.run(['nvidia-smi', '--query-gpu=driver_version', '--format=csv,noheader'],
+                                   capture_output=True, text=True, timeout=5)
+            print(f"  NVIDIA driver: {result.stdout.strip()}")
+        except Exception as e:
+            print(f"  NVIDIA driver: error - {e}")
+
+        # Check for CUDA libraries
+        print("\nCUDA Libraries:")
+        cuda_lib_paths = ['/usr/local/cuda/lib64', '/usr/lib/x86_64-linux-gnu']
+        for path in cuda_lib_paths:
+            try:
+                result = subprocess.run(['ls', '-la', path], capture_output=True, text=True, timeout=5)
+                if result.returncode == 0:
+                    libs = [l for l in result.stdout.split('\n') if 'cuda' in l.lower() or 'nv' in l.lower()][:5]
+                    if libs:
+                        print(f"  {path}:")
+                        for lib in libs:
+                            print(f"    {lib.split()[-1] if lib else ''}")
+            except Exception:
+                pass
+
+        # Try to explicitly get CUDA backend info
+        print("\nJAX Backend Discovery:")
+        try:
+            # Check available backends via jax.extend
+            from jax._src import xla_bridge
+            print(f"  xla_bridge backends: {xla_bridge.backends()}")
+        except Exception as e:
+            print(f"  xla_bridge error: {e}")
+
+        try:
+            # Try to get GPU devices specifically
+            gpu_devices = jax.devices('gpu')
+            print(f"  jax.devices('gpu'): {gpu_devices}")
+        except Exception as e:
+            print(f"  jax.devices('gpu'): {e}")
+
+        try:
+            cuda_devices = jax.devices('cuda')
+            print(f"  jax.devices('cuda'): {cuda_devices}")
+        except Exception as e:
+            print(f"  jax.devices('cuda'): {e}")
 
         print(f"\nDefault backend: {info['default_backend']}")
         print(f"Available backends: {profiler.get_available_backends()}")
