@@ -35,6 +35,10 @@ class AnalysisContext:
     c0: float = 0.0  # Coefficient for current charge
     c1: float = 0.0  # Coefficient for previous charge
     rhs_correction: float = 0.0  # RHS correction term
+
+    # GMIN: Minimum conductance added to diagonal for numerical stability
+    # Used in GMIN stepping for convergence of difficult circuits
+    gmin: float = 1e-12
     
     def is_dc(self) -> bool:
         """Check if this is a DC analysis"""

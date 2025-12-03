@@ -23,7 +23,11 @@ from jax_spice.netlist.parser import VACASKParser
 from jax_spice.netlist.circuit import Circuit, Instance
 from jax_spice.analysis.mna import MNASystem, DeviceInfo
 from jax_spice.analysis.context import AnalysisContext
-from jax_spice.analysis.dc import dc_operating_point, dc_operating_point_sparse
+from jax_spice.analysis.dc import (
+    dc_operating_point,
+    dc_operating_point_sparse,
+    dc_operating_point_gmin_stepping,
+)
 from jax_spice.devices.base import DeviceStamps
 
 
@@ -460,6 +464,49 @@ class C6288Benchmark:
             abstol=abstol
         )
 
+    def run_gmin_stepping_dc(
+        self,
+        start_gmin: float = 1e-2,
+        target_gmin: float = 1e-12,
+        gmin_factor: float = 10.0,
+        max_gmin_steps: int = 20,
+        max_iterations_per_step: int = 50,
+        abstol: float = 1e-9,
+        verbose: bool = False
+    ) -> Tuple[Array, Dict]:
+        """Run DC operating point analysis with GMIN stepping
+
+        GMIN stepping is a homotopy method for converging difficult circuits.
+        It starts with a large GMIN value making the matrix well-conditioned,
+        then gradually reduces GMIN to the target value.
+
+        Args:
+            start_gmin: Initial large GMIN value (default 1e-2)
+            target_gmin: Final small GMIN value (default 1e-12)
+            gmin_factor: Factor to reduce GMIN by each step (default 10.0)
+            max_gmin_steps: Maximum number of GMIN stepping iterations
+            max_iterations_per_step: Max NR iterations per GMIN step
+            abstol: Absolute convergence tolerance
+            verbose: Print progress information
+
+        Returns:
+            (voltages, info) tuple
+        """
+        if not self._built:
+            self.build_system()
+
+        return dc_operating_point_gmin_stepping(
+            self.system,
+            start_gmin=start_gmin,
+            target_gmin=target_gmin,
+            gmin_factor=gmin_factor,
+            max_gmin_steps=max_gmin_steps,
+            max_iterations_per_step=max_iterations_per_step,
+            abstol=abstol,
+            vdd=self.vdd,
+            verbose=verbose
+        )
+
 
 def run_c6288_sparse_dc(circuit_name: str = 'c6288_test',
                         max_iterations: int = 200,
@@ -557,6 +604,90 @@ def run_c6288_dense_dc(circuit_name: str = 'inv_test',
     return V, info, elapsed
 
 
+def run_c6288_gmin_stepping_dc(
+    circuit_name: str = 'c6288_test',
+    start_gmin: float = 1e-2,
+    target_gmin: float = 1e-12,
+    gmin_factor: float = 10.0,
+    abstol: float = 1e-9,
+    verbose: bool = True
+) -> Tuple[Array, Dict, float]:
+    """Convenience function to run GMIN stepping DC benchmark
+
+    GMIN stepping is a homotopy method for difficult circuits that starts
+    with large GMIN and gradually reduces it to the target value.
+
+    Args:
+        circuit_name: Circuit to simulate ('inv_test', 'c6288_test', etc.)
+        start_gmin: Initial large GMIN value
+        target_gmin: Final small GMIN value
+        gmin_factor: Factor to reduce GMIN by each step
+        abstol: Convergence tolerance
+        verbose: Print progress
+
+    Returns:
+        (voltages, info, elapsed_time) tuple
+    """
+    print("=" * 70, flush=True)
+    print(f"JAX-SPICE GMIN Stepping DC Benchmark: {circuit_name}", flush=True)
+    print("=" * 70, flush=True)
+    print(flush=True)
+    print(f"JAX Backend: {jax.default_backend()}", flush=True)
+    print(f"Devices: {jax.devices()}", flush=True)
+    print(flush=True)
+
+    bench = C6288Benchmark(verbose=verbose)
+    print("Parsing netlist...", flush=True)
+    bench.parse()
+    print("Flattening circuit...", flush=True)
+    bench.flatten(circuit_name)
+    print("Building MNA system...", flush=True)
+    bench.build_system(circuit_name)
+
+    print(flush=True)
+    print("Running GMIN stepping DC solver...", flush=True)
+    start = time.perf_counter()
+    V, info = bench.run_gmin_stepping_dc(
+        start_gmin=start_gmin,
+        target_gmin=target_gmin,
+        gmin_factor=gmin_factor,
+        abstol=abstol,
+        verbose=verbose
+    )
+    elapsed = time.perf_counter() - start
+
+    print()
+    print("=" * 70)
+    print("Results:")
+    print(f"  Converged: {info['converged']}")
+    print(f"  Total Iterations: {info['iterations']}")
+    print(f"  GMIN Steps: {info['gmin_steps']}")
+    print(f"  Final GMIN: {info['final_gmin']:.2e}")
+    print(f"  Residual: {info['residual_norm']:.2e}")
+    print(f"  Time: {elapsed:.2f}s")
+    print()
+
+    # Sample voltages
+    print("Sample voltages:")
+    for name in ['vdd', 'vss', f'{circuit_name}.p0']:
+        if name in bench.nodes:
+            print(f"  {name}: {float(V[bench.nodes[name]]):.4f}V")
+
+    # Memory estimate
+    n = bench.system.num_nodes - 1
+    nnz = len(bench.system.devices) * 16
+    sparse_mem = nnz * 8 / 1e6
+    dense_mem = n * n * 8 / 1e6
+    print()
+    print("Memory estimate:")
+    print(f"  Dense Jacobian: {dense_mem:.1f} MB")
+    print(f"  Sparse Jacobian: ~{sparse_mem:.1f} MB")
+    print(f"  Savings: {dense_mem/sparse_mem:.0f}x")
+    print("=" * 70)
+
+    return V, info, elapsed
+
+
 # CLI entry point
 def main():
     """Command-line interface for running benchmarks"""
@@ -568,10 +699,16 @@ def main():
                         help='Circuit to simulate')
     parser.add_argument('--dense', action='store_true',
                         help='Use dense solver (only for small circuits)')
+    parser.add_argument('--gmin-stepping', action='store_true',
+                        help='Use GMIN stepping for difficult circuits')
     parser.add_argument('--max-iter', type=int, default=200,
                         help='Maximum iterations')
     parser.add_argument('--abstol', type=float, default=1e-6,
                         help='Absolute tolerance')
+    parser.add_argument('--start-gmin', type=float, default=1e-2,
+                        help='Starting GMIN for GMIN stepping (default 1e-2)')
+    parser.add_argument('--target-gmin', type=float, default=1e-12,
+                        help='Target GMIN for GMIN stepping (default 1e-12)')
     parser.add_argument('--quiet', '-q', action='store_true',
                         help='Minimal output')
 
@@ -582,6 +719,14 @@ def main():
 
     if args.dense:
         run_c6288_dense_dc(args.circuit, args.max_iter, args.abstol, not args.quiet)
+    elif args.gmin_stepping:
+        run_c6288_gmin_stepping_dc(
+            args.circuit,
+            start_gmin=args.start_gmin,
+            target_gmin=args.target_gmin,
+            abstol=args.abstol,
+            verbose=not args.quiet
+        )
     else:
         run_c6288_sparse_dc(args.circuit, args.max_iter, args.abstol, not args.quiet)
 

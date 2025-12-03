@@ -265,7 +265,8 @@ class MNASystem:
 
         # Add GMIN to all diagonal entries for numerical stability
         # This creates a small conductance from each node to ground
-        gmin = 1e-12
+        # Read gmin from context (allows GMIN stepping for convergence)
+        gmin = context.gmin if hasattr(context, 'gmin') else 1e-12
         for i in range(n):
             rows.append(i)
             cols.append(i)
