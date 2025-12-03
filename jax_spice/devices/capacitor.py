@@ -103,35 +103,26 @@ class Capacitor:
             # Get previous voltage from context for transient
             V_prev = getattr(context, 'v_prev', {}).get('capacitor_V', 0.0)
 
-        if is_dc or dt is None:
-            # DC analysis: capacitor is open circuit
-            # Return zero current but store charge for initial conditions
-            return DeviceStamps(
-                currents={'p': jnp.array(0.0), 'n': jnp.array(0.0)},
-                conductances={
-                    ('p', 'p'): jnp.array(0.0), ('p', 'n'): jnp.array(0.0),
-                    ('n', 'p'): jnp.array(0.0), ('n', 'n'): jnp.array(0.0)
-                },
-                charges={'p': Q, 'n': -Q}
-            )
-        else:
-            # Transient analysis: backward Euler companion model
-            # G_eq = C / dt
-            # I_eq = C * V_prev / dt (history source)
-            # I = G_eq * V - I_eq = (C/dt) * (V - V_prev)
+        # For DC analysis: capacitor is open circuit
+        # For transient: return capacitance for companion model in MNA system
+        # The transient analysis module will handle the companion model conversion
 
-            G_eq = C_eff / dt
-            I_eq = C_eff * V_prev / dt
-            I = G_eq * V - I_eq
+        # Zero current for DC, small conductance for numerical stability
+        I = jnp.array(0.0)
+        G_small = jnp.array(1e-15)  # Very small leakage for numerical stability
 
-            return DeviceStamps(
-                currents={'p': I, 'n': -I},
-                conductances={
-                    ('p', 'p'): G_eq, ('p', 'n'): -G_eq,
-                    ('n', 'p'): -G_eq, ('n', 'n'): G_eq
-                },
-                charges={'p': Q, 'n': -Q}
-            )
+        return DeviceStamps(
+            currents={'p': I, 'n': -I},
+            conductances={
+                ('p', 'p'): G_small, ('p', 'n'): -G_small,
+                ('n', 'p'): -G_small, ('n', 'n'): G_small
+            },
+            charges={'p': Q, 'n': -Q},
+            capacitances={
+                ('p', 'p'): C_eff, ('p', 'n'): -C_eff,
+                ('n', 'p'): -C_eff, ('n', 'n'): C_eff
+            }
+        )
 
 
 def capacitor(Vp: Array, Vn: Array, C: Array) -> Tuple[Array, Array]:

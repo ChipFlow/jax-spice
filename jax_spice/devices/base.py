@@ -19,10 +19,13 @@ class DeviceStamps(NamedTuple):
         currents: Dictionary mapping terminal names to current contributions
         conductances: Dictionary mapping (terminal1, terminal2) pairs to conductance values
         charges: Optional dictionary for dynamic elements (capacitance/charge storage)
+        capacitances: Optional dictionary mapping (terminal1, terminal2) pairs to capacitance values
+                     Used for backward Euler companion model in transient analysis
     """
     currents: Dict[str, Array]
     conductances: Dict[Tuple[str, str], Array]
     charges: Dict[str, Array] | None = None
+    capacitances: Dict[Tuple[str, str], Array] | None = None
 
 
 class Device(Protocol):
