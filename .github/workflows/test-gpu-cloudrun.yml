@@ -18,7 +18,7 @@ env:
   GCP_REGION: us-central1
   JOB_NAME: jax-spice-gpu-tests
   REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}/gpu-tests
+  IMAGE_NAME: chipflow/jax-spice-gpu-tests
 
 jobs:
   gpu-tests:
