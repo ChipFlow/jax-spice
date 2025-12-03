@@ -17,7 +17,7 @@
 set -euo pipefail
 
 # Configuration
-PROJECT_ID="${GCP_PROJECT:-jax-spice}"
+PROJECT_ID="${GCP_PROJECT:-jax-spice-cuda-test}"
 ZONE="${GCP_ZONE:-us-central1-a}"
 VM_NAME="${GCP_VM_NAME:-jax-spice-cuda}"
 SA_NAME="github-gpu-ci"
