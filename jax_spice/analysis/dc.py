@@ -126,6 +126,8 @@ def dc_operating_point_sparse(
     vdd: float = 1.2,
     init_supplies: bool = True,
     verbose: bool = False,
+    source_stepping: bool = False,
+    source_steps: int = 5,
 ) -> Tuple[Array, Dict]:
     """Find DC operating point using sparse Newton-Raphson iteration
 
@@ -168,6 +170,15 @@ def dc_operating_point_sparse(
                 if 'vdd' in name_lower:
                     V[idx] = vdd
 
+    # Find supply node indices (these have fixed voltage via voltage sources)
+    # Their residual represents supply current, not an error
+    supply_node_indices = set()
+    for name, idx in system.node_names.items():
+        name_lower = name.lower()
+        if name_lower in ('vdd', 'vss', 'gnd', '0') or 'vdd' in name_lower:
+            if idx > 0:  # Skip ground (index 0)
+                supply_node_indices.add(idx - 1)  # Convert to reduced index
+
     # Create DC context
     context = AnalysisContext(
         time=0.0,
@@ -192,12 +203,17 @@ def dc_operating_point_sparse(
             jnp.array(V), context
         )
 
-        # Check residual norm for convergence
-        residual_norm = float(np.max(np.abs(f)))
+        # Check residual norm for convergence, excluding supply nodes
+        # Supply nodes have residual = supply current, not an error
+        f_check = f.copy()
+        for idx in supply_node_indices:
+            f_check[idx] = 0.0
+        residual_norm = float(np.max(np.abs(f_check)))
+        residual_norm_full = float(np.max(np.abs(f)))
         residual_history.append(residual_norm)
 
         if verbose and iteration < 20:
-            print(f"    Iter {iteration}: residual={residual_norm:.2e}, "
+            print(f"    Iter {iteration}: residual={residual_norm:.2e} (full={residual_norm_full:.2e}), "
                   f"V_max={np.max(V[1:]):.4f}, V_min={np.min(V[1:]):.4f}")
 
         if residual_norm < abstol:
@@ -224,8 +240,10 @@ def dc_operating_point_sparse(
         # Update solution (skip ground node at index 0)
         V[1:] += step_scale * delta_V
 
-        # Clamp voltages to reasonable range (relaxed to allow Newton-Raphson exploration)
-        V = np.clip(V, -100, 100)
+        # Clamp voltages to reasonable range for CMOS circuits
+        # Use +/- 2*Vdd to allow for some overshoot while preventing runaway
+        v_clamp = vdd * 2.0
+        V = np.clip(V, -v_clamp, v_clamp)
 
         iterations = iteration + 1
 

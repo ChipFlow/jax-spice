@@ -132,7 +132,7 @@ def create_vsource_eval():
             _circuit_params
         )
         V_actual = Vp - Vn
-        G_big = 1e9  # Balance between matrix conditioning and voltage stiffness
+        G_big = 1e6  # Reduced from 1e9 for better matrix conditioning
         I = G_big * (V_actual - V_target)
         return DeviceStamps(
             currents={'p': jnp.array(I), 'n': jnp.array(-I)},
@@ -233,7 +233,8 @@ def create_simple_mosfet_eval(is_pmos: bool = False, vth0: float = 0.4,
         # Build conductance matrix (Jacobian contributions)
         # For simplified model: dId/dVg = gm, dId/dVd = gds
         # GMIN for gate and body nodes to prevent floating nodes
-        gmin = 1e-12
+        # Use larger GMIN (1e-9) for better convergence with digital circuits
+        gmin = 1e-9
 
         if is_pmos:
             # PMOS: current flows S->D when on
