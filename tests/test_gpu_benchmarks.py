@@ -28,11 +28,13 @@ from jax_spice.benchmarks.profiler import (
 
 # Skip benchmarks on CPU-only systems unless explicitly requested
 def has_gpu():
-    try:
-        devices = jax.devices('gpu')
-        return len(devices) > 0
-    except RuntimeError:
-        return False
+    """Check if GPU/CUDA backend is available"""
+    # Check default devices for GPU/CUDA platforms
+    for device in jax.devices():
+        platform = device.platform.lower()
+        if platform in ('gpu', 'cuda'):
+            return True
+    return False
 
 
 requires_gpu = pytest.mark.skipif(
