@@ -1,41 +1,51 @@
 # GPU Test Container for Cloud Run Jobs
 # Uses NVIDIA L4 GPU with CUDA 12.2
+#
+# Layer ordering optimized for caching:
+# 1. Base image + system packages (rarely changes)
+# 2. Python dependencies (changes occasionally)
+# 3. Source code (changes frequently)
 
 FROM nvidia/cuda:12.2.0-runtime-ubuntu22.04
 
-# Install Python 3.11, uv, and dependencies
+# Install Python 3.11 and system dependencies
 RUN apt-get update && apt-get install -y \
     python3.11 \
     python3.11-venv \
     python3.11-dev \
-    curl \
-    git \
+    python3-pip \
     && rm -rf /var/lib/apt/lists/*
 
 # Set Python 3.11 as default
 RUN update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.11 1 \
     && update-alternatives --install /usr/bin/python python /usr/bin/python3.11 1
 
-# Install uv
-RUN curl -LsSf https://astral.sh/uv/install.sh | sh
-ENV PATH="/root/.local/bin:$PATH"
+# Upgrade pip (cached layer)
+RUN python -m pip install --upgrade pip
+
+# Install Python dependencies BEFORE copying source code
+# This layer is cached unless requirements change
+RUN pip install --no-cache-dir \
+    jax==0.4.34 \
+    jaxlib==0.4.34 \
+    numpy \
+    scipy \
+    lark \
+    matplotlib \
+    pytest \
+    "jax[cuda12]"
 
 # Create working directory
 WORKDIR /app
 
-# Copy project files (excluding openvaf-py submodule for now)
-COPY pyproject.toml uv.lock /app/
+# Copy only pyproject.toml first (for package metadata)
+COPY pyproject.toml /app/
+
+# Copy source code (this layer changes frequently)
 COPY jax_spice /app/jax_spice/
 COPY tests /app/tests/
 
-# Install dependencies without openvaf-py (for GPU tests only)
-# We use pip directly since openvaf-py is optional for basic GPU tests
-RUN python -m pip install --upgrade pip \
-    && pip install jax numpy scipy lark matplotlib pytest \
-    && pip install "jax[cuda12]"
-
-# Install jax-spice in development mode without dependencies
-# (dependencies already installed above)
+# Install jax-spice without dependencies (already installed above)
 RUN pip install -e . --no-deps
 
 # Set environment variables

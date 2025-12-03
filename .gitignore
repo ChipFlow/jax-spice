@@ -41,7 +41,6 @@ Thumbs.db
 # Project specific
 *.osdi
 .pdm-python
-uv.lock
 
 # PDKs (may contain proprietary files)
 pdks/
