@@ -25,9 +25,9 @@ RUN python -m pip install --upgrade pip
 
 # Install Python dependencies BEFORE copying source code
 # This layer is cached unless requirements change
-# Note: Install jax[cuda12] first to ensure CUDA-enabled jaxlib is installed
+# Note: Install jax[cuda12] to ensure CUDA-enabled jaxlib is installed
 RUN pip install --no-cache-dir \
-    "jax[cuda12]==0.4.34" \
+    "jax[cuda12]" \
     numpy \
     scipy \
     lark \
