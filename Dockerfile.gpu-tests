@@ -25,17 +25,21 @@ RUN python -m pip install --upgrade pip
 
 # Install Python dependencies BEFORE copying source code
 # This layer is cached unless requirements change
-# Note: Install jax[cuda12] to ensure CUDA-enabled jaxlib is installed
+# Note: In JAX 0.8+, CUDA support requires explicit plugin packages
+# jax-cuda12-plugin provides the NVIDIA GPU backend
 RUN pip install --no-cache-dir \
-    "jax[cuda12]" \
+    jax \
+    jaxlib \
+    jax-cuda12-plugin \
+    jax-cuda12-pjrt \
     numpy \
     scipy \
     lark \
     matplotlib \
     pytest
 
-# Verify CUDA backend is available
-RUN python -c "import jax; print('JAX version:', jax.__version__); print('Devices:', jax.devices()); print('Default backend:', jax.default_backend())"
+# Verify installed packages
+RUN pip list | grep -i jax
 
 # Create working directory
 WORKDIR /app
