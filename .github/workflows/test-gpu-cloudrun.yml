@@ -105,6 +105,7 @@ jobs:
             gcloud run jobs update ${{ env.JOB_NAME }} \
               --region=${{ env.GCP_REGION }} \
               --image=${{ env.IMAGE_TAG }} \
+              --execution-environment=gen2 \
               --gpu=1 \
               --gpu-type=nvidia-l4 \
               --cpu=4 \
@@ -118,6 +119,7 @@ jobs:
             gcloud run jobs create ${{ env.JOB_NAME }} \
               --region=${{ env.GCP_REGION }} \
               --image=${{ env.IMAGE_TAG }} \
+              --execution-environment=gen2 \
               --gpu=1 \
               --gpu-type=nvidia-l4 \
               --cpu=4 \
