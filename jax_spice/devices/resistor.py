@@ -114,3 +114,39 @@ def resistor(Vp: Array, Vn: Array, R: Array) -> Tuple[Array, Array]:
     G = 1.0 / jnp.maximum(R, 1e-12)
     I = G * (Vp - Vn)
     return I, G
+
+
+# =============================================================================
+# Vectorized Batch Functions
+# =============================================================================
+
+
+def resistor_batch(
+    V_batch: Array,
+    R_batch: Array
+) -> Tuple[Array, Array]:
+    """Vectorized resistor evaluation for batch processing
+
+    Evaluates multiple resistors in parallel using JAX operations.
+    This is the GPU-friendly batch version replacing the scalar Resistor.evaluate().
+
+    Args:
+        V_batch: Terminal voltages (n, 2) - [[V_p, V_n], ...] for each resistor
+        R_batch: Resistance values (n,) - resistance for each resistor
+
+    Returns:
+        Tuple of:
+            I_batch: Current from p to n for each resistor (n,)
+            G_batch: Conductance values (n,) - 1/R for each resistor
+
+    Note:
+        I = (V_p - V_n) / R = G * (V_p - V_n)
+
+        Stamps into MNA system (same as voltage source):
+        - Residual: f[p] += I, f[n] -= I
+        - Jacobian: G[p,p] += G, G[p,n] -= G, G[n,p] -= G, G[n,n] += G
+    """
+    V = V_batch[:, 0] - V_batch[:, 1]  # V_p - V_n
+    G = 1.0 / jnp.maximum(R_batch, 1e-12)
+    I = G * V
+    return I, G

@@ -239,6 +239,63 @@ def pulse_voltage_jax(t: Array, v0: Array, v1: Array, td: Array,
     return v
 
 
+# =============================================================================
+# Vectorized Batch Functions
+# =============================================================================
+
+
+def vsource_batch(
+    V_batch: Array,
+    V_target: Array,
+    G_BIG: float = 1e12
+) -> Tuple[Array, Array]:
+    """Vectorized voltage source evaluation for batch processing
+
+    Evaluates multiple voltage sources in parallel using JAX operations.
+    This is the GPU-friendly batch version replacing the scalar VoltageSource.evaluate().
+
+    Args:
+        V_batch: Terminal voltages (n, 2) - [[V_p, V_n], ...] for each source
+        V_target: Target voltages (n,) - voltage each source enforces
+        G_BIG: Large conductance for voltage enforcement (default: 1e12)
+
+    Returns:
+        Tuple of:
+            I_batch: Current at positive terminal (n,) - current flowing into p
+            G_batch: Conductance values (n,) - all equal to G_BIG
+
+    Note:
+        The voltage source forces V_p - V_n = V_target by injecting current:
+        I = G_BIG * ((V_p - V_n) - V_target)
+
+        Stamps into MNA system:
+        - Residual: f[p] += I, f[n] -= I
+        - Jacobian: G[p,p] += G, G[p,n] -= G, G[n,p] -= G, G[n,n] += G
+    """
+    V_actual = V_batch[:, 0] - V_batch[:, 1]  # V_p - V_n for each source
+    I = G_BIG * (V_actual - V_target)
+    G = jnp.full_like(I, G_BIG)
+    return I, G
+
+
+def isource_batch(I_target: Array) -> Array:
+    """Vectorized current source evaluation for batch processing
+
+    Args:
+        I_target: Target currents (n,) - current each source injects
+
+    Returns:
+        I_batch: Currents (n,) - same as I_target (current sources are trivial)
+
+    Note:
+        Current sources have no conductance contribution.
+        Stamps into MNA system:
+        - Residual: f[p] -= I, f[n] += I
+        - Jacobian: no contribution (all zeros)
+    """
+    return I_target
+
+
 class CurrentSource:
     """Independent current source
 
