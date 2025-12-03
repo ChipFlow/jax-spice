@@ -459,21 +459,24 @@ def run_c6288_sparse_dc(circuit_name: str = 'c6288_test',
     Returns:
         (voltages, info, elapsed_time) tuple
     """
-    print("=" * 70)
-    print(f"JAX-SPICE Sparse DC Benchmark: {circuit_name}")
-    print("=" * 70)
-    print()
-    print(f"JAX Backend: {jax.default_backend()}")
-    print(f"Devices: {jax.devices()}")
-    print()
+    print("=" * 70, flush=True)
+    print(f"JAX-SPICE Sparse DC Benchmark: {circuit_name}", flush=True)
+    print("=" * 70, flush=True)
+    print(flush=True)
+    print(f"JAX Backend: {jax.default_backend()}", flush=True)
+    print(f"Devices: {jax.devices()}", flush=True)
+    print(flush=True)
 
     bench = C6288Benchmark(verbose=verbose)
+    print("Parsing netlist...", flush=True)
     bench.parse()
+    print("Flattening circuit...", flush=True)
     bench.flatten(circuit_name)
+    print("Building MNA system...", flush=True)
     bench.build_system(circuit_name)
 
-    print()
-    print("Running sparse DC solver...")
+    print(flush=True)
+    print("Running sparse DC solver...", flush=True)
     start = time.perf_counter()
     V, info = bench.run_sparse_dc(max_iterations=max_iterations, abstol=abstol, verbose=verbose)
     elapsed = time.perf_counter() - start
