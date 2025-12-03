@@ -1,9 +1,16 @@
 #!/bin/bash
 # Setup script for GCP GPU CI infrastructure
-# This script creates the service account and VM needed for GPU CI testing
+# This script is fully idempotent - safe to run multiple times
+#
+# Features:
+# - Creates service account with minimal permissions
+# - Stores service account key in GCP Secret Manager
+# - Syncs secret to GitHub Actions
+# - Provisions GPU VM for testing
 #
 # Prerequisites:
 # - gcloud CLI installed and authenticated
+# - gh CLI installed and authenticated (for GitHub secret sync)
 # - Billing enabled on the GCP project
 # - GPU quota available in the region
 
@@ -15,6 +22,8 @@ ZONE="${GCP_ZONE:-us-central1-a}"
 VM_NAME="${GCP_VM_NAME:-jax-spice-cuda}"
 SA_NAME="github-gpu-ci"
 SA_EMAIL="${SA_NAME}@${PROJECT_ID}.iam.gserviceaccount.com"
+SECRET_NAME="github-gpu-ci-key"
+GITHUB_REPO="${GITHUB_REPO:-ChipFlow/jax-spice}"
 
 # Machine configuration
 MACHINE_TYPE="n1-standard-4"
@@ -24,78 +33,190 @@ BOOT_DISK_SIZE="100GB"
 IMAGE_FAMILY="pytorch-latest-gpu"
 IMAGE_PROJECT="deeplearning-platform-release"
 
-echo "=== JAX-SPICE GPU CI Setup ==="
-echo "Project: ${PROJECT_ID}"
-echo "Zone: ${ZONE}"
-echo "VM Name: ${VM_NAME}"
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+NC='\033[0m' # No Color
+
+log_info() { echo -e "${GREEN}[INFO]${NC} $1"; }
+log_warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
+log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
+
+echo "=========================================="
+echo "  JAX-SPICE GPU CI Setup (Idempotent)"
+echo "=========================================="
+echo ""
+echo "Project:     ${PROJECT_ID}"
+echo "Zone:        ${ZONE}"
+echo "VM Name:     ${VM_NAME}"
+echo "GitHub Repo: ${GITHUB_REPO}"
 echo ""
 
 # Set project
-gcloud config set project "${PROJECT_ID}"
+gcloud config set project "${PROJECT_ID}" --quiet
 
-# 1. Enable required APIs
-echo "=== Enabling APIs ==="
-gcloud services enable compute.googleapis.com
-gcloud services enable secretmanager.googleapis.com
-gcloud services enable iam.googleapis.com
+# =============================================================================
+# Step 1: Enable required APIs (idempotent)
+# =============================================================================
+log_info "Enabling required APIs..."
+gcloud services enable compute.googleapis.com --quiet
+gcloud services enable secretmanager.googleapis.com --quiet
+gcloud services enable iam.googleapis.com --quiet
+log_info "APIs enabled"
 
-# 2. Create service account for GitHub Actions
-echo ""
-echo "=== Creating Service Account ==="
-if ! gcloud iam service-accounts describe "${SA_EMAIL}" &>/dev/null; then
-    gcloud iam service-accounts create "${SA_NAME}" \
-        --display-name="GitHub GPU CI Runner"
-    echo "Created service account: ${SA_EMAIL}"
+# =============================================================================
+# Step 2: Create service account (idempotent)
+# =============================================================================
+log_info "Setting up service account..."
+if gcloud iam service-accounts describe "${SA_EMAIL}" &>/dev/null; then
+    log_info "Service account already exists: ${SA_EMAIL}"
 else
-    echo "Service account already exists: ${SA_EMAIL}"
+    gcloud iam service-accounts create "${SA_NAME}" \
+        --display-name="GitHub GPU CI Runner" \
+        --quiet
+    log_info "Created service account: ${SA_EMAIL}"
 fi
 
-# 3. Grant permissions to service account
-echo ""
-echo "=== Granting Permissions ==="
-# Compute instance admin for starting/stopping VMs
-gcloud projects add-iam-policy-binding "${PROJECT_ID}" \
-    --member="serviceAccount:${SA_EMAIL}" \
-    --role="roles/compute.instanceAdmin.v1" \
-    --quiet
+# =============================================================================
+# Step 3: Grant permissions (idempotent - add-iam-policy-binding is idempotent)
+# =============================================================================
+log_info "Configuring IAM permissions..."
 
-# Service account user to run commands as the VM's service account
-gcloud projects add-iam-policy-binding "${PROJECT_ID}" \
-    --member="serviceAccount:${SA_EMAIL}" \
-    --role="roles/iam.serviceAccountUser" \
-    --quiet
+# Define required roles
+ROLES=(
+    "roles/compute.instanceAdmin.v1"  # Start/stop VMs
+    "roles/iam.serviceAccountUser"     # Use VM's service account
+    "roles/compute.osLogin"            # SSH access
+)
 
-# OS Login for SSH access
-gcloud projects add-iam-policy-binding "${PROJECT_ID}" \
-    --member="serviceAccount:${SA_EMAIL}" \
-    --role="roles/compute.osLogin" \
-    --quiet
+for ROLE in "${ROLES[@]}"; do
+    gcloud projects add-iam-policy-binding "${PROJECT_ID}" \
+        --member="serviceAccount:${SA_EMAIL}" \
+        --role="${ROLE}" \
+        --quiet \
+        --condition=None 2>/dev/null || true
+done
+log_info "IAM permissions configured"
 
-echo "Permissions granted"
+# =============================================================================
+# Step 4: Create/update secret in Secret Manager (idempotent)
+# =============================================================================
+log_info "Setting up Secret Manager..."
 
-# 4. Create key for GitHub Actions secret
-echo ""
-echo "=== Creating Service Account Key ==="
-KEY_FILE="/tmp/${SA_NAME}-key.json"
-gcloud iam service-accounts keys create "${KEY_FILE}" \
-    --iam-account="${SA_EMAIL}"
+# Check if secret exists
+if gcloud secrets describe "${SECRET_NAME}" &>/dev/null; then
+    log_info "Secret already exists: ${SECRET_NAME}"
 
-echo ""
-echo "Service account key created at: ${KEY_FILE}"
-echo ""
-echo "IMPORTANT: Add this key as a GitHub secret named 'GCP_SERVICE_ACCOUNT_KEY'"
-echo "You can copy the content with:"
-echo "  cat ${KEY_FILE}"
-echo ""
-echo "Then delete the local key file:"
-echo "  rm ${KEY_FILE}"
-echo ""
+    # Check if we need to create a new key version
+    # Get the latest version's create time
+    LATEST_VERSION=$(gcloud secrets versions list "${SECRET_NAME}" \
+        --filter="state=ENABLED" \
+        --sort-by="~createTime" \
+        --limit=1 \
+        --format="value(name)" 2>/dev/null || echo "")
 
-# 5. Create GPU VM (if it doesn't exist)
-echo "=== Creating GPU VM ==="
-if gcloud compute instances describe "${VM_NAME}" --zone="${ZONE}" &>/dev/null; then
-    echo "VM already exists: ${VM_NAME}"
+    if [ -n "${LATEST_VERSION}" ]; then
+        log_info "Using existing secret version"
+        NEED_NEW_KEY=false
+    else
+        log_warn "No enabled secret versions found, creating new key"
+        NEED_NEW_KEY=true
+    fi
 else
+    log_info "Creating new secret: ${SECRET_NAME}"
+    gcloud secrets create "${SECRET_NAME}" \
+        --replication-policy="automatic" \
+        --quiet
+    NEED_NEW_KEY=true
+fi
+
+# Create new key and add to secret if needed
+if [ "${NEED_NEW_KEY:-true}" = true ]; then
+    log_info "Generating new service account key..."
+
+    # Create temporary key file
+    KEY_FILE=$(mktemp)
+    trap "rm -f ${KEY_FILE}" EXIT
+
+    gcloud iam service-accounts keys create "${KEY_FILE}" \
+        --iam-account="${SA_EMAIL}" \
+        --quiet
+
+    # Add new version to secret
+    gcloud secrets versions add "${SECRET_NAME}" \
+        --data-file="${KEY_FILE}" \
+        --quiet
+
+    log_info "Service account key stored in Secret Manager"
+
+    # Clean up old keys (keep only the 2 most recent)
+    log_info "Cleaning up old service account keys..."
+    OLD_KEYS=$(gcloud iam service-accounts keys list \
+        --iam-account="${SA_EMAIL}" \
+        --format="value(name)" \
+        --filter="keyType=USER_MANAGED" \
+        --sort-by="~validAfterTime" 2>/dev/null | tail -n +3)
+
+    for KEY_ID in ${OLD_KEYS}; do
+        gcloud iam service-accounts keys delete "${KEY_ID}" \
+            --iam-account="${SA_EMAIL}" \
+            --quiet 2>/dev/null || true
+    done
+fi
+
+# =============================================================================
+# Step 5: Sync secret to GitHub (idempotent)
+# =============================================================================
+log_info "Syncing secret to GitHub..."
+
+if command -v gh &>/dev/null; then
+    # Check if gh is authenticated
+    if gh auth status &>/dev/null; then
+        # Get the secret from Secret Manager
+        SECRET_VALUE=$(gcloud secrets versions access latest --secret="${SECRET_NAME}" 2>/dev/null)
+
+        if [ -n "${SECRET_VALUE}" ]; then
+            # Set GitHub secret (idempotent - overwrites if exists)
+            echo "${SECRET_VALUE}" | gh secret set GCP_SERVICE_ACCOUNT_KEY \
+                --repo="${GITHUB_REPO}" 2>/dev/null && \
+                log_info "GitHub secret 'GCP_SERVICE_ACCOUNT_KEY' updated" || \
+                log_warn "Failed to update GitHub secret (check gh permissions)"
+        else
+            log_error "Could not retrieve secret from Secret Manager"
+        fi
+    else
+        log_warn "gh CLI not authenticated. Run 'gh auth login' to sync secrets"
+    fi
+else
+    log_warn "gh CLI not installed. Install it to auto-sync GitHub secrets"
+    echo ""
+    echo "To manually set the GitHub secret:"
+    echo "  1. Get the secret: gcloud secrets versions access latest --secret=${SECRET_NAME}"
+    echo "  2. Add to GitHub: Settings -> Secrets -> Actions -> New repository secret"
+    echo "     Name: GCP_SERVICE_ACCOUNT_KEY"
+fi
+
+# =============================================================================
+# Step 6: Create GPU VM (idempotent)
+# =============================================================================
+log_info "Setting up GPU VM..."
+
+if gcloud compute instances describe "${VM_NAME}" --zone="${ZONE}" &>/dev/null; then
+    log_info "VM already exists: ${VM_NAME}"
+
+    # Check if VM is running
+    VM_STATUS=$(gcloud compute instances describe "${VM_NAME}" \
+        --zone="${ZONE}" \
+        --format="value(status)")
+
+    if [ "${VM_STATUS}" = "RUNNING" ]; then
+        log_info "VM is currently running"
+    else
+        log_info "VM is ${VM_STATUS}"
+    fi
+else
+    log_info "Creating GPU VM: ${VM_NAME}"
     gcloud compute instances create "${VM_NAME}" \
         --zone="${ZONE}" \
         --machine-type="${MACHINE_TYPE}" \
@@ -107,50 +228,92 @@ else
         --maintenance-policy="TERMINATE" \
         --no-restart-on-failure \
         --metadata="install-nvidia-driver=True" \
-        --scopes="cloud-platform"
+        --scopes="cloud-platform" \
+        --quiet
 
-    echo "Created VM: ${VM_NAME}"
-
-    # Wait for VM to be ready
-    echo "Waiting for VM to initialize..."
+    log_info "Waiting for VM to initialize (60s)..."
     sleep 60
 fi
 
-# 6. Setup Python environment on VM
-echo ""
-echo "=== Setting up Python environment on VM ==="
-gcloud compute ssh "${VM_NAME}" --zone="${ZONE}" --command="
+# =============================================================================
+# Step 7: Setup Python environment on VM (idempotent)
+# =============================================================================
+log_info "Configuring VM environment..."
+
+# Check if VM is running, start if not
+VM_STATUS=$(gcloud compute instances describe "${VM_NAME}" \
+    --zone="${ZONE}" \
+    --format="value(status)")
+
+if [ "${VM_STATUS}" != "RUNNING" ]; then
+    log_info "Starting VM..."
+    gcloud compute instances start "${VM_NAME}" --zone="${ZONE}" --quiet
+    sleep 30
+fi
+
+# Wait for SSH to be ready
+log_info "Waiting for SSH..."
+for i in {1..30}; do
+    if gcloud compute ssh "${VM_NAME}" --zone="${ZONE}" --command="true" 2>/dev/null; then
+        break
+    fi
+    if [ $i -eq 30 ]; then
+        log_error "SSH not available after 5 minutes"
+        exit 1
+    fi
+    sleep 10
+done
+
+# Setup environment (idempotent commands)
+gcloud compute ssh "${VM_NAME}" --zone="${ZONE}" --quiet --command="
+    set -e
+
     # Install Python 3.10 if not present
     if ! command -v python3.10 &>/dev/null; then
-        sudo apt-get update
-        sudo apt-get install -y python3.10 python3.10-venv
+        echo 'Installing Python 3.10...'
+        sudo apt-get update -qq
+        sudo apt-get install -y -qq python3.10 python3.10-venv python3.10-dev
     fi
 
     # Create working directory
     mkdir -p ~/jax-spice-ci
 
     # Verify GPU is accessible
-    nvidia-smi
+    echo ''
+    echo '=== GPU Status ==='
+    nvidia-smi --query-gpu=name,memory.total,driver_version --format=csv
 
     echo ''
-    echo 'GPU VM setup complete!'
+    echo 'VM environment ready!'
 "
 
-# 7. Stop VM to save costs
-echo ""
-echo "=== Stopping VM to save costs ==="
-gcloud compute instances stop "${VM_NAME}" --zone="${ZONE}"
+# =============================================================================
+# Step 8: Stop VM to save costs
+# =============================================================================
+log_info "Stopping VM to save costs..."
+gcloud compute instances stop "${VM_NAME}" --zone="${ZONE}" --quiet
 
+# =============================================================================
+# Summary
+# =============================================================================
 echo ""
-echo "=== Setup Complete ==="
+echo "=========================================="
+echo "  Setup Complete!"
+echo "=========================================="
 echo ""
-echo "Next steps:"
-echo "1. Add the service account key to GitHub secrets as 'GCP_SERVICE_ACCOUNT_KEY'"
-echo "2. Push the workflow file to trigger GPU tests"
-echo "3. The workflow will start/stop the VM as needed"
+echo "Resources created/verified:"
+echo "  - Service Account: ${SA_EMAIL}"
+echo "  - Secret (GCP):    ${SECRET_NAME}"
+echo "  - GitHub Secret:   GCP_SERVICE_ACCOUNT_KEY"
+echo "  - GPU VM:          ${VM_NAME} (${ZONE})"
 echo ""
-echo "To manually test, start the VM with:"
-echo "  gcloud compute instances start ${VM_NAME} --zone=${ZONE}"
+echo "To trigger GPU tests:"
+echo "  1. Push to main or create a PR modifying GPU-related code"
+echo "  2. Or manually: Actions -> GPU Tests -> Run workflow"
+echo ""
+echo "To access the secret:"
+echo "  gcloud secrets versions access latest --secret=${SECRET_NAME}"
 echo ""
 echo "To SSH into the VM:"
+echo "  gcloud compute instances start ${VM_NAME} --zone=${ZONE}"
 echo "  gcloud compute ssh ${VM_NAME} --zone=${ZONE}"
