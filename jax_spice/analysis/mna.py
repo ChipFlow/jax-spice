@@ -263,6 +263,14 @@ class MNASystem:
                     cols.append(node_j - 1)
                     values.append(float(conductance))
 
+        # Add GMIN to all diagonal entries for numerical stability
+        # This creates a small conductance from each node to ground
+        gmin = 1e-12
+        for i in range(n):
+            rows.append(i)
+            cols.append(i)
+            values.append(gmin)
+
         # Convert to CSR format
         from jax_spice.analysis.sparse import build_csr_arrays
 

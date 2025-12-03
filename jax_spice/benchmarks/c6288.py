@@ -123,9 +123,16 @@ def create_vsource_eval():
                      context: AnalysisContext) -> DeviceStamps:
         Vp = voltages.get('p', 0.0)
         Vn = voltages.get('n', 0.0)
-        V_target = eval_param(params.get('v', 0.0), _circuit_params)
+        # Check various parameter keys for DC value:
+        # - 'v': generic voltage value
+        # - 'dc': SPICE DC value
+        # - 'val0': PULSE source initial value (used for DC analysis)
+        V_target = eval_param(
+            params.get('v', params.get('dc', params.get('val0', 0.0))),
+            _circuit_params
+        )
         V_actual = Vp - Vn
-        G_big = 1e12
+        G_big = 1e9  # Balance between matrix conditioning and voltage stiffness
         I = G_big * (V_actual - V_target)
         return DeviceStamps(
             currents={'p': jnp.array(I), 'n': jnp.array(-I)},
@@ -192,10 +199,12 @@ def create_simple_mosfet_eval(is_pmos: bool = False, vth0: float = 0.4,
         Vov = Vgs - Vth
 
         if Vov <= 0:
-            # Cutoff
-            Id = 0.0
-            gm = 1e-15
-            gds = 1e-15
+            # Cutoff - add subthreshold leakage for numerical stability
+            # Use larger minimum conductance to help Newton-Raphson convergence
+            gds_min = 1e-9  # Minimum off-state drain conductance
+            Id = gds_min * Vds  # Small leakage current
+            gm = 1e-12
+            gds = gds_min
         elif Vds < Vov:
             # Linear (triode)
             Id = Kp * (Vov * Vds - 0.5 * Vds * Vds) * (1 + lambda_ * Vds)
@@ -208,8 +217,8 @@ def create_simple_mosfet_eval(is_pmos: bool = False, vth0: float = 0.4,
             gds = 0.5 * Kp * Vov * Vov * lambda_
 
         # Ensure minimum conductance for numerical stability
-        gm = max(gm, 1e-15)
-        gds = max(gds, 1e-15)
+        gm = max(gm, 1e-12)
+        gds = max(gds, 1e-9)
 
         # For PMOS, current flows in opposite direction
         if is_pmos:
@@ -223,6 +232,9 @@ def create_simple_mosfet_eval(is_pmos: bool = False, vth0: float = 0.4,
 
         # Build conductance matrix (Jacobian contributions)
         # For simplified model: dId/dVg = gm, dId/dVd = gds
+        # GMIN for gate and body nodes to prevent floating nodes
+        gmin = 1e-12
+
         if is_pmos:
             # PMOS: current flows S->D when on
             return DeviceStamps(
@@ -239,6 +251,8 @@ def create_simple_mosfet_eval(is_pmos: bool = False, vth0: float = 0.4,
                     ('S', 'D'): jnp.array(-gds),
                     ('S', 'G'): jnp.array(-gm),
                     ('S', 'S'): jnp.array(gds + gm),
+                    ('G', 'G'): jnp.array(gmin),  # Gate GMIN
+                    ('B', 'B'): jnp.array(gmin),  # Body GMIN
                 }
             )
         else:
@@ -257,6 +271,8 @@ def create_simple_mosfet_eval(is_pmos: bool = False, vth0: float = 0.4,
                     ('S', 'D'): jnp.array(-gds),
                     ('S', 'G'): jnp.array(-gm),
                     ('S', 'S'): jnp.array(gds + gm),
+                    ('G', 'G'): jnp.array(gmin),  # Gate GMIN
+                    ('B', 'B'): jnp.array(gmin),  # Body GMIN
                 }
             )
 

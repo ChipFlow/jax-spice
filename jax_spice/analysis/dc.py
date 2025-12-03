@@ -224,8 +224,8 @@ def dc_operating_point_sparse(
         # Update solution (skip ground node at index 0)
         V[1:] += step_scale * delta_V
 
-        # Clamp voltages to reasonable range
-        V = np.clip(V, -0.5, vdd + 0.5)
+        # Clamp voltages to reasonable range (relaxed to allow Newton-Raphson exploration)
+        V = np.clip(V, -100, 100)
 
         iterations = iteration + 1
 
