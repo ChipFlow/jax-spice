@@ -58,11 +58,24 @@ ENV JAX_ENABLE_X64=1
 ENV JAX_PLATFORMS=cuda,cpu
 ENV NVIDIA_VISIBLE_DEVICES=all
 ENV NVIDIA_DRIVER_CAPABILITIES=compute,utility
-# Cloud Run provides NVIDIA driver libs at /usr/local/nvidia/lib64
-# Ensure this path is in LD_LIBRARY_PATH for JAX/XLA to find the driver
-ENV LD_LIBRARY_PATH=/usr/local/nvidia/lib64:/usr/local/cuda/lib64:${LD_LIBRARY_PATH}
 # Enable verbose CUDA logging for debugging
 ENV TF_CPP_MIN_LOG_LEVEL=0
+
+# Find all nvidia pip package lib directories and add to LD_LIBRARY_PATH
+# jax[cuda12] installs nvidia libs in /usr/local/lib/python3.11/dist-packages/nvidia_*.libs/
+# These contain libcusparse, libcublas, libcudnn etc.
+RUN NVIDIA_LIB_PATHS=$(find /usr/local/lib/python3.11/dist-packages -name "*.libs" -type d 2>/dev/null | tr '\n' ':') && \
+    echo "Found NVIDIA lib paths: $NVIDIA_LIB_PATHS" && \
+    echo "NVIDIA_LIB_PATHS=$NVIDIA_LIB_PATHS" >> /etc/environment
+
+# Build LD_LIBRARY_PATH including:
+# 1. Cloud Run NVIDIA driver libs at /usr/local/nvidia/lib64
+# 2. Pip-installed nvidia CUDA libs in dist-packages/*nvidia*.libs directories
+ENV LD_LIBRARY_PATH=/usr/local/nvidia/lib64:/usr/local/cuda/lib64:/usr/local/lib/python3.11/dist-packages/nvidia_cublas_cu12.libs:/usr/local/lib/python3.11/dist-packages/nvidia_cuda_cupti_cu12.libs:/usr/local/lib/python3.11/dist-packages/nvidia_cuda_nvrtc_cu12.libs:/usr/local/lib/python3.11/dist-packages/nvidia_cuda_runtime_cu12.libs:/usr/local/lib/python3.11/dist-packages/nvidia_cudnn_cu12.libs:/usr/local/lib/python3.11/dist-packages/nvidia_cufft_cu12.libs:/usr/local/lib/python3.11/dist-packages/nvidia_cusolver_cu12.libs:/usr/local/lib/python3.11/dist-packages/nvidia_cusparse_cu12.libs:/usr/local/lib/python3.11/dist-packages/nvidia_nccl_cu12.libs:/usr/local/lib/python3.11/dist-packages/nvidia_nvjitlink_cu12.libs:${LD_LIBRARY_PATH}
+
+# Verify CUDA libs can be found
+RUN ls -la /usr/local/lib/python3.11/dist-packages/nvidia_cusparse_cu12.libs/ 2>/dev/null || echo "cusparse libs dir not found" && \
+    ls -la /usr/local/lib/python3.11/dist-packages/nvidia_cublas_cu12.libs/ 2>/dev/null || echo "cublas libs dir not found"
 
 # Entrypoint runs tests
 ENTRYPOINT ["python", "-m", "pytest"]
