@@ -111,9 +111,15 @@ jobs:
           gcloud compute ssh ${{ env.GCP_VM_NAME }} --zone=${{ env.GCP_ZONE }} --command="
             cd ~/jax-spice-ci
 
+            # Install Python 3.11 if not available
+            if ! command -v python3.11 &>/dev/null; then
+              sudo apt-get update
+              sudo apt-get install -y python3.11 python3.11-venv python3.11-dev
+            fi
+
             # Create fresh venv if needed
             if [ ! -d .venv ]; then
-              python3.10 -m venv .venv
+              python3.11 -m venv .venv
             fi
 
             source .venv/bin/activate
@@ -121,7 +127,10 @@ jobs:
             # Install dependencies
             pip install --upgrade pip
             pip install -e '.[test]' 2>/dev/null || pip install -e .
-            pip install pytest jax jaxlib
+            pip install pytest
+
+            # Install JAX with CUDA support
+            pip install 'jax[cuda12]'
 
             # Verify JAX can see GPU
             python -c 'import jax; print(f\"JAX devices: {jax.devices()}\"); assert any(\"cuda\" in str(d).lower() or \"gpu\" in str(d).lower() for d in jax.devices()), \"No GPU found!\"'
