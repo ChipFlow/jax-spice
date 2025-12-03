@@ -287,14 +287,35 @@ class TestDeviceInfo:
 
     def test_device_info(self, capsys):
         """Print available device information"""
+        import subprocess
         profiler = JAXProfiler()
         info = profiler.get_device_info()
 
         print("\n" + "="*60)
         print("JAX Device Information")
         print("="*60)
+
+        # Print JAX/jaxlib versions
+        import jaxlib
+        print(f"\nJAX version: {jax.__version__}")
+        print(f"jaxlib version: {jaxlib.__version__}")
+
+        # Check CUDA environment
+        print("\nCUDA Environment:")
+        print(f"  JAX_PLATFORMS env: {os.environ.get('JAX_PLATFORMS', 'not set')}")
+        print(f"  CUDA_VISIBLE_DEVICES: {os.environ.get('CUDA_VISIBLE_DEVICES', 'not set')}")
+        print(f"  NVIDIA_VISIBLE_DEVICES: {os.environ.get('NVIDIA_VISIBLE_DEVICES', 'not set')}")
+
+        # Check nvidia-smi
+        try:
+            result = subprocess.run(['nvidia-smi', '-L'], capture_output=True, text=True, timeout=5)
+            print(f"  nvidia-smi: {result.stdout.strip() or result.stderr.strip() or 'no output'}")
+        except Exception as e:
+            print(f"  nvidia-smi: error - {e}")
+
         print(f"\nDefault backend: {info['default_backend']}")
         print(f"Available backends: {profiler.get_available_backends()}")
+        print(f"All JAX devices: {jax.devices()}")
 
         for backend, devices in info['devices'].items():
             print(f"\n{backend.upper()} Devices:")
