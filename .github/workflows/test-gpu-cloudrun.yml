@@ -114,7 +114,7 @@ jobs:
               --memory=16Gi \
               --max-retries=0 \
               --task-timeout=30m \
-              --set-env-vars="JAX_ENABLE_X64=1,RUN_GPU_BENCHMARKS=1,JAX_PLATFORMS=cuda\,cpu" \
+              --set-env-vars="^;;^JAX_ENABLE_X64=1;;RUN_GPU_BENCHMARKS=1;;JAX_PLATFORMS=cuda,cpu" \
               --args="${{ env.TEST_ARGS }}"
           else
             echo "Creating new job..."
@@ -129,7 +129,7 @@ jobs:
               --memory=16Gi \
               --max-retries=0 \
               --task-timeout=30m \
-              --set-env-vars="JAX_ENABLE_X64=1,RUN_GPU_BENCHMARKS=1,JAX_PLATFORMS=cuda\,cpu" \
+              --set-env-vars="^;;^JAX_ENABLE_X64=1;;RUN_GPU_BENCHMARKS=1;;JAX_PLATFORMS=cuda,cpu" \
               --args="${{ env.TEST_ARGS }}"
           fi
 
