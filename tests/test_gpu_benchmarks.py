@@ -95,6 +95,10 @@ class TestTransferOverhead:
 
         results = measure_transfer_overhead(sizes)
 
+        # Skip if CPU or GPU device not available for transfer measurement
+        if not results['cpu_to_gpu']:
+            pytest.skip("CPU<->GPU transfer measurement not available (need both CPU and GPU devices)")
+
         print(f"\n{'Size':>12} | {'Bytes':>12} | {'CPU→GPU (ms)':>12} | {'GPU→CPU (ms)':>12} | {'BW (GB/s)':>10}")
         print("-"*65)
 
