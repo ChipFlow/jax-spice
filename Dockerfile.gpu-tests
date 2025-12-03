@@ -1,10 +1,8 @@
 # GPU Test Container for Cloud Run Jobs
 # Uses NVIDIA L4 GPU with CUDA 12.2
 #
-# Layer ordering optimized for caching:
-# 1. Base image + system packages (rarely changes)
-# 2. Python dependencies (changes occasionally)
-# 3. Source code (changes frequently)
+# This image contains only pip dependencies - source code is mounted at runtime.
+# This allows the image to be cached and reused across commits.
 
 FROM nvidia/cuda:12.2.0-runtime-ubuntu22.04
 
@@ -14,6 +12,7 @@ RUN apt-get update && apt-get install -y \
     python3.11-venv \
     python3.11-dev \
     python3-pip \
+    git \
     && rm -rf /var/lib/apt/lists/*
 
 # Set Python 3.11 as default
@@ -23,10 +22,8 @@ RUN update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.11 1
 # Upgrade pip (cached layer)
 RUN python -m pip install --upgrade pip
 
-# Install Python dependencies BEFORE copying source code
-# This layer is cached unless requirements change
+# Install Python dependencies
 # Use jax[cuda12] which bundles CUDA/cuDNN dependencies via pip wheels
-# This is the JAX-recommended approach for easier CUDA support
 RUN pip install --no-cache-dir \
     "jax[cuda12]" \
     numpy \
@@ -41,16 +38,6 @@ RUN pip list | grep -i jax && \
 
 # Create working directory
 WORKDIR /app
-
-# Copy only pyproject.toml first (for package metadata)
-COPY pyproject.toml /app/
-
-# Copy source code (this layer changes frequently)
-COPY jax_spice /app/jax_spice/
-COPY tests /app/tests/
-
-# Install jax-spice without dependencies (already installed above)
-RUN pip install -e . --no-deps
 
 # Set environment variables
 ENV JAX_ENABLE_X64=1
@@ -113,6 +100,7 @@ RUN echo "=== Creating CUDA library symlinks ===" && \
     echo "=== Verifying cuSPARSE ===" && \
     ls -la /usr/local/lib/python3.11/dist-packages/nvidia/cusparse/lib/ 2>/dev/null || echo "nvidia/cusparse/lib not found"
 
-# Entrypoint runs tests
-ENTRYPOINT ["python", "-m", "pytest"]
-CMD ["tests/test_gpu_benchmarks.py", "-v", "-s", "--tb=short"]
+# Default entrypoint - expects source to be cloned into /app at runtime
+# The CI workflow will clone the repo and pip install before running tests
+ENTRYPOINT ["/bin/bash", "-c"]
+CMD ["echo 'Source code should be mounted/cloned into /app'"]

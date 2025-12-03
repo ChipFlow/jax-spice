@@ -68,10 +68,9 @@ jobs:
           context: .
           file: Dockerfile.gpu-tests
           push: true
-          tags: ${{ env.GCP_REGION }}-docker.pkg.dev/${{ env.GCP_PROJECT }}/${{ env.AR_REPOSITORY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
-          # Disable provenance attestations (not needed, reduces push size)
+          # Use 'latest' tag - image only contains pip deps, not source code
+          tags: ${{ env.GCP_REGION }}-docker.pkg.dev/${{ env.GCP_PROJECT }}/${{ env.AR_REPOSITORY }}/${{ env.IMAGE_NAME }}:latest
           provenance: false
-          # Use both GHA cache (for build speed) and registry cache (for push layer reuse)
           cache-from: |
             type=gha
             type=registry,ref=${{ env.GCP_REGION }}-docker.pkg.dev/${{ env.GCP_PROJECT }}/${{ env.AR_REPOSITORY }}/${{ env.IMAGE_NAME }}:buildcache
@@ -81,27 +80,28 @@ jobs:
 
       - name: Set image tag
         run: |
-          echo "IMAGE_TAG=${{ env.GCP_REGION }}-docker.pkg.dev/${{ env.GCP_PROJECT }}/${{ env.AR_REPOSITORY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}" >> "$GITHUB_ENV"
+          echo "IMAGE_TAG=${{ env.GCP_REGION }}-docker.pkg.dev/${{ env.GCP_PROJECT }}/${{ env.AR_REPOSITORY }}/${{ env.IMAGE_NAME }}:latest" >> "$GITHUB_ENV"
 
       - name: Determine test command
         run: |
           TEST_TYPE="${{ github.event.inputs.test_type || 'quick' }}"
 
-          # Cloud Run --args takes comma-separated arguments
           if [ "$TEST_TYPE" = "quick" ]; then
-            TEST_ARGS="tests/test_vectorized_mna.py,-v,--tb=short"
+            PYTEST_ARGS="tests/test_vectorized_mna.py -v --tb=short"
           elif [ "$TEST_TYPE" = "full" ]; then
-            TEST_ARGS="tests/,-v,--tb=short,-x"
+            PYTEST_ARGS="tests/ -v --tb=short -x"
           elif [ "$TEST_TYPE" = "profile" ]; then
-            TEST_ARGS="tests/test_gpu_benchmarks.py,-v,-s,--tb=short"
+            PYTEST_ARGS="tests/test_gpu_benchmarks.py -v -s --tb=short"
           fi
 
-          echo "TEST_ARGS=$TEST_ARGS" >> "$GITHUB_ENV"
+          # Build the full command that clones repo, installs, and runs tests
+          # Note: Using single quotes for the inner command to preserve $GITHUB_SHA
+          RUN_CMD="git clone --depth 1 https://github.com/${{ github.repository }}.git /app/src && cd /app/src && git checkout ${{ github.sha }} && pip install -e . --no-deps && python -m pytest ${PYTEST_ARGS}"
+          echo "RUN_CMD=$RUN_CMD" >> "$GITHUB_ENV"
 
       - name: Create or update Cloud Run Job
         run: |
           # Use ^;;^ delimiter since JAX_PLATFORMS contains commas
-          # JAX_PLATFORMS=cuda,cpu tells JAX to prefer CUDA, fallback to CPU
           ENV_VARS="^;;^JAX_ENABLE_X64=1;;RUN_GPU_BENCHMARKS=1;;JAX_PLATFORMS=cuda,cpu"
 
           # Check if job exists
@@ -119,7 +119,7 @@ jobs:
               --max-retries=0 \
               --task-timeout=30m \
               --set-env-vars="${ENV_VARS}" \
-              --args="${{ env.TEST_ARGS }}"
+              --args="${{ env.RUN_CMD }}"
           else
             echo "Creating new job..."
             gcloud run jobs create ${{ env.JOB_NAME }} \
@@ -134,7 +134,7 @@ jobs:
               --max-retries=0 \
               --task-timeout=30m \
               --set-env-vars="${ENV_VARS}" \
-              --args="${{ env.TEST_ARGS }}"
+              --args="${{ env.RUN_CMD }}"
           fi
 
       - name: Execute Cloud Run Job
