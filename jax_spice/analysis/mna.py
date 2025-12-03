@@ -20,6 +20,7 @@ from typing import Dict, List, Tuple, Optional, Callable, Any
 import jax
 import jax.numpy as jnp
 from jax import Array
+import numpy as np
 
 from jax_spice.netlist.circuit import Circuit, Instance, Model
 from jax_spice.analysis.context import AnalysisContext
@@ -192,11 +193,85 @@ class MNASystem:
     
     def full_voltage_vector(self, solution: Array) -> Array:
         """Convert solution to full voltage vector including ground
-        
+
         Args:
             solution: Solution vector (length num_nodes - 1)
-            
+
         Returns:
             Full voltage vector (length num_nodes) with ground = 0
         """
         return jnp.concatenate([jnp.array([0.0]), solution])
+
+    def build_sparse_jacobian_and_residual(
+        self,
+        voltages: Array,
+        context: AnalysisContext
+    ) -> Tuple[Tuple[np.ndarray, np.ndarray, np.ndarray, Tuple[int, int]], np.ndarray]:
+        """Build Jacobian matrix and residual vector in sparse CSR format
+
+        This is more memory-efficient for large circuits. Uses COO accumulation
+        then converts to CSR for the sparse solver.
+
+        Args:
+            voltages: Current node voltage estimates (shape: [num_nodes])
+            context: Analysis context with time, etc.
+
+        Returns:
+            Tuple of ((data, indices, indptr, shape), residual) where:
+                data, indices, indptr: CSR format arrays
+                shape: (n, n) matrix shape
+                residual: Shape [num_nodes-1] numpy array
+        """
+        n = self.num_nodes - 1  # Exclude ground
+
+        # Accumulate triplets (row, col, value) for COO format
+        rows = []
+        cols = []
+        values = []
+        residual = np.zeros(n, dtype=np.float64)
+
+        # Evaluate each device and accumulate stamps
+        for device in self.devices:
+            if device.eval_fn is None:
+                continue
+
+            # Build voltage dictionary for this device
+            dev_voltages = {}
+            for i, (term, node_idx) in enumerate(zip(device.terminals, device.node_indices)):
+                dev_voltages[term] = float(voltages[node_idx])
+
+            # Evaluate device
+            stamps = device.eval_fn(dev_voltages, device.params, context)
+
+            # Stamp currents into residual
+            for term, current in stamps.currents.items():
+                term_idx = device.terminals.index(term)
+                node_idx = device.node_indices[term_idx]
+                if node_idx != self.ground_node:
+                    residual[node_idx - 1] += float(current)
+
+            # Stamp conductances into Jacobian (triplet format)
+            for (term_i, term_j), conductance in stamps.conductances.items():
+                idx_i = device.terminals.index(term_i)
+                idx_j = device.terminals.index(term_j)
+                node_i = device.node_indices[idx_i]
+                node_j = device.node_indices[idx_j]
+
+                # Skip ground entries
+                if node_i != self.ground_node and node_j != self.ground_node:
+                    rows.append(node_i - 1)
+                    cols.append(node_j - 1)
+                    values.append(float(conductance))
+
+        # Convert to CSR format
+        from jax_spice.analysis.sparse import build_csr_arrays
+
+        rows_arr = np.array(rows, dtype=np.int32)
+        cols_arr = np.array(cols, dtype=np.int32)
+        values_arr = np.array(values, dtype=np.float64)
+
+        data, indices, indptr = build_csr_arrays(
+            rows_arr, cols_arr, values_arr, (n, n)
+        )
+
+        return (data, indices, indptr, (n, n)), residual
