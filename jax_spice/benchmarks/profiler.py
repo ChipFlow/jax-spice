@@ -115,14 +115,29 @@ class JAXProfiler:
         except RuntimeError:
             pass
 
-        try:
-            gpu_devices = jax.devices('gpu')
-            if gpu_devices:
-                backends.append('gpu')
-        except RuntimeError:
-            pass
+        # Try both 'gpu' and 'cuda' - JAX uses different names depending on version
+        for gpu_name in ['gpu', 'cuda']:
+            try:
+                gpu_devices = jax.devices(gpu_name)
+                if gpu_devices:
+                    backends.append('gpu')  # Normalize to 'gpu' for reporting
+                    break
+            except RuntimeError:
+                pass
 
         return backends
+
+    def _resolve_backend(self, backend: str) -> str:
+        """Resolve 'gpu' to actual backend name ('gpu' or 'cuda')"""
+        if backend == 'gpu':
+            for name in ['gpu', 'cuda']:
+                try:
+                    if jax.devices(name):
+                        return name
+                except RuntimeError:
+                    pass
+            return 'gpu'  # Will fail later with clear error
+        return backend
 
     def get_device_info(self) -> Dict[str, Any]:
         """Get information about available devices"""
@@ -133,7 +148,8 @@ class JAXProfiler:
 
         for backend in self.get_available_backends():
             try:
-                devices = jax.devices(backend)
+                actual_backend = self._resolve_backend(backend)
+                devices = jax.devices(actual_backend)
                 info['devices'][backend] = [
                     {
                         'id': d.id,
@@ -184,7 +200,8 @@ class JAXProfiler:
             backend = jax.default_backend()
 
         # Move input data to target device
-        device = jax.devices(backend)[0]
+        actual_backend = self._resolve_backend(backend)
+        device = jax.devices(actual_backend)[0]
         transfer_start = time.perf_counter()
 
         device_args = jax.tree.map(
@@ -309,11 +326,25 @@ def measure_transfer_overhead(
         'bytes': [],
     }
 
+    # Try to get GPU device (may be 'gpu' or 'cuda' depending on JAX version)
+    gpu_device = None
+    for gpu_name in ['gpu', 'cuda']:
+        try:
+            devices = jax.devices(gpu_name)
+            if devices:
+                gpu_device = devices[0]
+                break
+        except RuntimeError:
+            pass
+
+    if gpu_device is None:
+        print("GPU not available for transfer measurement")
+        return results
+
     try:
-        gpu_device = jax.devices('gpu')[0]
         cpu_device = jax.devices('cpu')[0]
     except (RuntimeError, IndexError):
-        print("GPU not available for transfer measurement")
+        print("CPU device not available")
         return results
 
     for size in array_sizes:
