@@ -11,9 +11,8 @@ import os
 import sys
 
 def log(msg):
-    """Log to stderr with flush to ensure output is captured"""
-    sys.stderr.write(f"[conftest.py] {msg}\n")
-    sys.stderr.flush()
+    """Log to stdout with flush to ensure output is captured by Cloud Logging"""
+    print(f"[conftest.py] {msg}", flush=True)
 
 
 def _setup_cuda_libraries():
