@@ -1,3 +1,4 @@
 [submodule "openvaf-py/vendor/OpenVAF"]
 	path = openvaf-py/vendor/OpenVAF
 	url = https://github.com/robtaylor/OpenVAF.git
+	branch = builtin-primitive-support
