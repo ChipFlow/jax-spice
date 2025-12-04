@@ -8,13 +8,19 @@ Handles platform-specific JAX configuration:
 import os
 import sys
 
+print(f"[conftest.py] Loading conftest.py - platform={sys.platform}")
+print(f"[conftest.py] JAX_PLATFORMS={os.environ.get('JAX_PLATFORMS', 'NOT SET')}")
+print(f"[conftest.py] LD_LIBRARY_PATH={os.environ.get('LD_LIBRARY_PATH', 'NOT SET')[:200]}...")
+
 # Platform-specific configuration BEFORE importing JAX
 if sys.platform == 'darwin':
     # macOS: Force CPU backend - Metal doesn't support triangular_solve
+    print("[conftest.py] macOS detected - setting JAX_PLATFORMS=cpu")
     os.environ['JAX_PLATFORMS'] = 'cpu'
 elif sys.platform == 'linux' and os.environ.get('JAX_PLATFORMS', '').startswith('cuda'):
     # Linux with CUDA: Preload CUDA libraries before JAX import
     # JAX's library discovery needs libraries to be loaded first
+    print("[conftest.py] Linux+CUDA detected - preloading CUDA libraries")
     import ctypes
     cuda_libs = [
         "libcuda.so.1",
@@ -27,11 +33,17 @@ elif sys.platform == 'linux' and os.environ.get('JAX_PLATFORMS', '').startswith(
     ]
     for lib in cuda_libs:
         try:
-            ctypes.CDLL(lib)
-        except OSError:
-            pass  # Library not available, that's OK
+            handle = ctypes.CDLL(lib)
+            print(f"[conftest.py] Loaded {lib} -> {handle}")
+        except OSError as e:
+            print(f"[conftest.py] FAILED to load {lib}: {e}")
+else:
+    print(f"[conftest.py] No special handling - platform={sys.platform}, JAX_PLATFORMS={os.environ.get('JAX_PLATFORMS', 'NOT SET')}")
 
+print("[conftest.py] About to import JAX...")
 import jax
+print(f"[conftest.py] JAX imported - default_backend={jax.default_backend()}")
+print(f"[conftest.py] JAX devices: {jax.devices()}")
 
 # Enable float64 for numerical precision in tests
 jax.config.update('jax_enable_x64', True)
