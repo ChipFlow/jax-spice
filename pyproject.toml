@@ -3,10 +3,9 @@ name = "jax-spice"
 version = "0.1.0"
 description = "JAX-based analog circuit simulator with Verilog-A support"
 authors = [{name = "ChipFlow"}]
-requires-python = ">=3.10"
+requires-python = ">=3.10,<3.14"
 dependencies = [
-    "jax[cpu]==0.4.34",
-    "jaxlib==0.4.34",
+    "jax==0.4.34",
     "numpy>=1.24.0",
     "scipy>=1.11.0",
     "matplotlib>=3.7.0",
@@ -23,8 +22,9 @@ sources = { openvaf-py = { workspace = true } }
 members = ["openvaf-py"]
 
 [project.optional-dependencies]
-gpu = [
-    "jax[cuda12]==0.4.34",
+cuda12 = [
+    # Match CUDA version to your environment
+    "jax[cuda12]==0.4.34; sys_platform != 'darwin'",
 ]
 sax = [
     "sax>=0.13.0",

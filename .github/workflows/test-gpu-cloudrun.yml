@@ -102,7 +102,9 @@ jobs:
           fi
 
           # Build the full command that clones repo, installs, and runs tests
-          RUN_CMD="uv run pytest ${PYTEST_ARGS} 2>&1"
+          #RUN_CMD="uv run pytest ${PYTEST_ARGS} 2>&1"
+          RUN_CMD="uv run strace pytest "
+
           echo "RUN_CMD=$RUN_CMD" >> "$GITHUB_ENV"
 
       - name: Create or update Cloud Run Job
