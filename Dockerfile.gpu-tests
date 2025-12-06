@@ -35,5 +35,4 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     --mount=type=cache,target=/root/.cache/rustup \
     uv sync --locked --extra cuda12
 
-# The CI workflow will clone the repo and pip install before running tests
 ENTRYPOINT ["/bin/bash", "-c"]
