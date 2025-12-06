@@ -37,5 +37,8 @@ echo "Installing workspace packages..."
 # Install the workspace in the pre-existing venv
 uv sync --locked --extra cuda12
 
+echo "Running GPU profiler..."
+uv run python scripts/profile_gpu.py
+
 echo "Running tests..."
 uv run pytest tests/ -v --tb=short -x

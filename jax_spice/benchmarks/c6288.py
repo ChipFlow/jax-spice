@@ -48,8 +48,8 @@ def get_data_path() -> Path:
     # Use importlib.resources for package data
     try:
         # Python 3.9+
-        with resources.files("jax_spice.benchmarks") as pkg_path:
-            return Path(pkg_path) / "data"
+        pkg_path = resources.files("jax_spice.benchmarks")
+        return Path(str(pkg_path)) / "data"
     except AttributeError:
         # Fallback for older Python
         import pkg_resources
