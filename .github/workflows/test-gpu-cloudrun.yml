@@ -7,15 +7,12 @@ on:
       - main
   pull_request:
 
-
 env:
   GCP_PROJECT: jax-spice-cuda-test
   GCP_REGION: us-central1
   JOB_NAME: jax-spice-gpu-tests
-  # Push to ghcr.io (fast from GitHub Actions), then Cloud Run pulls via
-  # Artifact Registry remote repository (which caches the image in GCP)
   AR_REMOTE_REPO: ghcr-remote
- 
+
 jobs:
   gpu-tests:
     runs-on: ubuntu-latest
@@ -27,8 +24,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          submodules: recursive
 
       - name: Authenticate to GCP
         uses: google-github-actions/auth@v2
@@ -69,55 +64,52 @@ jobs:
 
       - name: Set image names (lowercase for ghcr.io)
         run: |
-          # ghcr.io requires lowercase image names
           REPO_LC=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
-          GHCR_IMAGE="ghcr.io/${REPO_LC}/gpu-tests"
+          GHCR_IMAGE="ghcr.io/${REPO_LC}/gpu-base"
           echo "GHCR_IMAGE=${GHCR_IMAGE}" >> "$GITHUB_ENV"
-          echo "GHCR_PATH=${REPO_LC}/gpu-tests" >> "$GITHUB_ENV"
+          echo "GHCR_PATH=${REPO_LC}/gpu-base" >> "$GITHUB_ENV"
 
-      - name: Build and push Docker image to ghcr.io
-        id: docker
+      - name: Check if base image needs rebuild
+        id: check-rebuild
+        run: |
+          # Check if base image exists with current deps hash
+          DEPS_HASH=$(cat pyproject.toml uv.lock scripts/run-gpu-tests.sh Dockerfile.gpu-base | sha256sum | cut -c1-12)
+          echo "deps_hash=${DEPS_HASH}" >> "$GITHUB_OUTPUT"
+
+          # Try to pull the image with this hash
+          if docker pull "${{ env.GHCR_IMAGE }}:${DEPS_HASH}" 2>/dev/null; then
+            echo "Base image exists for deps hash ${DEPS_HASH}"
+            echo "needs_rebuild=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "Base image needs rebuild (deps hash: ${DEPS_HASH})"
+            echo "needs_rebuild=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build and push base image (if needed)
+        if: steps.check-rebuild.outputs.needs_rebuild == 'true'
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: Dockerfile.gpu-tests
+          file: Dockerfile.gpu-base
           push: true
-          tags: ${{ env.GHCR_IMAGE }}:${{ github.run_id }}
+          tags: |
+            ${{ env.GHCR_IMAGE }}:${{ steps.check-rebuild.outputs.deps_hash }}
+            ${{ env.GHCR_IMAGE }}:latest
           provenance: false
           cache-from: |
+            type=registry,ref=${{ env.GHCR_IMAGE }}:latest
             type=gha
           cache-to: |
             type=gha
 
-      - name: Set image tag for Cloud Run (via Artifact Registry remote repo)
+      - name: Set image tag for Cloud Run
         run: |
-          # Cloud Run pulls via AR remote repository which proxies ghcr.io
-          # Format: {region}-docker.pkg.dev/{project}/{remote-repo}/{ghcr-path}:{tag}
-          AR_IMAGE="${{ env.GCP_REGION }}-docker.pkg.dev/${{ env.GCP_PROJECT }}/${{ env.AR_REMOTE_REPO }}/${{ env.GHCR_PATH }}:${{ github.run_id }}"
+          AR_IMAGE="${{ env.GCP_REGION }}-docker.pkg.dev/${{ env.GCP_PROJECT }}/${{ env.AR_REMOTE_REPO }}/${{ env.GHCR_PATH }}:${{ steps.check-rebuild.outputs.deps_hash }}"
           echo "IMAGE_TAG=${AR_IMAGE}" >> "$GITHUB_ENV"
-          echo "Cloud Run will pull: ${AR_IMAGE}"
-          echo "(proxying ghcr.io image: ${{ env.GHCR_IMAGE }}:${{ github.run_id }})"
-
-      - name: Determine test command
-        id: command
-        run: |
-          args_array=("uv" "run" "pytest" "tests/" "-v" "--tb=short" "-x")
-
-          command=${args_array[0]}
-          args=${args_array[*]:1}
-          args_quoted=$(IFS=','; echo "${args_array[*]:1}")
-
-          { echo "command=\"$command\""
-            echo "args=\"$args\""
-            echo "args_quoted=\"$args_quoted\""
-          } >> "${GITHUB_OUTPUT}"
+          echo "Cloud Run will use: ${AR_IMAGE}"
 
       - name: Create or update Cloud Run Job
         run: |
-          echo "Using Cloud Run command:" ${{ steps.command.outputs.command}} ${{ steps.command.outputs.args}}
-          command=${{steps.command.outputs.command}}
-          args_quoted=${{steps.command.outputs.args_quoted}} 
-
           job_desc=" \
               --region=${{ env.GCP_REGION }} \
               --image=${{ env.IMAGE_TAG }} \
@@ -129,25 +121,22 @@ jobs:
               --memory=16Gi \
               --max-retries=2 \
               --task-timeout=31m \
-              --command=$command \
-              --args=$args_quoted \
+              --set-env-vars=GITHUB_REPOSITORY=${{ github.repository }} \
+              --set-env-vars=GITHUB_SHA=${{ github.sha }} \
           "
 
           # Check if job exists
           if gcloud run jobs describe ${{ env.JOB_NAME }} --region=${{ env.GCP_REGION }} 2>/dev/null; then
             echo "Updating existing job..."
-            echo gcloud run jobs update ${{ env.JOB_NAME }} $job_desc
             gcloud run jobs update ${{ env.JOB_NAME }} $job_desc
           else
             echo "Creating new job..."
-            echo gcloud run jobs create ${{ env.JOB_NAME }} $job_desc
             gcloud run jobs create ${{ env.JOB_NAME }} $job_desc
           fi
 
       - name: Execute Cloud Run Job
         run: |
-          echo "Starting GPU test job..." 
-
+          echo "Starting GPU test job for commit ${{ github.sha }}..."
 
           # Execute and capture execution name
           exec_id=$(gcloud run jobs execute ${{ env.JOB_NAME }} \
@@ -169,7 +158,7 @@ jobs:
             sleep 5
           done
 
-          echo 
+          echo
 
           gcloud beta run jobs executions logs read $exec_id \
             --region=${{ env.GCP_REGION }}
@@ -183,10 +172,3 @@ jobs:
           if [ "$status" != "True" ]; then
             exit 1
           fi
-
-          # gcloud logging read "resource.type=cloud_run_job AND resource.labels.job_name=${{ env.JOB_NAME }}" \
-          #   --limit=500 \
-          #   --format="value(textPayload)" \
-          #   --order=asc \
-          #   2>/dev/null || echo "No logs available yet"
-
