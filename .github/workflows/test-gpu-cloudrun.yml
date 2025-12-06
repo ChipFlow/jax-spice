@@ -165,9 +165,11 @@ jobs:
             status=$(gcloud run jobs executions describe $exec_id \
               --region=${{ env.GCP_REGION }} \
               --format="value(status.conditions[0].status)")
-            echo -n .
+            stdbuf -oL echo -n .
             sleep 5
           done
+
+          echo 
 
           gcloud beta run jobs executions logs read $exec_id \
             --region=${{ env.GCP_REGION }}
