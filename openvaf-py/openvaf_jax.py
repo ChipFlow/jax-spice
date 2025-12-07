@@ -221,20 +221,30 @@ class OpenVAFToJAX:
 
         lines.append("    # Eval function computation")
 
-        for block_name in block_order:
-            block_data = self.mir_data['blocks'].get(block_name, {})
-            lines.append(f"")
-            lines.append(f"    # {block_name}")
+        # Group instructions by block for efficient access
+        eval_by_block = self._group_eval_instructions_by_block()
 
-            # Get instructions for this block
-            for inst in self.mir_data['instructions']:
-                if inst.get('block') != block_name:
-                    continue
+        for item in block_order:
+            if isinstance(item, tuple) and item[0] == 'loop':
+                # Handle loop structure
+                _, header, loop_blocks, exit_blocks = item
+                loop_lines = self._generate_eval_loop(
+                    header, loop_blocks, exit_blocks,
+                    eval_by_block, defined_vars
+                )
+                lines.extend(loop_lines)
+            else:
+                # Regular block
+                block_name = item
+                lines.append(f"")
+                lines.append(f"    # {block_name}")
 
-                expr = self._translate_instruction(inst, defined_vars)
-                if expr and 'result' in inst:
-                    lines.append(f"    {inst['result']} = {expr}")
-                    defined_vars.add(inst['result'])
+                # Get instructions for this block
+                for inst in eval_by_block.get(block_name, []):
+                    expr = self._translate_instruction(inst, defined_vars)
+                    if expr and 'result' in inst:
+                        lines.append(f"    {inst['result']} = {expr}")
+                        defined_vars.add(inst['result'])
 
         lines.append("")
 
@@ -406,43 +416,79 @@ class OpenVAFToJAX:
         return result
 
     def _find_loops(self, blocks: Dict) -> List[Set[str]]:
-        """Find all loops (SCCs with >1 node) using Tarjan's algorithm"""
-        index_counter = [0]
-        stack = []
+        """Find all loops (SCCs with >1 node) using iterative Tarjan's algorithm
+
+        Uses an explicit call stack to avoid recursion depth limits on
+        complex control flow graphs with many nested blocks.
+        """
+        index_counter = 0
+        tarjan_stack = []  # Stack for SCC detection
         lowlinks = {}
         index = {}
         on_stack = {}
         sccs = []
 
-        def strongconnect(v):
-            index[v] = index_counter[0]
-            lowlinks[v] = index_counter[0]
-            index_counter[0] += 1
-            stack.append(v)
-            on_stack[v] = True
+        # Iterative DFS using explicit call stack
+        # Each stack frame: (node, successor_iter, phase)
+        # phase 0: initial visit
+        # phase 1: after recursive call returned
+        for start in blocks:
+            if start in index:
+                continue
 
-            for w in blocks.get(v, {}).get('successors', []):
-                if w not in blocks:
-                    continue
-                if w not in index:
-                    strongconnect(w)
-                    lowlinks[v] = min(lowlinks[v], lowlinks[w])
-                elif on_stack.get(w, False):
-                    lowlinks[v] = min(lowlinks[v], index[w])
+            # Call stack: (node, iterator over successors, phase, current_child)
+            call_stack = [(start, None, 0, None)]
 
-            if lowlinks[v] == index[v]:
-                scc = set()
-                while True:
-                    w = stack.pop()
-                    on_stack[w] = False
-                    scc.add(w)
-                    if w == v:
-                        break
-                sccs.append(scc)
+            while call_stack:
+                v, succ_iter, phase, child = call_stack.pop()
 
-        for v in blocks:
-            if v not in index:
-                strongconnect(v)
+                if phase == 0:
+                    # Initial visit of node v
+                    index[v] = index_counter
+                    lowlinks[v] = index_counter
+                    index_counter += 1
+                    tarjan_stack.append(v)
+                    on_stack[v] = True
+
+                    # Get successors
+                    successors = [w for w in blocks.get(v, {}).get('successors', [])
+                                  if w in blocks]
+                    succ_iter = iter(successors)
+
+                    # Push back with phase 1 to process successors
+                    call_stack.append((v, succ_iter, 1, None))
+
+                elif phase == 1:
+                    # After returning from child (if any), update lowlink
+                    if child is not None:
+                        lowlinks[v] = min(lowlinks[v], lowlinks[child])
+
+                    # Process next successor
+                    try:
+                        w = next(succ_iter)
+                        if w not in index:
+                            # Push current frame back to continue later
+                            call_stack.append((v, succ_iter, 1, w))
+                            # Push new frame to visit w
+                            call_stack.append((w, None, 0, None))
+                        elif on_stack.get(w, False):
+                            lowlinks[v] = min(lowlinks[v], index[w])
+                            # Push back to try next successor
+                            call_stack.append((v, succ_iter, 1, None))
+                        else:
+                            # w already processed, try next successor
+                            call_stack.append((v, succ_iter, 1, None))
+                    except StopIteration:
+                        # All successors processed, check if v is root of SCC
+                        if lowlinks[v] == index[v]:
+                            scc = set()
+                            while True:
+                                w = tarjan_stack.pop()
+                                on_stack[w] = False
+                                scc.add(w)
+                                if w == v:
+                                    break
+                            sccs.append(scc)
 
         # Return only non-trivial SCCs (loops with >1 node)
         return [scc for scc in sccs if len(scc) > 1]
@@ -632,6 +678,186 @@ class OpenVAFToJAX:
 
         return lines
 
+    def _generate_eval_loop(self, header: str, loop_blocks: Set[str],
+                            exit_blocks: List[str], eval_by_block: Dict[str, List[dict]],
+                            defined_vars: Set[str]) -> List[str]:
+        """Generate JAX code for a loop in the eval function using jax.lax.while_loop
+
+        Args:
+            header: The loop header block name
+            loop_blocks: Set of all blocks in the loop
+            exit_blocks: List of blocks that are exited to
+            eval_by_block: Dict mapping block names to their instructions
+            defined_vars: Set of already-defined variable names (will be updated)
+
+        Returns:
+            List of code lines to add
+        """
+        lines = []
+        lines.append("")
+        lines.append(f"    # Loop: {header} with blocks {sorted(loop_blocks)}")
+
+        # Find PHI nodes in the header - these are loop-carried values
+        header_insts = eval_by_block.get(header, [])
+        phi_nodes = [inst for inst in header_insts if inst.get('opcode', '').lower() == 'phi']
+
+        # Get loop-carried variables: PHI results and their incoming values from the loop
+        loop_carried = []  # (result_var, init_value, loop_value)
+        for phi in phi_nodes:
+            result = phi.get('result', '')
+            phi_ops = phi.get('phi_operands', [])
+            init_val = None
+            loop_val = None
+            for op in phi_ops:
+                if op['block'] in loop_blocks:
+                    loop_val = op['value']
+                else:
+                    init_val = op['value']
+            if result and init_val and loop_val:
+                loop_carried.append((result, init_val, loop_val))
+
+        if not loop_carried:
+            # No loop-carried values - something is wrong
+            lines.append("    # WARNING: No loop-carried values found, skipping loop")
+            return lines
+
+        # Find the condition and body instructions
+        condition_inst = None
+        body_insts = []
+
+        for inst in header_insts:
+            op = inst.get('opcode', '').lower()
+            if op == 'br' and 'condition' in inst:
+                condition_inst = inst
+            elif op != 'phi':
+                body_insts.append(inst)
+
+        # Also get instructions from other loop blocks (the body)
+        for block in sorted(loop_blocks):
+            if block != header:
+                for inst in eval_by_block.get(block, []):
+                    op = inst.get('opcode', '').lower()
+                    if op not in ('br', 'jmp'):
+                        body_insts.append(inst)
+
+        # Helper to get operand with proper resolution
+        def get_operand(op: str, local_vars: Set[str] = None) -> str:
+            if local_vars is None:
+                local_vars = set()
+            # Check local loop variables first (no prefix)
+            if op in local_vars:
+                return op
+            if op in defined_vars:
+                return op
+            if op in self.constants:
+                return repr(self.constants[op])
+            return op
+
+        # Generate initial state tuple
+        init_state_parts = []
+        for result, init_val, _ in loop_carried:
+            init_state_parts.append(get_operand(init_val))
+
+        lines.append(f"    _loop_state_init = ({', '.join(init_state_parts)},)")
+
+        # Generate condition function
+        lines.append("")
+        lines.append("    def _loop_cond(_loop_state):")
+
+        # Unpack state
+        state_vars = [lc[0] for lc in loop_carried]  # Use original var names inside loop
+        lines.append(f"        {', '.join(state_vars)}, = _loop_state")
+
+        # Generate condition computation (instructions before the branch in header)
+        local_vars = set(state_vars)
+        for inst in header_insts:
+            op = inst.get('opcode', '').lower()
+            if op == 'phi' or op == 'br':
+                continue
+            result = inst.get('result', '')
+            expr = self._translate_eval_loop_instruction(inst, local_vars, defined_vars)
+            if expr and result:
+                lines.append(f"        {result} = {expr}")
+                local_vars.add(result)
+
+        # Return the condition
+        if condition_inst:
+            cond_var = condition_inst.get('condition', '')
+            # Check if condition is in local vars
+            if cond_var in local_vars:
+                lines.append(f"        return {cond_var}")
+            else:
+                lines.append(f"        return {get_operand(cond_var, local_vars)}")
+        else:
+            lines.append("        return False")
+
+        # Generate body function
+        lines.append("")
+        lines.append("    def _loop_body(_loop_state):")
+        lines.append(f"        {', '.join(state_vars)}, = _loop_state")
+
+        # Recompute header instructions (needed for body)
+        local_vars = set(state_vars)
+        for inst in header_insts:
+            op = inst.get('opcode', '').lower()
+            if op == 'phi' or op == 'br':
+                continue
+            result = inst.get('result', '')
+            expr = self._translate_eval_loop_instruction(inst, local_vars, defined_vars)
+            if expr and result:
+                lines.append(f"        {result} = {expr}")
+                local_vars.add(result)
+
+        # Generate body instructions
+        for inst in body_insts:
+            result = inst.get('result', '')
+            expr = self._translate_eval_loop_instruction(inst, local_vars, defined_vars)
+            if expr and result:
+                lines.append(f"        {result} = {expr}")
+                local_vars.add(result)
+
+        # Return new state (the loop_val from each PHI)
+        new_state_parts = []
+        for _, _, loop_val in loop_carried:
+            if loop_val in local_vars:
+                new_state_parts.append(loop_val)
+            else:
+                new_state_parts.append(get_operand(loop_val, local_vars))
+
+        lines.append(f"        return ({', '.join(new_state_parts)},)")
+
+        # Call while_loop
+        lines.append("")
+        lines.append("    _loop_result = lax.while_loop(_loop_cond, _loop_body, _loop_state_init)")
+
+        # Unpack results to variables
+        for i, (result, _, _) in enumerate(loop_carried):
+            lines.append(f"    {result} = _loop_result[{i}]")
+            defined_vars.add(result)
+
+        return lines
+
+    def _translate_eval_loop_instruction(self, inst: dict, local_vars: Set[str],
+                                         defined_vars: Set[str]) -> Optional[str]:
+        """Translate an instruction for use inside an eval loop
+
+        Args:
+            inst: The instruction to translate
+            local_vars: Variables defined locally in the loop (no prefix)
+            defined_vars: Variables defined in eval scope
+        """
+        def get_operand(op: str) -> str:
+            # Local vars first
+            if op in local_vars:
+                return op
+            if op in defined_vars:
+                return op
+            if op in self.constants:
+                return repr(self.constants[op])
+            return op
+
+        return self._translate_instruction_impl(inst, get_operand)
+
     def _translate_loop_instruction(self, inst: dict, local_vars: Set[str],
                                     init_defined: Set[str]) -> Optional[str]:
         """Translate an instruction for use inside a loop
@@ -662,6 +888,16 @@ class OpenVAFToJAX:
         """Group init instructions by their block"""
         by_block: Dict[str, List[dict]] = {}
         for inst in self.init_mir_data.get('instructions', []):
+            block = inst.get('block', 'block0')
+            if block not in by_block:
+                by_block[block] = []
+            by_block[block].append(inst)
+        return by_block
+
+    def _group_eval_instructions_by_block(self) -> Dict[str, List[dict]]:
+        """Group eval instructions by their block"""
+        by_block: Dict[str, List[dict]] = {}
+        for inst in self.mir_data.get('instructions', []):
             block = inst.get('block', 'block0')
             if block not in by_block:
                 by_block[block] = []
