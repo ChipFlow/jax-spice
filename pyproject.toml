@@ -25,7 +25,13 @@ members = ["openvaf-py"]
 cuda12 = [
     # Match CUDA version to your environment
     "jax[cuda12]==0.4.34; sys_platform != 'darwin'",
-    "nvidia-cuda-nvcc-cu12~=12.2; sys_platform != 'darwin'",
+    "nvidia-cuda-nvcc-cu12==12.2.140; sys_platform != 'darwin'",
+    "nvidia-cublas-cu12==12.2.5.6; sys_platform != 'darwin'",
+    "nvidia-cuda-cupti-cu12==12.2.142; sys_platform != 'darwin'",
+    "nvidia-cuda-nvcc-cu12==12.2.140; sys_platform != 'darwin'",
+    "nvidia-cuda-runtime-cu12==12.2.140; sys_platform != 'darwin'",
+    "nvidia-nvjitlink-cu12==12.2.140; sys_platform != 'darwin'",
+    "nvidia-cusparse-cu12==12.2.0.103; sys_platform != 'darwin'",
 ]
 sax = [
     "sax>=0.13.0",
