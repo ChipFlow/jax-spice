@@ -3,9 +3,9 @@ name = "jax-spice"
 version = "0.1.0"
 description = "JAX-based analog circuit simulator with Verilog-A support"
 authors = [{name = "ChipFlow"}]
-requires-python = ">=3.10,<3.14"
+requires-python = ">=3.11,<3.14"
 dependencies = [
-    "jax==0.4.34",
+    "jax>=0.8.0",
     "numpy>=1.24.0",
     "scipy>=1.11.0",
     "matplotlib>=3.7.0",
@@ -24,13 +24,8 @@ members = ["openvaf-py"]
 
 [project.optional-dependencies]
 cuda12 = [
-    # Match CUDA version to your environment
-    "jax[cuda12]==0.4.34; sys_platform != 'darwin'",
-    "nvidia-cuda-nvcc-cu12==12.2.140; sys_platform != 'darwin'",
-    "nvidia-cuda-cupti-cu12==12.2.142; sys_platform != 'darwin'",
-    "nvidia-cuda-nvcc-cu12==12.2.140; sys_platform != 'darwin'",
-    "nvidia-cuda-runtime-cu12==12.2.140; sys_platform != 'darwin'",
-    "nvidia-cusolver; sys_platform != 'darwin'",
+    # JAX 0.8+ uses jax-cuda12-plugin for CUDA support
+    "jax-cuda12-plugin>=0.8.0; sys_platform != 'darwin'",
 ]
 sax = [
     "sax>=0.13.0",
@@ -60,11 +55,11 @@ jax-spice-benchmark = "jax_spice.benchmarks.c6288:main"
 
 [tool.ruff]
 line-length = 100
-target-version = "py310"
+target-version = "py311"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "W"]
 
 [tool.pyright]
-pythonVersion = "3.10"
+pythonVersion = "3.11"
 typeCheckingMode = "basic"
