@@ -21,6 +21,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
         cuda-nvrtc-12-2 \
         cudnn9-cuda-12 \
         cuda-cupti-12-2 \
+	cusparselt-cuda-12 \
         libcublas-12-2 \
         libcusparse-12-2 \
         libcusolver-12-2 \
@@ -53,7 +54,7 @@ ENV RUSTC_WRAPPER=sccache
 ENV SCCACHE_DIR=/root/.cache/sccache
 
 # CUDA library paths
-ENV LD_LIBRARY_PATH=/usr/local/cuda-12.2/lib64
+#ENV LD_LIBRARY_PATH=/usr/local/cuda-12.2/lib64
 ENV PATH=/usr/local/cuda-12.2/bin:$PATH
 
 # JAX/XLA debug logging for PTX compilation
