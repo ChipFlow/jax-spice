@@ -23,11 +23,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     cuda-nvprof-12-2=12.2.142-1 \
     cuda-nvrtc-12-2=12.2.140-1 \
     cuda-cupti-12-2=12.2.142-1 \
-    cudnn9-cuda-12-3 \
     libcusparselt0=0.6.0.6-1 \
-    libcudnn9-static-cuda-12=9.0.0.312-1 \
-    libcudnn9-dev-cuda-12=9.0.0.312-1 \
-    libcudnn9-cuda-12=9.0.0.312-1 \
     libnvjitlink-12-2=12.2.140-1 \
     libcusparse-12-2=12.1.2.141-1 \
     libcublas-12-2=12.2.5.6-1 \
@@ -35,16 +31,13 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     libcufft-12-2=11.0.8.103-1 \
     && rm cuda-keyring_1.1-1_all.deb
 
-#        cuda-cudart-12-2 \
-#        cuda-nvrtc-12-2 \
-#        cudnn9-cuda-12 \
-#        cuda-cupti-12-2 \
-#	cusparselt-cuda-12 \
-#        libcublas-12-2 \
-#        libcusparse-12-2 \
-#        libcusolver-12-2 \
-#        libcufft-12-2 && \
-#
+# Install cuDNN 9.8+ from tarball (JAX 0.8+ requires cuDNN >= 9.8, not available in Debian 11 repo)
+RUN mkdir -p /usr/local/cuda-12.2/include /usr/local/cuda-12.2/lib64 \
+    && wget https://developer.download.nvidia.com/compute/cudnn/redist/cudnn/linux-x86_64/cudnn-linux-x86_64-9.8.0.87_cuda12-archive.tar.xz \
+    && tar -xf cudnn-linux-x86_64-9.8.0.87_cuda12-archive.tar.xz \
+    && cp cudnn-linux-x86_64-9.8.0.87_cuda12-archive/include/* /usr/local/cuda-12.2/include/ \
+    && cp cudnn-linux-x86_64-9.8.0.87_cuda12-archive/lib/* /usr/local/cuda-12.2/lib64/ \
+    && rm -rf cudnn-linux-x86_64-9.8.0.87_cuda12-archive cudnn-linux-x86_64-9.8.0.87_cuda12-archive.tar.xz
 
 
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | bash -s -- -y
@@ -71,7 +64,7 @@ ENV RUSTC_WRAPPER=sccache
 ENV SCCACHE_DIR=/root/.cache/sccache
 
 # CUDA library paths
-#ENV LD_LIBRARY_PATH=/usr/local/cuda-12.2/lib64
+ENV LD_LIBRARY_PATH=/usr/local/cuda-12.2/lib64
 ENV PATH=/usr/local/cuda-12.2/bin:$PATH
 
 # JAX/XLA debug logging for PTX compilation
