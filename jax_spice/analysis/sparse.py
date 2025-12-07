@@ -98,6 +98,7 @@ def _spsolve_gpu(
     """GPU sparse solve using jax.experimental.sparse
 
     Uses cuSOLVER under the hood. Only supports 1D RHS vectors.
+    Falls back to dense solve if cuSOLVER sparse is not available.
 
     Args:
         data: CSR data array (GPU expects CSR)
@@ -109,15 +110,70 @@ def _spsolve_gpu(
     Returns:
         Solution vector
     """
-    from jax.experimental.sparse.linalg import spsolve as jax_spsolve
+    try:
+        from jax.experimental.sparse.linalg import spsolve as jax_spsolve
 
-    # jax.experimental.sparse.linalg.spsolve expects CSR format
-    # and takes (data, indices, indptr, b, tol) as arguments
+        # jax.experimental.sparse.linalg.spsolve expects CSR format
+        # and takes (data, indices, indptr, b, tol) as arguments
+        n, m = shape
+
+        # The JAX spsolve function signature is:
+        # spsolve(data, indices, indptr, b, tol=0)
+        x = jax_spsolve(data, indices, indptr, b, tol=0)
+        return x
+    except Exception as e:
+        # cuSOLVER sparse may not be available in all environments
+        # Fall back to dense solve on GPU
+        import warnings
+        warnings.warn(
+            f"GPU sparse solve failed ({e}), falling back to dense solve",
+            RuntimeWarning
+        )
+        return _spsolve_gpu_dense_fallback(data, indices, indptr, b, shape)
+
+
+def _spsolve_gpu_dense_fallback(
+    data: Array,
+    indices: Array,
+    indptr: Array,
+    b: Array,
+    shape: Tuple[int, int]
+) -> Array:
+    """GPU solve by converting sparse matrix to dense
+
+    This is slower but works when cuSOLVER sparse is not available.
+
+    Args:
+        data: CSR data array
+        indices: CSR indices array
+        indptr: CSR indptr array
+        b: RHS vector
+        shape: Matrix shape
+
+    Returns:
+        Solution vector
+    """
+    from jax.experimental import sparse as jax_sparse
+
     n, m = shape
 
-    # The JAX spsolve function signature is:
-    # spsolve(data, indices, indptr, b, tol=0)
-    x = jax_spsolve(data, indices, indptr, b, tol=0)
+    # Convert CSR to BCOO (JAX's native sparse format)
+    # Then convert to dense for the solve
+    # This approach works with JIT compilation
+
+    # Build row indices from CSR indptr
+    # Each row i has entries from indptr[i] to indptr[i+1]
+    row_indices = jnp.repeat(jnp.arange(n), jnp.diff(indptr))
+
+    # Create BCOO sparse matrix
+    bcoo_indices = jnp.stack([row_indices, indices], axis=1)
+    A_bcoo = jax_sparse.BCOO((data, bcoo_indices), shape=shape)
+
+    # Convert to dense (this is the slow part, but works on all GPUs)
+    A_dense = A_bcoo.todense()
+
+    # Use dense solve (cuBLAS, well-supported on all GPUs)
+    x = jnp.linalg.solve(A_dense, b)
     return x
 
 
