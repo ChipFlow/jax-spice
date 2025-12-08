@@ -351,8 +351,8 @@ def profile_gpu_transient_solver(profiler: GPUProfiler, circuit_name: str = 'inv
     with profiler.measure(f"transient_gpu_{circuit_name}"):
         t_points, V_history, info = transient_analysis_gpu(
             bench.system,
-            t_end=1e-9 * num_timesteps,
-            dt=1e-9,
+            t_stop=1e-9 * num_timesteps,
+            t_step=1e-9,
             vdd=1.2,
             verbose=False
         )
