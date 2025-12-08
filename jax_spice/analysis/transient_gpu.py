@@ -39,6 +39,7 @@ from jax_spice.analysis.dc_gpu import (
     _bcoo_to_csr,
     GPUResidualFunction,
 )
+from jax_spice.analysis.dc import dc_operating_point_source_stepping
 
 
 class TransientCircuitData(NamedTuple):
@@ -638,6 +639,7 @@ def transient_analysis_gpu(
     t_step: float,
     t_start: float = 0.0,
     initial_guess: Optional[Array] = None,
+    icmode: str = "op",
     max_iterations: int = 20,
     abstol: float = 1e-9,
     reltol: float = 1e-3,
@@ -655,7 +657,10 @@ def transient_analysis_gpu(
         t_stop: End time
         t_step: Fixed timestep
         t_start: Start time
-        initial_guess: Initial voltage (if None, uses zero)
+        initial_guess: Initial voltage (if provided, overrides icmode)
+        icmode: Initial condition mode - "op" (default) computes DC operating
+                point first, "uic" uses initial conditions directly (zeros).
+                This matches VACASK behavior.
         max_iterations: Max NR iterations per timestep
         abstol: Absolute tolerance
         reltol: Relative tolerance
@@ -718,15 +723,40 @@ def transient_analysis_gpu(
     num_timesteps = int((t_stop - t_start) / t_step)
     times = jnp.linspace(t_start, t_stop, num_timesteps + 1)
 
-    # Initial condition
+    # Initial condition - following VACASK's icmode behavior
+    dc_info = None
     if initial_guess is not None:
+        # User provided initial guess - use it directly
         V0 = jnp.array(initial_guess, dtype=jnp.float64)
+        if verbose:
+            print("  Using provided initial guess")
+    elif icmode == "op":
+        # Default: compute DC operating point first (like VACASK icmode="op")
+        if verbose:
+            print("  Computing DC operating point for initial condition...")
+            _t0 = _time.perf_counter()
+        V0, dc_info = dc_operating_point_source_stepping(
+            system,
+            vdd_target=vdd,
+            vdd_steps=12,
+            max_iterations_per_step=50,
+            abstol=abstol,
+            verbose=False,
+        )
+        V0 = jnp.array(V0, dtype=jnp.float64)
+        if verbose:
+            print(f"    DC converged: {dc_info['converged']}, "
+                  f"iters: {dc_info['iterations']}, "
+                  f"time: {_time.perf_counter() - _t0:.2f}s")
     else:
+        # icmode="uic": use initial conditions directly (zeros)
         V0 = jnp.zeros(num_nodes, dtype=jnp.float64)
         # Set vdd nodes
         for name, idx in system.node_names.items():
             if 'vdd' in name.lower() and idx > 0:
                 V0 = V0.at[idx].set(vdd)
+        if verbose:
+            print("  Using zero initial condition (icmode='uic')")
 
     V0_reduced = V0[1:]  # Exclude ground
 
@@ -829,6 +859,8 @@ def transient_analysis_gpu(
         'avg_iterations_per_step': total_iterations / max(1, num_timesteps),
         'method': 'gpu_transient_sparsejac',
         'first_step_time': first_step_time,
+        'icmode': icmode,
+        'dc_info': dc_info,  # None if not using icmode="op"
     }
 
     return times, solutions_array, info
