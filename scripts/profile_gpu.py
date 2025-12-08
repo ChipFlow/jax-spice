@@ -165,7 +165,7 @@ class GPUProfiler:
         if self.timings:
             # Categorize operations
             cpu_ops = ['parse', 'flatten', 'build_system', 'numpy_ops']
-            gpu_ops = ['jacobian_build', 'sparse_solve', 'device_eval', 'jax_ops', 'gpu_native']
+            gpu_ops = ['jacobian_build', 'sparse_solve', 'device_eval', 'jax_ops', 'gpu_native', 'transient_gpu']
 
             cpu_time = sum(
                 t.total_time_ms for name, t in self.timings.items()
