@@ -674,6 +674,279 @@ def dc_operating_point_gpu(
     return V_full, info
 
 
+def dc_operating_point_gpu_source_stepping(
+    system: MNASystem,
+    initial_guess: Optional[Array] = None,
+    vdd_target: float = 1.2,
+    vdd_steps: int = 12,
+    max_iterations_per_step: int = 50,
+    abstol: float = 1e-9,
+    reltol: float = 1e-3,
+    damping: float = 1.0,
+    gmin: float = 1e-6,
+    gmin_fallback: float = 1e-3,
+    verbose: bool = False,
+) -> Tuple[Array, Dict]:
+    """GPU-native DC operating point with source stepping for difficult circuits.
+
+    Source stepping is a homotopy method that gradually ramps the supply voltage
+    from 0 to the target value. This is particularly effective for large digital
+    circuits with many cascaded stages.
+
+    This version uses sparsejac for automatic Jacobian computation and keeps
+    all Newton-Raphson iterations on GPU.
+
+    Args:
+        system: MNA system with devices
+        initial_guess: Initial voltage estimate (shape: [num_nodes])
+        vdd_target: Target supply voltage (default 1.2V)
+        vdd_steps: Number of voltage steps (default 12)
+        max_iterations_per_step: Max NR iterations per source step
+        abstol: Absolute tolerance for convergence
+        reltol: Relative tolerance for convergence
+        damping: Damping factor (0 < damping <= 1)
+        gmin: GMIN value for matrix conditioning
+        gmin_fallback: Higher GMIN for fallback on difficult steps
+        verbose: Print progress information
+
+    Returns:
+        Tuple of (solution, info) where:
+            solution: Node voltages (shape: [num_nodes])
+            info: Dict with convergence information including source_steps
+    """
+    if not HAS_SPARSEJAC:
+        raise ImportError("sparsejac is required for GPU-native DC analysis. "
+                         "Install with: pip install sparsejac")
+
+    n = system.num_nodes
+    n_reduced = n - 1
+
+    # Initialize solution to zeros
+    if initial_guess is not None:
+        V = np.array(initial_guess, dtype=np.float64)
+    else:
+        V = np.zeros(n, dtype=np.float64)
+
+    # Find vdd node indices
+    vdd_node_indices = []
+    for name, idx in system.node_names.items():
+        name_lower = name.lower()
+        if 'vdd' in name_lower and name_lower not in ('vss', 'gnd', '0'):
+            vdd_node_indices.append(idx)
+
+    total_iterations = 0
+    source_steps = 0
+    all_residual_history = []
+
+    # Generate voltage steps
+    vdd_values = np.linspace(vdd_target / vdd_steps, vdd_target, vdd_steps)
+
+    if verbose:
+        print(f"GPU Source stepping: 0 -> {vdd_target:.2f}V in {vdd_steps} steps", flush=True)
+
+    converged_at_target = False
+    last_info = {'converged': False, 'iterations': 0, 'residual_norm': 1e20}
+
+    for step_idx, vdd_step in enumerate(vdd_values):
+        source_steps += 1
+        is_final_step = (step_idx == len(vdd_values) - 1)
+        vdd_scale = vdd_step / vdd_target
+
+        # Set vdd nodes to current step voltage
+        for idx in vdd_node_indices:
+            V[idx] = vdd_step
+
+        if verbose:
+            print(f"  Step {source_steps}: Vdd={vdd_step:.3f}V", flush=True)
+
+        # Use relaxed tolerance for intermediate steps
+        step_abstol = abstol if is_final_step else max(abstol, 1e-4)
+
+        # Build residual function for this vdd_scale
+        gpu_fn = build_circuit_residual_fn(
+            system, gmin=gmin, vdd_scale=vdd_scale, vdd=vdd_target
+        )
+
+        # Run GPU Newton-Raphson at this step
+        V_jax, info = _gpu_newton_raphson(
+            gpu_fn,
+            initial_guess=V,
+            max_iterations=max_iterations_per_step,
+            abstol=step_abstol,
+            reltol=reltol,
+            damping=damping,
+            vdd=vdd_step,
+        )
+
+        V = np.array(V_jax)
+        total_iterations += info['iterations']
+        all_residual_history.extend(info['residual_history'])
+        last_info = info
+
+        if verbose:
+            print(f"    -> iter={info['iterations']}, residual={info['residual_norm']:.2e}, "
+                  f"converged={info['converged']}", flush=True)
+
+        # Fallback with higher GMIN for difficult steps
+        if not info['converged']:
+            if not is_final_step and info['residual_norm'] < 1e-3:
+                if verbose:
+                    print(f"    Accepting partial convergence", flush=True)
+            else:
+                if verbose:
+                    print(f"    Trying with higher GMIN ({gmin_fallback:.0e})...", flush=True)
+
+                gpu_fn_h = build_circuit_residual_fn(
+                    system, gmin=gmin_fallback, vdd_scale=vdd_scale, vdd=vdd_target
+                )
+
+                V_jax_h, info_h = _gpu_newton_raphson(
+                    gpu_fn_h,
+                    initial_guess=V,
+                    max_iterations=max_iterations_per_step * 2,
+                    abstol=1e-3 if not is_final_step else abstol,
+                    reltol=reltol,
+                    damping=damping,
+                    vdd=vdd_step,
+                )
+
+                if info_h['residual_norm'] < info['residual_norm']:
+                    V = np.array(V_jax_h)
+                    total_iterations += info_h['iterations']
+                    all_residual_history.extend(info_h['residual_history'])
+                    last_info = info_h
+
+                if verbose:
+                    print(f"      -> iter={info_h['iterations']}, "
+                          f"residual={info_h['residual_norm']:.2e}", flush=True)
+
+        if is_final_step and last_info['converged']:
+            converged_at_target = True
+
+    result_info = {
+        'converged': converged_at_target,
+        'iterations': total_iterations,
+        'source_steps': source_steps,
+        'final_vdd': vdd_values[-1],
+        'residual_norm': last_info['residual_norm'],
+        'delta_norm': last_info.get('delta_norm', 0.0),
+        'residual_history': all_residual_history,
+        'method': 'gpu_sparsejac_source_stepping',
+    }
+
+    if verbose:
+        print(f"  Complete: steps={source_steps}, iter={total_iterations}, "
+              f"converged={converged_at_target}", flush=True)
+
+    return jnp.array(V), result_info
+
+
+def _gpu_newton_raphson(
+    gpu_fn: GPUResidualFunction,
+    initial_guess: Array,
+    max_iterations: int = 100,
+    abstol: float = 1e-9,
+    reltol: float = 1e-3,
+    damping: float = 1.0,
+    vdd: float = 1.2,
+) -> Tuple[Array, Dict]:
+    """Internal GPU Newton-Raphson solver using sparsejac.
+
+    Args:
+        gpu_fn: GPU residual function with sparsity pattern
+        initial_guess: Initial voltage estimate (full array including ground)
+        max_iterations: Maximum NR iterations
+        abstol: Absolute tolerance
+        reltol: Relative tolerance
+        damping: Damping factor
+        vdd: Current supply voltage for clamping
+
+    Returns:
+        Tuple of (solution, info)
+    """
+    n_reduced = gpu_fn.num_nodes - 1
+    residual_fn = gpu_fn.residual_fn
+
+    # Build sparsity pattern for sparsejac
+    sparsity_rows, sparsity_cols = gpu_fn.sparsity_indices
+    n_nnz = len(sparsity_rows)
+    sparsity_data = jnp.ones(n_nnz, dtype=jnp.float64)
+    sparsity_indices = jnp.stack([sparsity_rows, sparsity_cols], axis=-1)
+    sparsity = jsparse.BCOO((sparsity_data, sparsity_indices), shape=(n_reduced, n_reduced))
+
+    # Create sparse Jacobian function
+    jacobian_fn = sparsejac.jacrev(residual_fn, sparsity=sparsity)
+
+    # Initialize (skip ground)
+    V = jnp.array(initial_guess[1:], dtype=jnp.float64)
+
+    converged = False
+    iterations = 0
+    residual_norm = 1e20
+    delta_norm = 0.0
+    residual_history = []
+
+    for iteration in range(max_iterations):
+        # Compute residual
+        f = residual_fn(V)
+        residual_norm = float(jnp.max(jnp.abs(f)))
+        residual_history.append(residual_norm)
+
+        if residual_norm < abstol:
+            converged = True
+            iterations = iteration + 1
+            break
+
+        # Compute Jacobian
+        J = jacobian_fn(V)
+
+        # Solve (dense on CPU, sparse on GPU)
+        backend = jax.default_backend()
+        if backend in ('gpu', 'cuda'):
+            from jax.experimental.sparse.linalg import spsolve as jax_spsolve
+            J_data, J_csr_indices, J_csr_indptr = _bcoo_to_csr(J, n_reduced)
+            delta_V = jax_spsolve(J_data, J_csr_indices, J_csr_indptr, -f, tol=0)
+        else:
+            J_dense = J.todense()
+            try:
+                delta_V = jnp.linalg.solve(J_dense, -f)
+            except Exception:
+                reg = 1e-10 * jnp.eye(n_reduced)
+                delta_V = jnp.linalg.solve(J_dense + reg, -f)
+
+        # Apply damping with voltage limiting
+        max_step = 2.0
+        max_delta = jnp.max(jnp.abs(delta_V))
+        step_scale = jnp.minimum(damping, max_step / (max_delta + 1e-15))
+
+        V = V + step_scale * delta_V
+
+        # Clamp
+        v_clamp = max(vdd * 2.0, 0.5)
+        V = jnp.clip(V, -v_clamp, v_clamp)
+
+        iterations = iteration + 1
+
+        delta_norm = float(jnp.max(jnp.abs(step_scale * delta_V)))
+        v_norm = float(jnp.max(jnp.abs(V)))
+
+        if delta_norm < abstol + reltol * max(v_norm, 1.0):
+            converged = True
+            break
+
+    V_full = jnp.concatenate([jnp.array([0.0]), V])
+
+    info = {
+        'converged': converged,
+        'iterations': iterations,
+        'residual_norm': residual_norm,
+        'delta_norm': delta_norm,
+        'residual_history': residual_history,
+    }
+
+    return V_full, info
+
+
 def dc_operating_point_gpu_jit(
     system: MNASystem,
     initial_guess: Optional[Array] = None,
