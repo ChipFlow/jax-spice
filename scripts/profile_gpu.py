@@ -264,7 +264,7 @@ def profile_iteration_breakdown(profiler: GPUProfiler):
     V = jnp.zeros(bench.system.num_nodes, dtype=jnp.float64)
     context = AnalysisContext(time=0.0, dt=1e-9, analysis_type='dc', gmin=1e-9)
 
-    # Profile 10 iterations
+    # Profile 10 iterations of old CPU-based solver
     for i in range(10):
         # Jacobian build
         with profiler.measure("jacobian_build"):
@@ -285,6 +285,47 @@ def profile_iteration_breakdown(profiler: GPUProfiler):
             V = V.at[1:].add(delta_V)
 
 
+def profile_gpu_native_solver(profiler: GPUProfiler, circuit_name: str = 'inv_test'):
+    """Profile the GPU-native DC solver using sparsejac
+
+    This uses the new GPU-native solver that:
+    1. Builds a vectorized JAX residual function
+    2. Uses sparsejac for automatic sparse Jacobian computation
+    3. Uses jax.experimental.sparse.linalg.spsolve (cuSOLVER on GPU)
+    """
+    from jax_spice.benchmarks.c6288 import C6288Benchmark
+    from jax_spice.analysis.dc_gpu import dc_operating_point_gpu
+
+    bench = C6288Benchmark(verbose=False)
+    bench.parse()
+    bench.flatten(circuit_name)
+    bench.build_system(circuit_name)
+
+    print(f"  GPU-native solver on {circuit_name}:")
+    print(f"    Nodes: {bench.system.num_nodes}, Devices: {len(bench.system.devices)}")
+
+    # Run GPU-native solver
+    with profiler.measure(f"gpu_native_{circuit_name}"):
+        V, info = dc_operating_point_gpu(
+            bench.system,
+            vdd=1.2,
+            max_iterations=100,
+            abstol=1e-9,
+            verbose=False
+        )
+
+    print(f"    Converged: {info.get('converged', False)}")
+    print(f"    Iterations: {info.get('iterations', 0)}")
+
+    return {
+        'circuit': circuit_name,
+        'nodes': bench.system.num_nodes,
+        'devices': len(bench.system.devices),
+        'converged': info.get('converged', False),
+        'iterations': info.get('iterations', 0),
+    }
+
+
 def main():
     print("=" * 70)
     print("JAX-SPICE GPU Profiling")
@@ -293,24 +334,34 @@ def main():
 
     profiler = GPUProfiler()
 
-    # Profile full simulation with limited iterations to avoid timeout
-    # The C6288 circuit may not converge, but we want to measure GPU performance
-    # Use only 10 iterations to stay within Cloud Run's 30-minute timeout
-    print("Profiling C6288 circuit simulation (max 10 iterations)...")
-    sim_info = profile_c6288_simulation(profiler, 'c6288_test', max_iterations=10)
-
-    print(f"  Circuit: {sim_info['circuit']}")
-    print(f"  Nodes: {sim_info['nodes']}")
-    print(f"  Devices: {sim_info['devices']}")
-    print(f"  Converged: {sim_info['converged']}")
-    print(f"  Iterations: {sim_info['iterations']}")
-    print(f"  Residual: {sim_info['residual']:.2e}")
+    # Profile GPU-native solver on small circuits first (fast)
+    print("Profiling GPU-native solver (sparsejac + cuSOLVER)...")
+    for circuit in ['inv_test', 'nor_test']:
+        try:
+            gpu_info = profile_gpu_native_solver(profiler, circuit)
+        except Exception as e:
+            print(f"  {circuit}: Error - {e}")
     print()
 
-    # Profile iteration breakdown on smaller circuit
-    print("Profiling iteration breakdown (inv_test)...")
+    # Profile iteration breakdown on smaller circuit (old CPU solver for comparison)
+    print("Profiling CPU-based iteration breakdown (inv_test)...")
     profile_iteration_breakdown(profiler)
     print()
+
+    # Skip the slow C6288 CPU-based profiling by default
+    # It takes ~77s per iteration with the old solver
+    run_c6288_cpu_profile = False
+    sim_info = None
+    if run_c6288_cpu_profile:
+        print("Profiling C6288 circuit simulation (max 10 iterations)...")
+        sim_info = profile_c6288_simulation(profiler, 'c6288_test', max_iterations=10)
+        print(f"  Circuit: {sim_info['circuit']}")
+        print(f"  Nodes: {sim_info['nodes']}")
+        print(f"  Devices: {sim_info['devices']}")
+        print(f"  Converged: {sim_info['converged']}")
+        print(f"  Iterations: {sim_info['iterations']}")
+        print(f"  Residual: {sim_info['residual']:.2e}")
+        print()
 
     # Generate report
     report = profiler.generate_report()
