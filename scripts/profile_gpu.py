@@ -326,6 +326,53 @@ def profile_gpu_native_solver(profiler: GPUProfiler, circuit_name: str = 'inv_te
     }
 
 
+def profile_gpu_transient_solver(profiler: GPUProfiler, circuit_name: str = 'inv_test',
+                                  num_timesteps: int = 10):
+    """Profile the GPU-native transient solver using sparsejac
+
+    This profiles:
+    1. Circuit data setup time
+    2. First timestep (includes JIT compilation)
+    3. Subsequent timesteps (steady-state performance)
+    """
+    from jax_spice.benchmarks.c6288 import C6288Benchmark
+    from jax_spice.analysis.transient_gpu import transient_analysis_gpu
+
+    bench = C6288Benchmark(verbose=False)
+    bench.parse()
+    bench.flatten(circuit_name)
+    bench.build_system(circuit_name)
+
+    print(f"  GPU-native transient solver on {circuit_name}:")
+    print(f"    Nodes: {bench.system.num_nodes}, Devices: {len(bench.system.devices)}")
+    print(f"    Timesteps: {num_timesteps}")
+
+    # Run GPU-native transient solver
+    with profiler.measure(f"transient_gpu_{circuit_name}"):
+        t_points, V_history, info = transient_analysis_gpu(
+            bench.system,
+            t_end=1e-9 * num_timesteps,
+            dt=1e-9,
+            vdd=1.2,
+            verbose=False
+        )
+
+    print(f"    Completed: {len(t_points)} timesteps")
+    if 'first_step_time' in info:
+        print(f"    First step (JIT compile): {info['first_step_time']:.3f}s")
+    if 'avg_step_time' in info:
+        print(f"    Avg step time: {info['avg_step_time']*1000:.2f}ms")
+
+    return {
+        'circuit': circuit_name,
+        'nodes': bench.system.num_nodes,
+        'devices': len(bench.system.devices),
+        'timesteps': len(t_points),
+        'first_step_time': info.get('first_step_time', 0),
+        'avg_step_time': info.get('avg_step_time', 0),
+    }
+
+
 def main():
     print("=" * 70)
     print("JAX-SPICE GPU Profiling")
@@ -342,6 +389,15 @@ def main():
     for circuit in ['inv_test', 'nor_test']:
         try:
             gpu_info = profile_gpu_native_solver(profiler, circuit)
+        except Exception as e:
+            print(f"  {circuit}: Error - {e}")
+    print()
+
+    # Profile GPU transient solver on small circuits
+    print("Profiling GPU-native transient solver (sparsejac + cuSOLVER)...")
+    for circuit in ['inv_test', 'nor_test']:
+        try:
+            transient_info = profile_gpu_transient_solver(profiler, circuit, num_timesteps=10)
         except Exception as e:
             print(f"  {circuit}: Error - {e}")
     print()
