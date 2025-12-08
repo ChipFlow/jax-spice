@@ -33,7 +33,7 @@ except ImportError:
     HAS_SPARSEJAC = False
     sparsejac = None
 
-from jax_spice.analysis.mna import MNASystem
+from jax_spice.analysis.mna import MNASystem, DeviceType
 from jax_spice.analysis.dc_gpu import (
     eval_param_simple,
     _bcoo_to_csr,
@@ -265,6 +265,238 @@ def build_transient_circuit_data(
     )
 
 
+def build_transient_circuit_data_fast(
+    system: MNASystem,
+    vdd: float = 1.2,
+    gmin: float = 1e-9,
+    vth0: float = 0.4,
+    kp: float = 200e-6,
+    lambda_: float = 0.01,
+) -> TransientCircuitData:
+    """Convert MNA system to GPU-compatible transient circuit data using pre-computed device groups.
+
+    This is a faster version of build_transient_circuit_data that uses pre-computed
+    VectorizedDeviceGroup arrays from MNASystem.build_device_groups() instead of
+    iterating over individual devices.
+
+    Args:
+        system: MNA system with devices (must have build_device_groups() called first)
+        vdd: Supply voltage (for parameter evaluation)
+        gmin: Minimum conductance to ground
+        vth0: MOSFET threshold voltage
+        kp: MOSFET transconductance parameter
+        lambda_: Channel length modulation
+
+    Returns:
+        TransientCircuitData with all device arrays
+    """
+    import numpy as np
+
+    num_nodes = system.num_nodes
+    n_reduced = num_nodes - 1
+
+    # Ensure device groups are built
+    if not system.device_groups:
+        system.build_device_groups()
+
+    # Initialize empty arrays for each device type
+    vsource_node_p = []
+    vsource_node_n = []
+    vsource_v_target = []
+
+    mosfet_node_d = []
+    mosfet_node_g = []
+    mosfet_node_s = []
+    mosfet_node_b = []
+    mosfet_W = []
+    mosfet_L = []
+    mosfet_is_pmos = []
+
+    resistor_node_p = []
+    resistor_node_n = []
+    resistor_conductance = []
+
+    capacitor_node_p = []
+    capacitor_node_n = []
+    capacitor_value = []
+
+    sparsity_set = set()
+
+    # Process pre-computed device groups
+    for group in system.device_groups:
+        n_dev = group.n_devices
+        if n_dev == 0:
+            continue
+        nodes = np.array(group.node_indices)  # Convert to numpy for slicing
+
+        # Handle UNKNOWN device types by checking model names
+        if group.device_type == DeviceType.UNKNOWN:
+            # Fall back to individual device processing for unknown types
+            # These may include vsources with non-standard model names
+            for i, name in enumerate(group.device_names):
+                # Find the original device to get model_name
+                for device in system.devices:
+                    if device.name == name:
+                        model_lower = device.model_name.lower()
+
+                        # Check if it's a voltage source
+                        is_vsource = (
+                            'vsource' in model_lower or
+                            'vdc' in model_lower or
+                            model_lower == 'v' or
+                            (model_lower.startswith('v') and len(model_lower) <= 2)
+                        )
+
+                        if is_vsource:
+                            node_p = device.node_indices[0]
+                            node_n = device.node_indices[1]
+                            v_raw = device.params.get('v', device.params.get('dc', 0.0))
+                            v_target = eval_param_simple(v_raw, vdd=vdd)
+
+                            vsource_node_p.append(node_p)
+                            vsource_node_n.append(node_n)
+                            vsource_v_target.append(v_target)
+
+                            # Sparsity
+                            for ni in [node_p, node_n]:
+                                for nj in [node_p, node_n]:
+                                    if ni > 0 and nj > 0:
+                                        sparsity_set.add((ni - 1, nj - 1))
+                        break
+            continue
+
+        if group.device_type == DeviceType.VSOURCE:
+            # Voltage sources: 2 terminals (p, n)
+            vsource_node_p.extend(nodes[:, 0].tolist())
+            vsource_node_n.extend(nodes[:, 1].tolist())
+
+            # Get voltage from params - check for 'v' or 'dc' keys
+            v_vals = group.params.get('v', group.params.get('dc', jnp.zeros(n_dev)))
+            if isinstance(v_vals, (int, float)):
+                v_vals = jnp.full(n_dev, v_vals)
+            vsource_v_target.extend(np.array(v_vals).tolist())
+
+            # Sparsity for vsources
+            for i in range(n_dev):
+                np_arr, nn_arr = nodes[i, 0], nodes[i, 1]
+                for ni in [np_arr, nn_arr]:
+                    for nj in [np_arr, nn_arr]:
+                        if ni > 0 and nj > 0:
+                            sparsity_set.add((ni - 1, nj - 1))
+
+        elif group.device_type == DeviceType.MOSFET:
+            # MOSFETs: 4 terminals (d, g, s, b)
+            mosfet_node_d.extend(nodes[:, 0].tolist())
+            mosfet_node_g.extend(nodes[:, 1].tolist())
+            mosfet_node_s.extend(nodes[:, 2].tolist())
+            # Body terminal - use source if only 3 terminals
+            if nodes.shape[1] > 3:
+                mosfet_node_b.extend(nodes[:, 3].tolist())
+            else:
+                mosfet_node_b.extend(nodes[:, 2].tolist())
+
+            # Get W, L from params
+            W_vals = group.params.get('w', jnp.full(n_dev, 1e-6))
+            L_vals = group.params.get('l', jnp.full(n_dev, 0.2e-6))
+            W_arr = np.maximum(np.array(W_vals), 1e-9)
+            L_arr = np.maximum(np.array(L_vals), 1e-9)
+            mosfet_W.extend(W_arr.tolist())
+            mosfet_L.extend(L_arr.tolist())
+
+            # Determine PMOS from device names (check for 'pmos' or 'psp' + 'p')
+            for name in group.device_names:
+                name_lower = name.lower()
+                is_pmos = 'pmos' in name_lower or (name_lower.endswith('p') and 'psp' in name_lower)
+                mosfet_is_pmos.append(is_pmos)
+
+            # Sparsity for MOSFETs
+            for i in range(n_dev):
+                nd, ng, ns = nodes[i, 0], nodes[i, 1], nodes[i, 2]
+                nb = nodes[i, 3] if nodes.shape[1] > 3 else ns
+                terminals = [nd, ng, ns, nb]
+                current_nodes = [nd, ns]
+                for ni in current_nodes:
+                    for nj in terminals:
+                        if ni > 0 and nj > 0:
+                            sparsity_set.add((ni - 1, nj - 1))
+
+        elif group.device_type == DeviceType.RESISTOR:
+            # Resistors: 2 terminals (p, n)
+            resistor_node_p.extend(nodes[:, 0].tolist())
+            resistor_node_n.extend(nodes[:, 1].tolist())
+
+            # Get resistance and convert to conductance
+            r_vals = group.params.get('r', group.params.get('value', jnp.full(n_dev, 1e6)))
+            if isinstance(r_vals, (int, float)):
+                r_vals = jnp.full(n_dev, r_vals)
+            r_arr = np.maximum(np.array(r_vals), 1e-9)
+            resistor_conductance.extend((1.0 / r_arr).tolist())
+
+            # Sparsity for resistors
+            for i in range(n_dev):
+                np_arr, nn_arr = nodes[i, 0], nodes[i, 1]
+                for ni in [np_arr, nn_arr]:
+                    for nj in [np_arr, nn_arr]:
+                        if ni > 0 and nj > 0:
+                            sparsity_set.add((ni - 1, nj - 1))
+
+        elif group.device_type == DeviceType.CAPACITOR:
+            # Capacitors: 2 terminals (p, n)
+            capacitor_node_p.extend(nodes[:, 0].tolist())
+            capacitor_node_n.extend(nodes[:, 1].tolist())
+
+            # Get capacitance value
+            c_vals = group.params.get('c', group.params.get('value', jnp.full(n_dev, 1e-12)))
+            if isinstance(c_vals, (int, float)):
+                c_vals = jnp.full(n_dev, c_vals)
+            c_arr = np.maximum(np.array(c_vals), 1e-18)
+            capacitor_value.extend(c_arr.tolist())
+
+            # Sparsity for capacitors
+            for i in range(n_dev):
+                np_arr, nn_arr = nodes[i, 0], nodes[i, 1]
+                for ni in [np_arr, nn_arr]:
+                    for nj in [np_arr, nn_arr]:
+                        if ni > 0 and nj > 0:
+                            sparsity_set.add((ni - 1, nj - 1))
+
+    # Add GMIN diagonal
+    for i in range(n_reduced):
+        sparsity_set.add((i, i))
+
+    # Convert sparsity to sorted arrays
+    sparsity_sorted = sorted(sparsity_set)
+    sparsity_rows = [r for r, c in sparsity_sorted]
+    sparsity_cols = [c for r, c in sparsity_sorted]
+
+    return TransientCircuitData(
+        num_nodes=num_nodes,
+        n_reduced=n_reduced,
+        vsource_node_p=jnp.array(vsource_node_p, dtype=jnp.int32),
+        vsource_node_n=jnp.array(vsource_node_n, dtype=jnp.int32),
+        vsource_v_target=jnp.array(vsource_v_target, dtype=jnp.float64),
+        mosfet_node_d=jnp.array(mosfet_node_d, dtype=jnp.int32),
+        mosfet_node_g=jnp.array(mosfet_node_g, dtype=jnp.int32),
+        mosfet_node_s=jnp.array(mosfet_node_s, dtype=jnp.int32),
+        mosfet_node_b=jnp.array(mosfet_node_b, dtype=jnp.int32),
+        mosfet_W=jnp.array(mosfet_W, dtype=jnp.float64),
+        mosfet_L=jnp.array(mosfet_L, dtype=jnp.float64),
+        mosfet_is_pmos=jnp.array(mosfet_is_pmos, dtype=jnp.bool_),
+        resistor_node_p=jnp.array(resistor_node_p, dtype=jnp.int32),
+        resistor_node_n=jnp.array(resistor_node_n, dtype=jnp.int32),
+        resistor_conductance=jnp.array(resistor_conductance, dtype=jnp.float64),
+        capacitor_node_p=jnp.array(capacitor_node_p, dtype=jnp.int32),
+        capacitor_node_n=jnp.array(capacitor_node_n, dtype=jnp.int32),
+        capacitor_value=jnp.array(capacitor_value, dtype=jnp.float64),
+        sparsity_rows=jnp.array(sparsity_rows, dtype=jnp.int32),
+        sparsity_cols=jnp.array(sparsity_cols, dtype=jnp.int32),
+        vth0=vth0,
+        kp=kp,
+        lambda_=lambda_,
+        gmin=gmin,
+    )
+
+
 def build_transient_residual_fn(
     circuit: TransientCircuitData,
 ) -> Callable[[Array, Array, float], Array]:
@@ -434,12 +666,12 @@ def transient_analysis_gpu(
     if not HAS_SPARSEJAC:
         raise ImportError("sparsejac required for GPU transient analysis")
 
-    # Build circuit data
+    # Build circuit data (using fast version with pre-computed device groups)
     if verbose:
         print("  Building circuit data...")
         _t0 = _time.perf_counter()
 
-    circuit = build_transient_circuit_data(system, vdd=vdd, gmin=gmin)
+    circuit = build_transient_circuit_data_fast(system, vdd=vdd, gmin=gmin)
     n_reduced = circuit.n_reduced
     num_nodes = circuit.num_nodes
 
@@ -636,8 +868,8 @@ def transient_analysis_gpu_jit(
     if not HAS_SPARSEJAC:
         raise ImportError("sparsejac required")
 
-    # Build circuit data
-    circuit = build_transient_circuit_data(system, vdd=vdd, gmin=gmin)
+    # Build circuit data (using fast version with pre-computed device groups)
+    circuit = build_transient_circuit_data_fast(system, vdd=vdd, gmin=gmin)
     n_reduced = circuit.n_reduced
     num_nodes = circuit.num_nodes
 
