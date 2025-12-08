@@ -58,4 +58,6 @@ def pytest_configure(config):
     import jax
 
     # Enable float64 for numerical precision in tests
-    jax.config.update('jax_enable_x64', True)
+    # (except on TPU which only supports F32 for LU decomposition)
+    if jax_platforms != 'tpu':
+        jax.config.update('jax_enable_x64', True)

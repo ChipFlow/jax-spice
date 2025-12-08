@@ -72,9 +72,10 @@ jobs:
 
       - name: Run profiling and tests
         run: |
+          # TPU only supports F32 for LU decomposition, so we don't enable X64
           gcloud compute tpus tpu-vm ssh "${{ env.TPU_NAME }}" \
             --zone="${{ env.GCP_ZONE }}" \
-            --command='source ~/.local/bin/env && cd ~/jax-spice && export JAX_PLATFORMS=tpu && export JAX_ENABLE_X64=1 && uv run python scripts/profile_gpu.py && uv run pytest tests/ -v --tb=short -x' \
+            --command='source ~/.local/bin/env && cd ~/jax-spice && export JAX_PLATFORMS=tpu && uv run python scripts/profile_gpu.py && uv run pytest tests/ -v --tb=short -x' \
             | tee /tmp/test_output.txt
 
       - name: Extract profiling report
