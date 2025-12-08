@@ -361,12 +361,14 @@ def dc_operating_point_source_stepping(
         step_abstol = abstol if is_final_step else max(abstol, 1e-4)
 
         # First try with moderate GMIN
+        # Use 1e-6 for better matrix conditioning on large digital circuits
+        # (1e-9 produces near-singular Jacobians with high-impedance MOSFET gates)
         V_jax, info = _dc_solve_with_source_scaling(
             system,
             initial_guess=V,
             vdd_scale=vdd_step / vdd_target,
             vdd_target=vdd_target,
-            gmin=1e-9,  # Moderate GMIN for stability
+            gmin=1e-6,  # GMIN for good matrix conditioning
             max_iterations=max_iterations_per_step,
             abstol=step_abstol,
             reltol=reltol,
@@ -383,25 +385,25 @@ def dc_operating_point_source_stepping(
             print(f"    -> iter={info['iterations']}, residual={info['residual_norm']:.2e}, "
                   f"converged={info['converged']}", flush=True)
 
-        # For intermediate steps, accept partial convergence (residual < 1e-3)
-        # This allows us to continue the stepping process
-        if not info['converged'] and not is_final_step:
-            if info['residual_norm'] < 1e-3:
+        # For steps that don't converge, try fallback with higher GMIN
+        if not info['converged']:
+            if not is_final_step and info['residual_norm'] < 1e-3:
+                # Accept partial convergence for intermediate steps
                 if verbose:
                     print(f"    Accepting partial convergence for intermediate step", flush=True)
             else:
-                # Try higher GMIN for this difficult step
+                # Try much higher GMIN for this difficult step
                 if verbose:
-                    print(f"    Trying with higher GMIN...", flush=True)
+                    print(f"    Trying with higher GMIN (1e-3)...", flush=True)
 
                 V_jax_h, info_h = _dc_solve_with_source_scaling(
                     system,
                     initial_guess=V,
                     vdd_scale=vdd_step / vdd_target,
                     vdd_target=vdd_target,
-                    gmin=1e-6,  # Higher GMIN for difficult regions
+                    gmin=1e-3,  # Much higher GMIN for difficult regions
                     max_iterations=max_iterations_per_step * 2,
-                    abstol=1e-3,  # Relaxed tolerance
+                    abstol=1e-3 if not is_final_step else abstol,  # Tighter tol for final
                     reltol=reltol,
                     damping=damping,
                     verbose=False,
