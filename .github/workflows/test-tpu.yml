@@ -1,6 +1,7 @@
 name: TPU Tests
 
 on:
+  pull_request:
   workflow_dispatch:
     inputs:
       use_spot:
