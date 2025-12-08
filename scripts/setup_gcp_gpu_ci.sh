@@ -2,11 +2,15 @@
 # Setup script for GCP GPU CI infrastructure
 # This script is fully idempotent - safe to run multiple times
 #
+# Usage: ./setup_gcp_gpu_ci.sh [--with-vm]
+#
 # Features:
 # - Creates service account with minimal permissions
 # - Stores service account key in GCP Secret Manager
 # - Syncs secret to GitHub Actions
-# - Provisions GPU VM for testing
+# - Creates Artifact Registry remote repo for ghcr.io caching
+# - Creates sccache GCS bucket for Rust compilation cache
+# - Provisions GPU VM for testing (optional, use --with-vm)
 #
 # Prerequisites:
 # - gcloud CLI installed and authenticated
@@ -16,14 +20,35 @@
 
 set -euo pipefail
 
+# Parse arguments
+SETUP_VM=false
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --with-vm)
+            SETUP_VM=true
+            shift
+            ;;
+        *)
+            echo "Unknown option: $1"
+            echo "Usage: $0 [--with-vm]"
+            exit 1
+            ;;
+    esac
+done
+
 # Configuration
 PROJECT_ID="${GCP_PROJECT:-jax-spice-cuda-test}"
+REGION="${GCP_REGION:-us-central1}"
 ZONE="${GCP_ZONE:-us-central1-f}"
 VM_NAME="${GCP_VM_NAME:-jax-spice-cuda}"
 SA_NAME="github-gpu-ci"
 SA_EMAIL="${SA_NAME}@${PROJECT_ID}.iam.gserviceaccount.com"
 SECRET_NAME="github-gpu-ci-key"
 GITHUB_REPO="${GITHUB_REPO:-ChipFlow/jax-spice}"
+
+# Cloud Run specific configuration
+AR_REMOTE_REPO="ghcr-remote"
+SCCACHE_BUCKET="jax-spice-sccache"
 
 # Machine configuration
 MACHINE_TYPE="n1-standard-4"
@@ -103,6 +128,46 @@ for ROLE in "${ROLES[@]}"; do
         --condition=None 2>/dev/null || true
 done
 log_info "IAM permissions configured"
+
+# =============================================================================
+# Step 3.5: Create Cloud Run resources (idempotent)
+# =============================================================================
+log_info "Setting up Cloud Run resources..."
+
+# Create Artifact Registry remote repository for ghcr.io (caches container images)
+if gcloud artifacts repositories describe "${AR_REMOTE_REPO}" --location="${REGION}" &>/dev/null; then
+    log_info "Artifact Registry remote repo already exists: ${AR_REMOTE_REPO}"
+else
+    log_info "Creating Artifact Registry remote repo: ${AR_REMOTE_REPO}"
+    gcloud artifacts repositories create "${AR_REMOTE_REPO}" \
+        --repository-format=docker \
+        --location="${REGION}" \
+        --description="Remote repository caching ghcr.io images" \
+        --mode=remote-repository \
+        --remote-repo-config-desc="GitHub Container Registry" \
+        --remote-docker-repo=https://ghcr.io \
+        --quiet
+fi
+
+# Create sccache GCS bucket (caches Rust compilation for openvaf-py)
+if gcloud storage buckets describe "gs://${SCCACHE_BUCKET}" &>/dev/null; then
+    log_info "sccache bucket already exists: ${SCCACHE_BUCKET}"
+else
+    log_info "Creating sccache bucket: ${SCCACHE_BUCKET}"
+    gcloud storage buckets create "gs://${SCCACHE_BUCKET}" \
+        --location="${REGION}" \
+        --uniform-bucket-level-access \
+        --quiet
+fi
+
+# Grant service account access to sccache bucket
+log_info "Granting service account access to sccache bucket..."
+gcloud storage buckets add-iam-policy-binding "gs://${SCCACHE_BUCKET}" \
+    --member="serviceAccount:${SA_EMAIL}" \
+    --role="roles/storage.objectAdmin" \
+    --quiet 2>/dev/null || true
+
+log_info "Cloud Run resources configured"
 
 # =============================================================================
 # Step 4: Create/update secret in Secret Manager (idempotent)
@@ -203,8 +268,9 @@ else
 fi
 
 # =============================================================================
-# Step 6: Create GPU VM (idempotent)
+# Step 6: Create GPU VM (idempotent) - OPTIONAL
 # =============================================================================
+if [ "${SETUP_VM}" = true ]; then
 log_info "Setting up GPU VM..."
 
 if gcloud compute instances describe "${VM_NAME}" --zone="${ZONE}" &>/dev/null; then
@@ -298,6 +364,10 @@ gcloud compute ssh "${VM_NAME}" --zone="${ZONE}" --quiet --command="
 log_info "Stopping VM to save costs..."
 gcloud compute instances stop "${VM_NAME}" --zone="${ZONE}" --quiet
 
+else
+    log_info "Skipping GPU VM setup (use --with-vm to enable)"
+fi
+
 # =============================================================================
 # Summary
 # =============================================================================
@@ -310,7 +380,11 @@ echo "Resources created/verified:"
 echo "  - Service Account: ${SA_EMAIL}"
 echo "  - Secret (GCP):    ${SECRET_NAME}"
 echo "  - GitHub Secret:   GCP_SERVICE_ACCOUNT_KEY"
+echo "  - Artifact Repo:   ${AR_REMOTE_REPO} (${REGION})"
+echo "  - sccache Bucket:  ${SCCACHE_BUCKET}"
+if [ "${SETUP_VM}" = true ]; then
 echo "  - GPU VM:          ${VM_NAME} (${ZONE})"
+fi
 echo ""
 echo "To trigger GPU tests:"
 echo "  1. Push to main or create a PR modifying GPU-related code"
@@ -318,7 +392,9 @@ echo "  2. Or manually: Actions -> GPU Tests -> Run workflow"
 echo ""
 echo "To access the secret:"
 echo "  gcloud secrets versions access latest --secret=${SECRET_NAME}"
+if [ "${SETUP_VM}" = true ]; then
 echo ""
 echo "To SSH into the VM:"
 echo "  gcloud compute instances start ${VM_NAME} --zone=${ZONE}"
 echo "  gcloud compute ssh ${VM_NAME} --zone=${ZONE}"
+fi

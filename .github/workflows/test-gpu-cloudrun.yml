@@ -35,34 +35,8 @@ jobs:
         with:
           install_components: 'beta'
 
-      - name: Create Artifact Registry remote repository for ghcr.io
-        run: |
-          # Create remote repository that proxies ghcr.io (idempotent)
-          if ! gcloud artifacts repositories describe ${{ env.AR_REMOTE_REPO }} \
-               --location="${{ env.GCP_REGION }}" 2>/dev/null; then
-            echo "Creating Artifact Registry remote repository for ghcr.io..."
-            gcloud artifacts repositories create ${{ env.AR_REMOTE_REPO }} \
-              --repository-format=docker \
-              --location="${{ env.GCP_REGION }}" \
-              --description="Remote repository caching ghcr.io images" \
-              --mode=remote-repository \
-              --remote-repo-config-desc="GitHub Container Registry" \
-              --remote-docker-repo=https://ghcr.io
-          else
-            echo "Artifact Registry remote repository already exists"
-          fi
-
-      - name: Create sccache GCS bucket
-        run: |
-          # Create sccache bucket if it doesn't exist (idempotent)
-          if ! gcloud storage buckets describe gs://jax-spice-sccache 2>/dev/null; then
-            echo "Creating sccache GCS bucket..."
-            gcloud storage buckets create gs://jax-spice-sccache \
-              --location="${{ env.GCP_REGION }}" \
-              --uniform-bucket-level-access
-          else
-            echo "sccache bucket already exists"
-          fi
+      # NOTE: Artifact Registry and sccache bucket are created via scripts/setup_gcp_gpu_ci.sh
+      # Run that script once when setting up a new GCP project
 
       - name: Login to GitHub Container Registry
         uses: docker/login-action@v3
