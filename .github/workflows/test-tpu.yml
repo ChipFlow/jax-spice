@@ -39,18 +39,32 @@ jobs:
         uses: google-github-actions/setup-gcloud@v2
 
       - name: Create TPU VM
+        id: create_tpu
         run: |
           SPOT_FLAG=""
           if [ "${{ inputs.use_spot }}" = "true" ]; then
             SPOT_FLAG="--spot"
           fi
 
-          gcloud compute tpus tpu-vm create "${{ env.TPU_NAME }}" \
-            --zone="${{ env.GCP_ZONE }}" \
-            --accelerator-type="${{ env.TPU_TYPE }}" \
-            --version="${{ env.TPU_RUNTIME }}" \
-            ${SPOT_FLAG} \
-            --quiet
+          # Try zones in order until one succeeds
+          ZONES="us-central1-a us-west4-a us-east1-d us-east5-a"
+          for zone in $ZONES; do
+            echo "Trying zone: $zone"
+            if gcloud compute tpus tpu-vm create "${{ env.TPU_NAME }}" \
+              --zone="$zone" \
+              --accelerator-type="${{ env.TPU_TYPE }}" \
+              --version="${{ env.TPU_RUNTIME }}" \
+              ${SPOT_FLAG} \
+              --quiet 2>&1; then
+              echo "TPU created successfully in $zone"
+              echo "ACTIVE_ZONE=$zone" >> "$GITHUB_OUTPUT"
+              exit 0
+            else
+              echo "Zone $zone failed, trying next..."
+            fi
+          done
+          echo "All zones exhausted"
+          exit 1
 
       - name: Sync code and setup environment
         run: |
@@ -58,23 +72,23 @@ jobs:
 
           gcloud compute tpus tpu-vm scp /tmp/jax-spice.tar.gz \
             "${{ env.TPU_NAME }}":~/jax-spice.tar.gz \
-            --zone="${{ env.GCP_ZONE }}"
+            --zone="${{ steps.create_tpu.outputs.ACTIVE_ZONE }}"
 
           gcloud compute tpus tpu-vm ssh "${{ env.TPU_NAME }}" \
-            --zone="${{ env.GCP_ZONE }}" \
+            --zone="${{ steps.create_tpu.outputs.ACTIVE_ZONE }}" \
             --command='mkdir -p ~/jax-spice && cd ~/jax-spice && tar -xzf ~/jax-spice.tar.gz && rm ~/jax-spice.tar.gz && curl -LsSf https://astral.sh/uv/install.sh | sh'
 
       - name: Install dependencies
         run: |
           gcloud compute tpus tpu-vm ssh "${{ env.TPU_NAME }}" \
-            --zone="${{ env.GCP_ZONE }}" \
+            --zone="${{ steps.create_tpu.outputs.ACTIVE_ZONE }}" \
             --command='source ~/.local/bin/env && cd ~/jax-spice && uv sync && uv pip install jax[tpu] -f https://storage.googleapis.com/jax-releases/libtpu_releases.html'
 
       - name: Run profiling and tests
         run: |
           # TPU only supports F32 for LU decomposition, so we don't enable X64
           gcloud compute tpus tpu-vm ssh "${{ env.TPU_NAME }}" \
-            --zone="${{ env.GCP_ZONE }}" \
+            --zone="${{ steps.create_tpu.outputs.ACTIVE_ZONE }}" \
             --command='source ~/.local/bin/env && cd ~/jax-spice && export JAX_PLATFORMS=tpu && uv run python scripts/profile_gpu.py && uv run pytest tests/ -v --tb=short -x' \
             | tee /tmp/test_output.txt
 
@@ -83,6 +97,7 @@ jobs:
         run: |
           echo "## TPU Test Results" >> "$GITHUB_STEP_SUMMARY"
           echo "- **TPU Type:** ${{ env.TPU_TYPE }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Zone:** ${{ steps.create_tpu.outputs.ACTIVE_ZONE }}" >> "$GITHUB_STEP_SUMMARY"
           echo "- **Spot VM:** ${{ inputs.use_spot }}" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
           if [ -f /tmp/test_output.txt ]; then
@@ -92,6 +107,17 @@ jobs:
       - name: Cleanup TPU VM
         if: always()
         run: |
-          gcloud compute tpus tpu-vm delete "${{ env.TPU_NAME }}" \
-            --zone="${{ env.GCP_ZONE }}" \
-            --quiet || true
+          # Try to delete in all possible zones (in case we don't know which one was used)
+          ZONE="${{ steps.create_tpu.outputs.ACTIVE_ZONE }}"
+          if [ -n "$ZONE" ]; then
+            gcloud compute tpus tpu-vm delete "${{ env.TPU_NAME }}" \
+              --zone="$ZONE" \
+              --quiet || true
+          else
+            # Fallback: try all zones
+            for zone in us-central1-a us-west4-a us-east1-d us-east5-a; do
+              gcloud compute tpus tpu-vm delete "${{ env.TPU_NAME }}" \
+                --zone="$zone" \
+                --quiet 2>/dev/null || true
+            done
+          fi
