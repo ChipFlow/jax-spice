@@ -4,6 +4,7 @@ This module provides a differentiable sparse linear solver that automatically
 selects the best backend based on the JAX platform:
 - CPU: Uses scipy.sparse.linalg.spsolve via jax.pure_callback
 - GPU: Uses jax.experimental.sparse.linalg.spsolve (cuSOLVER)
+- TPU: Uses dense solve via jnp.linalg.solve (spsolve not supported on TPU)
 
 The solver supports reverse-mode autodiff through jax.custom_vjp using
 the adjoint method for implicit differentiation.
@@ -19,6 +20,7 @@ References:
 
 from typing import Tuple
 import jax
+import jax.numpy as jnp
 from jax import Array
 import numpy as np
 from scipy.sparse import csc_matrix, csr_matrix
@@ -50,8 +52,35 @@ def sparse_solve(
     backend = jax.default_backend()
     if backend == 'cpu':
         return _spsolve_cpu(data, indices, indptr, b, shape)
-    else:
+    elif backend in ('gpu', 'cuda'):
         return _spsolve_gpu(data, indices, indptr, b, shape)
+    else:
+        # TPU and other backends: use dense solve (spsolve not supported)
+        return _solve_dense_csc(data, indices, indptr, b, shape)
+
+
+def _solve_dense_csc(
+    data: Array,
+    indices: Array,
+    indptr: Array,
+    b: Array,
+    shape: Tuple[int, int]
+) -> Array:
+    """Dense solve by reconstructing matrix from CSC format.
+
+    Used for TPU and other backends that don't support sparse solve.
+    """
+    from jax.experimental.sparse import BCOO
+
+    # Convert CSC to BCOO and then to dense
+    # CSC: data[k] is at (indices[k], col) where col is determined by indptr
+    n = shape[0]
+    col_indices = jnp.repeat(jnp.arange(n), jnp.diff(indptr))
+    bcoo_indices = jnp.stack([indices, col_indices], axis=1)
+    A_bcoo = BCOO((data, bcoo_indices), shape=shape)
+    A_dense = A_bcoo.todense()
+
+    return jnp.linalg.solve(A_dense, b)
 
 
 def _spsolve_cpu(
@@ -199,8 +228,35 @@ def sparse_solve_csr(
     backend = jax.default_backend()
     if backend == 'cpu':
         return _spsolve_cpu_csr(data, indices, indptr, b, shape)
-    else:
+    elif backend in ('gpu', 'cuda'):
         return _spsolve_gpu(data, indices, indptr, b, shape)
+    else:
+        # TPU and other backends: use dense solve (spsolve not supported)
+        return _solve_dense_csr(data, indices, indptr, b, shape)
+
+
+def _solve_dense_csr(
+    data: Array,
+    indices: Array,
+    indptr: Array,
+    b: Array,
+    shape: Tuple[int, int]
+) -> Array:
+    """Dense solve by reconstructing matrix from CSR format.
+
+    Used for TPU and other backends that don't support sparse solve.
+    """
+    from jax.experimental.sparse import BCOO
+
+    # Convert CSR to BCOO and then to dense
+    # CSR: data[k] is at (row, indices[k]) where row is determined by indptr
+    n = shape[0]
+    row_indices = jnp.repeat(jnp.arange(n), jnp.diff(indptr))
+    bcoo_indices = jnp.stack([row_indices, indices], axis=1)
+    A_bcoo = BCOO((data, bcoo_indices), shape=shape)
+    A_dense = A_bcoo.todense()
+
+    return jnp.linalg.solve(A_dense, b)
 
 
 def _spsolve_cpu_csr(

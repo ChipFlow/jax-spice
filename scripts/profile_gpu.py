@@ -21,8 +21,9 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-# Enable float64
-jax.config.update('jax_enable_x64', True)
+# Enable float64 (except on TPU which only supports F32 for LU decomposition)
+if os.environ.get('JAX_PLATFORMS') != 'tpu':
+    jax.config.update('jax_enable_x64', True)
 
 
 @dataclass
