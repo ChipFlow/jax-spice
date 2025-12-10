@@ -204,15 +204,28 @@ echo "Circuit: {args.circuit}"
 echo "Trace output: {trace_gcs_path}"
 
 # Get access token from metadata server (workload identity)
+echo "Fetching access token from metadata server..."
 TOKEN=$(curl -s -H "Metadata-Flavor: Google" \
   "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token" | \
   python3 -c "import sys,json; print(json.load(sys.stdin)['access_token'])")
 
-# Download the profiling script from GCS
-curl -s -H "Authorization: Bearer $TOKEN" \
-  "https://storage.googleapis.com/{GCS_BUCKET_NAME}/scripts/profile_run_{timestamp}.py" \
-  -o /tmp/profile_run.py
+if [ -z "$TOKEN" ]; then
+  echo "ERROR: Failed to get access token"
+  exit 1
+fi
+echo "Got access token (length: ${{#TOKEN}})"
 
+# Download the profiling script from GCS
+echo "Downloading profiling script from GCS..."
+curl -v -H "Authorization: Bearer $TOKEN" \
+  "https://storage.googleapis.com/{GCS_BUCKET_NAME}/scripts/profile_run_{timestamp}.py" \
+  -o /tmp/profile_run.py 2>&1
+
+echo "Script downloaded, size: $(wc -c < /tmp/profile_run.py) bytes"
+echo "First 5 lines:"
+head -5 /tmp/profile_run.py
+
+echo "Running profiling script..."
 uv run python /tmp/profile_run.py
 
 # Upload traces to GCS
