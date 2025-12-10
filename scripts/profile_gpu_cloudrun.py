@@ -203,12 +203,12 @@ echo "Circuit: {args.circuit}"
 echo "Trace output: {trace_gcs_path}"
 
 # Download and run the profiling script from GCS
-gsutil cp {python_script_gcs} /tmp/profile_run.py
+gcloud storage cp {python_script_gcs} /tmp/profile_run.py
 uv run python /tmp/profile_run.py
 
 # Upload traces to GCS
 echo "=== Uploading traces to GCS ==="
-gsutil -m cp -r /tmp/jax-trace/* {trace_gcs_path}/
+gcloud storage cp -r /tmp/jax-trace/* {trace_gcs_path}/
 
 echo "=== Profiling Complete ==="
 echo "Traces uploaded to: {trace_gcs_path}"
