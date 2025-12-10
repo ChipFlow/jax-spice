@@ -172,9 +172,18 @@ print(f"Completed: {{len(times)}} timesteps, {{info['total_iterations']}} iterat
 print(f"Trace saved to: {{trace_dir}}")
 '''
 
-    # Base64 encode the Python script to avoid shell escaping issues
+    # Upload the Python script to GCS
     import base64
-    python_b64 = base64.b64encode(profile_python.encode()).decode()
+    python_script_gcs = f"{GCS_BUCKET}/scripts/profile_run_{timestamp}.py"
+
+    # Write Python script to temp file and upload
+    python_script_path = Path(tempfile.gettempdir()) / f"profile_run_{timestamp}.py"
+    python_script_path.write_text(profile_python)
+
+    print(f"[3/6] Uploading profiling script to GCS...")
+    run_cmd(["gsutil", "cp", str(python_script_path), python_script_gcs])
+    print(f"  Uploaded to: {python_script_gcs}")
+    print()
 
     # Create the bash script that runs the profiling
     profile_script = f'''#!/bin/bash
@@ -193,8 +202,8 @@ echo "=== Starting GPU Profiling ==="
 echo "Circuit: {args.circuit}"
 echo "Trace output: {trace_gcs_path}"
 
-# Decode and run the profiling script
-echo "{python_b64}" | base64 -d > /tmp/profile_run.py
+# Download and run the profiling script from GCS
+gsutil cp {python_script_gcs} /tmp/profile_run.py
 uv run python /tmp/profile_run.py
 
 # Upload traces to GCS
@@ -205,13 +214,13 @@ echo "=== Profiling Complete ==="
 echo "Traces uploaded to: {trace_gcs_path}"
 '''
 
-    # Write script to temp file for debugging
+    # Write bash script to temp file for debugging
     script_path = Path(tempfile.gettempdir()) / "profile_script.sh"
     script_path.write_text(profile_script)
-    print(f"  Script saved to: {script_path}")
+    print(f"  Bash script saved to: {script_path}")
 
     # Create or update the Cloud Run job
-    print("[3/5] Creating/updating Cloud Run job...")
+    print("[4/6] Creating/updating Cloud Run job...")
 
     # Use a base64-encoded script to avoid shell escaping issues
     script_b64 = base64.b64encode(profile_script.encode()).decode()
@@ -248,7 +257,7 @@ echo "Traces uploaded to: {trace_gcs_path}"
     print()
 
     # Execute the job
-    print("[4/5] Executing Cloud Run job...")
+    print("[5/6] Executing Cloud Run job...")
     result = run_cmd(
         [
             "gcloud",
@@ -275,7 +284,7 @@ echo "Traces uploaded to: {trace_gcs_path}"
     print()
 
     # Download traces
-    print("[5/5] Downloading traces...")
+    print("[6/6] Downloading traces...")
     local_trace_dir.mkdir(parents=True, exist_ok=True)
     run_cmd(
         [
