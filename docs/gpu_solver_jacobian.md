@@ -160,6 +160,99 @@ Results:
 
 The 56 Jacobian entries are computed symbolically by OpenVAF from the Verilog-A model equations - these are the well-conditioned conductance stamps that SPICE simulators rely on.
 
+## How OpenVAF Handles Hidden States (Cache Slots)
+
+OpenVAF's compilation pipeline distinguishes between:
+1. **Model/Instance Parameters**: User-specified values (like VTH0, KP, W, L)
+2. **Voltages**: Circuit node voltages from the solver
+3. **Hidden States (Cache Slots)**: Intermediate values computed by the device model
+
+### The Init/Eval Split in OSDI
+
+OSDI models have two functions:
+- **Init function**: Runs once per operating point, computes parameter-dependent values
+- **Eval function**: Runs every Newton iteration, uses init outputs + voltages
+
+The init function computes "cached" values that don't depend on voltages:
+```c
+// Example from a resistor model
+// Init computes temperature-adjusted resistance:
+res = R * pow(temperature / tnom, zeta);  // Cached, doesn't change during NR
+```
+
+These cached values are stored in "cache slots" and passed to the eval function.
+
+### OpenVAF MIR Structure
+
+In the MIR (Mid-level IR), cached values appear as:
+```rust
+// From openvaf/sim_back/src/init.rs
+pub struct CacheSlot(u32);
+
+// The init function outputs to cache slots
+// The eval function reads from cache slots
+```
+
+The mapping between init outputs and eval inputs is tracked in `cache_mapping`:
+```python
+# From openvaf_py
+cache_mapping = [
+    {'init_value': 'init_v30', 'eval_param': 'v86'},  # sign
+    {'init_value': 'init_v31', 'eval_param': 'v37'},  # beta
+]
+```
+
+### How openvaf_jax Handles This
+
+The JAX translator currently requires users to provide ALL parameters as inputs,
+including those that should be computed by init:
+
+```python
+# What the user provides:
+inputs = [
+    0,        # PMOS flag
+    1.0,      # sign (ideally computed from PMOS)
+    0.0,      # V(s)
+    1.2,      # V(g)
+    1.2,      # Vgs (should be computed: V(g) - V(s))
+    1.2,      # V(d)
+    1.2,      # Vds (should be computed: V(d) - V(s))
+    # ... etc
+]
+```
+
+The eval function DOES compute voltage-derived values (Vgs, Vds) internally
+from the terminal voltages. But it expects the init-computed values (like beta)
+to be provided.
+
+### Key Insight: Voltage-Derived Values
+
+Looking at the MOSFET model:
+```verilog
+// These are computed EVERY iteration from voltages
+Vgs = V(g) - V(s);
+Vds = V(d) - V(s);
+Vov = Vgs - VTH0;
+
+// These are computed ONCE in init
+beta = KP * W / L;  // Doesn't depend on voltages
+```
+
+The JAX-generated code correctly computes Vgs, Vds, Vov from the input
+voltages on every call. The issue is that values like `beta` need to be
+computed once and passed in.
+
+### Solution for GPU Solver Integration
+
+To use openvaf_jax models in the GPU solver:
+
+1. **Run init once** at start of Newton iteration to compute cache slots
+2. **Pass cache values** as part of the inputs array
+3. **Eval function** computes residuals and Jacobians from voltages + cache
+
+This matches how VACASK works: it runs init once, then calls eval repeatedly
+with the cached values until convergence.
+
 ## Next Steps
 
 1. **Create a GPU solver variant** that uses openvaf_jax-generated functions
