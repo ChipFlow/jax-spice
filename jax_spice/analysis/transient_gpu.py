@@ -592,6 +592,13 @@ def build_transient_residual_fn(
             Ids = beta * Vgst_eff * Vds_eff * (1 + lambda_ * jnp.abs(Vds))
             Ids = jnp.maximum(Ids, 0.0)
 
+            # Add minimum off-state conductance for numerical stability
+            # This provides a DC path for floating nodes (like series NMOS stacks)
+            # VACASK uses gds_min = 1e-9, we match that for consistency
+            gds_min = 1e-9
+            Ids_leakage = gds_min * Vds
+            Ids = Ids + Ids_leakage
+
             # Stamp currents
             # Convention: positive residual = current INTO node
             # NMOS: current flows D→S when ON, so +Ids leaves D, -Ids enters S

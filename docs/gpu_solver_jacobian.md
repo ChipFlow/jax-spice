@@ -1,0 +1,168 @@
+# GPU Solver Jacobian: Autodiff vs Analytical
+
+## The Problem
+
+The GPU solver (`dc_gpu.py`, `transient_gpu.py`) uses JAX autodiff (via `sparsejac`) to compute Jacobians. This causes convergence issues for circuits with floating nodes (like series NMOS stacks in AND gates).
+
+### Root Cause
+
+When a MOSFET is in cutoff or deep saturation, the autodiff-computed `dIds/dVds` (output conductance) can be extremely small:
+- GPU autodiff: `gds ≈ 1e-16 S` in cutoff
+- VACASK analytical: `gds = 1e-9 S` minimum (enforced)
+
+This creates nearly-singular Jacobians that cause Newton-Raphson to diverge.
+
+### Comparison at AND Gate `int` Node (Floating)
+
+| Property | GPU (autodiff) | VACASK (analytical) |
+|----------|----------------|---------------------|
+| gds in cutoff | ~1e-16 S | 1e-9 S (min enforced) |
+| Convergence | Fails (oscillates) | Succeeds (34 iters) |
+| Final `int` voltage | Diverges to ±2.4V | Settles to 0.6V |
+
+## How openvaf_jax Works
+
+The `openvaf_jax.py` module translates Verilog-A models (via OpenVAF MIR) to JAX functions that return **both** residual and analytical Jacobian:
+
+```python
+# Generated function signature
+def device_eval(inputs: List[float]) -> Tuple[Dict, Dict]:
+    """
+    Returns:
+        residuals: Dict[node, {'resist': float, 'react': float}]
+        jacobian: Dict[(row, col), {'resist': float, 'react': float}]
+    """
+```
+
+### Key Code Location
+
+In `openvaf_jax.py` lines 262-277:
+```python
+# Build output expressions
+lines.append("    residuals = {")
+for node, res in self.dae_data['residuals'].items():
+    resist_val = res['resist'] if res['resist'] in defined_vars else '0.0'
+    react_val = res['react'] if res['react'] in defined_vars else '0.0'
+    lines.append(f"        '{node}': {{'resist': {resist_val}, 'react': {react_val}}},")
+
+lines.append("    jacobian = {")
+for entry in self.dae_data['jacobian']:
+    key = f"('{entry['row']}', '{entry['col']}')"
+    resist_val = entry['resist'] if entry['resist'] in defined_vars else '0.0'
+    react_val = entry['react'] if entry['resist'] in defined_vars else '0.0'
+    lines.append(f"        {key}: {{'resist': {resist_val}, 'react': {react_val}}},")
+```
+
+The Jacobian entries come from `dae_data['jacobian']` which is extracted from the OpenVAF MIR - these are **analytical derivatives** computed by OpenVAF's symbolic differentiation of the Verilog-A model.
+
+## Current State
+
+### VACASK Path (works)
+```
+c6288.sim → parser → psp103n/psp103p model
+                          ↓
+              create_simple_mosfet_eval() ← Uses explicit gm, gds stamps
+                          ↓
+              build_sparse_jacobian_and_residual() ← Stamps conductances into J
+```
+
+### GPU Path (broken)
+```
+c6288.sim → parser → psp103n/psp103p model
+                          ↓
+              create_simple_mosfet_eval() ← Same simplified model
+                          ↓
+              build_circuit_residual_fn() ← Residual only, no J
+                          ↓
+              sparsejac.jacrev(residual_fn) ← Autodiff gives wrong gds
+```
+
+## Solution Options
+
+### Option 1: Add gds_min to GPU Model (Partial Fix)
+Add minimum conductance leakage: `Ids += gds_min * Vds`
+
+**Status**: Implemented but insufficient - gds_min only helps in cutoff, not saturation.
+
+### Option 2: Use Analytical Jacobian from openvaf_jax (Preferred)
+
+Create PSP103 device via openvaf_jax and use its analytical Jacobian:
+
+```python
+from openvaf_jax import OpenVAFToJAX
+
+# Compile PSP103 model to JAX
+translator = OpenVAFToJAX.from_file("psp103v4.va")
+psp103_eval = translator.translate()
+
+# In GPU residual function:
+def residual_fn(V):
+    for device in mosfets:
+        inputs = build_inputs(V, device)
+        residuals, jacobian = psp103_eval(inputs)  # Both from same call!
+        # Stamp residuals into f
+        # Jacobian available for building J analytically
+```
+
+This requires restructuring the GPU solver to:
+1. Build residual AND Jacobian together (not separately via autodiff)
+2. Use JAX's sparse matrix operations with explicit stamp values
+
+### Option 3: Hybrid Approach
+
+Use autodiff for most of the circuit but override MOSFET gds with minimum value:
+```python
+# After autodiff Jacobian computation
+J_diag = jnp.diag(J)
+J_diag = jnp.where(jnp.abs(J_diag) < gds_min, jnp.sign(J_diag) * gds_min, J_diag)
+```
+
+## Files Involved
+
+- `jax_spice/analysis/dc_gpu.py` - GPU DC solver
+- `jax_spice/analysis/transient_gpu.py` - GPU transient solver
+- `jax_spice/benchmarks/c6288.py` - `create_simple_mosfet_eval()` at line 179
+- `openvaf-py/openvaf_jax.py` - OpenVAF→JAX translator
+- `jax_spice/devices/verilog_a.py` - VerilogADevice wrapper
+
+## Test Case
+
+The `and_test` circuit in `c6288.sim` is a good minimal test:
+- 6 MOSFETs (NAND + inverter)
+- Floating `int` node between series NMOS mn1/mn2
+- VACASK converges in 34 iterations
+- GPU solver diverges
+
+## Verification: PSP103 via openvaf_jax Works
+
+Confirmed that PSP103 can be compiled and evaluated via openvaf_jax:
+
+```python
+import openvaf_py
+import openvaf_jax
+
+va_path = 'openvaf-py/vendor/OpenVAF/integration_tests/PSP103/psp103.va'
+modules = openvaf_py.compile_va(va_path)
+module = modules[0]
+
+translator = openvaf_jax.OpenVAFToJAX(module)
+eval_fn = translator.translate()
+
+# Evaluate - returns BOTH residual and analytical Jacobian
+residuals, jacobian = eval_fn(inputs)
+```
+
+Results:
+- Module: PSP103VA
+- Nodes: 13 (internal nodes for the compact model)
+- Parameters: 2616
+- **Jacobian entries: 56** (analytical, not autodiff!)
+
+The 56 Jacobian entries are computed symbolically by OpenVAF from the Verilog-A model equations - these are the well-conditioned conductance stamps that SPICE simulators rely on.
+
+## Next Steps
+
+1. **Create a GPU solver variant** that uses openvaf_jax-generated functions
+2. **Map PSP103 sim_nodes to circuit nodes** (d, g, s, b terminals)
+3. **Build Jacobian from analytical stamps** instead of autodiff
+4. **Benchmark convergence** on and_test circuit

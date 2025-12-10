@@ -1014,6 +1014,144 @@ class OpenVAFToJAX:
 
         return None
 
+    def _build_multi_way_phi(self, phi_block: str, phi_ops: List[dict],
+                             val_by_block: Dict[str, str],
+                             get_operand: Callable[[str], str]) -> str:
+        """Build nested jnp.where for PHI nodes with >2 predecessors
+
+        For MOSFET-style if-elseif-else (cutoff/linear/saturation), we need:
+        jnp.where(cutoff_cond, cutoff_val,
+                  jnp.where(linear_cond, linear_val, sat_val))
+
+        The structure in the MIR is:
+        - block4 branches on cutoff condition (v44) to block5 (cutoff) or block6
+        - block6 branches on linear condition (v52) to block8 (linear) or block9 (saturation)
+        - block7 has PHI with values from block5, block8, block9
+        """
+        blocks = self.mir_data.get('blocks', {})
+        branch_conds = self._build_branch_conditions()
+
+        # Get predecessor blocks from PHI operands
+        pred_blocks = [op['block'] for op in phi_ops]
+
+        # Find the dominating branch structure
+        # Look for blocks that branch to our predecessors
+        cond_chain = []  # List of (condition_var, true_block, remaining_blocks)
+
+        # Find the first branch point - a block whose successors include one of our preds
+        # and another block that eventually leads to other preds
+        remaining_preds = set(pred_blocks)
+
+        for block_name, block_data in blocks.items():
+            if block_name in branch_conds:
+                succs = block_data.get('successors', [])
+                # Check if one successor is one of our predecessors
+                for succ in succs:
+                    if succ in remaining_preds:
+                        cond_var, is_true = branch_conds[block_name][succ]
+                        other_succs = [s for s in succs if s != succ]
+                        if other_succs:
+                            # Found a branch where one path leads directly to a PHI pred
+                            cond_chain.append((cond_var, succ, other_succs[0], is_true))
+
+        # Build the nested where expression
+        # For MOSFET: v44 determines cutoff (block5) vs not-cutoff (block6)
+        #            v52 determines linear (block8) vs saturation (block9)
+
+        # Sort cond_chain by the block numbers to get consistent ordering
+        # We want outer conditions first (lower block numbers typically)
+
+        if not cond_chain:
+            # Fallback: couldn't figure out the condition structure
+            # Just return the first value
+            return val_by_block.get(pred_blocks[0], '0.0')
+
+        # Build the expression from the condition chain
+        # For a 3-way PHI (cutoff/linear/sat):
+        # cond_chain might be: [(v44, block5, block6, True), (v52, block8, block9, True)]
+        # We want: where(v44, val_block5, where(v52, val_block8, val_block9))
+
+        # Find which pred each condition leads to directly
+        # and build the nested where accordingly
+        pred_to_val = val_by_block
+
+        # Trace through the condition chain to build the nested where
+        # Start with the blocks that are direct successors of branch points
+        result = self._build_nested_where_from_blocks(
+            phi_block, pred_blocks, pred_to_val, blocks, branch_conds
+        )
+
+        return result if result else val_by_block.get(pred_blocks[0], '0.0')
+
+    def _build_nested_where_from_blocks(self, phi_block: str, pred_blocks: List[str],
+                                         pred_to_val: Dict[str, str], blocks: Dict,
+                                         branch_conds: Dict) -> Optional[str]:
+        """Recursively build nested jnp.where from CFG structure
+
+        This traces backwards from the PHI block to find the conditions.
+        """
+        if len(pred_blocks) == 1:
+            return pred_to_val.get(pred_blocks[0], '0.0')
+
+        if len(pred_blocks) == 2:
+            # Base case: 2 predecessors, find the branching condition
+            pred0, pred1 = pred_blocks
+            cond_info = self._get_phi_condition(phi_block, pred_blocks)
+            if cond_info:
+                cond_var, true_block, false_block = cond_info
+                true_val = pred_to_val.get(true_block, '0.0')
+                false_val = pred_to_val.get(false_block, '0.0')
+                return f"jnp.where({cond_var}, {true_val}, {false_val})"
+            else:
+                return pred_to_val.get(pred_blocks[0], '0.0')
+
+        # For >2 predecessors, find a block that branches to one of them
+        # and another block that leads to the rest
+        for block_name in blocks:
+            if block_name not in branch_conds:
+                continue
+
+            succs = blocks[block_name].get('successors', [])
+            if len(succs) != 2:
+                continue
+
+            # Check if one successor is in our pred_blocks
+            direct_pred = None
+            indirect_succ = None
+            for succ in succs:
+                if succ in pred_blocks:
+                    direct_pred = succ
+                else:
+                    # Check if this successor eventually leads to other preds
+                    # (it could be an intermediate block that branches further)
+                    indirect_succ = succ
+
+            if direct_pred and indirect_succ:
+                # Found a branch: one path goes directly to a PHI pred,
+                # other path goes to an intermediate block
+                cond_var, is_true = branch_conds[block_name][direct_pred]
+
+                # Get the value for the direct path
+                direct_val = pred_to_val.get(direct_pred, '0.0')
+
+                # Find remaining preds (those not reached by direct path)
+                remaining_preds = [p for p in pred_blocks if p != direct_pred]
+
+                # Recursively build where for remaining preds
+                # The indirect_succ should eventually lead to remaining_preds
+                remaining_expr = self._build_nested_where_from_blocks(
+                    phi_block, remaining_preds, pred_to_val, blocks, branch_conds
+                )
+
+                if remaining_expr:
+                    if is_true:
+                        return f"jnp.where({cond_var}, {direct_val}, {remaining_expr})"
+                    else:
+                        return f"jnp.where({cond_var}, {remaining_expr}, {direct_val})"
+
+        # Fallback: couldn't build the expression
+        return None
+
     def _translate_init_instruction(self, inst: dict, defined_vars: Set[str]) -> Optional[str]:
         """Translate an init function instruction with prefixed variables"""
 
@@ -1165,6 +1303,13 @@ class OpenVAFToJAX:
                 # Get the predecessor blocks from PHI operands
                 pred_blocks = [op['block'] for op in phi_ops]
                 val_by_block = {op['block']: get_operand(op['value']) for op in phi_ops}
+
+                # For PHIs with more than 2 predecessors, we need to chain jnp.where calls
+                # This happens with if-elseif-else patterns (e.g., cutoff/linear/saturation)
+                if len(pred_blocks) > 2:
+                    # Need to find ALL branch conditions to build nested where
+                    # Build a chain: where(cond1, val1, where(cond2, val2, val3))
+                    return self._build_multi_way_phi(phi_block, phi_ops, val_by_block, get_operand)
 
                 # Try to find the condition that determines the branch
                 cond_info = self._get_phi_condition(phi_block, pred_blocks)

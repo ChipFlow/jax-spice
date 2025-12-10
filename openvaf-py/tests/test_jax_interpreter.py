@@ -9,7 +9,7 @@ import numpy as np
 from typing import Dict, List, Tuple
 
 from conftest import (
-    INTEGRATION_PATH, INTEGRATION_MODELS, assert_allclose,
+    INTEGRATION_PATH, LOCAL_MODELS_PATH, INTEGRATION_MODELS, assert_allclose,
     CompiledModel, build_param_dict
 )
 
@@ -209,3 +209,204 @@ class TestModelComplexity:
                 break
 
         assert has_finite, f"{model_name} produced no finite outputs"
+
+
+class TestMosfetLevel1JaxInterpreter:
+    """Detailed comparison for simple MOSFET level-1 model
+
+    This tests the multi-way PHI handling (cutoff/linear/saturation regions)
+    which requires nested jnp.where calls in JAX.
+    """
+
+    @pytest.mark.parametrize("vd,vg,vs,vb,expected_region", [
+        # Cutoff: Vgs < Vth (0.4V)
+        (1.2, 0.0, 0.0, 0.0, "cutoff"),
+        (0.5, 0.3, 0.0, 0.0, "cutoff"),
+        # Saturation: Vgs > Vth and Vds > Vov
+        (1.2, 1.2, 0.0, 0.0, "saturation"),
+        (0.8, 1.0, 0.0, 0.0, "saturation"),
+        (1.5, 1.2, 0.0, 0.0, "saturation"),
+        # Linear (triode): Vgs > Vth and Vds < Vov
+        (0.2, 1.2, 0.0, 0.0, "linear"),
+        (0.3, 1.0, 0.0, 0.0, "linear"),
+    ])
+    def test_mosfet_regions_match_interpreter(
+        self, mosfet_level1_model: CompiledModel,
+        vd, vg, vs, vb, expected_region
+    ):
+        """Compare JAX vs interpreter residuals in different MOSFET regions"""
+        # The model computes hidden states internally now, but we need to
+        # pre-compute them for the interpreter
+        vgs = vg - vs
+        vds = vd - vs
+        vbs = vb - vs
+        vth = 0.4
+        vov = vgs - vth
+        kp = 200e-6
+        w = 1e-6
+        l = 0.2e-6
+        beta = kp * w / l
+        lam = 0.01
+        gdsmin = 1e-9
+
+        # Build JAX inputs (hidden states will be computed internally)
+        jax_inputs = [
+            0,      # PMOS (0=NMOS)
+            1.0,    # sign
+            vs,     # V(s)
+            vg,     # V(g)
+            0.0,    # Vgs (computed)
+            vd,     # V(d)
+            0.0,    # Vds (computed)
+            vb,     # V(b)
+            0.0,    # Vbs (computed)
+            kp,     # KP
+            w,      # W
+            l,      # L
+            0.0,    # beta (computed)
+            vth,    # VTH0
+            0.0,    # Vov (computed)
+            gdsmin, # GDSMIN
+            0.0,    # Ids (computed)
+            lam,    # LAMBDA
+            0.0,    # I(d,s)
+            1.0,    # mfactor
+        ]
+
+        # Build interpreter params (need pre-computed hidden states)
+        interp_params = {
+            'PMOS': 0,
+            'sign': 1.0,
+            'V(s)': vs,
+            'V(g)': vg,
+            'Vgs': vgs,
+            'V(d)': vd,
+            'Vds': vds,
+            'V(b)': vb,
+            'Vbs': vbs,
+            'KP': kp,
+            'W': w,
+            'L': l,
+            'beta': beta,
+            'VTH0': vth,
+            'Vov': vov,
+            'GDSMIN': gdsmin,
+            'Ids': 0.0,  # Will be computed
+            'LAMBDA': lam,
+            'I(d,s)': 0.0,
+            'mfactor': 1.0,
+        }
+
+        # Run both
+        jax_residuals, jax_jacobian = mosfet_level1_model.jax_fn(jax_inputs)
+        interp_residuals, interp_jacobian = mosfet_level1_model.module.run_init_eval(interp_params)
+
+        # Compare drain residual (node 0)
+        jax_I_drain = float(jax_residuals['sim_node0']['resist'])
+        interp_I_drain = interp_residuals[0][0]
+
+        assert_allclose(
+            jax_I_drain, interp_I_drain,
+            rtol=1e-6, atol=1e-15,
+            err_msg=f"MOSFET drain current mismatch in {expected_region} region: "
+                    f"Vd={vd}, Vg={vg}, Vs={vs}"
+        )
+
+        # Compare source residual (node 2)
+        jax_I_source = float(jax_residuals['sim_node2']['resist'])
+        interp_I_source = interp_residuals[2][0]
+
+        assert_allclose(
+            jax_I_source, interp_I_source,
+            rtol=1e-6, atol=1e-15,
+            err_msg=f"MOSFET source current mismatch in {expected_region} region"
+        )
+
+        # Verify currents are opposite (KCL)
+        assert_allclose(
+            jax_I_drain, -jax_I_source,
+            rtol=1e-10, atol=1e-15,
+            err_msg="MOSFET KCL violated: I_drain != -I_source"
+        )
+
+    @pytest.mark.parametrize("vd,vg,vs,vb,expected_region", [
+        (1.2, 1.2, 0.0, 0.0, "saturation"),
+        (0.2, 1.2, 0.0, 0.0, "linear"),
+        (1.2, 0.0, 0.0, 0.0, "cutoff"),
+    ])
+    def test_mosfet_jacobian_matches_interpreter(
+        self, mosfet_level1_model: CompiledModel,
+        vd, vg, vs, vb, expected_region
+    ):
+        """Compare JAX vs interpreter jacobian in different MOSFET regions"""
+        vgs = vg - vs
+        vds = vd - vs
+        vbs = vb - vs
+        vth = 0.4
+        vov = vgs - vth
+        kp = 200e-6
+        w = 1e-6
+        l = 0.2e-6
+        beta = kp * w / l
+        lam = 0.01
+        gdsmin = 1e-9
+
+        jax_inputs = [
+            0, 1.0, vs, vg, 0.0, vd, 0.0, vb, 0.0,
+            kp, w, l, 0.0, vth, 0.0, gdsmin, 0.0, lam, 0.0, 1.0
+        ]
+
+        interp_params = {
+            'PMOS': 0, 'sign': 1.0, 'V(s)': vs, 'V(g)': vg, 'Vgs': vgs,
+            'V(d)': vd, 'Vds': vds, 'V(b)': vb, 'Vbs': vbs, 'KP': kp,
+            'W': w, 'L': l, 'beta': beta, 'VTH0': vth, 'Vov': vov,
+            'GDSMIN': gdsmin, 'Ids': 0.0, 'LAMBDA': lam, 'I(d,s)': 0.0,
+            'mfactor': 1.0
+        }
+
+        jax_residuals, jax_jacobian = mosfet_level1_model.jax_fn(jax_inputs)
+        interp_residuals, interp_jacobian = mosfet_level1_model.module.run_init_eval(interp_params)
+
+        # Compare all 6 Jacobian entries
+        # Interpreter format: (row, col, resist, react)
+        interp_jac_dict = {(r, c): (resist, react) for r, c, resist, react in interp_jacobian}
+
+        for key, jax_val in jax_jacobian.items():
+            row_name, col_name = key
+            row_idx = int(row_name.replace('sim_node', ''))
+            col_idx = int(col_name.replace('sim_node', ''))
+
+            if (row_idx, col_idx) in interp_jac_dict:
+                interp_resist, _ = interp_jac_dict[(row_idx, col_idx)]
+                jax_resist = float(jax_val['resist'])
+
+                assert_allclose(
+                    jax_resist, interp_resist,
+                    rtol=1e-5, atol=1e-12,
+                    err_msg=f"MOSFET Jacobian[{row_idx},{col_idx}] mismatch in {expected_region}"
+                )
+
+    def test_mosfet_diagonal_is_positive(self, mosfet_level1_model: CompiledModel):
+        """Verify MOSFET Jacobian diagonal is positive (critical for Newton stability)
+
+        This is the key property that makes SPICE converge - positive diagonal
+        conductances ensure Newton-Raphson steps in the right direction.
+        """
+        # Test in saturation region
+        jax_inputs = [
+            0, 1.0, 0.0, 1.2, 0.0, 1.2, 0.0, 0.0, 0.0,
+            200e-6, 1e-6, 0.2e-6, 0.0, 0.4, 0.0, 1e-9, 0.0, 0.01, 0.0, 1.0
+        ]
+
+        _, jax_jacobian = mosfet_level1_model.jax_fn(jax_inputs)
+
+        # Check diagonal entries are positive
+        j_dd = float(jax_jacobian[('sim_node0', 'sim_node0')]['resist'])
+        j_ss = float(jax_jacobian[('sim_node2', 'sim_node2')]['resist'])
+
+        assert j_dd > 0, f"Drain diagonal should be positive: J[d,d]={j_dd}"
+        assert j_ss > 0, f"Source diagonal should be positive: J[s,s]={j_ss}"
+
+        # Also verify gds (output conductance) is at least GDSMIN
+        gdsmin = 1e-9
+        assert j_dd >= gdsmin, f"Drain diagonal should be >= GDSMIN: J[d,d]={j_dd}"
