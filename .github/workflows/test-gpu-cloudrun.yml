@@ -110,6 +110,7 @@ jobs:
               --task-timeout=31m \
               --set-env-vars=GITHUB_REPOSITORY=${{ github.repository }} \
               --set-env-vars=GITHUB_SHA=${{ github.sha }} \
+              --set-env-vars=RUN_GPU_BENCHMARKS=1 \
           "
 
           # Check if job exists

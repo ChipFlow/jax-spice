@@ -6,11 +6,11 @@ to match VACASK benchmark behavior.
 Run with: pytest tests/test_transient_gpu.py -v -s
 """
 
+import os
 import pytest
 import numpy as np
 from pathlib import Path
 import sys
-import os
 import time
 
 jax_spice_path = Path(__file__).parent.parent
@@ -29,18 +29,11 @@ from jax_spice.analysis.transient_gpu import (
 )
 
 
-def has_gpu():
-    """Check if GPU/CUDA backend is available"""
-    for device in jax.devices():
-        platform = device.platform.lower()
-        if platform in ('gpu', 'cuda'):
-            return True
-    return False
-
-
-requires_gpu = pytest.mark.skipif(
-    not has_gpu() and os.environ.get('RUN_GPU_BENCHMARKS') != '1',
-    reason="GPU not available (set RUN_GPU_BENCHMARKS=1 to run anyway)"
+# Skip C6288 tests unless RUN_GPU_BENCHMARKS=1 is set
+# C6288 takes ~30 minutes on CPU, only practical on GPU
+requires_gpu_benchmark = pytest.mark.skipif(
+    os.environ.get('RUN_GPU_BENCHMARKS') != '1',
+    reason="C6288 too slow without GPU (set RUN_GPU_BENCHMARKS=1 to run)"
 )
 
 
@@ -194,7 +187,6 @@ class TestTransientGPUBasic:
 class TestTransientGPUPerformance:
     """Performance tests for GPU transient analysis"""
 
-    @requires_gpu
     def test_inv_transient_gpu_vs_cpu(self, capsys):
         """Compare GPU vs CPU transient performance for inverter"""
         print("\n" + "=" * 60)
@@ -314,6 +306,64 @@ class TestCircuitDataConstruction:
         print(f"Max |residual|: {float(jnp.max(jnp.abs(residual))):.2e}")
 
         assert residual.shape == (n_reduced,)
+
+
+class TestC6288Transient:
+    """C6288 full circuit transient tests"""
+
+    @requires_gpu_benchmark
+    def test_c6288_transient_minimal(self, capsys):
+        """Test C6288 transient with minimal timesteps to verify it works
+
+        This test validates that the full C6288 circuit (5123 nodes, 10112 MOSFETs)
+        can run transient analysis with icmode='uic'. Uses only 5 timesteps to keep
+        runtime reasonable while still validating the solver works on large circuits.
+        """
+        print("\n" + "=" * 60)
+        print("C6288 Full Circuit Transient (minimal timesteps)")
+        print("=" * 60)
+
+        bench = C6288Benchmark(verbose=False)
+        bench.parse()
+        bench.flatten('c6288_test')
+        bench.build_system('c6288_test')
+
+        system = bench.system
+        system.build_device_groups()
+
+        mosfet_count = sum(1 for d in system.devices if 'psp' in d.model_name.lower())
+        print(f"Nodes: {system.num_nodes}")
+        print(f"Devices: {len(system.devices)}")
+        print(f"MOSFETs: {mosfet_count}")
+
+        # Minimal transient: 5 timesteps with 2ps step (matches VACASK c6288.sim)
+        t_stop = 10e-12  # 10ps total (5 steps)
+        t_step = 2e-12   # 2ps per step
+
+        start = time.perf_counter()
+        times, solutions, info = transient_analysis_gpu(
+            system,
+            t_stop=t_stop,
+            t_step=t_step,
+            icmode='uic',  # Use Initial Conditions - matches VACASK
+            vdd=1.2,
+            verbose=True,
+        )
+        elapsed = time.perf_counter() - start
+
+        print(f"\nSimulation completed in {elapsed:.2f}s")
+        print(f"Timesteps: {info['num_timepoints']}")
+        print(f"Avg iterations/step: {info['avg_iterations_per_step']:.1f}")
+        print(f"First step time (JIT compile): {info['first_step_time']:.2f}s")
+
+        # Verify basic operation
+        assert info['num_timepoints'] == 6  # t=0 plus 5 steps
+        assert solutions.shape[0] == 6
+        assert solutions.shape[1] == system.num_nodes
+
+        # Verify icmode was used
+        assert info['icmode'] == 'uic'
+        assert info['dc_info'] is None  # No DC solve for uic mode
 
 
 class TestICModeComparison:
