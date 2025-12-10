@@ -45,12 +45,16 @@ def run_cmd(
         capture_output=capture,
         text=True,
     )
-    if capture and result.stdout:
-        print(result.stdout.strip())
-    if result.stderr:
-        print(result.stderr, file=sys.stderr)
     if check and result.returncode != 0:
         sys.exit(result.returncode)
+    if capture:
+        stdout = None
+        stderr = None
+        if result.stdout:
+            stdout =  result.stdout.strip()
+        if result.stderr:
+            stderr = result.stderr.strip()
+        return (result, stdout, stderr)
     return result
 
 
@@ -97,9 +101,11 @@ def main():
 
     # Check gcloud auth
     print("[1/5] Checking gcloud authentication...")
-    result = run_cmd(
+    (result, stdout, stderr)  = run_cmd(
         ["gcloud", "auth", "print-identity-token"], capture=True, check=False
     )
+    print(stdout)
+    print(stdout, file=sys.stderr)
     if result.returncode != 0:
         print("Error: Not authenticated with gcloud. Run: gcloud auth login")
         sys.exit(1)
@@ -286,7 +292,7 @@ echo "Traces uploaded to: {trace_gcs_path}"
 
     # Execute the job
     print("[5/6] Executing Cloud Run job...")
-    result = run_cmd(
+    (result, exec_id, _)  = run_cmd(
         [
             "gcloud",
             "run",
@@ -295,18 +301,80 @@ echo "Traces uploaded to: {trace_gcs_path}"
             JOB_NAME,
             f"--region={GCP_REGION}",
             f"--project={GCP_PROJECT}",
-            "--wait",
+            "--async",
+            "--format=value(metadata.name)",
         ],
-        check=False,
+        capture=True,
     )
 
-    if result.returncode != 0:
+    print(f"Job Execution ID: {exec_id}")
+
+    # Start log tailing in background
+    log_proc = subprocess.Popen(
+        [
+            "gcloud",
+            "beta",
+            "run",
+            "jobs",
+            "executions",
+            "logs",
+            "tail",
+            exec_id,
+            f"--region={GCP_REGION}",
+            f"--project={GCP_PROJECT}",
+        ],
+        stdout=None,  # Inherit stdout
+        stderr=None,  # Inherit stderr
+    )
+
+    # Poll job status until completion
+    print("Waiting for job to complete...")
+    job_succeeded = False
+    try:
+        while True:
+            time.sleep(5)
+            result = subprocess.run(
+                [
+                    "gcloud",
+                    "run",
+                    "jobs",
+                    "executions",
+                    "describe",
+                    exec_id,
+                    f"--region={GCP_REGION}",
+                    f"--project={GCP_PROJECT}",
+                    "--format=value(status.conditions[0].type,status.conditions[0].status)",
+                ],
+                capture_output=True,
+                text=True,
+            )
+            if result.returncode != 0:
+                continue
+
+            output = result.stdout.strip()
+            if not output:
+                continue
+
+            # Parse "Completed;True" or "Completed;False" format
+            parts = output.split(";")
+            if len(parts) >= 2:
+                condition_type, status = parts[0], parts[1]
+                if condition_type == "Completed":
+                    job_succeeded = status == "True"
+                    break
+    finally:
+        # Stop log tailing
+        log_proc.terminate()
+        try:
+            log_proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            log_proc.kill()
+
+    print()
+    if not job_succeeded:
         print("Job failed! Check logs with:")
-        print(f"  gcloud run jobs executions list --job={JOB_NAME} --region={GCP_REGION}")
-        print()
-        print("View logs:")
         print(
-            f"  gcloud beta run jobs executions logs read $(gcloud run jobs executions list --job={JOB_NAME} --region={GCP_REGION} --limit=1 --format='value(name)')"
+            f"  gcloud beta run jobs executions logs read {exec_id} --region={GCP_REGION}"
         )
         sys.exit(1)
     print()
