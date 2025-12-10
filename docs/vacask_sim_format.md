@@ -158,9 +158,47 @@ def evaluate_device(model_fn, voltages, params):
     return residuals, jacobian
 ```
 
-## Parser Implementation Notes
+## jax-spice Parser Compatibility
 
-The VACASK parser (`lib/dflparser.y`) uses:
+The existing jax-spice parser (`jax_spice/netlist/parser.py`) is a Python recursive descent parser
+that handles the core VACASK netlist format. It successfully parses **40 out of 46 VACASK-format test files** (87%).
+
+### Supported Features
+
+- `load` statements
+- `include` statements (with recursive file loading)
+- `ground` and `global` declarations
+- `model` definitions with parameters
+- `subckt`/`ends` definitions
+- Instance statements with terminals and parameters
+- `control`/`endc` blocks (skipped, not parsed)
+- `embed` blocks (skipped)
+- Multi-line parameter lists in parentheses
+- Comments (`//`)
+
+### Known Limitations
+
+The following VACASK features are not yet supported:
+
+1. **Titles with parentheses** - A title like "SPICE JFET (verilog-A)" confuses the parser
+2. **Conditional blocks (`@if/@endif`)** - Used in `test_cblock.sim`, `test_cblocksweep.sim`
+3. **Vector parameters (`vec=[...]`)** - Used in `test_sweepvec.sim`
+4. **Control block content** - Currently skipped; analysis commands not extracted
+
+### Working Test Cases
+
+All key test cases parse successfully:
+- `test_resistor.sim` - Basic resistor
+- `test_diode.sim` - Diode I-V sweep
+- `test_capacitor.sim` - Capacitor
+- `test_inverter.sim` - CMOS inverter
+- `benchmark/c6288/vacask/runme.sim` - 16x16 multiplier (includes models.inc, multiplier.inc)
+- `benchmark/ring/vacask/runme.sim` - Ring oscillator
+- `benchmark/mul/vacask/runme.sim` - Multiplier benchmark
+
+## VACASK Bison Grammar Reference
+
+The full VACASK parser (`lib/dflparser.y`) uses:
 - Bison 3.3+ with C++ skeleton
 - Custom scanner (`lib/dflscanner.l`)
 - Token types: IDENTIFIER, INTEGER, FLOAT, STRING
