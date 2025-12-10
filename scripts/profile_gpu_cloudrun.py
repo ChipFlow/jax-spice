@@ -32,6 +32,7 @@ GCP_PROJECT = "jax-spice-cuda-test"
 GCP_REGION = "us-central1"
 JOB_NAME = "jax-spice-gpu-profile"
 GCS_BUCKET = f"gs://{GCP_PROJECT}-traces"
+GCS_BUCKET_NAME = f"{GCP_PROJECT}-traces"  # Without gs:// prefix for REST API
 
 
 def run_cmd(
@@ -202,13 +203,27 @@ echo "=== Starting GPU Profiling ==="
 echo "Circuit: {args.circuit}"
 echo "Trace output: {trace_gcs_path}"
 
-# Download and run the profiling script from GCS
-gcloud storage cp {python_script_gcs} /tmp/profile_run.py
+# Get access token from metadata server (workload identity)
+TOKEN=$(curl -s -H "Metadata-Flavor: Google" \
+  "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token" | \
+  python3 -c "import sys,json; print(json.load(sys.stdin)['access_token'])")
+
+# Download the profiling script from GCS
+curl -s -H "Authorization: Bearer $TOKEN" \
+  "https://storage.googleapis.com/{GCS_BUCKET_NAME}/scripts/profile_run_{timestamp}.py" \
+  -o /tmp/profile_run.py
+
 uv run python /tmp/profile_run.py
 
 # Upload traces to GCS
 echo "=== Uploading traces to GCS ==="
-gcloud storage cp -r /tmp/jax-trace/* {trace_gcs_path}/
+for f in /tmp/jax-trace/*; do
+  fname=$(basename "$f")
+  curl -s -X PUT -H "Authorization: Bearer $TOKEN" \
+    -H "Content-Type: application/octet-stream" \
+    --data-binary @"$f" \
+    "https://storage.googleapis.com/upload/storage/v1/b/{GCS_BUCKET_NAME}/o?uploadType=media&name={args.circuit}-{timestamp}/$fname"
+done
 
 echo "=== Profiling Complete ==="
 echo "Traces uploaded to: {trace_gcs_path}"
