@@ -2,3 +2,6 @@
 	path = openvaf-py/vendor/OpenVAF
 	url = https://github.com/robtaylor/OpenVAF.git
 	branch = builtin-primitive-support
+[submodule "vendor/VACASK"]
+	path = vendor/VACASK
+	url = https://codeberg.org/arpadbuermen/VACASK.git
