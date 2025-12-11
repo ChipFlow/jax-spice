@@ -4,6 +4,20 @@ Central tracking for development tasks and known issues.
 
 ## High Priority
 
+### Convert remaining non-JAX analysis to JAX
+
+**Status**: Several analysis functions still use numpy/Python loops instead of JAX.
+
+**Critical (numpy in core solver path)**:
+- [ ] `transient_analysis_analytical()` in `transient.py` - uses `np.linalg.solve()` and Python `for` loops
+- [ ] `_transient_analysis_python()` in `transient.py` - deprecated but still present
+
+**Medium (outer loops, inner solves use JAX)**:
+- [ ] `dc_operating_point_with_source_stepping()` - Python `while` loop for VDD stepping
+- [ ] `dc_operating_point_with_gmin_stepping()` - Python `while` loop for GMIN stepping
+
+**Goal**: Convert to use `jax.lax.scan` for time/source stepping and JAX linear solvers throughout.
+
 ### openvaf_jax Complex Model Support
 The JAX translator now matches the MIR interpreter for all models. NaN outputs are caused by model-specific parameter requirements, not translator bugs.
 

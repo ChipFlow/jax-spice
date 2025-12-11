@@ -14,7 +14,10 @@ import jax.numpy as jnp
 from jax import Array
 
 from jax_spice.analysis.mna import MNASystem
-from jax_spice.analysis.solver import newton_solve, NRConfig, NRResult
+from jax_spice.analysis.solver import (
+    newton_solve, NRConfig, NRResult,
+    source_stepping_solve,
+)
 from jax_spice.analysis.gpu_backend import select_backend, get_device, get_default_dtype
 
 
@@ -397,6 +400,89 @@ def dc_operating_point_source_stepping(
               f"total_iter={total_iterations}, converged={converged_at_target}", flush=True)
 
     return jnp.array(V), result_info
+
+
+def dc_operating_point_source_stepping_jit(
+    system: MNASystem,
+    initial_guess: Optional[Array] = None,
+    vdd_target: float = 1.2,
+    vdd_steps: int = 12,
+    max_iterations_per_step: int = 50,
+    abstol: float = 1e-9,
+    reltol: float = 1e-3,
+    damping: float = 1.0,
+    gmin: float = 1e-6,
+    backend: Optional[str] = None,
+) -> Tuple[Array, Dict]:
+    """JIT-compiled source stepping for DC operating point.
+
+    This is a fully JIT-compiled version of source stepping using lax.scan.
+    The entire stepping sequence runs on GPU without host-device transfers.
+
+    Args:
+        system: MNA system with devices (must have device_groups built)
+        initial_guess: Initial voltage estimate
+        vdd_target: Target supply voltage
+        vdd_steps: Number of voltage steps
+        max_iterations_per_step: Max NR iterations per step
+        abstol: Absolute tolerance
+        reltol: Relative tolerance
+        damping: Damping factor
+        gmin: GMIN conductance
+        backend: 'gpu', 'cpu', or None (auto-select)
+
+    Returns:
+        Tuple of (solution, info)
+    """
+    n = system.num_nodes
+
+    # Select backend
+    if backend is None or backend == "auto":
+        backend = select_backend(n)
+
+    device = get_device(backend)
+    dtype = get_default_dtype(backend)
+
+    # Ensure device groups are built
+    if not system.device_groups:
+        system.build_device_groups(vdd=vdd_target)
+
+    # Build parameterized residual function
+    residual_fn = system.build_parameterized_residual_fn(gmin=gmin)
+
+    # Generate VDD scale steps (0.1 to 1.0)
+    vdd_scales = jnp.linspace(1.0 / vdd_steps, 1.0, vdd_steps)
+
+    with jax.default_device(device):
+        if initial_guess is not None:
+            V_init = jnp.array(initial_guess, dtype=dtype)
+        else:
+            V_init = jnp.zeros(n, dtype=dtype)
+
+        config = NRConfig(
+            max_iterations=max_iterations_per_step,
+            abstol=abstol,
+            reltol=reltol,
+            damping=damping,
+            max_step=2.0,
+        )
+
+        # Run JIT-compiled source stepping
+        final_V, all_V, converged = source_stepping_solve(
+            residual_fn, V_init, vdd_scales, config
+        )
+
+    info = {
+        'converged': bool(converged[-1]),
+        'all_converged': bool(jnp.all(converged)),
+        'source_steps': vdd_steps,
+        'final_vdd': float(vdd_target),
+        'backend': backend,
+        'device': str(device),
+        'mode': 'jit_source_stepping',
+    }
+
+    return final_V, info
 
 
 def dc_operating_point_gmin_stepping(

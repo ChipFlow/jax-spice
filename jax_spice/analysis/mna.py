@@ -792,6 +792,134 @@ class MNASystem:
 
         return residual_fn
 
+    def build_parameterized_residual_fn(
+        self,
+        gmin: float = 1e-12,
+    ) -> Callable[[Array, float], Array]:
+        """Build parameterized residual function for source stepping.
+
+        Returns a function f(V, vdd_scale) -> residual where vdd_scale
+        multiplies all VDD-type voltage sources. This enables JIT-compiled
+        source stepping via lax.scan.
+
+        Args:
+            gmin: GMIN conductance for numerical stability
+
+        Returns:
+            f(V, vdd_scale) -> residual function
+        """
+        from jax_spice.devices.resistor import resistor_batch
+        from jax_spice.devices.mosfet_simple import mosfet_batch
+        from jax_spice.analysis.mna_gpu import (
+            stamp_2terminal_residual_gpu,
+            stamp_4terminal_residual_gpu,
+            stamp_gmin_residual_gpu,
+            build_mosfet_params_from_group,
+        )
+
+        # Pre-extract static data, separating VDD sources from other sources
+        group_data = []
+        vdd_source_data = None  # Special handling for VDD sources
+
+        for group in self.device_groups:
+            if group.n_devices == 0:
+                continue
+
+            data = {
+                'type': group.device_type,
+                'n_devices': group.n_devices,
+                'node_indices': group.node_indices,
+                'params': group.params,
+            }
+
+            if group.device_type == DeviceType.MOSFET:
+                data['mosfet_params'] = build_mosfet_params_from_group(group)
+
+            # Check if this is a VDD voltage source group
+            if group.device_type == DeviceType.VSOURCE:
+                # Check device names for VDD pattern
+                is_vdd_source = []
+                for name in group.device_names:
+                    name_lower = name.lower()
+                    is_vdd = 'vdd' in name_lower or name_lower.startswith('v1')
+                    is_vdd_source.append(is_vdd)
+
+                data['is_vdd_source'] = jnp.array(is_vdd_source, dtype=jnp.bool_)
+
+            group_data.append(data)
+
+        n = self.num_nodes - 1
+        ground_node = self.ground_node
+
+        def residual_fn(V: Array, vdd_scale: float) -> Array:
+            """Compute residual with parameterized VDD scaling.
+
+            Args:
+                V: Node voltages (num_nodes,) including ground
+                vdd_scale: Scale factor for VDD sources (0 to 1 for stepping)
+
+            Returns:
+                Residual vector (num_nodes-1,) excluding ground
+            """
+            residual = jnp.zeros(n, dtype=V.dtype)
+
+            for data in group_data:
+                dtype_enum = data['type']
+                node_indices = data['node_indices']
+                params = data['params']
+
+                V_batch = V[node_indices]
+
+                if dtype_enum == DeviceType.RESISTOR:
+                    R_batch = params.get('r', params.get('R', jnp.ones(data['n_devices']) * 1000.0))
+                    V_diff = V_batch[:, 0] - V_batch[:, 1]
+                    I_batch = V_diff / R_batch
+
+                    node_p = node_indices[:, 0]
+                    node_n = node_indices[:, 1]
+
+                    residual = stamp_2terminal_residual_gpu(
+                        residual, node_p, node_n, I_batch, ground_node
+                    )
+
+                elif dtype_enum == DeviceType.VSOURCE:
+                    V_target_base = params.get('v', params.get('dc', jnp.zeros(data['n_devices'])))
+                    V_diff = V_batch[:, 0] - V_batch[:, 1]
+
+                    # Scale VDD sources by vdd_scale, leave others unchanged
+                    is_vdd = data.get('is_vdd_source', jnp.zeros(data['n_devices'], dtype=jnp.bool_))
+                    V_target = jnp.where(is_vdd, V_target_base * vdd_scale, V_target_base)
+
+                    G_vsource = 1e12
+                    I_batch = G_vsource * (V_diff - V_target)
+
+                    node_p = node_indices[:, 0]
+                    node_n = node_indices[:, 1]
+
+                    residual = stamp_2terminal_residual_gpu(
+                        residual, node_p, node_n, I_batch, ground_node
+                    )
+
+                elif dtype_enum == DeviceType.MOSFET:
+                    mosfet_params = data['mosfet_params']
+                    Ids, _gm, _gds, _gmb = mosfet_batch(V_batch, mosfet_params)
+
+                    node_d = node_indices[:, 0]
+                    node_g = node_indices[:, 1]
+                    node_s = node_indices[:, 2]
+                    node_b = node_indices[:, 3]
+
+                    residual = stamp_4terminal_residual_gpu(
+                        residual, node_d, node_g, node_s, node_b,
+                        Ids, ground_node
+                    )
+
+            residual = stamp_gmin_residual_gpu(residual, V, gmin, ground_node)
+
+            return residual
+
+        return residual_fn
+
     def build_gpu_system_fns(
         self,
         vdd: float = 1.0,

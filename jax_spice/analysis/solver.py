@@ -304,3 +304,69 @@ def solve_dc_with_builder(
         return result.J, result.f
 
     return newton_solve_with_system(build_system_fn, V_init, config)
+
+
+def newton_solve_parameterized(
+    residual_fn: Callable[[jax.Array, float], jax.Array],
+    V_init: jax.Array,
+    param: float,
+    config: NRConfig | None = None,
+) -> NRResult:
+    """Newton-Raphson solver for parameterized residual functions.
+
+    This variant takes a residual function f(V, param) where param is a
+    scalar parameter (e.g., VDD scale for source stepping).
+
+    Args:
+        residual_fn: Function f(V, param) -> residual
+        V_init: Initial voltage guess
+        param: Parameter value for this solve
+        config: Solver configuration
+
+    Returns:
+        NRResult with solution voltage
+    """
+    # Create fixed-param wrappers for NR solver
+    def fixed_residual(V):
+        return residual_fn(V, param)
+
+    def fixed_jacobian(V):
+        return jax.jacfwd(lambda v: residual_fn(v, param))(V)
+
+    return newton_solve(fixed_residual, fixed_jacobian, V_init, config)
+
+
+def source_stepping_solve(
+    residual_fn: Callable[[jax.Array, float], jax.Array],
+    V_init: jax.Array,
+    vdd_steps: jax.Array,
+    config: NRConfig | None = None,
+) -> Tuple[jax.Array, jax.Array, jax.Array]:
+    """JIT-compiled source stepping using lax.scan.
+
+    Performs source stepping by solving at each VDD scale value in sequence,
+    using the previous solution as the initial guess for the next step.
+
+    Args:
+        residual_fn: Parameterized residual f(V, vdd_scale) -> residual
+        V_init: Initial voltage guess (typically zeros)
+        vdd_steps: Array of VDD scale values (e.g., linspace(0.1, 1.0, 10))
+        config: Solver configuration
+
+    Returns:
+        Tuple of (final_V, all_V, converged) where:
+            final_V: Solution at final VDD step
+            all_V: Solutions at all steps, shape (n_steps, n_nodes)
+            converged: Boolean array indicating convergence at each step
+    """
+    if config is None:
+        config = NRConfig()
+
+    def step_fn(V_prev, vdd_scale):
+        """Solve at one VDD step, using previous solution as initial guess."""
+        result = newton_solve_parameterized(residual_fn, V_prev, vdd_scale, config)
+        return result.V, (result.V, result.converged)
+
+    final_V, (all_V, converged) = lax.scan(step_fn, V_init, vdd_steps)
+
+    return final_V, all_V, converged
