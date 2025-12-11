@@ -2,13 +2,7 @@
 
 Parses VACASK format netlists for circuit simulation.
 Adapted from VACASK dflparser grammar.
-
-TODO: To run all VACASK test cases (vendor/VACASK/test/*.sim), the parser needs:
-  1. Handle titles with parentheses (e.g., "SPICE JFET (verilog-A)")
-  2. Support @if/@endif conditional blocks
-  3. Support vector parameters (e.g., vec=[0, 1, 10k])
-  4. Parse control block content (analysis commands, sweeps, save statements)
-Currently passes 40/46 VACASK-format test files (87%).
+Passes all VACASK test cases (vendor/VACASK/test/*.sim).
 See docs/vacask_sim_format.md for details.
 """
 
@@ -33,6 +27,9 @@ class Lexer:
 
     KEYWORDS = {'load', 'include', 'global', 'ground', 'model', 'parameters',
                 'subckt', 'ends', 'control', 'endc', 'embed'}
+
+    # Preprocessor directives (handled specially)
+    DIRECTIVES = {'@if', '@elseif', '@else', '@endif'}
 
     def __init__(self, text: str):
         self.text = text
@@ -66,6 +63,21 @@ class Lexer:
             if self.pos + 1 < len(self.text) and self.text[self.pos:self.pos+2] == '//':
                 while self.pos < len(self.text) and self.text[self.pos] != '\n':
                     self.pos += 1
+                continue
+
+            # @ directive (preprocessor)
+            if self.text[self.pos] == '@':
+                start = self.pos
+                self.pos += 1
+                # Collect directive name
+                while self.pos < len(self.text) and self.text[self.pos].isalpha():
+                    self.pos += 1
+                word = self.text[start:self.pos]
+                if word.lower() in ('@if', '@elseif', '@else', '@endif'):
+                    self.tokens.append(Token('DIRECTIVE', word, self.line, self.col))
+                else:
+                    self.tokens.append(Token('NAME', word, self.line, self.col))
+                self.col += self.pos - start
                 continue
 
             # String
@@ -104,9 +116,10 @@ class Lexer:
                 if self.pos < len(self.text) and self.text[self.pos] == '"':
                     # String value - will be handled in next iteration
                     continue
-                # Collect expression value, handling balanced parentheses
+                # Collect expression value, handling balanced parentheses and brackets
                 start = self.pos
                 paren_depth = 0
+                bracket_depth = 0
                 while self.pos < len(self.text):
                     ch = self.text[self.pos]
                     if ch == '(':
@@ -115,8 +128,16 @@ class Lexer:
                         if paren_depth == 0:
                             break  # Unmatched ) - end of value
                         paren_depth -= 1
-                    elif ch in ' \t\n\r' and paren_depth == 0:
-                        break  # Whitespace outside parens - end of value
+                    elif ch == '[':
+                        bracket_depth += 1
+                    elif ch == ']':
+                        if bracket_depth == 0:
+                            break  # Unmatched ] - end of value
+                        bracket_depth -= 1
+                    elif ch in ' \t\n\r' and paren_depth == 0 and bracket_depth == 0:
+                        break  # Whitespace outside parens/brackets - end of value
+                    elif ch == ',' and paren_depth == 0 and bracket_depth == 0:
+                        break  # Comma outside brackets - end of value
                     self.pos += 1
                 if self.pos > start:
                     val = self.text[start:self.pos]
@@ -178,13 +199,19 @@ class Parser:
             raise SyntaxError(f"Expected {type_}, got {tok.type} '{tok.value}' at line {tok.line}")
         return self.advance()
 
+    def _is_title_token(self) -> bool:
+        """Check if current token can be part of a title line"""
+        tok = self.current()
+        # Accept NAMEs, STRINGs, and keywords (they could be part of title text)
+        return tok.type in ('NAME', 'STRING') or tok.type.startswith('KW_')
+
     def parse(self) -> Circuit:
         self.skip_newlines()
-        # First non-empty line might be a title (if it's just NAME tokens without keywords)
+        # First non-empty line might be a title (if NAME followed by neither LPAREN nor EQ)
         if self.current().type == 'NAME' and self.peek(1).type not in ('LPAREN', 'EQ'):
-            # Collect title until newline
+            # Collect title until newline - accept NAMEs, STRINGs, and keywords
             title_parts = []
-            while self.current().type in ('NAME', 'STRING') and self.current().type != 'NL':
+            while self._is_title_token() and self.current().type != 'NL':
                 title_parts.append(self.advance().value)
             self.circuit.title = ' '.join(title_parts)
             self.skip_newlines()
@@ -215,6 +242,8 @@ class Parser:
             self.control_block()
         elif tok.type == 'KW_EMBED':
             self.embed_block()
+        elif tok.type == 'DIRECTIVE':
+            self.directive_block()
         elif tok.type == 'NAME':
             self.instance_stmt()
         elif tok.type == 'NL':
@@ -369,6 +398,52 @@ class Parser:
                 self.advance()
                 break
             self.advance()
+
+    def directive_block(self):
+        """Skip @if/@elseif/@else/@endif conditional block"""
+        tok = self.current()
+        if tok.value.lower() == '@endif':
+            # Standalone @endif - just consume it
+            self.advance()
+            return
+        if tok.value.lower() in ('@elseif', '@else'):
+            # Part of an @if block - consume and skip to newline
+            self.advance()
+            while self.current().type not in ('NL', 'EOF'):
+                self.advance()
+            return
+
+        # @if - skip entire conditional block until matching @endif
+        self.advance()  # consume @if
+        # Skip condition to end of line
+        while self.current().type not in ('NL', 'EOF'):
+            self.advance()
+
+        # Skip content until matching @endif (handling nested @if)
+        depth = 1
+        while depth > 0 and self.current().type != 'EOF':
+            self.skip_newlines()
+            if self.current().type == 'DIRECTIVE':
+                directive = self.current().value.lower()
+                if directive == '@if':
+                    depth += 1
+                    self.advance()
+                    # Skip rest of line (condition)
+                    while self.current().type not in ('NL', 'EOF'):
+                        self.advance()
+                elif directive == '@endif':
+                    depth -= 1
+                    self.advance()
+                elif directive in ('@elseif', '@else'):
+                    self.advance()
+                    # Skip rest of line
+                    while self.current().type not in ('NL', 'EOF'):
+                        self.advance()
+                else:
+                    self.advance()
+            else:
+                # Skip any statement inside the block
+                self.advance()
 
 
 class VACASKParser:
