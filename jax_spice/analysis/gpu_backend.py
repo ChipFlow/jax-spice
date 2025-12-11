@@ -98,12 +98,12 @@ def get_device(backend: str) -> jax.Device:
             raise RuntimeError("GPU backend requested but no GPU available")
         return gpu_devices[0]
     else:
-        # Get first CPU device
-        cpu_devices = [d for d in jax.devices() if d.platform == "cpu"]
+        # Explicitly request CPU device - this works even when GPU is default
+        cpu_devices = jax.devices("cpu")
         if cpu_devices:
             return cpu_devices[0]
-        # Fallback to default device
-        return jax.devices()[0]
+        # This shouldn't happen - CPU should always be available
+        raise RuntimeError("CPU backend requested but no CPU device available")
 
 
 def get_default_dtype(backend: str):
