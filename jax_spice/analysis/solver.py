@@ -306,6 +306,66 @@ def solve_dc_with_builder(
     return newton_solve_with_system(build_system_fn, V_init, config)
 
 
+def _newton_loop_parameterized(
+    residual_fn: Callable[[jax.Array, float], jax.Array],
+    V_init: jax.Array,
+    param: float,
+    max_iterations: int,
+    abstol: float,
+    reltol: float,
+    damping: float,
+    max_step: float,
+) -> Tuple[jax.Array, jax.Array, jax.Array, jax.Array]:
+    """JIT-compatible Newton loop for parameterized residuals.
+
+    Returns raw JAX arrays, no Python type conversion, safe for lax.scan.
+    """
+    init_state = (V_init, jnp.array(0), jnp.array(False), jnp.array(jnp.inf))
+
+    def cond_fn(state):
+        V, iteration, converged, residual_norm = state
+        return jnp.logical_and(~converged, iteration < max_iterations)
+
+    def body_fn(state):
+        V, iteration, _, _ = state
+
+        # Compute residual with fixed param
+        f = residual_fn(V, param)
+        residual_norm = jnp.max(jnp.abs(f))
+
+        # Check residual convergence
+        converged = residual_norm < abstol
+
+        # Compute Jacobian via autodiff
+        J_full = jax.jacfwd(lambda v: residual_fn(v, param))(V)
+        J = J_full[:, 1:]
+
+        # Add regularization
+        reg = 1e-14 * jnp.eye(J.shape[0], dtype=J.dtype)
+        J_reg = J + reg
+
+        # Solve
+        delta_V = jax.scipy.linalg.solve(J_reg, -f)
+
+        # Apply damping and step limiting
+        delta_norm = jnp.max(jnp.abs(delta_V))
+        step_scale = jnp.minimum(damping, max_step / (delta_norm + 1e-15))
+
+        # Update V (ground at index 0 stays fixed)
+        V_new = V.at[1:].add(step_scale * delta_V)
+
+        # Check delta convergence
+        actual_delta_norm = jnp.max(jnp.abs(step_scale * delta_V))
+        v_norm = jnp.max(jnp.abs(V_new[1:]))
+        delta_converged = actual_delta_norm < (abstol + reltol * jnp.maximum(v_norm, 1.0))
+
+        converged = jnp.logical_or(converged, delta_converged)
+
+        return (V_new, iteration + 1, converged, residual_norm)
+
+    return lax.while_loop(cond_fn, body_fn, init_state)
+
+
 def newton_solve_parameterized(
     residual_fn: Callable[[jax.Array, float], jax.Array],
     V_init: jax.Array,
@@ -326,14 +386,26 @@ def newton_solve_parameterized(
     Returns:
         NRResult with solution voltage
     """
-    # Create fixed-param wrappers for NR solver
-    def fixed_residual(V):
-        return residual_fn(V, param)
+    if config is None:
+        config = NRConfig()
 
-    def fixed_jacobian(V):
-        return jax.jacfwd(lambda v: residual_fn(v, param))(V)
+    V_final, iterations, converged, residual_norm = _newton_loop_parameterized(
+        residual_fn,
+        V_init,
+        param,
+        config.max_iterations,
+        config.abstol,
+        config.reltol,
+        config.damping,
+        config.max_step,
+    )
 
-    return newton_solve(fixed_residual, fixed_jacobian, V_init, config)
+    return NRResult(
+        V=V_final,
+        iterations=int(iterations),
+        converged=bool(converged),
+        residual_norm=float(residual_norm),
+    )
 
 
 def source_stepping_solve(
@@ -364,8 +436,18 @@ def source_stepping_solve(
 
     def step_fn(V_prev, vdd_scale):
         """Solve at one VDD step, using previous solution as initial guess."""
-        result = newton_solve_parameterized(residual_fn, V_prev, vdd_scale, config)
-        return result.V, (result.V, result.converged)
+        # Use the raw loop function (no Python type conversion) for lax.scan compatibility
+        V_final, iterations, converged, residual_norm = _newton_loop_parameterized(
+            residual_fn,
+            V_prev,
+            vdd_scale,
+            config.max_iterations,
+            config.abstol,
+            config.reltol,
+            config.damping,
+            config.max_step,
+        )
+        return V_final, (V_final, converged)
 
     final_V, (all_V, converged) = lax.scan(step_fn, V_init, vdd_steps)
 
