@@ -1514,6 +1514,446 @@ class TestVACASKSubcircuit:
         assert abs(v_out - 1.0) < 0.01, f"V(out) expected 1V, got {v_out}V"
 
 
+class TestVACASKBenchmarks:
+    """Test VACASK benchmark circuits.
+
+    These are larger circuits from vendor/VACASK/benchmark/*/vacask/runme.sim
+    """
+
+    # Path to benchmarks
+    BENCHMARK_ROOT = JAX_SPICE_ROOT / "vendor" / "VACASK" / "benchmark"
+
+    def _simple_transient(self, devices, num_nodes, ground, t_stop, dt,
+                          source_fn=None, initial_conditions=None):
+        """Run transient analysis with backward Euler.
+
+        Args:
+            devices: List of device dicts with 'model', 'nodes', 'params'
+            num_nodes: Total number of nodes
+            ground: Ground node index
+            t_stop: Stop time
+            dt: Time step
+            source_fn: Optional function(t) -> dict of time-varying source values
+            initial_conditions: Optional dict of node -> initial voltage
+
+        Returns:
+            (times, voltages_dict) where voltages_dict maps node indices to arrays
+        """
+        # Initialize voltages
+        V = np.zeros(num_nodes)
+        V_prev = np.zeros(num_nodes)
+        if initial_conditions:
+            for node, voltage in initial_conditions.items():
+                V[node] = voltage
+                V_prev[node] = voltage
+
+        times = []
+        voltages = {i: [] for i in range(num_nodes)}
+
+        t = 0.0
+        while t <= t_stop:
+            # Update time-varying sources
+            if source_fn:
+                source_values = source_fn(t)
+                for dev in devices:
+                    if dev['name'] in source_values:
+                        dev['params']['_time_value'] = source_values[dev['name']]
+
+            # Newton-Raphson iteration
+            for nr_iter in range(100):
+                J = np.zeros((num_nodes - 1, num_nodes - 1))
+                f = np.zeros(num_nodes - 1)
+
+                for dev in devices:
+                    self._stamp_device_transient(
+                        dev, V, V_prev, dt, f, J, ground
+                    )
+
+                if np.max(np.abs(f)) < 1e-9:
+                    break
+
+                delta = np.linalg.solve(J + 1e-15 * np.eye(J.shape[0]), -f)
+                V[1:] += delta
+
+            # Record state
+            times.append(t)
+            for i in range(num_nodes):
+                voltages[i].append(V[i])
+
+            # Advance time
+            V_prev = V.copy()
+            t += dt
+
+        return np.array(times), {k: np.array(v) for k, v in voltages.items()}
+
+    def _stamp_device_transient(self, dev, V, V_prev, dt, f, J, ground):
+        """Stamp a device into the system for transient analysis."""
+        model = dev['model']
+        nodes = dev['nodes']
+        params = dev['params']
+
+        if model == 'vsource':
+            # Check for time-varying value
+            if '_time_value' in params:
+                V_target = params['_time_value']
+            else:
+                V_target = params.get('dc', 0)
+
+            np_idx, nn_idx = nodes[0], nodes[1]
+            G = 1e12
+
+            I = G * (V[np_idx] - V[nn_idx] - V_target)
+
+            if np_idx != ground:
+                f[np_idx - 1] += I
+                J[np_idx - 1, np_idx - 1] += G
+                if nn_idx != ground:
+                    J[np_idx - 1, nn_idx - 1] -= G
+            if nn_idx != ground:
+                f[nn_idx - 1] -= I
+                J[nn_idx - 1, nn_idx - 1] += G
+                if np_idx != ground:
+                    J[nn_idx - 1, np_idx - 1] -= G
+
+        elif model == 'resistor':
+            R = params.get('r', 1000)
+            G = 1.0 / max(R, 1e-12)
+            np_idx, nn_idx = nodes[0], nodes[1]
+            Vd = V[np_idx] - V[nn_idx]
+            I = G * Vd
+
+            if np_idx != ground:
+                f[np_idx - 1] += I
+                J[np_idx - 1, np_idx - 1] += G
+                if nn_idx != ground:
+                    J[np_idx - 1, nn_idx - 1] -= G
+            if nn_idx != ground:
+                f[nn_idx - 1] -= I
+                J[nn_idx - 1, nn_idx - 1] += G
+                if np_idx != ground:
+                    J[nn_idx - 1, np_idx - 1] -= G
+
+        elif model == 'capacitor':
+            C = params.get('c', 1e-12)
+            np_idx, nn_idx = nodes[0], nodes[1]
+
+            # Backward Euler: G_eq = C/dt, I_eq = G_eq * V_prev
+            G_eq = C / dt
+            Vd = V[np_idx] - V[nn_idx]
+            Vd_prev = V_prev[np_idx] - V_prev[nn_idx]
+
+            # Current: I = G_eq * (Vd - Vd_prev)
+            I = G_eq * (Vd - Vd_prev)
+
+            if np_idx != ground:
+                f[np_idx - 1] += I
+                J[np_idx - 1, np_idx - 1] += G_eq
+                if nn_idx != ground:
+                    J[np_idx - 1, nn_idx - 1] -= G_eq
+            if nn_idx != ground:
+                f[nn_idx - 1] -= I
+                J[nn_idx - 1, nn_idx - 1] += G_eq
+                if np_idx != ground:
+                    J[nn_idx - 1, np_idx - 1] -= G_eq
+
+        elif model == 'diode':
+            # Shockley diode with series resistance
+            np_idx, nn_idx = nodes[0], nodes[1]
+            Is = params.get('is', 1e-14)
+            n = params.get('n', 1.0)
+            Vt = 0.0258  # Thermal voltage at 300K
+
+            Vd = V[np_idx] - V[nn_idx]
+            nVt = n * Vt
+
+            # Limit exponential argument to avoid overflow
+            Vd_norm = Vd / nVt
+            if Vd_norm > 40:
+                # Linear extrapolation beyond limit
+                exp_40 = np.exp(40)
+                I = Is * (exp_40 + exp_40 * (Vd_norm - 40) - 1)
+                gd = Is * exp_40 / nVt
+            elif Vd_norm < -40:
+                # Reverse bias - essentially zero current
+                I = -Is
+                gd = 1e-12
+            else:
+                exp_term = np.exp(Vd_norm)
+                I = Is * (exp_term - 1)
+                gd = Is * exp_term / nVt
+
+            # Minimum conductance for numerical stability
+            gd = max(gd, 1e-12)
+
+            if np_idx != ground:
+                f[np_idx - 1] += I
+                J[np_idx - 1, np_idx - 1] += gd
+                if nn_idx != ground:
+                    J[np_idx - 1, nn_idx - 1] -= gd
+            if nn_idx != ground:
+                f[nn_idx - 1] -= I
+                J[nn_idx - 1, nn_idx - 1] += gd
+                if np_idx != ground:
+                    J[nn_idx - 1, np_idx - 1] -= gd
+
+    def test_rc_benchmark(self):
+        """Test RC circuit benchmark from VACASK.
+
+        Circuit: Pulse source -> 1kΩ resistor -> 1µF capacitor -> GND
+        Time constant τ = RC = 1ms
+        Input: Pulse train 0→1V with rise=1µs, width=1ms, period=2ms
+        """
+        sim_file = self.BENCHMARK_ROOT / "rc" / "vacask" / "runme.sim"
+        if not sim_file.exists():
+            pytest.skip("VACASK rc benchmark not found")
+
+        # Circuit topology from runme.sim:
+        # vs (1 0) vsource dc=0 type="pulse" val0=0 val1=1 rise=1u fall=1u width=1m period=2m
+        # r1 (1 2) r r=1k
+        # c1 (2 0) c c=1u
+        # Time constant τ = 1k * 1µ = 1ms
+
+        node_names = {'0': 0, '1': 1, '2': 2}
+        ground = 0
+        num_nodes = 3
+
+        # Build devices
+        devices = [
+            {
+                'name': 'vs',
+                'model': 'vsource',
+                'nodes': [1, 0],
+                'params': {
+                    'dc': 0,
+                    'type': 'pulse',
+                    'val0': 0, 'val1': 1,
+                    'rise': 1e-6, 'fall': 1e-6,
+                    'width': 1e-3, 'period': 2e-3,
+                },
+            },
+            {
+                'name': 'r1',
+                'model': 'resistor',
+                'nodes': [1, 2],
+                'params': {'r': 1000},
+            },
+            {
+                'name': 'c1',
+                'model': 'capacitor',
+                'nodes': [2, 0],
+                'params': {'c': 1e-6},
+            },
+        ]
+
+        # Pulse source function
+        def pulse_source(t):
+            val0, val1 = 0, 1
+            rise, fall = 1e-6, 1e-6
+            width, period = 1e-3, 2e-3
+            delay = 0
+
+            t_in_period = (t - delay) % period
+            if t < delay:
+                return {'vs': val0}
+            elif t_in_period < rise:
+                return {'vs': val0 + (val1 - val0) * t_in_period / rise}
+            elif t_in_period < rise + width:
+                return {'vs': val1}
+            elif t_in_period < rise + width + fall:
+                return {'vs': val1 - (val1 - val0) * (t_in_period - rise - width) / fall}
+            else:
+                return {'vs': val0}
+
+        # Run transient analysis
+        t_stop = 5e-3  # 5ms to see a few cycles
+        dt = 10e-6     # 10µs time step
+
+        times, voltages = self._simple_transient(
+            devices, num_nodes, ground, t_stop, dt,
+            source_fn=pulse_source
+        )
+
+        v1 = voltages[1]  # Input (node 1)
+        v2 = voltages[2]  # Output (node 2)
+
+        # Verify behavior:
+        # 1. At t=0, capacitor starts at 0V
+        assert abs(v2[0]) < 0.01, f"Initial V(2) should be 0V, got {v2[0]}V"
+
+        # 2. After first pulse rise (~1ms), capacitor should charge toward 1V
+        #    τ = 1ms, so at t=τ, V ≈ 0.632 * Vfinal
+        idx_1ms = int(1e-3 / dt)
+        print(f"At t=1ms: V(1)={v1[idx_1ms]:.3f}V, V(2)={v2[idx_1ms]:.3f}V")
+        print(f"Expected V(2) ≈ 0.632V (1 - e^(-1))")
+
+        # Allow some tolerance for discrete time stepping
+        assert 0.5 < v2[idx_1ms] < 0.75, f"At τ=1ms, V(2) should be ~0.632V, got {v2[idx_1ms]:.3f}V"
+
+        # 3. After several time constants, should be close to input
+        idx_3ms = int(3e-3 / dt)
+        print(f"At t=3ms: V(1)={v1[idx_3ms]:.3f}V, V(2)={v2[idx_3ms]:.3f}V")
+
+        # Plot info
+        print(f"\nRC Benchmark: {len(times)} time points, τ=1ms")
+        print(f"V(2) range: {min(v2):.3f}V to {max(v2):.3f}V")
+
+    def test_graetz_rectifier(self):
+        """Test Graetz (full-wave) rectifier benchmark.
+
+        Circuit: AC source -> 4-diode bridge -> smoothing cap + load
+        Input: 20V amplitude, 50Hz sine
+        Expected: ~DC output around peak voltage minus diode drops
+        """
+        sim_file = self.BENCHMARK_ROOT / "graetz" / "vacask" / "runme.sim"
+        if not sim_file.exists():
+            pytest.skip("VACASK graetz benchmark not found")
+
+        # From runme.sim:
+        # vs (inp inn) vsource dc=0 type="sine" sinedc=0.0 ampl=20 freq=50.0
+        # d1 (inp outp) d1n4007
+        # d2 (outn inp) d1n4007
+        # d3 (inn outp) d1n4007
+        # d4 (outn inn) d1n4007
+        # cl (outp outn) c c=100u
+        # rl (outp outn) r r=1k
+        # rgnd1 (inn 0) r r=1G
+        # rgnd2 (outn 0) r r=1G
+        #
+        # model d1n4007 sp_diode ( is=76.9p rs=42.0m ... n=1.45 )
+
+        node_names = {'0': 0, 'inp': 1, 'inn': 2, 'outp': 3, 'outn': 4}
+        ground = 0
+        num_nodes = 5
+
+        # Diode model parameters (1N4007)
+        d_params = {'is': 76.9e-12, 'rs': 0.042, 'n': 1.45}
+
+        devices = [
+            {'name': 'vs', 'model': 'vsource', 'nodes': [1, 2],
+             'params': {'dc': 0, 'type': 'sine', 'ampl': 20, 'freq': 50}},
+            {'name': 'd1', 'model': 'diode', 'nodes': [1, 3], 'params': d_params.copy()},
+            {'name': 'd2', 'model': 'diode', 'nodes': [4, 1], 'params': d_params.copy()},
+            {'name': 'd3', 'model': 'diode', 'nodes': [2, 3], 'params': d_params.copy()},
+            {'name': 'd4', 'model': 'diode', 'nodes': [4, 2], 'params': d_params.copy()},
+            {'name': 'cl', 'model': 'capacitor', 'nodes': [3, 4], 'params': {'c': 100e-6}},
+            {'name': 'rl', 'model': 'resistor', 'nodes': [3, 4], 'params': {'r': 1000}},
+            {'name': 'rgnd1', 'model': 'resistor', 'nodes': [2, 0], 'params': {'r': 1e9}},
+            {'name': 'rgnd2', 'model': 'resistor', 'nodes': [4, 0], 'params': {'r': 1e9}},
+        ]
+
+        # Sine source function
+        def sine_source(t):
+            ampl, freq = 20, 50
+            return {'vs': ampl * np.sin(2 * np.pi * freq * t)}
+
+        # Run transient (1 second = 50 cycles at 50Hz)
+        t_stop = 0.1  # 100ms = 5 cycles
+        dt = 10e-6    # 10µs time step
+
+        times, voltages = self._simple_transient(
+            devices, num_nodes, ground, t_stop, dt,
+            source_fn=sine_source
+        )
+
+        v_inp = voltages[1]
+        v_inn = voltages[2]
+        v_outp = voltages[3]
+        v_outn = voltages[4]
+        v_out = v_outp - v_outn  # Output across load
+
+        # After initial transient, output should settle near peak - 2*Vd
+        # Peak = 20V, 2 diode drops ≈ 1.4V, so expect ~18.6V DC
+        # With 100µF and 1kΩ, ripple will be significant at 50Hz
+
+        # Check last 20ms (one cycle)
+        idx_80ms = int(0.08 / dt)
+        v_out_final = v_out[idx_80ms:]
+
+        v_avg = np.mean(v_out_final)
+        v_ripple = np.max(v_out_final) - np.min(v_out_final)
+
+        print(f"\nGraetz Rectifier Benchmark:")
+        print(f"  Output average: {v_avg:.2f}V")
+        print(f"  Ripple: {v_ripple:.2f}V")
+        print(f"  Expected: ~{20 - 1.4:.1f}V DC with significant ripple")
+
+        # Verify reasonable output
+        assert v_avg > 10, f"Output should be > 10V, got {v_avg:.2f}V"
+        assert v_avg < 25, f"Output should be < 25V, got {v_avg:.2f}V"
+
+    def test_diode_multiplier(self):
+        """Test diode cascade voltage multiplier (Cockcroft-Walton).
+
+        From runme.sim:
+        vs (a 0) type="sine" ampl=50 freq=100k
+        r1 (a 1) r=0.01
+        c1 (1 2) c=100n
+        d1 (0 1) d1n4007
+        c2 (0 10) c=100n
+        d2 (1 10) d1n4007
+        c3 (1 2) c=100n  (parallel with c1)
+        d3 (10 2) d1n4007
+        c4 (10 20) c=100n
+        d4 (2 20) d1n4007
+
+        This is a 2-stage Cockcroft-Walton multiplier.
+        """
+        sim_file = self.BENCHMARK_ROOT / "mul" / "vacask" / "runme.sim"
+        if not sim_file.exists():
+            pytest.skip("VACASK mul benchmark not found")
+
+        # Node mapping: 0=gnd, 1=a (source), 2=node1, 3=node2, 4=node10, 5=node20
+        node_names = {'0': 0, 'a': 1, '1': 2, '2': 3, '10': 4, '20': 5}
+        ground = 0
+        num_nodes = 6
+
+        d_params = {'is': 76.9e-12, 'n': 1.45}
+        C = 100e-9
+
+        # Exact circuit from runme.sim
+        devices = [
+            {'name': 'vs', 'model': 'vsource', 'nodes': [1, 0],
+             'params': {'type': 'sine', 'ampl': 50, 'freq': 100e3}},
+            {'name': 'r1', 'model': 'resistor', 'nodes': [1, 2], 'params': {'r': 0.01}},
+            {'name': 'c1', 'model': 'capacitor', 'nodes': [2, 3], 'params': {'c': C}},
+            {'name': 'd1', 'model': 'diode', 'nodes': [0, 2], 'params': d_params.copy()},
+            {'name': 'c2', 'model': 'capacitor', 'nodes': [0, 4], 'params': {'c': C}},
+            {'name': 'd2', 'model': 'diode', 'nodes': [2, 4], 'params': d_params.copy()},
+            {'name': 'c3', 'model': 'capacitor', 'nodes': [2, 3], 'params': {'c': C}},
+            {'name': 'd3', 'model': 'diode', 'nodes': [4, 3], 'params': d_params.copy()},
+            {'name': 'c4', 'model': 'capacitor', 'nodes': [4, 5], 'params': {'c': C}},
+            {'name': 'd4', 'model': 'diode', 'nodes': [3, 5], 'params': d_params.copy()},
+        ]
+
+        def sine_source(t):
+            return {'vs': 50 * np.sin(2 * np.pi * 100e3 * t)}
+
+        # Run transient - need many cycles for multiplier to charge
+        # At 100kHz, one cycle = 10µs
+        t_stop = 500e-6  # 500µs = 50 cycles
+        dt = 200e-9      # 200ns time step (50 points per cycle)
+
+        times, voltages = self._simple_transient(
+            devices, num_nodes, ground, t_stop, dt,
+            source_fn=sine_source
+        )
+
+        v_20 = voltages[5]  # Output stage (node 20)
+
+        # After charging, voltage should multiply
+        # Ideal 2-stage multiplier: Vout = 4 * Vpeak = 200V
+        # Practical with losses: much less, but should exceed input
+        print(f"\nDiode Multiplier Benchmark:")
+        print(f"  Input amplitude: 50V")
+        print(f"  Output at t={t_stop*1e6:.0f}µs: {v_20[-1]:.1f}V")
+        print(f"  Output max: {max(v_20):.1f}V")
+        print(f"  Output final range: {v_20[-100:].min():.1f}V to {v_20[-100:].max():.1f}V")
+
+        # Multiplier needs many cycles to charge fully
+        # Just verify it's generating voltage multiplication
+        assert max(v_20) > 60, f"Output should exceed input significantly, got max {max(v_20):.1f}V"
+
+
 class TestVACASKSummary:
     """Summary of VACASK test coverage."""
 
