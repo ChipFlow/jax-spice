@@ -1,17 +1,19 @@
 """VACASK Benchmark Runner
 
 Generic runner for VACASK benchmark circuits. Parses benchmark .sim files
-and runs transient analysis using our solver.
+and runs transient analysis using the production JAX-based solver.
 """
 
 import re
 from pathlib import Path
-from typing import Dict, List, Tuple, Any
+from typing import Dict, List, Tuple, Any, Optional
 
 import numpy as np
 
 from jax_spice.netlist.parser import VACASKParser
 from jax_spice.netlist.circuit import Instance
+from jax_spice.analysis.mna import MNASystem, DeviceInfo
+from jax_spice.analysis.transient import transient_analysis_jit
 
 
 class VACASKBenchmarkRunner:
@@ -355,8 +357,39 @@ class VACASKBenchmarkRunner:
 
         return source_fn
 
-    def run_transient(self, t_stop=None, dt=None, max_steps=10000):
-        """Run transient analysis.
+    def to_mna_system(self) -> MNASystem:
+        """Convert parsed devices to MNASystem for production analysis.
+
+        Returns:
+            MNASystem ready for simulation
+        """
+        # Invert node_names to get index->name mapping
+        index_to_name = {v: k for k, v in self.node_names.items()}
+
+        system = MNASystem(
+            num_nodes=self.num_nodes,
+            node_names=self.node_names,
+            ground_node=0
+        )
+
+        for dev in self.devices:
+            # Get terminal names from node indices
+            terminals = [index_to_name.get(n, str(n)) for n in dev['nodes']]
+
+            device_info = DeviceInfo(
+                name=dev['name'],
+                model_name=dev['model'],
+                terminals=terminals,
+                node_indices=dev['nodes'],
+                params=dev['params']
+            )
+            system.devices.append(device_info)
+
+        return system
+
+    def run_transient(self, t_stop: Optional[float] = None, dt: Optional[float] = None,
+                      max_steps: int = 10000) -> Tuple[np.ndarray, Dict[int, np.ndarray]]:
+        """Run transient analysis using the production JAX-based solver.
 
         Args:
             t_stop: Stop time (default: from analysis params or 1ms)
@@ -364,7 +397,7 @@ class VACASKBenchmarkRunner:
             max_steps: Maximum number of time steps
 
         Returns:
-            (times, voltages) tuple
+            (times, voltages) tuple where voltages is dict mapping node index to voltage array
         """
         if t_stop is None:
             t_stop = self.analysis_params.get('stop', 1e-3)
@@ -378,149 +411,30 @@ class VACASKBenchmarkRunner:
             if self.verbose:
                 print(f"Limiting to {max_steps} steps, dt={dt:.2e}s")
 
-        source_fn = self._build_source_fn()
+        # Convert to MNA system
+        system = self.to_mna_system()
 
-        # Run simple transient solver
-        V = np.zeros(self.num_nodes)
-        V_prev = np.zeros(self.num_nodes)
+        if self.verbose:
+            print(f"Running transient: t_stop={t_stop:.2e}s, dt={dt:.2e}s")
 
-        times = []
-        voltages = {i: [] for i in range(self.num_nodes)}
+        # Run production transient analysis
+        times, voltages_array, stats = transient_analysis_jit(
+            system=system,
+            t_stop=t_stop,
+            t_step=dt,
+            t_start=0.0
+        )
 
-        t = 0.0
-        while t <= t_stop:
-            # Update sources
-            source_values = source_fn(t)
-            for dev in self.devices:
-                if dev['name'] in source_values:
-                    dev['params']['_time_value'] = source_values[dev['name']]
-
-            # Newton-Raphson
-            for nr_iter in range(100):
-                J = np.zeros((self.num_nodes - 1, self.num_nodes - 1))
-                f = np.zeros(self.num_nodes - 1)
-
-                for dev in self.devices:
-                    self._stamp_device(dev, V, V_prev, dt, f, J)
-
-                if np.max(np.abs(f)) < 1e-9:
-                    break
-
-                delta = np.linalg.solve(J + 1e-15 * np.eye(J.shape[0]), -f)
-                V[1:] += delta
-
-            # Record
-            times.append(t)
-            for i in range(self.num_nodes):
-                voltages[i].append(V[i])
-
-            V_prev = V.copy()
-            t += dt
-
-        return np.array(times), {k: np.array(v) for k, v in voltages.items()}
-
-    def _stamp_device(self, dev, V, V_prev, dt, f, J):
-        """Stamp device into system matrices."""
-        model = dev['model']
-        nodes = dev['nodes']
-        params = dev['params']
-        ground = 0
-
-        if model == 'vsource':
-            V_target = params.get('_time_value', params.get('dc', 0))
-            np_idx, nn_idx = nodes[0], nodes[1]
-            G = 1e12
-
-            I = G * (V[np_idx] - V[nn_idx] - V_target)
-
-            if np_idx != ground:
-                f[np_idx - 1] += I
-                J[np_idx - 1, np_idx - 1] += G
-                if nn_idx != ground:
-                    J[np_idx - 1, nn_idx - 1] -= G
-            if nn_idx != ground:
-                f[nn_idx - 1] -= I
-                J[nn_idx - 1, nn_idx - 1] += G
-                if np_idx != ground:
-                    J[nn_idx - 1, np_idx - 1] -= G
-
-        elif model == 'isource':
-            I_target = params.get('_time_value', params.get('dc', 0))
-            np_idx, nn_idx = nodes[0], nodes[1]
-
-            if np_idx != ground:
-                f[np_idx - 1] -= I_target
-            if nn_idx != ground:
-                f[nn_idx - 1] += I_target
-
-        elif model == 'resistor':
-            R = params.get('r', 1000)
-            G = 1.0 / max(R, 1e-12)
-            np_idx, nn_idx = nodes[0], nodes[1]
-            Vd = V[np_idx] - V[nn_idx]
-            I = G * Vd
-
-            if np_idx != ground:
-                f[np_idx - 1] += I
-                J[np_idx - 1, np_idx - 1] += G
-                if nn_idx != ground:
-                    J[np_idx - 1, nn_idx - 1] -= G
-            if nn_idx != ground:
-                f[nn_idx - 1] -= I
-                J[nn_idx - 1, nn_idx - 1] += G
-                if np_idx != ground:
-                    J[nn_idx - 1, np_idx - 1] -= G
-
-        elif model == 'capacitor':
-            C = params.get('c', 1e-12)
-            np_idx, nn_idx = nodes[0], nodes[1]
-            G_eq = C / dt
-            Vd = V[np_idx] - V[nn_idx]
-            Vd_prev = V_prev[np_idx] - V_prev[nn_idx]
-            I = G_eq * (Vd - Vd_prev)
-
-            if np_idx != ground:
-                f[np_idx - 1] += I
-                J[np_idx - 1, np_idx - 1] += G_eq
-                if nn_idx != ground:
-                    J[np_idx - 1, nn_idx - 1] -= G_eq
-            if nn_idx != ground:
-                f[nn_idx - 1] -= I
-                J[nn_idx - 1, nn_idx - 1] += G_eq
-                if np_idx != ground:
-                    J[nn_idx - 1, np_idx - 1] -= G_eq
-
-        elif model == 'diode':
-            np_idx, nn_idx = nodes[0], nodes[1]
-            Is = params.get('is', 1e-14)
-            n = params.get('n', 1.0)
-            Vt = 0.0258
-
-            Vd = V[np_idx] - V[nn_idx]
-            nVt = n * Vt
-            Vd_norm = Vd / nVt
-
-            if Vd_norm > 40:
-                exp_40 = np.exp(40)
-                I = Is * (exp_40 + exp_40 * (Vd_norm - 40) - 1)
-                gd = Is * exp_40 / nVt
-            elif Vd_norm < -40:
-                I = -Is
-                gd = 1e-12
+        # Convert JAX arrays to numpy and create voltage dict
+        times_np = np.array(times)
+        voltages = {}
+        for i in range(self.num_nodes):
+            if i < voltages_array.shape[1]:
+                voltages[i] = np.array(voltages_array[:, i])
             else:
-                exp_term = np.exp(Vd_norm)
-                I = Is * (exp_term - 1)
-                gd = Is * exp_term / nVt
+                voltages[i] = np.zeros(len(times_np))
 
-            gd = max(gd, 1e-12)
+        if self.verbose:
+            print(f"Completed: {len(times_np)} timesteps, {stats.get('iterations', 'N/A')} total NR iterations")
 
-            if np_idx != ground:
-                f[np_idx - 1] += I
-                J[np_idx - 1, np_idx - 1] += gd
-                if nn_idx != ground:
-                    J[np_idx - 1, nn_idx - 1] -= gd
-            if nn_idx != ground:
-                f[nn_idx - 1] -= I
-                J[nn_idx - 1, nn_idx - 1] += gd
-                if np_idx != ground:
-                    J[nn_idx - 1, np_idx - 1] -= gd
+        return times_np, voltages
