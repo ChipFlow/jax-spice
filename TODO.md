@@ -31,14 +31,14 @@ These models produce NaN with default parameters but work with proper model card
 
 ### Complete testing of VACASK benchmarks
 
-**Current status** (as of 2024-12):
+**Current status** (as of 2025-12):
 | Benchmark | Device Types | Status |
 |-----------|--------------|--------|
 | rc | resistor, capacitor, vsource | ✅ Passing |
 | graetz | resistor, capacitor, vsource, diode | ✅ Passing |
 | mul | resistor, capacitor, vsource, diode | ✅ Passing |
-| ring | vsource, isource, PSP103 MOSFET | ⚠️ Functional but too slow |
-| c6288 | vsource, isource, PSP103 MOSFET | ⚠️ Blocked by ring |
+| ring | vsource, isource, PSP103 MOSFET | ✅ Fast (~20ms/step after JIT warmup) |
+| c6288 | vsource, isource, PSP103 MOSFET | 🔄 Ready to test |
 
 **Transient solver device support**:
 - [x] Resistor
@@ -46,7 +46,7 @@ These models produce NaN with default parameters but work with proper model card
 - [x] Voltage source (DC and time-varying)
 - [x] Current source (DC and pulse)
 - [x] Diode (Shockley equation with limiting)
-- [x] OpenVAF-compiled models (PSP103) - **functional but slow**
+- [x] OpenVAF-compiled models (PSP103) - **fast with JIT compilation**
 
 **PSP103/OpenVAF Integration Status**:
 The hybrid solver is functionally complete:
