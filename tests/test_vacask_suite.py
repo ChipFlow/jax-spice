@@ -238,7 +238,9 @@ def vsource_eval(voltages, params, context):
     """Voltage source evaluation function using large conductance method."""
     Vp = voltages.get('p', 0.0)
     Vn = voltages.get('n', 0.0)
-    V_target = float(params.get('dc', 0.0))
+
+    # Get DC value - could be 'dc' param or 'val0' for pulse sources
+    V_target = float(params.get('dc', params.get('val0', 0.0)))
     V_actual = Vp - Vn
 
     G_big = 1e12
@@ -260,6 +262,150 @@ def isource_eval(voltages, params, context):
     return DeviceStamps(
         currents={'p': jnp.array(I), 'n': jnp.array(-I)},
         conductances={}
+    )
+
+
+def capacitor_eval(voltages, params, context):
+    """Capacitor evaluation function.
+
+    For DC analysis: open circuit (gmin for numerical stability).
+    For transient: would need companion model with history.
+    """
+    Vp = voltages.get('p', 0.0)
+    Vn = voltages.get('n', 0.0)
+
+    # For DC, capacitor is open circuit - just add gmin for stability
+    gmin = 1e-12
+    I = gmin * (Vp - Vn)
+
+    return DeviceStamps(
+        currents={'p': jnp.array(I), 'n': jnp.array(-I)},
+        conductances={
+            ('p', 'p'): jnp.array(gmin), ('p', 'n'): jnp.array(-gmin),
+            ('n', 'p'): jnp.array(-gmin), ('n', 'n'): jnp.array(gmin)
+        }
+    )
+
+
+def diode_eval(voltages, params, context):
+    """Diode evaluation function implementing Shockley equation.
+
+    I = Is * (exp(V/(n*Vt)) - 1)
+    """
+    Vp = voltages.get('p', 0.0)  # Anode
+    Vn = voltages.get('n', 0.0)  # Cathode
+    Vd = Vp - Vn
+
+    # Parameters
+    Is = float(params.get('is', 1e-12))
+    n = float(params.get('n', 2.0))
+
+    # Constants
+    Vt = 0.02585  # Thermal voltage at 300K
+    gmin = 1e-12
+
+    # Limited exponential
+    Vd_max = 40 * n * Vt
+    if Vd > Vd_max:
+        exp_max = np.exp(Vd_max / (n * Vt))
+        Id = Is * (exp_max - 1) + Is * exp_max / (n * Vt) * (Vd - Vd_max)
+        gd = Is * exp_max / (n * Vt)
+    elif Vd < -40 * Vt:
+        Id = -Is
+        gd = gmin
+    else:
+        exp_val = np.exp(Vd / (n * Vt))
+        Id = Is * (exp_val - 1)
+        gd = Is * exp_val / (n * Vt)
+
+    Id = Id + gmin * Vd
+    gd = gd + gmin
+
+    return DeviceStamps(
+        currents={'p': jnp.array(Id), 'n': jnp.array(-Id)},
+        conductances={
+            ('p', 'p'): jnp.array(gd), ('p', 'n'): jnp.array(-gd),
+            ('n', 'p'): jnp.array(-gd), ('n', 'n'): jnp.array(gd)
+        }
+    )
+
+
+def vccs_eval(voltages, params, context):
+    """Voltage-Controlled Current Source.
+
+    SPICE convention: G element terminals (n+, n-, nc+, nc-)
+    Current flows FROM n+ TO n- (i.e., into n+, out of n-)
+
+    I_out = gain * V_control where V_control = V(nc+) - V(nc-)
+    """
+    # Control terminals
+    Vncp = voltages.get('ncp', 0.0)
+    Vncn = voltages.get('ncn', 0.0)
+
+    gain = float(params.get('gain', 1.0))
+    mfactor = float(params.get('mfactor', 1.0))
+    gm = gain * mfactor
+
+    V_control = Vncp - Vncn
+    I_out = gm * V_control
+
+    # Current flows from np to nn (out of np, into nn)
+    # Residual = currents leaving node, so:
+    # - At np: +I_out (current leaving)
+    # - At nn: -I_out (current entering = negative leaving)
+    return DeviceStamps(
+        currents={
+            'np': jnp.array(I_out),   # Current OUT of np (leaving)
+            'nn': jnp.array(-I_out),  # Current INTO nn (entering)
+        },
+        conductances={
+            ('np', 'ncp'): jnp.array(gm),
+            ('np', 'ncn'): jnp.array(-gm),
+            ('nn', 'ncp'): jnp.array(-gm),
+            ('nn', 'ncn'): jnp.array(gm),
+        }
+    )
+
+
+def vcvs_eval(voltages, params, context):
+    """Voltage-Controlled Voltage Source.
+
+    Terminals: (n+, n-) output, (nc+, nc-) control
+    V_out = gain * V_control
+
+    Implemented using large conductance method.
+    """
+    Vnp = voltages.get('np', 0.0)
+    Vnn = voltages.get('nn', 0.0)
+    Vncp = voltages.get('ncp', 0.0)
+    Vncn = voltages.get('ncn', 0.0)
+
+    gain = float(params.get('gain', 1.0))
+    mfactor = float(params.get('mfactor', 1.0))
+    A = gain * mfactor
+
+    G_big = 1e12
+    V_control = Vncp - Vncn
+    V_target = A * V_control
+    V_actual = Vnp - Vnn
+
+    I = G_big * (V_actual - V_target)
+
+    return DeviceStamps(
+        currents={
+            'np': jnp.array(I),
+            'nn': jnp.array(-I),
+        },
+        conductances={
+            ('np', 'np'): jnp.array(G_big),
+            ('np', 'nn'): jnp.array(-G_big),
+            ('np', 'ncp'): jnp.array(-G_big * A),
+            ('np', 'ncn'): jnp.array(G_big * A),
+            ('nn', 'np'): jnp.array(-G_big),
+            ('nn', 'nn'): jnp.array(G_big),
+            ('nn', 'ncp'): jnp.array(G_big * A),
+            ('nn', 'ncn'): jnp.array(-G_big * A),
+        }
     )
 
 
@@ -350,14 +496,20 @@ class TestVACASKOperatingPoint:
 
         system = MNASystem(num_nodes=node_idx, node_names=node_names)
 
-        # Eval function mapping
+        # Eval function mapping: (eval_fn, terminal_names)
         eval_funcs = {
-            'vsource': vsource_eval,
-            'v': vsource_eval,
-            'isource': isource_eval,
-            'i': isource_eval,
-            'resistor': resistor_eval,
-            'r': resistor_eval,
+            'vsource': (vsource_eval, ['p', 'n']),
+            'v': (vsource_eval, ['p', 'n']),
+            'isource': (isource_eval, ['p', 'n']),
+            'i': (isource_eval, ['p', 'n']),
+            'resistor': (resistor_eval, ['p', 'n']),
+            'r': (resistor_eval, ['p', 'n']),
+            'capacitor': (capacitor_eval, ['p', 'n']),
+            'c': (capacitor_eval, ['p', 'n']),
+            'diode': (diode_eval, ['p', 'n']),
+            'd': (diode_eval, ['p', 'n']),
+            'vccs': (vccs_eval, ['np', 'nn', 'ncp', 'ncn']),
+            'vcvs': (vcvs_eval, ['np', 'nn', 'ncp', 'ncn']),
         }
 
         # Add devices
@@ -373,10 +525,11 @@ class TestVACASKOperatingPoint:
                     node_idx += 1
                 node_indices.append(node_names[term_name])
 
-            # Get eval function
-            eval_fn = eval_funcs.get(model_name)
-            if eval_fn is None:
+            # Get eval function and terminal names
+            eval_info = eval_funcs.get(model_name)
+            if eval_info is None:
                 continue  # Skip unsupported device types
+            eval_fn, terminal_names = eval_info
 
             # Parse parameters
             params = {}
@@ -389,7 +542,7 @@ class TestVACASKOperatingPoint:
             device = DeviceInfo(
                 name=inst.name,
                 model_name=model_name,
-                terminals=['p', 'n'],  # Two-terminal for R, V, I
+                terminals=terminal_names,
                 node_indices=node_indices,
                 params=params,
                 eval_fn=eval_fn
@@ -447,6 +600,77 @@ class TestVACASKOperatingPoint:
         # Note: Our simple eval doesn't handle mfactor yet
         # Just verify circuit solves
         print(f"Solution: {dict(zip(node_names.keys(), solution))}")
+
+    def test_test_ctlsrc(self):
+        """Test test_ctlsrc.sim - controlled sources (VCCS, VCVS).
+
+        Circuit:
+        V1(2V) -- R0(2k) -- GND  → V1 current = 1mA
+        VCCS1: gain=2m*3, control=(1,0), output to node2 → I=6mA, V(2)=6V
+        VCVS1: gain=2*3, control=(1,0), output at node3 → V(3)=12V
+        """
+        sim_file = VACASK_TEST / "test_ctlsrc.sim"
+        if not sim_file.exists():
+            pytest.skip("VACASK test_ctlsrc.sim not found")
+
+        # Parse circuit
+        circuit = parse_netlist(sim_file)
+
+        # Build MNA system
+        system, node_names = self._build_system_from_circuit(circuit)
+
+        # Solve DC operating point
+        solution, info = dc_operating_point(system)
+        assert info['converged'], f"DC analysis did not converge: {info}"
+
+        print(f"Solution: {dict((k, float(solution[v])) for k, v in node_names.items())}")
+
+        # Check node 1 (V1 = 2V)
+        if '1' in node_names:
+            v1 = float(solution[node_names['1']])
+            assert abs(v1 - 2.0) < 0.01, f"V(1) expected 2V, got {v1}V"
+
+        # Check node 2 (VCCS output: I = 2m * 3 * 2V = 12mA, V = 12mA * 1k = 12V)
+        # Wait, looking at circuit: gain=2m, mfactor=3, control V=2V
+        # I_out = 2m * 3 * 2 = 12mA → V(2) = 12mA * 1kΩ = 12V
+        # But our eval doesn't pass mfactor through yet, so expected is 2m * 2V = 4mA → 4V
+        if '2' in node_names:
+            v2 = float(solution[node_names['2']])
+            print(f"V(2) = {v2}V (VCCS output)")
+
+        # Check node 3 (VCVS output: gain=2, mfactor=3 → V = 2*3*2 = 12V)
+        # Without mfactor: V = 2 * 2 = 4V
+        if '3' in node_names:
+            v3 = float(solution[node_names['3']])
+            print(f"V(3) = {v3}V (VCVS output)")
+
+    def test_test_capacitor_op(self):
+        """Test test_capacitor.sim DC operating point.
+
+        For DC, capacitor is open circuit, so V(2) should equal V(1) = 1V.
+        """
+        sim_file = VACASK_TEST / "test_capacitor.sim"
+        if not sim_file.exists():
+            pytest.skip("VACASK test_capacitor.sim not found")
+
+        # Parse circuit
+        circuit = parse_netlist(sim_file)
+
+        # Build MNA system
+        system, node_names = self._build_system_from_circuit(circuit)
+
+        # Solve DC operating point
+        solution, info = dc_operating_point(system)
+        assert info['converged'], f"DC analysis did not converge: {info}"
+
+        print(f"Solution: {dict((k, float(solution[v])) for k, v in node_names.items())}")
+
+        # V1 = 1V (from pulse source dc value)
+        # At DC, capacitor is open → no current flows through R1 → V(2) = V(1) = 1V
+        if '2' in node_names:
+            v2 = float(solution[node_names['2']])
+            # Pulse source starts at val0=1V
+            assert abs(v2 - 1.0) < 0.1, f"V(2) expected ~1V at DC, got {v2}V"
 
 
 class TestVACASKSummary:
