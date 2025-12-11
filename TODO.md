@@ -4,22 +4,35 @@ Central tracking for development tasks and known issues.
 
 ## High Priority
 
-### VACASK Test Integration
-Create tests that use VACASK's test cases with openvaf_jax.
+### GPU Solver Convergence
+The GPU solver has convergence issues with circuits containing floating nodes (e.g., AND gates with series NMOS stacks).
 
-**Tasks**:
-- [ ] **Create test suite using VACASK sim files**
-  - Parse VACASK `.sim` files (parser complete: 37/37 pass)
-  - Compile VA models with openvaf_jax instead of loading OSDI
-  - Compare JAX results with expected values from embedded Python
+**Root cause**: Autodiff-computed Jacobians give extremely small `gds` (~1e-16 S) in cutoff, while VACASK enforces a minimum `gds` (~1e-9 S). This creates near-singular Jacobians.
 
-- [ ] **Test cases to implement**:
-  - `test_resistor.sim`: V=1V, R=2kΩ, mfactor=3 → I = 1.5mA
-  - `test_diode.sim`: Forward/reverse bias with parameter sweeps
-  - `test_capacitor.sim`: Capacitive charging
-  - `test_inductor.sim`: Inductive behavior
-  - `test_op.sim`: Operating point analysis
-  - `test_inverter.sim`: MOSFET inverter
+**Progress**:
+- [x] Created `jax_spice/devices/openvaf_device.py` - VADevice wrapper for openvaf_jax models
+- [x] Added `get_vacask_resistor()`, `get_vacask_diode()`, etc. cached model accessors
+- [x] Implemented `stamp_device_into_system()` for stamping analytical Jacobians
+
+**Remaining Tasks**:
+- [ ] **Create GPU solver variant using analytical Jacobians**
+  - Add `build_circuit_residual_and_jacobian_fn()` in `dc_gpu.py`
+  - Use VADevice.evaluate() to get (residual, jacobian) per device
+  - Build sparse Jacobian from analytical stamps instead of sparsejac autodiff
+
+- [ ] **Test AND gate convergence with analytical Jacobian**
+  - Test circuit: `and_test` from `c6288.sim` (6 MOSFETs, floating `int` node)
+  - VACASK converges in 34 iterations; GPU solver diverges
+
+- [ ] **Benchmark full C6288 multiplier** on GPU with analytical Jacobians
+  - 5123 nodes, 10112 MOSFETs
+  - Currently ~30min on CPU, should be much faster on GPU
+
+**Files**:
+- `jax_spice/devices/openvaf_device.py` - NEW: VADevice wrapper
+- `jax_spice/analysis/dc_gpu.py` - needs analytical Jacobian variant
+- `jax_spice/analysis/transient_gpu.py` - needs same treatment
+- `docs/gpu_solver_jacobian.md` - analysis of the issue
 
 ## Medium Priority
 
@@ -43,26 +56,6 @@ The JAX translator produces NaN outputs for complex models due to init variable 
 - diode_cmc
 - EKV
 
-
-### GPU Solver Convergence
-The GPU solver has convergence issues with circuits containing floating nodes (e.g., AND gates with series NMOS stacks).
-
-**Root cause**: Autodiff-computed Jacobians give extremely small `gds` (~1e-16 S) in cutoff, while VACASK enforces a minimum `gds` (~1e-9 S). This creates near-singular Jacobians.
-
-**Tasks**:
-- [ ] **Integrate analytical Jacobian into GPU solver** (see `docs/gpu_solver_jacobian.md`)
-  - Use `openvaf_jax`-generated functions that return both residual and Jacobian
-  - Build Jacobian from analytical stamps instead of autodiff
-  - Files: `jax_spice/analysis/dc_gpu.py`, `jax_spice/analysis/transient_gpu.py`
-
-- [ ] **Test AND gate convergence with analytical Jacobian**
-  - Test circuit: `and_test` from `c6288.sim` (6 MOSFETs, floating `int` node)
-  - VACASK converges in 34 iterations; GPU solver diverges
-
-- [ ] **Benchmark full C6288 multiplier** on GPU with analytical Jacobians
-  - 5123 nodes, 10112 MOSFETs
-  - Currently ~30min on CPU, should be much faster on GPU
-
 ## Low Priority
 
 ### Documentation
@@ -80,6 +73,12 @@ The GPU solver has convergence issues with circuits containing floating nodes (e
   - Fixes: C++20, PTBlockSequence, VLA→vector, KLU destructor, <numbers> header, CMake var escaping
 
 ## Completed
+
+- [x] ~~Create test suite using VACASK sim files~~ (`tests/test_vacask_jax.py`)
+  - Parses actual VACASK `.sim` files
+  - Compiles VA models with openvaf_jax
+  - Tests: resistor (Ohm's law, mfactor), diode, capacitor, inductor, op
+  - 9 tests passing
 
 - [x] ~~Fix VACASK netlist parser~~ (all 37 test files pass)
   - Added @if/@endif directive handling
@@ -108,14 +107,19 @@ The GPU solver has convergence issues with circuits containing floating nodes (e
 |---------|----------|
 | GPU DC solver | `jax_spice/analysis/dc_gpu.py` |
 | GPU transient solver | `jax_spice/analysis/transient_gpu.py` |
+| OpenVAF device wrapper | `jax_spice/devices/openvaf_device.py` |
 | OpenVAF→JAX translator | `openvaf-py/openvaf_jax.py` |
 | VACASK parser | `jax_spice/netlist/parser.py` |
+| VACASK JAX tests | `tests/test_vacask_jax.py` |
 | Jacobian issue analysis | `docs/gpu_solver_jacobian.md` |
 
 ### Test Commands
 ```bash
 # Run all tests
 JAX_PLATFORMS=cpu uv run pytest tests/ -v
+
+# Run VACASK JAX tests specifically
+JAX_PLATFORMS=cpu uv run pytest tests/test_vacask_jax.py -v
 
 # Run openvaf-py tests
 cd openvaf-py && JAX_PLATFORMS=cpu ../.venv/bin/python -m pytest tests/ -v
