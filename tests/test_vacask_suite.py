@@ -1953,6 +1953,291 @@ class TestVACASKBenchmarks:
         # Just verify it's generating voltage multiplication
         assert max(v_20) > 60, f"Output should exceed input significantly, got max {max(v_20):.1f}V"
 
+    def _parse_spice_number(self, s: str) -> float:
+        """Parse SPICE number with suffix (e.g., 1u, 100n, 1.5k)"""
+        if not isinstance(s, str):
+            return float(s)
+        s = s.strip().lower().strip('"')
+        if not s:
+            return 0.0
+
+        # SPICE suffixes
+        suffixes = {
+            't': 1e12, 'g': 1e9, 'meg': 1e6, 'k': 1e3,
+            'm': 1e-3, 'u': 1e-6, 'n': 1e-9, 'p': 1e-12, 'f': 1e-15
+        }
+
+        for suffix, multiplier in sorted(suffixes.items(), key=lambda x: -len(x[0])):
+            if s.endswith(suffix):
+                try:
+                    return float(s[:-len(suffix)]) * multiplier
+                except ValueError:
+                    continue
+
+        try:
+            return float(s)
+        except ValueError:
+            return 0.0
+
+    def _convert_circuit_to_devices(self, circuit, models):
+        """Convert parsed circuit to device list for simulation.
+
+        Args:
+            circuit: Parsed Circuit object from VACASKParser
+            models: Dict mapping model names to device types
+
+        Returns:
+            (devices, node_names, num_nodes) tuple
+        """
+        # Build node mapping from all instances
+        node_set = {'0'}  # Always include ground
+        for inst in circuit.top_instances:
+            for t in inst.terminals:
+                node_set.add(t)
+
+        # Create node indices (0 is always ground)
+        node_names = {'0': 0}
+        for i, name in enumerate(sorted(n for n in node_set if n != '0'), start=1):
+            node_names[name] = i
+
+        devices = []
+        for inst in circuit.top_instances:
+            # Map model name to device type
+            model_name = inst.model.lower()
+            device_type = models.get(model_name, model_name)
+
+            # Get node indices
+            nodes = [node_names[t] for t in inst.terminals]
+
+            # Convert parameters
+            params = {}
+            for k, v in inst.params.items():
+                params[k] = self._parse_spice_number(v)
+
+            devices.append({
+                'name': inst.name,
+                'model': device_type,
+                'nodes': nodes,
+                'params': params,
+            })
+
+        return devices, node_names, len(node_names)
+
+    def test_rc_benchmark_parsed(self):
+        """Test RC circuit by parsing actual benchmark sim file.
+
+        This parses vendor/VACASK/benchmark/rc/vacask/runme.sim
+        and runs transient analysis using our solver.
+        """
+        from jax_spice.netlist.parser import VACASKParser
+
+        sim_file = self.BENCHMARK_ROOT / "rc" / "vacask" / "runme.sim"
+        if not sim_file.exists():
+            pytest.skip("VACASK rc benchmark not found")
+
+        # Parse the sim file
+        parser = VACASKParser()
+        circuit = parser.parse_file(sim_file)
+
+        print(f"\nParsed: {circuit.title}")
+        print(f"Models: {list(circuit.models.keys())}")
+        print(f"Instances: {len(circuit.top_instances)}")
+
+        # Map model names to device types
+        # The sim file uses: model r sp_resistor, model c sp_capacitor
+        model_map = {
+            'r': 'resistor',
+            'c': 'capacitor',
+            'vsource': 'vsource',
+        }
+
+        devices, node_names, num_nodes = self._convert_circuit_to_devices(circuit, model_map)
+        ground = 0
+
+        print(f"Nodes: {node_names}")
+        print(f"Devices:")
+        for dev in devices:
+            print(f"  {dev['name']}: {dev['model']} nodes={dev['nodes']} params={dev['params']}")
+
+        # Build pulse source function from parsed parameters
+        vs_params = next(d['params'] for d in devices if d['name'] == 'vs')
+        val0 = vs_params.get('val0', 0)
+        val1 = vs_params.get('val1', 1)
+        rise = vs_params.get('rise', 1e-6)
+        fall = vs_params.get('fall', 1e-6)
+        width = vs_params.get('width', 1e-3)
+        period = vs_params.get('period', 2e-3)
+
+        def pulse_source(t):
+            t_in_period = t % period
+            if t_in_period < rise:
+                return {'vs': val0 + (val1 - val0) * t_in_period / rise}
+            elif t_in_period < rise + width:
+                return {'vs': val1}
+            elif t_in_period < rise + width + fall:
+                return {'vs': val1 - (val1 - val0) * (t_in_period - rise - width) / fall}
+            else:
+                return {'vs': val0}
+
+        # Run transient analysis (shorter than original for speed)
+        t_stop = 5e-3  # 5ms
+        dt = 10e-6     # 10µs
+
+        times, voltages = self._simple_transient(
+            devices, num_nodes, ground, t_stop, dt,
+            source_fn=pulse_source
+        )
+
+        # Get output voltages
+        node_1_idx = node_names['1']
+        node_2_idx = node_names['2']
+        v1 = voltages[node_1_idx]
+        v2 = voltages[node_2_idx]
+
+        # Verify RC behavior:
+        # R = 1kΩ, C = 1µF, τ = RC = 1ms
+        tau = 1e-3
+        idx_1ms = int(1e-3 / dt)
+
+        print(f"\nRC Time Constant Check:")
+        print(f"  τ = RC = 1kΩ × 1µF = 1ms")
+        print(f"  At t=τ: V(1)={v1[idx_1ms]:.3f}V, V(2)={v2[idx_1ms]:.3f}V")
+        print(f"  Expected V(2) ≈ 0.632V (1 - e^(-1))")
+
+        # At t=τ, capacitor should be at ~63.2% of input
+        assert 0.5 < v2[idx_1ms] < 0.75, f"At τ, V(2) should be ~0.632V, got {v2[idx_1ms]:.3f}V"
+
+        print(f"  ✓ RC benchmark passed (parsed from sim file)")
+
+    def test_graetz_benchmark_parsed(self):
+        """Test Graetz rectifier by parsing actual benchmark sim file.
+
+        This parses vendor/VACASK/benchmark/graetz/vacask/runme.sim
+        and runs transient analysis using our solver.
+        """
+        from jax_spice.netlist.parser import VACASKParser
+
+        sim_file = self.BENCHMARK_ROOT / "graetz" / "vacask" / "runme.sim"
+        if not sim_file.exists():
+            pytest.skip("VACASK graetz benchmark not found")
+
+        # Parse the sim file
+        parser = VACASKParser()
+        circuit = parser.parse_file(sim_file)
+
+        print(f"\nParsed: {circuit.title}")
+        print(f"Models: {list(circuit.models.keys())}")
+        print(f"Instances: {len(circuit.top_instances)}")
+
+        # Get diode model parameters
+        diode_model = circuit.models.get('d1n4007')
+        diode_params = {}
+        if diode_model:
+            for k, v in diode_model.params.items():
+                diode_params[k] = self._parse_spice_number(v)
+            print(f"Diode params: {diode_params}")
+
+        # Build node mapping
+        node_set = {'0'}
+        for inst in circuit.top_instances:
+            for t in inst.terminals:
+                node_set.add(t)
+
+        node_names = {'0': 0}
+        for i, name in enumerate(sorted(n for n in node_set if n != '0'), start=1):
+            node_names[name] = i
+        num_nodes = len(node_names)
+
+        print(f"Nodes: {node_names}")
+
+        # Build devices
+        devices = []
+        for inst in circuit.top_instances:
+            model_name = inst.model.lower()
+            nodes = [node_names[t] for t in inst.terminals]
+
+            # Map model to device type
+            if model_name == 'd1n4007':
+                # Use diode model parameters
+                params = {
+                    'is': diode_params.get('is', 1e-14),
+                    'n': diode_params.get('n', 1.0),
+                }
+                device_type = 'diode'
+            elif model_name == 'r':
+                params = {'r': self._parse_spice_number(inst.params.get('r', '1k'))}
+                device_type = 'resistor'
+            elif model_name == 'c':
+                params = {'c': self._parse_spice_number(inst.params.get('c', '1u'))}
+                device_type = 'capacitor'
+            elif model_name == 'vsource':
+                params = {}
+                for k, v in inst.params.items():
+                    params[k] = self._parse_spice_number(v)
+                device_type = 'vsource'
+            else:
+                continue
+
+            devices.append({
+                'name': inst.name,
+                'model': device_type,
+                'nodes': nodes,
+                'params': params,
+            })
+
+        print(f"Devices:")
+        for dev in devices:
+            print(f"  {dev['name']}: {dev['model']} nodes={dev['nodes']}")
+
+        # Build sine source function
+        vs_params = next(d['params'] for d in devices if d['name'] == 'vs')
+        ampl = vs_params.get('ampl', 20)
+        freq = vs_params.get('freq', 50)
+        sinedc = vs_params.get('sinedc', 0)
+
+        def sine_source(t):
+            return {'vs': sinedc + ampl * np.sin(2 * np.pi * freq * t)}
+
+        # Run transient - run for a few cycles at 50Hz
+        # One cycle = 20ms, run for 100ms = 5 cycles
+        t_stop = 100e-3
+        dt = 100e-6  # 100µs steps
+
+        times, voltages = self._simple_transient(
+            devices, num_nodes, 0, t_stop, dt,
+            source_fn=sine_source
+        )
+
+        # Get differential outputs
+        v_inp = voltages[node_names['inp']]
+        v_inn = voltages[node_names['inn']]
+        v_outp = voltages[node_names['outp']]
+        v_outn = voltages[node_names['outn']]
+
+        v_in = v_inp - v_inn  # Input voltage
+        v_out = v_outp - v_outn  # Output voltage
+
+        print(f"\nGraetz Rectifier Results:")
+        print(f"  Input: {ampl}V amplitude, {freq}Hz sine")
+        print(f"  Input range: {min(v_in):.1f}V to {max(v_in):.1f}V")
+        print(f"  Output range: {min(v_out):.1f}V to {max(v_out):.1f}V")
+        print(f"  Output final (steady): {np.mean(v_out[-100:]):.1f}V")
+
+        # Verify rectifier operation:
+        # 1. Output should be predominantly positive
+        assert np.mean(v_out[-100:]) > 10, "Output should be positive DC"
+
+        # 2. With 100µF cap and 1kΩ load, ripple should be small
+        # τ = RC = 100ms, at 50Hz (20ms period), ripple ≈ 20/100 = 20%
+        ripple = max(v_out[-100:]) - min(v_out[-100:])
+        print(f"  Ripple: {ripple:.1f}V ({100*ripple/np.mean(v_out[-100:]):.0f}%)")
+
+        # 3. Peak output should be close to input peak minus diode drops
+        # Two diodes in series: Vout_peak ≈ Vin_peak - 2*0.7V ≈ 18.6V
+        assert max(v_out) > 15, f"Peak output should be >15V, got {max(v_out):.1f}V"
+
+        print(f"  ✓ Graetz benchmark passed (parsed from sim file)")
+
 
 class TestVACASKSummary:
     """Summary of VACASK test coverage."""
