@@ -30,6 +30,15 @@ class CompiledDevice:
     num_jacobian: int
 
 
+def _jax_bool_repr(value: bool) -> str:
+    """Return a JAX-compatible representation of a boolean.
+
+    Using jnp.bool_() instead of Python True/False ensures the value
+    can be traced by JAX JIT compilation.
+    """
+    return f"jnp.bool_({value})"
+
+
 class OpenVAFToJAX:
     """Translates OpenVAF MIR to JAX functions"""
 
@@ -144,10 +153,10 @@ class OpenVAFToJAX:
             else:
                 lines.append(f"    {name} = {repr(value)}")
 
-        # Boolean constants
+        # Boolean constants - use jnp.bool_() for JIT compatibility
         lines.append("    # Boolean constants")
         for name, value in self.bool_constants.items():
-            lines.append(f"    {name} = {repr(value)}")
+            lines.append(f"    {name} = {_jax_bool_repr(value)}")
 
         # Int constants (from both eval and init MIR)
         lines.append("    # Int constants")
@@ -685,7 +694,7 @@ class OpenVAFToJAX:
             if op in self.init_constants:
                 return repr(self.init_constants[op])
             if op in self.init_bool_constants:
-                return repr(self.init_bool_constants[op])
+                return _jax_bool_repr(self.init_bool_constants[op])
             if op in self.init_int_constants:
                 return repr(self.init_int_constants[op])
             return prefixed
@@ -974,7 +983,7 @@ class OpenVAFToJAX:
             if op in self.init_constants:
                 return repr(self.init_constants[op])
             if op in self.init_bool_constants:
-                return repr(self.init_bool_constants[op])
+                return _jax_bool_repr(self.init_bool_constants[op])
             if op in self.init_int_constants:
                 return repr(self.init_int_constants[op])
             return prefixed
@@ -1250,7 +1259,7 @@ class OpenVAFToJAX:
             if op in self.init_constants:
                 return repr(self.init_constants[op])
             if op in self.init_bool_constants:
-                return repr(self.init_bool_constants[op])
+                return _jax_bool_repr(self.init_bool_constants[op])
             if op in self.init_int_constants:
                 return repr(self.init_int_constants[op])
             # Fallback to prefixed anyway
@@ -1462,7 +1471,7 @@ class OpenVAFToJAX:
             ops = [get_operand(op) for op in operands]
             if ops:
                 return f"({ops[0]} != 0)"
-            return 'False'
+            return _jax_bool_repr(False)
 
         elif opcode == 'ficast':
             # Float to integer cast
@@ -1476,7 +1485,7 @@ class OpenVAFToJAX:
             ops = [get_operand(op) for op in operands]
             if ops:
                 return f"({ops[0]} != 0.0)"
-            return 'False'
+            return _jax_bool_repr(False)
 
         elif opcode == 'irem':
             # Integer remainder (modulo)
@@ -1524,11 +1533,11 @@ class OpenVAFToJAX:
             return f"({ops[0]} != {ops[1]})"
 
         elif opcode == 'bnot':
-            # Boolean not
+            # Boolean not - use jnp.logical_not for JIT compatibility
             ops = [get_operand(op) for op in operands]
             if ops:
-                return f"(not {ops[0]})"
-            return 'True'
+                return f"jnp.logical_not({ops[0]})"
+            return _jax_bool_repr(True)
 
         elif opcode == 'beq':
             # Boolean equality

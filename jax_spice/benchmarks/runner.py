@@ -361,10 +361,9 @@ class VACASKBenchmarkRunner:
             # Also generate array-based function for batched evaluation
             jax_fn_array, array_metadata = translator.translate_array()
 
-            # Create vmapped function for batched evaluation
-            # Note: Not JIT-compiled because OpenVAF-generated code has Python conditionals
-            # that depend on input values (e.g., safe_log checks)
-            vmapped_fn = jax.vmap(jax_fn_array)
+            # Create JIT-compiled vmapped function for fast batched evaluation
+            # JIT compilation is now possible after fixing boolean constants in openvaf_jax
+            vmapped_fn = jax.jit(jax.vmap(jax_fn_array))
 
             self._compiled_models[model_type] = {
                 'module': module,
@@ -381,22 +380,162 @@ class VACASKBenchmarkRunner:
             if self.verbose:
                 print(f"    {model_type}: {len(module.param_names)} params, {len(module.nodes)} nodes")
 
+    def _prepare_static_inputs(self, model_type: str, openvaf_devices: List[Dict],
+                                device_internal_nodes: Dict[str, Dict[str, int]],
+                                ground: int) -> Tuple[np.ndarray, List[int], List[Dict]]:
+        """Prepare static (non-voltage) inputs for all devices once.
+
+        This is called once per simulation and caches the static parameter values.
+        Only voltage parameters need to be updated each NR iteration.
+
+        Returns:
+            (static_inputs, voltage_indices, device_contexts) where:
+            - static_inputs is shape (num_devices, num_params) numpy array with static params
+            - voltage_indices is list of param indices that are voltages
+            - device_contexts is list of dicts with node_map, voltage_node_pairs for fast update
+        """
+        compiled = self._compiled_models.get(model_type)
+        if not compiled:
+            raise ValueError(f"OpenVAF model {model_type} not compiled")
+
+        param_names = compiled['param_names']
+        param_kinds = compiled['param_kinds']
+        model_nodes = compiled['nodes']
+
+        # Find which parameter indices are voltages
+        voltage_indices = []
+        for i, kind in enumerate(param_kinds):
+            if kind == 'voltage':
+                voltage_indices.append(i)
+
+        all_inputs = []
+        device_contexts = []
+
+        for dev in openvaf_devices:
+            ext_nodes = dev['nodes']  # [d, g, s, b]
+            params = dev['params']
+            internal_nodes = device_internal_nodes.get(dev['name'], {})
+
+            # Build node map: model node name -> global circuit node index
+            node_map = {}
+            for i, model_node in enumerate(model_nodes[:4]):
+                if i < len(ext_nodes):
+                    node_map[model_node] = ext_nodes[i]
+                else:
+                    node_map[model_node] = ground
+
+            # Internal nodes
+            for model_node, global_idx in internal_nodes.items():
+                node_map[model_node] = global_idx
+
+            # Also map sim_node names
+            for i, model_node in enumerate(model_nodes[:-1]):
+                node_map[f'sim_{model_node}'] = node_map.get(model_node, ground)
+
+            # Pre-compute voltage node pairs for fast update
+            voltage_node_pairs = []
+            for idx in voltage_indices:
+                name = param_names[idx]
+                node_pair = self._parse_voltage_param(name, node_map, model_nodes, ground)
+                voltage_node_pairs.append(node_pair)
+
+            # Build input array for this device (static params only, voltages set to 0)
+            inputs = []
+            for name, kind in zip(param_names, param_kinds):
+                if kind == 'voltage':
+                    inputs.append(0.0)  # Will be updated dynamically
+                elif kind == 'param':
+                    param_lower = name.lower()
+                    if param_lower in params:
+                        inputs.append(float(params[param_lower]))
+                    elif name in params:
+                        inputs.append(float(params[name]))
+                    elif 'temperature' in param_lower or name == '$temperature':
+                        inputs.append(300.15)
+                    elif param_lower in ('tnom', 'tref', 'tr'):
+                        inputs.append(300.0)
+                    elif param_lower == 'mfactor':
+                        inputs.append(params.get('mfactor', 1.0))
+                    else:
+                        inputs.append(1.0)
+                elif kind == 'hidden_state':
+                    inputs.append(0.0)
+                else:
+                    inputs.append(0.0)
+
+            all_inputs.append(inputs)
+            device_contexts.append({
+                'name': dev['name'],
+                'node_map': node_map,
+                'ext_nodes': ext_nodes,
+                'voltage_node_pairs': voltage_node_pairs,
+            })
+
+        return np.array(all_inputs), voltage_indices, device_contexts
+
+    def _parse_voltage_param(self, name: str, node_map: Dict[str, int],
+                              model_nodes: List[str], ground: int) -> Tuple[int, int]:
+        """Parse a voltage parameter name and return (node1_idx, node2_idx).
+
+        Handles formats like "V(GP,SI)" or "V(DI)".
+        Returns node indices that can be used directly with voltage array.
+        """
+        import re
+
+        # PSP103 internal node mapping
+        internal_name_map = {
+            'GP': 'node4', 'SI': 'node5', 'DI': 'node6', 'BP': 'node7',
+            'BS': 'node8', 'BD': 'node9', 'BI': 'node10', 'NOI': 'node11',
+            'G': 'node1', 'D': 'node0', 'S': 'node2', 'B': 'node3',
+        }
+
+        match = re.match(r'V\(([^,)]+)(?:,([^)]+))?\)', name)
+        if not match:
+            return (ground, ground)
+
+        node1_name = match.group(1).strip()
+        node2_name = match.group(2).strip() if match.group(2) else None
+
+        # Resolve node1
+        if node1_name in internal_name_map:
+            node1_name = internal_name_map[node1_name]
+        node1_idx = node_map.get(node1_name, node_map.get(node1_name.lower(), ground))
+
+        # Resolve node2
+        if node2_name:
+            if node2_name in internal_name_map:
+                node2_name = internal_name_map[node2_name]
+            node2_idx = node_map.get(node2_name, node_map.get(node2_name.lower(), ground))
+        else:
+            node2_idx = ground
+
+        return (node1_idx, node2_idx)
+
+    def _update_voltage_inputs(self, static_inputs: np.ndarray, voltage_indices: List[int],
+                                device_contexts: List[Dict], V: np.ndarray) -> jnp.ndarray:
+        """Update voltage parameters in the input array.
+
+        This is the fast path called each NR iteration - only updates voltage values.
+        """
+        # Make a copy to avoid modifying the cached static inputs
+        inputs = static_inputs.copy()
+
+        for dev_idx, ctx in enumerate(device_contexts):
+            voltage_node_pairs = ctx['voltage_node_pairs']
+            for i, (n1, n2) in enumerate(voltage_node_pairs):
+                v1 = V[n1] if n1 < len(V) else 0.0
+                v2 = V[n2] if n2 < len(V) else 0.0
+                inputs[dev_idx, voltage_indices[i]] = v1 - v2
+
+        return jnp.array(inputs)
+
     def _prepare_batched_inputs(self, model_type: str, openvaf_devices: List[Dict],
                                  V: np.ndarray, device_internal_nodes: Dict[str, Dict[str, int]],
                                  ground: int) -> Tuple[jnp.ndarray, List[Dict]]:
         """Prepare batched inputs for all devices of a given OpenVAF model type.
 
-        Args:
-            model_type: The model type (e.g., 'psp103')
-            openvaf_devices: List of device dicts of this model type
-            V: Current voltage vector (includes internal nodes)
-            device_internal_nodes: Map of device name -> internal node map
-            ground: Ground node index
-
-        Returns:
-            (batched_inputs, device_contexts) where:
-            - batched_inputs is shape (num_devices, num_params) JAX array
-            - device_contexts is list of dicts with node_map, ext_nodes for stamping
+        This is the original method kept for backwards compatibility.
+        For better performance, use _prepare_static_inputs + _update_voltage_inputs.
         """
         compiled = self._compiled_models.get(model_type)
         if not compiled:
@@ -795,15 +934,22 @@ class VACASKBenchmarkRunner:
             else:
                 simple_devices.append(dev)
 
-        # Get cached vmapped functions
+        # Get cached JIT-compiled vmapped functions and prepare static inputs
         vmapped_fns: Dict[str, Callable] = {}
+        static_inputs_cache: Dict[str, Tuple[np.ndarray, List[int], List[Dict]]] = {}
         for model_type in openvaf_by_type:
             compiled = self._compiled_models.get(model_type)
             if compiled and 'vmapped_fn' in compiled:
                 vmapped_fns[model_type] = compiled['vmapped_fn']
+                # Pre-compute static inputs once (parameters that don't change during simulation)
+                static_inputs, voltage_indices, device_contexts = self._prepare_static_inputs(
+                    model_type, openvaf_by_type[model_type], device_internal_nodes, ground
+                )
+                static_inputs_cache[model_type] = (static_inputs, voltage_indices, device_contexts)
                 if self.verbose:
                     n_devs = len(openvaf_by_type[model_type])
-                    print(f"Using vmapped function for {model_type} ({n_devs} devices)")
+                    n_voltages = len(voltage_indices)
+                    print(f"Using JIT-compiled vmapped function for {model_type} ({n_devs} devices, {n_voltages} voltage params)")
 
         # Time stepping
         times = []
@@ -830,10 +976,11 @@ class VACASKBenchmarkRunner:
 
                 # Stamp OpenVAF devices using batched evaluation
                 for model_type, devices in openvaf_by_type.items():
-                    if model_type in vmapped_fns:
-                        # Prepare batched inputs
-                        batch_inputs, device_contexts = self._prepare_batched_inputs(
-                            model_type, devices, V, device_internal_nodes, ground
+                    if model_type in vmapped_fns and model_type in static_inputs_cache:
+                        # Fast path: update only voltage parameters
+                        static_inputs, voltage_indices, device_contexts = static_inputs_cache[model_type]
+                        batch_inputs = self._update_voltage_inputs(
+                            static_inputs, voltage_indices, device_contexts, V
                         )
 
                         # Evaluate all devices in parallel
