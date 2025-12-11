@@ -31,6 +31,28 @@ These models produce NaN with default parameters but work with proper model card
 
 ### Complete testing of VACASK benchmarks
 
+**Current status** (as of 2024-12):
+| Benchmark | Device Types | Status |
+|-----------|--------------|--------|
+| rc | resistor, capacitor, vsource | ✅ Passing |
+| graetz | resistor, capacitor, vsource, diode | ✅ Passing |
+| mul | resistor, capacitor, vsource, diode | ✅ Passing |
+| ring | vsource, isource, PSP103 MOSFET | ⏳ Needs OpenVAF integration |
+| c6288 | vsource, isource, PSP103 MOSFET | ⏳ Needs OpenVAF integration |
+
+**Transient solver device support**:
+- [x] Resistor
+- [x] Capacitor
+- [x] Voltage source (DC and time-varying)
+- [x] Current source (DC)
+- [x] Diode (Shockley equation with limiting)
+- [ ] OpenVAF-compiled models (PSP103, etc.)
+
+**Next steps for MOSFET benchmarks**:
+1. Integrate `VADevice` (from `openvaf_device.py`) into transient solver
+2. Handle 4-terminal devices and internal nodes
+3. Map model parameters from VACASK `.inc` files to JAX inputs
+
 ## Low Priority
 
 ### Documentation
