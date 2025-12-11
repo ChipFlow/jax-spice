@@ -235,7 +235,12 @@ def resistor_eval(voltages, params, context):
 
 
 def vsource_eval(voltages, params, context):
-    """Voltage source evaluation function using large conductance method."""
+    """Voltage source evaluation function using large conductance method.
+
+    Note: mfactor for voltage sources represents parallel instances.
+    All instances have the same voltage, so voltage output is unchanged.
+    Branch current would be divided by mfactor, but we don't track that here.
+    """
     Vp = voltages.get('p', 0.0)
     Vn = voltages.get('n', 0.0)
 
@@ -243,7 +248,11 @@ def vsource_eval(voltages, params, context):
     V_target = float(params.get('dc', params.get('val0', 0.0)))
     V_actual = Vp - Vn
 
-    G_big = 1e12
+    # mfactor for vsource: parallel instances share current but have same voltage
+    # This affects the effective conductance (higher mfactor = lower impedance)
+    mfactor = float(params.get('mfactor', 1.0))
+
+    G_big = 1e12 * mfactor  # Lower impedance with more parallel instances
     I = G_big * (V_actual - V_target)
 
     return DeviceStamps(
@@ -257,11 +266,36 @@ def vsource_eval(voltages, params, context):
 
 def isource_eval(voltages, params, context):
     """Current source evaluation function."""
-    I = float(params.get('dc', 0.0))
+    # Get DC value - could be 'dc' param or 'val0' for pulse sources
+    I_base = float(params.get('dc', params.get('val0', 0.0)))
+    mfactor = float(params.get('mfactor', 1.0))
+    I = I_base * mfactor
 
     return DeviceStamps(
         currents={'p': jnp.array(I), 'n': jnp.array(-I)},
         conductances={}
+    )
+
+
+def inductor_eval(voltages, params, context):
+    """Inductor evaluation function.
+
+    For DC analysis: short circuit (large conductance).
+    For transient: would need companion model with history.
+    """
+    Vp = voltages.get('p', 0.0)
+    Vn = voltages.get('n', 0.0)
+
+    # For DC, inductor is short circuit - use large conductance
+    G_big = 1e12
+    I = G_big * (Vp - Vn)
+
+    return DeviceStamps(
+        currents={'p': jnp.array(I), 'n': jnp.array(-I)},
+        conductances={
+            ('p', 'p'): jnp.array(G_big), ('p', 'n'): jnp.array(-G_big),
+            ('n', 'p'): jnp.array(-G_big), ('n', 'n'): jnp.array(G_big)
+        }
     )
 
 
@@ -508,6 +542,8 @@ class TestVACASKOperatingPoint:
             'c': (capacitor_eval, ['p', 'n']),
             'diode': (diode_eval, ['p', 'n']),
             'd': (diode_eval, ['p', 'n']),
+            'inductor': (inductor_eval, ['p', 'n']),
+            'l': (inductor_eval, ['p', 'n']),
             'vccs': (vccs_eval, ['np', 'nn', 'ncp', 'ncn']),
             'vcvs': (vcvs_eval, ['np', 'nn', 'ncp', 'ncn']),
         }
@@ -671,6 +707,75 @@ class TestVACASKOperatingPoint:
             v2 = float(solution[node_names['2']])
             # Pulse source starts at val0=1V
             assert abs(v2 - 1.0) < 0.1, f"V(2) expected ~1V at DC, got {v2}V"
+
+    def test_test_visrc(self):
+        """Test test_visrc.sim - voltage and current sources with mfactor.
+
+        Circuit:
+        - V1(2V) -- R1(2k) -- GND: V(1) = 2V
+        - I1(2mA, mfactor=3) → R2(2k) → GND: V(2) = 2mA * 3 * 2kΩ = 12V
+        """
+        sim_file = VACASK_TEST / "test_visrc.sim"
+        if not sim_file.exists():
+            pytest.skip("VACASK test_visrc.sim not found")
+
+        # Parse circuit
+        circuit = parse_netlist(sim_file)
+
+        # Build MNA system
+        system, node_names = self._build_system_from_circuit(circuit)
+
+        # Solve DC operating point
+        solution, info = dc_operating_point(system)
+        assert info['converged'], f"DC analysis did not converge: {info}"
+
+        print(f"Solution: {dict((k, float(solution[v])) for k, v in node_names.items())}")
+
+        # V(1) = 2V from voltage source
+        if '1' in node_names:
+            v1 = float(solution[node_names['1']])
+            rel_err = abs(v1 - 2.0) / 2.0
+            print(f"V(1) = {v1}V (expected 2V, rel_err={rel_err:.2e})")
+            assert rel_err < 1e-3, f"V(1) expected 2V, got {v1}V"
+
+        # V(2) = 2mA * 3 (mfactor) * 2kΩ = 12V
+        if '2' in node_names:
+            v2 = float(solution[node_names['2']])
+            expected_v2 = 2e-3 * 3 * 2e3  # 12V
+            rel_err = abs(v2 - expected_v2) / expected_v2
+            print(f"V(2) = {v2}V (expected {expected_v2}V, rel_err={rel_err:.2e})")
+            assert rel_err < 1e-3, f"V(2) expected {expected_v2}V, got {v2}V"
+
+    def test_test_inductor_op(self):
+        """Test test_inductor.sim DC operating point.
+
+        For DC, inductor is short circuit. Circuit has current source with val0=1A.
+        With inductor shorted, it carries all the current.
+        """
+        sim_file = VACASK_TEST / "test_inductor.sim"
+        if not sim_file.exists():
+            pytest.skip("VACASK test_inductor.sim not found")
+
+        # Parse circuit
+        circuit = parse_netlist(sim_file)
+
+        # Build MNA system
+        system, node_names = self._build_system_from_circuit(circuit)
+
+        # Solve DC operating point
+        solution, info = dc_operating_point(system)
+        assert info['converged'], f"DC analysis did not converge: {info}"
+
+        print(f"Solution: {dict((k, float(solution[v])) for k, v in node_names.items())}")
+
+        # At DC, inductor is short circuit (0Ω) in parallel with R1 (1Ω)
+        # Equivalent resistance ≈ 0Ω, so V(1) ≈ 0V
+        # Current source I=1A flows through the inductor short
+        if '1' in node_names:
+            v1 = float(solution[node_names['1']])
+            # Should be very close to 0V due to inductor short
+            print(f"V(1) = {v1}V (expected ~0V due to inductor short)")
+            assert abs(v1) < 1e-3, f"V(1) expected ~0V, got {v1}V"
 
 
 class TestVACASKSummary:
