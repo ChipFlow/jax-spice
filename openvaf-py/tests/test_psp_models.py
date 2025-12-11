@@ -32,7 +32,6 @@ class TestPSP102:
         assert 'psp102' in psp102_model.name.lower()
         assert len(psp102_model.nodes) >= 4
 
-    @pytest.mark.xfail(reason="JAX translator has init variable issues for complex models")
     def test_valid_output(self, psp102_model: CompiledModel):
         """PSP102 produces valid outputs"""
         inputs = psp102_model.build_default_inputs()
@@ -57,7 +56,6 @@ class TestPSP103:
         assert 'psp103' in psp103_model.name.lower()
         assert len(psp103_model.nodes) >= 4
 
-    @pytest.mark.xfail(reason="JAX translator has init variable issues for complex models")
     def test_valid_output(self, psp103_model: CompiledModel):
         """PSP103 produces valid outputs"""
         inputs = psp103_model.build_default_inputs()
@@ -86,7 +84,6 @@ class TestJUNCAP:
         assert 'juncap' in juncap_model.name.lower()
         assert len(juncap_model.nodes) >= 2
 
-    @pytest.mark.xfail(reason="JAX translator has init variable issues for complex models")
     def test_valid_output(self, juncap_model: CompiledModel):
         """JUNCAP200 produces valid outputs"""
         inputs = juncap_model.build_default_inputs()

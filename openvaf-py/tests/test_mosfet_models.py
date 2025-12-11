@@ -56,7 +56,6 @@ class TestEKV:
         assert 'ekv' in ekv_model.name.lower()
         assert len(ekv_model.nodes) >= 4
 
-    @pytest.mark.xfail(reason="JAX translator has init variable issues for complex models")
     def test_valid_output(self, ekv_model: CompiledModel):
         """EKV produces valid outputs"""
         inputs = ekv_model.build_default_inputs()
@@ -176,6 +175,8 @@ class TestBSIMCMG:
         residuals, jacobian = bsimcmg_model.jax_fn(inputs)
 
         assert residuals is not None
+        for node, res in residuals.items():
+            assert not np.isnan(float(res['resist'])), f"NaN at {node}"
 
 
 class TestBSIMSOI:

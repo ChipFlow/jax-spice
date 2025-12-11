@@ -4,54 +4,28 @@ Central tracking for development tasks and known issues.
 
 ## High Priority
 
-### GPU Solver - Analytical Jacobians (COMPLETE)
-The GPU solver has been fully migrated to analytical Jacobians, fixing convergence issues with floating nodes.
-
-**Solution**: Replaced autodiff-based Jacobians with explicit Shichman-Hodges MOSFET model that computes analytical gm/gds stamps. This ensures proper minimum conductance (gds_min=1e-9 S) in cutoff regions.
-
-**Results**:
-| Circuit | Analytical | Autodiff |
-|---------|------------|----------|
-| Inverter | 5 iters | 6 iters |
-| AND gate | 78 iters | FAILED |
-| NOR gate | ~10 iters | ~15 iters |
-
-**Completed**:
-- [x] `dc_gpu.py` - Full migration, removed 1400+ lines of autodiff code
-- [x] `transient_gpu.py` - Full migration to analytical Jacobians
-- [x] All 61 tests passing
-
-**Remaining Tasks**:
-- [ ] **Run full C6288 benchmark** with analytical solver on GPU
-  - 5123 nodes, 10112 MOSFETs
-  - Should be faster on GPU now with analytical Jacobians
-
-**Files**:
-- `jax_spice/analysis/dc_gpu.py` - Analytical Jacobian DC solver (584 lines)
-- `jax_spice/analysis/transient_gpu.py` - Analytical Jacobian transient solver
-- `docs/gpu_solver_jacobian.md` - Analysis of the original issue
-
-## Medium Priority
-
 ### openvaf_jax Complex Model Support
-The JAX translator produces NaN outputs for complex models due to init variable handling.
-
-**Root cause**: Complex models (BSIM3/4/6, HiSIM, HICUM, etc.) have init functions that compute many cached values. The JAX translator expects these as inputs, but with default values they're wrong → NaN.
+The JAX translator produces NaN outputs for some complex models due to init variable handling.
 
 **Tasks**:
-- [ ] **Use equivalent approach as OSDI compile uses**
+- [x] ~~Re-test affected models, compare against VACASK running same models~~
+- [x] ~~Update xfail markers~~
+- [ ] If still failing, **Use equivalent approach as OSDI compile uses**
   - see docs/vacask_osdi_inputs.md
 
-**Affected models** (currently xfailed in tests):
-- BSIM3, BSIM4, BSIM6, BSIMBulk, BSIMCMG, BSIMSOI
-- HiSIM2, HiSIMHV
-- HICUM L2
-- MEXTRAM
-
-**Working models** (should remove xfail markers):
+**Working models** (xfail markers removed):
 - PSP102, PSP103, JUNCAP
 - diode_cmc
 - EKV
+
+**Still failing models** (NaN outputs on some nodes):
+- BSIM3, BSIM4, BSIM6, BSIMBulk, BSIMCMG, BSIMSOI
+- HiSIM2, HiSIMHV
+- HICUM L2
+- MEXTRAM (partial - some nodes produce finite outputs)
+- ASMHEMT, MVSG
+
+### Complete testing of VACASK benchmarks
 
 ## Low Priority
 
@@ -63,7 +37,6 @@ The JAX translator produces NaN outputs for complex models due to init variable 
 ### Code Cleanup
 - [ ] **Remove xfail markers** from PSP/JUNCAP/diode_cmc tests (they pass)
 - [ ] **Consolidate test files** in `openvaf-py/tests/` (some at root level)
-
 ### Build System
 - [ ] **Upstream VACASK macOS fixes** to original repo
   - Current workaround: `robtaylor/VACASK` fork with `macos-fixes` branch
@@ -71,11 +44,18 @@ The JAX translator produces NaN outputs for complex models due to init variable 
 
 ## Completed
 
+- [x] ~~VACASKBenchmarkRunner module~~ (`jax_spice/benchmarks/`)
+  - Generic runner for VACASK benchmark circuits
+  - Subcircuit flattening with parameter expression evaluation
+  - Uses production `transient_analysis_jit()` for simulation
+  - Supports: resistor, capacitor, vsource, isource, diode
+  - Parses analysis params from .sim files (step, stop, icmode)
+  - Tests: rc, graetz, mul benchmarks passing; ring/c6288 skipped (need MOSFET)
+
 - [x] ~~Full migration to analytical Jacobians~~ (dc_gpu.py and transient_gpu.py)
   - Removed sparsejac dependency from GPU solvers
   - dc_gpu.py reduced from 2006 → 584 lines
   - AND gate convergence fixed (was failing with autodiff)
-  - All 61 tests passing
 
 - [x] ~~Create test suite using VACASK sim files~~ (`tests/test_vacask_jax.py`)
   - Parses actual VACASK `.sim` files
@@ -103,6 +83,29 @@ The JAX translator produces NaN outputs for complex models due to init variable 
   - `scripts/build_openvaf.sh`
   - `scripts/build_vacask.sh`
 
+### GPU Solver - Analytical Jacobians (COMPLETE)
+The GPU solver has been fully migrated to analytical Jacobians, fixing convergence issues with floating nodes.
+
+**Solution**: Replaced autodiff-based Jacobians with explicit Shichman-Hodges MOSFET model that computes analytical gm/gds stamps. This ensures proper minimum conductance (gds_min=1e-9 S) in cutoff regions.
+
+**Results**:
+| Circuit | Analytical | Autodiff |
+|---------|------------|----------|
+| Inverter | 5 iters | 6 iters |
+| AND gate | 78 iters | FAILED |
+| NOR gate | ~10 iters | ~15 iters |
+
+**Completed**:
+- [x] `dc_gpu.py` - Full migration, removed 1400+ lines of autodiff code
+- [x] `transient_gpu.py` - Full migration to analytical Jacobians
+- [x] All 61 tests passing
+
+**Files**:
+- `jax_spice/analysis/dc_gpu.py` - Analytical Jacobian DC solver (584 lines)
+- `jax_spice/analysis/transient_gpu.py` - Analytical Jacobian transient solver
+- `docs/gpu_solver_jacobian.md` - Analysis of the original issue
+
+
 ## Reference
 
 ### Key Files
@@ -110,10 +113,12 @@ The JAX translator produces NaN outputs for complex models due to init variable 
 |---------|----------|
 | GPU DC solver | `jax_spice/analysis/dc_gpu.py` |
 | GPU transient solver | `jax_spice/analysis/transient_gpu.py` |
+| CPU transient solver | `jax_spice/analysis/transient.py` |
+| Benchmark runner | `jax_spice/benchmarks/runner.py` |
 | OpenVAF device wrapper | `jax_spice/devices/openvaf_device.py` |
 | OpenVAF→JAX translator | `openvaf-py/openvaf_jax.py` |
 | VACASK parser | `jax_spice/netlist/parser.py` |
-| VACASK JAX tests | `tests/test_vacask_jax.py` |
+| VACASK suite tests | `tests/test_vacask_suite.py` |
 | Jacobian issue analysis | `docs/gpu_solver_jacobian.md` |
 
 ### Test Commands
