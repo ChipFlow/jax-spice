@@ -11,7 +11,11 @@ from jax_spice.analysis.dc import (
     dc_operating_point_gpu,
     dc_operating_point_analytical,
 )
-from jax_spice.analysis.transient import transient_analysis
+from jax_spice.analysis.transient import (
+    transient_analysis,
+    transient_analysis_jit,
+    transient_analysis_analytical,
+)
 from jax_spice.analysis.sparse import sparse_solve, sparse_solve_csr
 from jax_spice.analysis.gpu_backend import (
     select_backend,
@@ -39,6 +43,8 @@ __all__ = [
     "dc_operating_point_gpu",
     "dc_operating_point_analytical",
     "transient_analysis",
+    "transient_analysis_jit",
+    "transient_analysis_analytical",
     "sparse_solve",
     "sparse_solve_csr",
     "select_backend",
