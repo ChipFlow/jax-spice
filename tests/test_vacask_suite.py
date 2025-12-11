@@ -258,11 +258,7 @@ class VACASKBenchmarkRunner:
                 sources[dev['name']] = sine_fn
 
             else:
-                # Unknown type - log warning and treat as DC
-                if self.verbose:
-                    print(f"    WARNING: Unknown source type '{source_type}', treating as DC")
-                dc_val = params.get('dc', 0)
-                sources[dev['name']] = lambda t, v=dc_val: v
+                raise ValueError(f"Unknown source type '{source_type}' for device {dev['name']}")
 
         def source_fn(t):
             return {name: fn(t) for name, fn in sources.items()}
