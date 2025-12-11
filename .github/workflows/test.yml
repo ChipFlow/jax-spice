@@ -50,3 +50,55 @@ jobs:
       - name: Run tests
         working-directory: openvaf-py
         run: uv run pytest tests/ -v --tb=short
+
+  test-jax-spice:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout with submodules
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install LLVM 18
+        run: |
+          wget https://apt.llvm.org/llvm.sh
+          chmod +x llvm.sh
+          sudo ./llvm.sh 18
+          echo "LLVM_SYS_181_PREFIX=/usr/lib/llvm-18" >> $GITHUB_ENV
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            OpenVAF
+            openvaf-py
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+
+      - name: Set up Python
+        run: uv python install 3.11
+
+      - name: Build openvaf-py
+        working-directory: openvaf-py
+        run: |
+          uv sync
+          uv run maturin develop --release
+
+      - name: Install jax-spice
+        run: uv sync
+
+      - name: Run jax-spice tests
+        env:
+          JAX_PLATFORMS: cpu
+          JAX_ENABLE_X64: "1"
+        run: uv run pytest tests/test_vacask_suite.py tests/test_vacask_jax.py -v --tb=short
+
+      - name: Run benchmark tests
+        env:
+          JAX_PLATFORMS: cpu
+          JAX_ENABLE_X64: "1"
+        run: uv run pytest benchmarks/test_benchmarks.py -v --tb=short

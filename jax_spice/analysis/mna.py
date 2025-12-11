@@ -28,6 +28,64 @@ from jax_spice.analysis.context import AnalysisContext
 
 
 # =============================================================================
+# Parameter Evaluation
+# =============================================================================
+
+
+def eval_param_simple(value, vdd: float = 1.2, defaults: dict = None):
+    """Simple parameter evaluation for common cases.
+
+    Handles:
+    - Numbers (int, float)
+    - String 'vdd' -> vdd value
+    - String '0' -> 0.0
+    - String 'w', 'l' -> default MOSFET dimensions
+    - SPICE number suffixes (1u, 100n, etc.)
+    """
+    if defaults is None:
+        defaults = {
+            'w': 1e-6,      # Default MOSFET width = 1u
+            'l': 0.2e-6,    # Default MOSFET length = 0.2u
+            'ld': 0.5e-6,   # Default drain extension
+            'ls': 0.5e-6,   # Default source extension
+        }
+
+    if isinstance(value, (int, float)):
+        return float(value)
+
+    if isinstance(value, str):
+        value_lower = value.lower().strip()
+
+        # Common parameter references
+        if value_lower == 'vdd':
+            return vdd
+        if value_lower in ('0', '0.0', 'vss', 'gnd'):
+            return 0.0
+        if value_lower in defaults:
+            return defaults[value_lower]
+
+        # SPICE number suffixes
+        suffixes = {
+            't': 1e12, 'g': 1e9, 'meg': 1e6, 'k': 1e3,
+            'm': 1e-3, 'u': 1e-6, 'n': 1e-9, 'p': 1e-12, 'f': 1e-15
+        }
+        for suffix, mult in sorted(suffixes.items(), key=lambda x: -len(x[0])):
+            if value_lower.endswith(suffix):
+                try:
+                    return float(value_lower[:-len(suffix)]) * mult
+                except ValueError:
+                    pass
+
+        # Try direct conversion
+        try:
+            return float(value)
+        except ValueError:
+            pass
+
+    return 0.0
+
+
+# =============================================================================
 # Device Type Enumeration
 # =============================================================================
 
@@ -527,7 +585,6 @@ class MNASystem:
             vdd: Supply voltage for resolving 'vdd' parameter references
         """
         from collections import defaultdict
-        from jax_spice.analysis.dc_gpu import eval_param_simple
 
         # Group devices by type
         type_to_devices: Dict[DeviceType, List[DeviceInfo]] = defaultdict(list)
@@ -739,7 +796,7 @@ class MNASystem:
         """Build sparsity pattern (row, col indices) for Jacobian.
 
         Returns sparse indices for the Jacobian matrix based on device connectivity.
-        This is used by sparsejac for efficient sparse autodiff.
+        Used for efficient sparse matrix assembly.
 
         Returns:
             Tuple of (row_indices, col_indices) arrays

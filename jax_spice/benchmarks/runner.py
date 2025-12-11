@@ -830,16 +830,18 @@ class VACASKBenchmarkRunner:
         return system
 
     def run_transient(self, t_stop: Optional[float] = None, dt: Optional[float] = None,
-                      max_steps: int = 10000) -> Tuple[np.ndarray, Dict[int, np.ndarray]]:
+                      max_steps: int = 10000, use_sparse: Optional[bool] = None) -> Tuple[np.ndarray, Dict[int, np.ndarray]]:
         """Run transient analysis.
 
         Uses the JIT-compiled solver for circuits with only simple devices.
         Uses a hybrid Python-based solver for circuits with OpenVAF devices.
+        Automatically uses sparse matrices for large circuits (>1000 nodes).
 
         Args:
             t_stop: Stop time (default: from analysis params or 1ms)
             dt: Time step (default: from analysis params or 1µs)
             max_steps: Maximum number of time steps
+            use_sparse: Force sparse (True) or dense (False) solver. If None, auto-detect.
 
         Returns:
             (times, voltages) tuple where voltages is dict mapping node index to voltage array
@@ -861,9 +863,19 @@ class VACASKBenchmarkRunner:
 
         # Use hybrid solver if we have OpenVAF devices
         if self._has_openvaf_devices:
-            if self.verbose:
-                print("Using hybrid solver (OpenVAF devices detected)")
-            return self._run_transient_hybrid(t_stop, dt)
+            # Auto-detect sparse usage if not specified
+            # Dense matrix for 86k nodes would be ~56GB, so use sparse for large circuits
+            if use_sparse is None:
+                use_sparse = self.num_nodes > 1000
+
+            if use_sparse:
+                if self.verbose:
+                    print(f"Using sparse hybrid solver ({self.num_nodes} nodes, OpenVAF devices)")
+                return self._run_transient_hybrid_sparse(t_stop, dt)
+            else:
+                if self.verbose:
+                    print("Using dense hybrid solver (OpenVAF devices detected)")
+                return self._run_transient_hybrid(t_stop, dt)
 
         # Convert to MNA system
         system = self.to_mna_system()
@@ -928,6 +940,83 @@ class VACASKBenchmarkRunner:
             print(f"Allocated {n_internal} internal nodes for {len(device_internal_nodes)} OpenVAF devices")
 
         return next_internal, device_internal_nodes
+
+    def _build_sparsity_pattern(self, n_unknowns: int, device_internal_nodes: Dict,
+                                  openvaf_by_type: Dict[str, List[Dict]],
+                                  simple_devices: List[Dict], ground: int) -> Tuple[List[int], List[int]]:
+        """Build the sparsity pattern for the Jacobian matrix.
+
+        Returns (rows, cols) lists of non-zero entry coordinates.
+        """
+        nonzeros = set()  # Set of (row, col) tuples
+
+        # Add diagonal entries (always needed for regularization)
+        for i in range(n_unknowns):
+            nonzeros.add((i, i))
+
+        # Simple devices contribute to specific entries
+        for dev in simple_devices:
+            nodes = dev['nodes']
+            # Each pair of nodes in a device creates entries
+            for n1 in nodes:
+                for n2 in nodes:
+                    if n1 != ground and n2 != ground:
+                        r, c = n1 - 1, n2 - 1
+                        if 0 <= r < n_unknowns and 0 <= c < n_unknowns:
+                            nonzeros.add((r, c))
+
+        # OpenVAF devices have known Jacobian structure
+        for model_type, devices in openvaf_by_type.items():
+            compiled = self._compiled_models.get(model_type)
+            if not compiled:
+                continue
+
+            metadata = compiled.get('array_metadata', {})
+            jacobian_keys = metadata.get('jacobian_keys', [])
+            model_nodes = compiled['nodes']
+
+            for dev in devices:
+                ext_nodes = dev['nodes']
+                internal_nodes = device_internal_nodes.get(dev['name'], {})
+
+                # Build node map for this device
+                node_map = {}
+                for i, model_node in enumerate(model_nodes[:4]):
+                    if i < len(ext_nodes):
+                        node_map[model_node] = ext_nodes[i]
+                    else:
+                        node_map[model_node] = ground
+
+                for model_node, global_idx in internal_nodes.items():
+                    node_map[model_node] = global_idx
+
+                # Map sim_node names
+                for i, model_node in enumerate(model_nodes[:-1]):
+                    node_map[f'sim_{model_node}'] = node_map.get(model_node, ground)
+
+                # Add entries for each Jacobian element
+                for row_name, col_name in jacobian_keys:
+                    row_model = row_name[4:] if row_name.startswith('sim_') else row_name
+                    col_model = col_name[4:] if col_name.startswith('sim_') else col_name
+
+                    row_idx = node_map.get(row_model, node_map.get(row_name, None))
+                    col_idx = node_map.get(col_model, node_map.get(col_name, None))
+
+                    if row_idx is None or col_idx is None:
+                        continue
+                    if row_idx == ground or col_idx == ground:
+                        continue
+
+                    r, c = row_idx - 1, col_idx - 1
+                    if 0 <= r < n_unknowns and 0 <= c < n_unknowns:
+                        nonzeros.add((r, c))
+
+        # Convert to sorted lists
+        nonzeros_list = sorted(nonzeros)
+        rows = [r for r, c in nonzeros_list]
+        cols = [c for r, c in nonzeros_list]
+
+        return rows, cols
 
     def _run_transient_hybrid(self, t_stop: float, dt: float) -> Tuple[np.ndarray, Dict[int, np.ndarray]]:
         """Run transient analysis with OpenVAF devices using Python-based Newton-Raphson.
@@ -1075,6 +1164,279 @@ class VACASKBenchmarkRunner:
             print(f"Completed: {len(times)} timesteps, {total_nr_iters} total NR iterations")
 
         return np.array(times), {k: np.array(v) for k, v in voltages.items()}
+
+    def _run_transient_hybrid_sparse(self, t_stop: float, dt: float) -> Tuple[np.ndarray, Dict[int, np.ndarray]]:
+        """Run transient analysis with sparse matrix support for large circuits.
+
+        Uses scipy.sparse for efficient memory usage with large circuits like c6288.
+        """
+        from scipy.sparse import csr_matrix, lil_matrix
+        from scipy.sparse.linalg import spsolve as scipy_spsolve
+
+        ground = 0
+
+        # Set up internal nodes for OpenVAF devices
+        n_total, device_internal_nodes = self._setup_internal_nodes()
+        n_external = self.num_nodes
+        n_unknowns = n_total - 1
+
+        if self.verbose:
+            print(f"Total nodes: {n_total} ({n_external} external, {n_total - n_external} internal)")
+
+        # Initialize voltages
+        V = np.zeros(n_total)
+        V_prev = np.zeros(n_total)
+
+        # Build time-varying source function
+        source_fn = self._build_source_fn()
+
+        # Group devices
+        openvaf_by_type: Dict[str, List[Dict]] = {}
+        simple_devices = []
+        for dev in self.devices:
+            if dev.get('is_openvaf'):
+                model_type = dev['model']
+                if model_type not in openvaf_by_type:
+                    openvaf_by_type[model_type] = []
+                openvaf_by_type[model_type].append(dev)
+            else:
+                simple_devices.append(dev)
+
+        # Build sparsity pattern
+        rows, cols = self._build_sparsity_pattern(
+            n_unknowns, device_internal_nodes, openvaf_by_type, simple_devices, ground
+        )
+        nnz = len(rows)
+
+        if self.verbose:
+            density = nnz / (n_unknowns * n_unknowns) * 100
+            print(f"Sparse Jacobian: {n_unknowns}x{n_unknowns}, {nnz} non-zeros ({density:.4f}% density)")
+
+        # Create coordinate-to-index mapping for fast assembly
+        coord_to_idx = {(r, c): i for i, (r, c) in enumerate(zip(rows, cols))}
+
+        # Get cached JIT-compiled vmapped functions and prepare static inputs
+        vmapped_fns: Dict[str, Callable] = {}
+        static_inputs_cache: Dict[str, Tuple[np.ndarray, List[int], List[Dict]]] = {}
+        for model_type in openvaf_by_type:
+            compiled = self._compiled_models.get(model_type)
+            if compiled and 'vmapped_fn' in compiled:
+                vmapped_fns[model_type] = compiled['vmapped_fn']
+                static_inputs, voltage_indices, device_contexts = self._prepare_static_inputs(
+                    model_type, openvaf_by_type[model_type], device_internal_nodes, ground
+                )
+                static_inputs_cache[model_type] = (static_inputs, voltage_indices, device_contexts)
+                if self.verbose:
+                    n_devs = len(openvaf_by_type[model_type])
+                    print(f"Using JIT-compiled vmapped function for {model_type} ({n_devs} devices)")
+
+        # Time stepping
+        times = []
+        voltages = {i: [] for i in range(n_external)}
+
+        t = 0.0
+        total_nr_iters = 0
+
+        while t <= t_stop:
+            source_values = source_fn(t)
+
+            converged = False
+            for nr_iter in range(100):
+                # Use LIL format for efficient assembly
+                J_lil = lil_matrix((n_unknowns, n_unknowns))
+                f = np.zeros(n_unknowns)
+
+                # Stamp simple devices
+                for dev in simple_devices:
+                    self._stamp_simple_device_sparse(dev, V, V_prev, dt, f, J_lil, ground, source_values)
+
+                # Stamp OpenVAF devices
+                for model_type, devices in openvaf_by_type.items():
+                    if model_type in vmapped_fns and model_type in static_inputs_cache:
+                        static_inputs, voltage_indices, device_contexts = static_inputs_cache[model_type]
+                        batch_inputs = self._update_voltage_inputs(
+                            static_inputs, voltage_indices, device_contexts, V
+                        )
+                        batch_residuals, batch_jacobian = vmapped_fns[model_type](batch_inputs)
+                        self._stamp_batched_results_sparse(
+                            model_type, batch_residuals, batch_jacobian,
+                            device_contexts, f, J_lil, ground
+                        )
+
+                # Check convergence
+                max_f = np.max(np.abs(f))
+                if max_f < 1e-9:
+                    converged = True
+                    break
+
+                # Convert to CSR and add regularization
+                J_csr = J_lil.tocsr()
+                # Add small diagonal for numerical stability
+                J_csr.setdiag(J_csr.diagonal() + 1e-12)
+
+                # Solve sparse system
+                try:
+                    delta = scipy_spsolve(J_csr, -f)
+                except Exception:
+                    # Fallback to dense if sparse fails
+                    delta = np.linalg.lstsq(J_csr.toarray(), -f, rcond=None)[0]
+
+                # Limit voltage step
+                max_delta = np.max(np.abs(delta))
+                if max_delta > 1.0:
+                    delta = delta * (1.0 / max_delta)
+
+                V[1:] += delta
+
+                if max_delta < 1e-12:
+                    converged = True
+                    break
+
+            total_nr_iters += nr_iter + 1
+
+            if not converged and self.verbose:
+                print(f"Warning: t={t:.2e}s did not converge (max_f={max_f:.2e})")
+
+            times.append(t)
+            for i in range(n_external):
+                voltages[i].append(V[i])
+
+            V_prev = V.copy()
+            t += dt
+
+        if self.verbose:
+            print(f"Completed: {len(times)} timesteps, {total_nr_iters} total NR iterations")
+
+        return np.array(times), {k: np.array(v) for k, v in voltages.items()}
+
+    def _stamp_simple_device_sparse(self, dev: Dict, V: np.ndarray, V_prev: np.ndarray,
+                                     dt: float, f: np.ndarray, J,
+                                     ground: int, source_values: Dict):
+        """Stamp a simple device into sparse matrix (LIL format)."""
+        model = dev['model']
+        nodes = dev['nodes']
+        params = dev['params']
+
+        if model == 'vsource':
+            if dev['name'] in source_values:
+                V_target = source_values[dev['name']]
+            else:
+                V_target = params.get('dc', 0)
+
+            np_idx, nn_idx = nodes[0], nodes[1]
+            G = 1e12
+            I = G * (V[np_idx] - V[nn_idx] - V_target)
+
+            if np_idx != ground:
+                f[np_idx - 1] += I
+                J[np_idx - 1, np_idx - 1] += G
+                if nn_idx != ground:
+                    J[np_idx - 1, nn_idx - 1] -= G
+            if nn_idx != ground:
+                f[nn_idx - 1] -= I
+                J[nn_idx - 1, nn_idx - 1] += G
+                if np_idx != ground:
+                    J[nn_idx - 1, np_idx - 1] -= G
+
+        elif model == 'isource':
+            if dev['name'] in source_values:
+                I_val = source_values[dev['name']]
+            else:
+                I_val = params.get('dc', 0)
+
+            np_idx, nn_idx = nodes[0], nodes[1]
+            if np_idx != ground:
+                f[np_idx - 1] -= I_val
+            if nn_idx != ground:
+                f[nn_idx - 1] += I_val
+
+        elif model == 'resistor':
+            R = params.get('r', 1e3)
+            G = 1.0 / R
+            np_idx, nn_idx = nodes[0], nodes[1]
+            I = G * (V[np_idx] - V[nn_idx])
+
+            if np_idx != ground:
+                f[np_idx - 1] += I
+                J[np_idx - 1, np_idx - 1] += G
+                if nn_idx != ground:
+                    J[np_idx - 1, nn_idx - 1] -= G
+            if nn_idx != ground:
+                f[nn_idx - 1] -= I
+                J[nn_idx - 1, nn_idx - 1] += G
+                if np_idx != ground:
+                    J[nn_idx - 1, np_idx - 1] -= G
+
+        elif model == 'capacitor':
+            C = params.get('c', 1e-12)
+            np_idx, nn_idx = nodes[0], nodes[1]
+            G_eq = C / dt
+            I_eq = G_eq * (V_prev[np_idx] - V_prev[nn_idx])
+            I = G_eq * (V[np_idx] - V[nn_idx]) - I_eq
+
+            if np_idx != ground:
+                f[np_idx - 1] += I
+                J[np_idx - 1, np_idx - 1] += G_eq
+                if nn_idx != ground:
+                    J[np_idx - 1, nn_idx - 1] -= G_eq
+            if nn_idx != ground:
+                f[nn_idx - 1] -= I
+                J[nn_idx - 1, nn_idx - 1] += G_eq
+                if np_idx != ground:
+                    J[nn_idx - 1, np_idx - 1] -= G_eq
+
+    def _stamp_batched_results_sparse(self, model_type: str, batch_residuals: jnp.ndarray,
+                                       batch_jacobian: jnp.ndarray, device_contexts: List[Dict],
+                                       f: np.ndarray, J, ground: int):
+        """Stamp batched evaluation results into sparse matrix."""
+        compiled = self._compiled_models.get(model_type)
+        if not compiled:
+            return
+
+        metadata = compiled['array_metadata']
+        node_names = metadata['node_names']
+        jacobian_keys = metadata['jacobian_keys']
+
+        batch_residuals_np = np.asarray(batch_residuals)
+        batch_jacobian_np = np.asarray(batch_jacobian)
+
+        for dev_idx, ctx in enumerate(device_contexts):
+            node_map = ctx['node_map']
+
+            # Stamp residuals
+            for res_idx, node_name in enumerate(node_names):
+                if node_name.startswith('sim_'):
+                    model_node = node_name[4:]
+                else:
+                    model_node = node_name
+
+                node_idx = node_map.get(model_node, node_map.get(node_name, None))
+                if node_idx is None or node_idx == ground:
+                    continue
+
+                resist = batch_residuals_np[dev_idx, res_idx]
+                if not np.isnan(resist) and node_idx > 0 and node_idx - 1 < len(f):
+                    f[node_idx - 1] += resist
+
+            # Stamp Jacobian
+            for jac_idx, (row_name, col_name) in enumerate(jacobian_keys):
+                row_model = row_name[4:] if row_name.startswith('sim_') else row_name
+                col_model = col_name[4:] if col_name.startswith('sim_') else col_name
+
+                row_idx = node_map.get(row_model, node_map.get(row_name, None))
+                col_idx = node_map.get(col_model, node_map.get(col_name, None))
+
+                if row_idx is None or col_idx is None:
+                    continue
+                if row_idx == ground or col_idx == ground:
+                    continue
+
+                resist = batch_jacobian_np[dev_idx, jac_idx]
+                if not np.isnan(resist):
+                    ri = row_idx - 1
+                    ci = col_idx - 1
+                    if 0 <= ri < len(f) and 0 <= ci < len(f):
+                        J[ri, ci] += resist
 
     def _stamp_simple_device(self, dev: Dict, V: np.ndarray, V_prev: np.ndarray,
                              dt: float, f: np.ndarray, J: np.ndarray,

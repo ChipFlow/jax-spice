@@ -1,18 +1,30 @@
 #!/usr/bin/env python3
 """GPU Profiling Script for JAX-SPICE
 
-Profiles CPU/GPU utilization and data movement during circuit simulation.
+Profiles CPU/GPU performance of VACASK benchmark circuits using VACASKBenchmarkRunner.
+Compares dense vs sparse solvers across different circuit sizes.
 Outputs a report suitable for GitHub Actions job summaries.
+
+Usage:
+    # Local benchmarking
+    uv run scripts/profile_gpu.py
+
+    # Single benchmark with Perfetto tracing
+    uv run scripts/profile_gpu.py --benchmark ring --trace --trace-dir /tmp/traces
+
+    # Run specific benchmarks
+    uv run scripts/profile_gpu.py --benchmark ring,c6288
 """
 
+import argparse
 import os
 import sys
 import time
 import json
 from pathlib import Path
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional
-from contextlib import contextmanager
+from typing import Dict, List, Optional, Tuple
+from contextlib import nullcontext
 
 # Ensure jax-spice is importable
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -24,62 +36,32 @@ import numpy as np
 # Enable float64
 jax.config.update('jax_enable_x64', True)
 
+from jax_spice.benchmarks.runner import VACASKBenchmarkRunner
+
 
 @dataclass
-class TimingStats:
-    """Timing statistics for a profiled operation"""
+class BenchmarkResult:
+    """Results from a single benchmark run"""
     name: str
-    total_time_ms: float = 0.0
-    call_count: int = 0
-    min_time_ms: float = float('inf')
-    max_time_ms: float = 0.0
-    times: List[float] = field(default_factory=list)
-
-    def record(self, time_ms: float):
-        self.times.append(time_ms)
-        self.total_time_ms += time_ms
-        self.call_count += 1
-        self.min_time_ms = min(self.min_time_ms, time_ms)
-        self.max_time_ms = max(self.max_time_ms, time_ms)
-
-    @property
-    def avg_time_ms(self) -> float:
-        return self.total_time_ms / self.call_count if self.call_count > 0 else 0.0
+    nodes: int
+    devices: int
+    openvaf_devices: int
+    timesteps: int
+    total_time_s: float
+    time_per_step_ms: float
+    solver: str  # 'dense' or 'sparse'
+    backend: str  # 'cpu' or 'gpu'
+    converged: bool = True
+    error: Optional[str] = None
 
 
 class GPUProfiler:
-    """Profiles JAX operations for CPU/GPU utilization analysis"""
+    """Profiles VACASK benchmark circuits for CPU/GPU performance analysis"""
 
     def __init__(self):
-        self.timings: Dict[str, TimingStats] = {}
-        self.transfers: List[Dict] = []
+        self.results: List[BenchmarkResult] = []
         self.start_time: Optional[float] = None
         self.end_time: Optional[float] = None
-
-    @contextmanager
-    def measure(self, name: str):
-        """Context manager to measure execution time of a block"""
-        # Ensure any pending operations complete
-        jax.block_until_ready(jnp.array(0.0))
-
-        start = time.perf_counter()
-        yield
-        # Block until all JAX operations complete
-        jax.block_until_ready(jnp.array(0.0))
-        elapsed_ms = (time.perf_counter() - start) * 1000
-
-        if name not in self.timings:
-            self.timings[name] = TimingStats(name=name)
-        self.timings[name].record(elapsed_ms)
-
-    def record_transfer(self, name: str, size_bytes: int, direction: str):
-        """Record a data transfer between CPU and GPU"""
-        self.transfers.append({
-            'name': name,
-            'size_bytes': size_bytes,
-            'size_mb': size_bytes / (1024 * 1024),
-            'direction': direction,  # 'to_gpu' or 'from_gpu'
-        })
 
     def start(self):
         """Mark the start of profiling"""
@@ -95,6 +77,105 @@ class GPUProfiler:
             return self.end_time - self.start_time
         return 0.0
 
+    def run_benchmark(self, sim_path: Path, name: str, use_sparse: bool,
+                      num_steps: int = 20, warmup_steps: int = 5,
+                      trace_ctx=None) -> BenchmarkResult:
+        """Run a single benchmark configuration.
+
+        Args:
+            sim_path: Path to the .sim file
+            name: Benchmark name
+            use_sparse: Whether to use sparse solver
+            num_steps: Number of timesteps for timing
+            warmup_steps: Number of warmup steps (includes JIT compilation)
+            trace_ctx: Optional JAX profiler trace context for Perfetto
+
+        Returns:
+            BenchmarkResult with timing information
+        """
+        backend = jax.default_backend()
+
+        try:
+            # Parse circuit
+            runner = VACASKBenchmarkRunner(sim_path, verbose=False)
+            runner.parse()
+
+            nodes = runner.num_nodes
+            devices = len(runner.devices)
+            openvaf_devices = sum(1 for d in runner.devices if d.get('is_openvaf'))
+
+            # Skip sparse for non-OpenVAF circuits (they use JIT solver)
+            if use_sparse and not runner._has_openvaf_devices:
+                return BenchmarkResult(
+                    name=name,
+                    nodes=nodes,
+                    devices=devices,
+                    openvaf_devices=openvaf_devices,
+                    timesteps=0,
+                    total_time_s=0,
+                    time_per_step_ms=0,
+                    solver='sparse',
+                    backend=backend,
+                    converged=True,
+                    error="Sparse not applicable (no OpenVAF devices)"
+                )
+
+            # Get analysis params
+            dt = runner.analysis_params.get('step', 1e-12)
+
+            # Warmup run (includes JIT compilation)
+            runner.run_transient(t_stop=dt * warmup_steps, dt=dt,
+                                max_steps=warmup_steps, use_sparse=use_sparse)
+
+            # Create fresh runner for timing (reuse compiled models)
+            runner2 = VACASKBenchmarkRunner(sim_path, verbose=False)
+            runner2.parse()
+            if runner._has_openvaf_devices:
+                runner2._compiled_models = runner._compiled_models
+
+            # Timed run (optionally with tracing)
+            ctx = trace_ctx if trace_ctx else nullcontext()
+            with ctx:
+                start = time.perf_counter()
+                times, voltages = runner2.run_transient(
+                    t_stop=dt * num_steps, dt=dt,
+                    max_steps=num_steps, use_sparse=use_sparse
+                )
+                elapsed = time.perf_counter() - start
+
+            actual_steps = len(times)
+            time_per_step = (elapsed / actual_steps * 1000) if actual_steps > 0 else 0
+
+            return BenchmarkResult(
+                name=name,
+                nodes=nodes,
+                devices=devices,
+                openvaf_devices=openvaf_devices,
+                timesteps=actual_steps,
+                total_time_s=elapsed,
+                time_per_step_ms=time_per_step,
+                solver='sparse' if use_sparse else 'dense',
+                backend=backend,
+                converged=True,
+            )
+
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            return BenchmarkResult(
+                name=name,
+                nodes=0,
+                devices=0,
+                openvaf_devices=0,
+                timesteps=0,
+                total_time_s=0,
+                time_per_step_ms=0,
+                solver='sparse' if use_sparse else 'dense',
+                backend=backend,
+                converged=False,
+                error=str(e)
+            )
+
     def generate_report(self) -> str:
         """Generate a markdown report for GitHub Actions"""
         lines = []
@@ -105,7 +186,6 @@ class GPUProfiler:
         lines.append(f"- **JAX Backend**: `{jax.default_backend()}`")
         lines.append(f"- **Devices**: `{[str(d) for d in jax.devices()]}`")
 
-        # Check for GPU
         gpu_devices = [d for d in jax.devices() if d.platform != 'cpu']
         if gpu_devices:
             lines.append(f"- **GPU**: `{gpu_devices[0]}`")
@@ -115,409 +195,244 @@ class GPUProfiler:
 
         # Overall timing
         lines.append("## Overall Timing\n")
-        lines.append(f"- **Total Simulation Time**: {self.total_time_s:.3f}s")
+        lines.append(f"- **Total Profiling Time**: {self.total_time_s:.3f}s")
         lines.append("")
 
-        # Timing breakdown
-        if self.timings:
-            lines.append("## Operation Timing Breakdown\n")
-            lines.append("| Operation | Total (ms) | Calls | Avg (ms) | Min (ms) | Max (ms) | % of Total |")
-            lines.append("|-----------|------------|-------|----------|----------|----------|------------|")
+        # Results table
+        if self.results:
+            lines.append("## Benchmark Results\n")
+            lines.append("| Benchmark | Nodes | Devices | OpenVAF | Solver | Steps | Total (s) | Per Step (ms) | Status |")
+            lines.append("|-----------|-------|---------|---------|--------|-------|-----------|---------------|--------|")
 
-            total_measured = sum(t.total_time_ms for t in self.timings.values())
-            sorted_timings = sorted(self.timings.values(), key=lambda x: -x.total_time_ms)
-
-            for t in sorted_timings:
-                pct = (t.total_time_ms / total_measured * 100) if total_measured > 0 else 0
+            for r in self.results:
+                status = "OK" if r.converged and not r.error else (r.error or "Failed")
+                if len(status) > 20:
+                    status = status[:17] + "..."
                 lines.append(
-                    f"| {t.name} | {t.total_time_ms:.1f} | {t.call_count} | "
-                    f"{t.avg_time_ms:.2f} | {t.min_time_ms:.2f} | {t.max_time_ms:.2f} | {pct:.1f}% |"
+                    f"| {r.name} | {r.nodes} | {r.devices} | {r.openvaf_devices} | "
+                    f"{r.solver} | {r.timesteps} | {r.total_time_s:.3f} | "
+                    f"{r.time_per_step_ms:.1f} | {status} |"
                 )
             lines.append("")
 
-        # Data transfers
-        if self.transfers:
-            lines.append("## Data Transfers\n")
+            # Dense vs Sparse comparison
+            dense_results = [r for r in self.results if r.solver == 'dense' and r.converged and not r.error]
+            sparse_results = [r for r in self.results if r.solver == 'sparse' and r.converged and not r.error]
 
-            to_gpu = [t for t in self.transfers if t['direction'] == 'to_gpu']
-            from_gpu = [t for t in self.transfers if t['direction'] == 'from_gpu']
+            if dense_results and sparse_results:
+                lines.append("## Dense vs Sparse Comparison\n")
+                lines.append("| Benchmark | Dense (ms/step) | Sparse (ms/step) | Speedup |")
+                lines.append("|-----------|-----------------|------------------|---------|")
 
-            total_to_gpu_mb = sum(t['size_mb'] for t in to_gpu)
-            total_from_gpu_mb = sum(t['size_mb'] for t in from_gpu)
-
-            lines.append(f"- **To GPU**: {len(to_gpu)} transfers, {total_to_gpu_mb:.2f} MB total")
-            lines.append(f"- **From GPU**: {len(from_gpu)} transfers, {total_from_gpu_mb:.2f} MB total")
-            lines.append("")
-
-            # Show largest transfers
-            all_transfers = sorted(self.transfers, key=lambda x: -x['size_bytes'])[:10]
-            if all_transfers:
-                lines.append("### Largest Transfers\n")
-                lines.append("| Name | Size (MB) | Direction |")
-                lines.append("|------|-----------|-----------|")
-                for t in all_transfers:
-                    lines.append(f"| {t['name']} | {t['size_mb']:.3f} | {t['direction']} |")
+                for dr in dense_results:
+                    sr = next((r for r in sparse_results if r.name == dr.name), None)
+                    if sr and sr.time_per_step_ms > 0:
+                        speedup = dr.time_per_step_ms / sr.time_per_step_ms
+                        lines.append(
+                            f"| {dr.name} | {dr.time_per_step_ms:.1f} | "
+                            f"{sr.time_per_step_ms:.1f} | {speedup:.2f}x |"
+                        )
                 lines.append("")
-
-        # CPU vs GPU analysis
-        lines.append("## CPU vs GPU Analysis\n")
-
-        if self.timings:
-            # Categorize operations
-            cpu_ops = ['parse', 'flatten', 'build_system', 'numpy_ops']
-            gpu_ops = ['jacobian_build', 'sparse_solve', 'device_eval', 'jax_ops', 'gpu_native', 'transient_gpu']
-
-            cpu_time = sum(
-                t.total_time_ms for name, t in self.timings.items()
-                if any(op in name.lower() for op in cpu_ops)
-            )
-            gpu_time = sum(
-                t.total_time_ms for name, t in self.timings.items()
-                if any(op in name.lower() for op in gpu_ops)
-            )
-            other_time = sum(t.total_time_ms for t in self.timings.values()) - cpu_time - gpu_time
-
-            total = cpu_time + gpu_time + other_time
-            if total > 0:
-                lines.append(f"- **CPU-bound operations**: {cpu_time:.1f}ms ({cpu_time/total*100:.1f}%)")
-                lines.append(f"- **GPU-bound operations**: {gpu_time:.1f}ms ({gpu_time/total*100:.1f}%)")
-                lines.append(f"- **Other/Mixed**: {other_time:.1f}ms ({other_time/total*100:.1f}%)")
-            lines.append("")
 
         return "\n".join(lines)
 
 
-def profile_c6288_simulation(profiler: GPUProfiler, circuit_name: str = 'c6288_test',
-                              max_iterations: int = 100):
-    """Profile a full C6288 circuit simulation
+def get_vacask_benchmarks(names: Optional[List[str]] = None) -> List[Tuple[str, Path]]:
+    """Get list of VACASK benchmark .sim files"""
+    base = Path(__file__).parent.parent / "vendor" / "VACASK" / "benchmark"
+    all_benchmarks = ['rc', 'graetz', 'mul', 'ring', 'c6288']
 
-    Args:
-        profiler: GPUProfiler instance
-        circuit_name: Circuit to profile
-        max_iterations: Maximum iterations (to avoid timeout on non-converging circuits)
-    """
-    from jax_spice.benchmarks.c6288 import C6288Benchmark
+    if names:
+        all_benchmarks = [n for n in names if n in all_benchmarks]
 
-    profiler.start()
+    benchmarks = []
+    for name in all_benchmarks:
+        sim_path = base / name / "vacask" / "runme.sim"
+        if sim_path.exists():
+            benchmarks.append((name, sim_path))
 
-    # Phase 1: Parse netlist (CPU)
-    bench = C6288Benchmark(verbose=False)
-    with profiler.measure("parse"):
-        bench.parse()
-
-    # Phase 2: Flatten hierarchy (CPU)
-    with profiler.measure("flatten"):
-        bench.flatten(circuit_name)
-
-    # Phase 3: Build MNA system (CPU)
-    with profiler.measure("build_system"):
-        bench.build_system(circuit_name)
-
-    # Record system size for transfer estimation
-    n_nodes = bench.system.num_nodes
-    n_devices = len(bench.system.devices)
-
-    # Phase 4: Run DC analysis (mixed CPU/GPU)
-    # Use sparse DC solver with limited iterations to avoid timeout
-    with profiler.measure("dc_analysis_total"):
-        V, info = bench.run_sparse_dc(
-            max_iterations=max_iterations,
-            abstol=1e-9,
-            verbose=False
-        )
-
-    profiler.stop()
-
-    # Estimate data transfers based on circuit size
-    # Each iteration: V vector to GPU, result back
-    n_iterations = info.get('iterations', 0)
-    v_size = n_nodes * 8  # float64
-    jacobian_nnz_estimate = n_devices * 16  # ~16 entries per device
-    jacobian_size = jacobian_nnz_estimate * 8  # float64 data
-
-    profiler.record_transfer("voltage_vectors", v_size * n_iterations, "to_gpu")
-    profiler.record_transfer("jacobian_data", jacobian_size * n_iterations, "to_gpu")
-    profiler.record_transfer("solution_vectors", v_size * n_iterations, "from_gpu")
-
-    return {
-        'circuit': circuit_name,
-        'nodes': n_nodes,
-        'devices': n_devices,
-        'converged': info.get('converged', False),
-        'iterations': n_iterations,
-        'residual': info.get('residual_norm', 0),
-    }
+    return benchmarks
 
 
-def profile_iteration_breakdown(profiler: GPUProfiler):
-    """Profile individual operations within Newton-Raphson iterations"""
-    from jax_spice.benchmarks.c6288 import C6288Benchmark
-    from jax_spice.analysis.context import AnalysisContext
-    from jax_spice.analysis.sparse import sparse_solve_csr
-
-    bench = C6288Benchmark(verbose=False)
-    bench.parse()
-    bench.flatten('inv_test')  # Use small circuit for detailed profiling
-    bench.build_system('inv_test')
-
-    # Initial voltage
-    V = jnp.zeros(bench.system.num_nodes, dtype=jnp.float64)
-    context = AnalysisContext(time=0.0, dt=1e-9, analysis_type='dc', gmin=1e-9)
-
-    # Profile 10 iterations of old CPU-based solver
-    for i in range(10):
-        # Jacobian build
-        with profiler.measure("jacobian_build"):
-            (data, indices, indptr, shape), f = bench.system.build_sparse_jacobian_and_residual(V, context)
-
-        # Sparse solve
-        with profiler.measure("sparse_solve"):
-            delta_V = sparse_solve_csr(
-                jnp.array(data),
-                jnp.array(indices),
-                jnp.array(indptr),
-                jnp.array(-f),
-                shape
-            )
-
-        # Update
-        with profiler.measure("voltage_update"):
-            V = V.at[1:].add(delta_V)
-
-
-def profile_gpu_native_solver(profiler: GPUProfiler, circuit_name: str = 'inv_test'):
-    """Profile the GPU-native DC solver using sparsejac
-
-    This uses the new GPU-native solver that:
-    1. Builds a vectorized JAX residual function
-    2. Uses sparsejac for automatic sparse Jacobian computation
-    3. Uses jax.experimental.sparse.linalg.spsolve (cuSOLVER on GPU)
-    """
-    from jax_spice.benchmarks.c6288 import C6288Benchmark
-    from jax_spice.analysis.dc_gpu import dc_operating_point_gpu
-
-    bench = C6288Benchmark(verbose=False)
-    bench.parse()
-    bench.flatten(circuit_name)
-    bench.build_system(circuit_name)
-
-    print(f"  GPU-native solver on {circuit_name}:")
-    print(f"    Nodes: {bench.system.num_nodes}, Devices: {len(bench.system.devices)}")
-
-    # Run GPU-native solver
-    with profiler.measure(f"gpu_native_{circuit_name}"):
-        V, info = dc_operating_point_gpu(
-            bench.system,
-            vdd=1.2,
-            max_iterations=100,
-            abstol=1e-9,
-            verbose=False
-        )
-
-    print(f"    Converged: {info.get('converged', False)}")
-    print(f"    Iterations: {info.get('iterations', 0)}")
-
-    return {
-        'circuit': circuit_name,
-        'nodes': bench.system.num_nodes,
-        'devices': len(bench.system.devices),
-        'converged': info.get('converged', False),
-        'iterations': info.get('iterations', 0),
-    }
-
-
-def profile_gpu_transient_solver(profiler: GPUProfiler, circuit_name: str = 'inv_test',
-                                  num_timesteps: int = 10, t_step: float = 1e-9):
-    """Profile the GPU-native transient solver using sparsejac
-
-    This profiles:
-    1. Circuit data setup time
-    2. First timestep (includes JIT compilation)
-    3. Subsequent timesteps (steady-state performance)
-    """
-    from jax_spice.benchmarks.c6288 import C6288Benchmark
-    from jax_spice.analysis.transient_gpu import transient_analysis_gpu
-
-    bench = C6288Benchmark(verbose=False)
-    bench.parse()
-    bench.flatten(circuit_name)
-    bench.build_system(circuit_name)
-
-    print(f"  GPU-native transient solver on {circuit_name}:")
-    print(f"    Nodes: {bench.system.num_nodes}, Devices: {len(bench.system.devices)}")
-    print(f"    Timesteps: {num_timesteps}, t_step: {t_step*1e9:.2f}ns")
-
-    # Run GPU-native transient solver
-    with profiler.measure(f"transient_gpu_{circuit_name}"):
-        t_points, V_history, info = transient_analysis_gpu(
-            bench.system,
-            t_stop=t_step * num_timesteps,
-            t_step=t_step,
-            vdd=bench.vdd,
-            verbose=False
-        )
-
-    print(f"    Completed: {len(t_points)} timesteps")
-    if 'first_step_time' in info:
-        print(f"    First step (JIT compile): {info['first_step_time']:.3f}s")
-    if 'avg_step_time' in info:
-        print(f"    Avg step time: {info['avg_step_time']*1000:.2f}ms")
-    if 'total_iterations' in info:
-        print(f"    Total iterations: {info['total_iterations']}")
-
-    return {
-        'circuit': circuit_name,
-        'nodes': bench.system.num_nodes,
-        'devices': len(bench.system.devices),
-        'timesteps': len(t_points),
-        'first_step_time': info.get('first_step_time', 0),
-        'avg_step_time': info.get('avg_step_time', 0),
-        'total_iterations': info.get('total_iterations', 0),
-    }
+def log(msg=""):
+    """Print with flush for CI logs"""
+    print(msg, flush=True)
 
 
 def main():
-    # Use explicit flush for all prints to ensure output is visible in CI logs
-    def log(msg=""):
-        print(msg)
-        sys.stdout.flush()
+    parser = argparse.ArgumentParser(
+        description="Profile VACASK benchmarks on CPU/GPU"
+    )
+    parser.add_argument(
+        "--benchmark",
+        type=str,
+        default=None,
+        help="Comma-separated list of benchmarks to run (default: all)",
+    )
+    parser.add_argument(
+        "--timesteps",
+        type=int,
+        default=20,
+        help="Number of timesteps per benchmark (default: 20)",
+    )
+    parser.add_argument(
+        "--warmup-steps",
+        type=int,
+        default=5,
+        help="Number of warmup steps (default: 5)",
+    )
+    parser.add_argument(
+        "--trace",
+        action="store_true",
+        help="Enable Perfetto tracing (for Cloud Run profiling)",
+    )
+    parser.add_argument(
+        "--trace-dir",
+        type=str,
+        default="/tmp/jax-trace",
+        help="Directory for Perfetto traces (default: /tmp/jax-trace)",
+    )
+    parser.add_argument(
+        "--sparse-only",
+        action="store_true",
+        help="Only run sparse solver (skip dense comparison)",
+    )
+    parser.add_argument(
+        "--dense-only",
+        action="store_true",
+        help="Only run dense solver (skip sparse comparison)",
+    )
+    args = parser.parse_args()
 
     log("=" * 70)
     log("JAX-SPICE GPU Profiling")
     log("=" * 70)
     log()
 
-    log("[Stage 1/7] Checking JAX configuration...")
+    log("[Stage 1/4] Checking JAX configuration...")
     log(f"  JAX backend: {jax.default_backend()}")
     log(f"  JAX devices: {jax.devices()}")
     log(f"  Float64 enabled: {jax.config.jax_enable_x64}")
     log()
 
-    log("[Stage 2/7] Creating profiler...")
+    # Parse benchmark names
+    benchmark_names = None
+    if args.benchmark:
+        benchmark_names = [b.strip() for b in args.benchmark.split(',')]
+
+    log("[Stage 2/4] Discovering benchmarks...")
+    benchmarks = get_vacask_benchmarks(benchmark_names)
+    log(f"  Found {len(benchmarks)} benchmarks: {[b[0] for b in benchmarks]}")
+    if args.trace:
+        log(f"  Perfetto tracing enabled, output: {args.trace_dir}")
+    log()
+
     profiler = GPUProfiler()
-    profiler.start()  # Track total time
-    log("  Profiler started")
+    profiler.start()
+
+    # Setup tracing context if requested
+    trace_ctx = None
+    if args.trace:
+        os.makedirs(args.trace_dir, exist_ok=True)
+        log(f"  Created trace directory: {args.trace_dir}")
+
+    log("[Stage 3/4] Running benchmarks...")
     log()
 
-    # Profile GPU-native solver on circuits that converge for DC analysis
-    # Note: c6288_test is excluded because it doesn't converge for DC operating point
-    # with our simplified Level-1 MOSFET model. The VACASK benchmarks for c6288 use
-    # transient simulation (not DC), which requires MOSFET support in transient analysis.
-    log("[Stage 3/7] Profiling GPU-native DC solver (sparsejac + cuSOLVER)...")
-    for circuit in ['inv_test', 'nor_test']:
-        log(f"  Starting {circuit}...")
-        try:
-            gpu_info = profile_gpu_native_solver(profiler, circuit)
-            log(f"  Completed {circuit}")
-        except Exception as e:
-            log(f"  {circuit}: Error - {e}")
-            import traceback
-            traceback.print_exc()
-            sys.stdout.flush()
-    log()
+    # Use trace context for entire benchmark suite if tracing
+    trace_manager = jax.profiler.trace(args.trace_dir, create_perfetto_link=False) if args.trace else nullcontext()
 
-    # Profile GPU transient solver on small circuits
-    log("[Stage 4/7] Profiling GPU-native transient solver on small circuits...")
-    for circuit in ['inv_test', 'nor_test']:
-        log(f"  Starting {circuit}...")
-        try:
-            transient_info = profile_gpu_transient_solver(profiler, circuit, num_timesteps=10)
-            log(f"  Completed {circuit}")
-        except Exception as e:
-            log(f"  {circuit}: Error - {e}")
-            import traceback
-            traceback.print_exc()
-            sys.stdout.flush()
-    log()
+    with trace_manager:
+        for name, sim_path in benchmarks:
+            log(f"  {name}:")
 
-    # Profile GPU transient solver on C6288 (the main benchmark)
-    # DISABLED for CI: C6288 transient with 5123 nodes takes too long for the 31-minute Cloud Run timeout
-    # The DC initialization alone (12 source steps) + JIT compilation overhead exceeds the timeout.
-    # This can be run locally for full benchmarking.
-    log("[Stage 5/7] Skipping C6288 transient profiling (too slow for CI timeout)...")
-    log("  C6288 has 5123 nodes - DC initialization + transient would exceed 31min timeout")
-    log("  Run locally with: uv run python scripts/profile_gpu.py --full-benchmark")
-    log()
+            # Determine which solvers to run
+            run_dense = not args.sparse_only and name != 'c6288'  # c6288 too large for dense
+            run_sparse = not args.dense_only
 
-    # Profile iteration breakdown on smaller circuit (old CPU solver for comparison)
-    log("[Stage 6/7] Profiling CPU-based iteration breakdown (inv_test)...")
-    try:
-        profile_iteration_breakdown(profiler)
-        log("  Completed iteration breakdown")
-    except Exception as e:
-        log(f"  Error in iteration breakdown: {e}")
-        import traceback
-        traceback.print_exc()
-        sys.stdout.flush()
-    log()
+            if name == 'c6288' and not args.sparse_only:
+                log(f"    Skipping dense (86k nodes would need ~56GB)")
 
-    profiler.stop()  # End total time tracking
+            # Run dense
+            if run_dense:
+                result_dense = profiler.run_benchmark(
+                    sim_path, name, use_sparse=False,
+                    num_steps=args.timesteps, warmup_steps=args.warmup_steps
+                )
+                profiler.results.append(result_dense)
+                if result_dense.error:
+                    log(f"    dense:  ERROR - {result_dense.error}")
+                else:
+                    log(f"    dense:  {result_dense.time_per_step_ms:.1f}ms/step ({result_dense.timesteps} steps)")
 
-    # Skip the slow C6288 CPU-based profiling by default
-    # It takes ~77s per iteration with the old solver
-    run_c6288_cpu_profile = False
-    sim_info = None
-    if run_c6288_cpu_profile:
-        log("Profiling C6288 circuit simulation (max 10 iterations)...")
-        sim_info = profile_c6288_simulation(profiler, 'c6288_test', max_iterations=10)
-        log(f"  Circuit: {sim_info['circuit']}")
-        log(f"  Nodes: {sim_info['nodes']}")
-        log(f"  Devices: {sim_info['devices']}")
-        log(f"  Converged: {sim_info['converged']}")
-        log(f"  Iterations: {sim_info['iterations']}")
-        log(f"  Residual: {sim_info['residual']:.2e}")
-        log()
+            # Run sparse
+            if run_sparse:
+                result_sparse = profiler.run_benchmark(
+                    sim_path, name, use_sparse=True,
+                    num_steps=args.timesteps, warmup_steps=args.warmup_steps
+                )
+                profiler.results.append(result_sparse)
+                if result_sparse.error:
+                    log(f"    sparse: {result_sparse.error}")
+                else:
+                    log(f"    sparse: {result_sparse.time_per_step_ms:.1f}ms/step ({result_sparse.timesteps} steps)")
 
-    # Generate report
-    log("[Stage 7/7] Generating report...")
-    try:
-        report = profiler.generate_report()
-        log("  Report generated")
-    except Exception as e:
-        log(f"  Error generating report: {e}")
-        import traceback
-        traceback.print_exc()
-        sys.stdout.flush()
-        report = f"Error generating report: {e}"
+            log()
 
-    # Print to stdout
+    profiler.stop()
+
+    log("[Stage 4/4] Generating report...")
+    report = profiler.generate_report()
+
     log()
     log(report)
 
-    # Write to file for CI
-    log()
-    log("Writing report files...")
+    # Write to file
     report_path = Path(__file__).parent.parent / "profile_report.md"
     report_path.write_text(report)
-    log(f"  Report written to: {report_path}")
+    log(f"Report written to: {report_path}")
 
     # Write to GitHub step summary if available
     if 'GITHUB_STEP_SUMMARY' in os.environ:
         with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as f:
             f.write(report)
-        log("  Report appended to GitHub step summary")
+        log("Report appended to GitHub step summary")
 
-    # Also output JSON for programmatic use
+    # JSON report
     json_report = {
         'environment': {
             'backend': jax.default_backend(),
             'devices': [str(d) for d in jax.devices()],
         },
-        'simulation': sim_info,
-        'timings': {
-            name: {
-                'total_ms': t.total_time_ms,
-                'calls': t.call_count,
-                'avg_ms': t.avg_time_ms,
+        'results': [
+            {
+                'name': r.name,
+                'nodes': r.nodes,
+                'devices': r.devices,
+                'openvaf_devices': r.openvaf_devices,
+                'timesteps': r.timesteps,
+                'total_time_s': r.total_time_s,
+                'time_per_step_ms': r.time_per_step_ms,
+                'solver': r.solver,
+                'backend': r.backend,
+                'converged': r.converged,
+                'error': r.error,
             }
-            for name, t in profiler.timings.items()
-        },
+            for r in profiler.results
+        ],
         'total_time_s': profiler.total_time_s,
     }
 
     json_path = Path(__file__).parent.parent / "profile_report.json"
     json_path.write_text(json.dumps(json_report, indent=2))
-    log(f"  JSON report written to: {json_path}")
+    log(f"JSON report written to: {json_path}")
+
+    if args.trace:
+        log()
+        log(f"Perfetto traces saved to: {args.trace_dir}")
+        log("To view traces:")
+        log("  1. Open https://ui.perfetto.dev/")
+        log(f"  2. Load trace files from: {args.trace_dir}")
 
     log()
     log("=" * 70)

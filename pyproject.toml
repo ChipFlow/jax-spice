@@ -13,7 +13,6 @@ dependencies = [
     "openvaf-py",
     "lark>=1.3.1",
     "jax-metal>=0.1.1; sys_platform == 'darwin'",
-    "sparsejac>=0.1.3",
 ]
 
 [tool.uv]

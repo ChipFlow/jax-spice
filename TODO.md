@@ -38,7 +38,7 @@ These models produce NaN with default parameters but work with proper model card
 | graetz | resistor, capacitor, vsource, diode | ✅ Passing |
 | mul | resistor, capacitor, vsource, diode | ✅ Passing |
 | ring | vsource, isource, PSP103 MOSFET | ✅ Fast (~20ms/step after JIT warmup) |
-| c6288 | vsource, isource, PSP103 MOSFET | ⚠️ Needs sparse matrix support (10,112 MOSFETs, ~86k nodes) |
+| c6288 | vsource, isource, PSP103 MOSFET | ✅ Working with sparse solver (~1s/step, 86k nodes) |
 
 **Transient solver device support**:
 - [x] Resistor
@@ -97,18 +97,24 @@ Implemented JIT-compiled vmap-based batched evaluation for OpenVAF devices:
 
 ## Completed
 
+- [x] ~~Sparse matrix support for large circuits~~ (2025-12)
+  - Implemented sparse Jacobian assembly using `scipy.sparse.lil_matrix`
+  - Sparse linear solve via `scipy.sparse.linalg.spsolve`
+  - Auto-detects when to use sparse (>1000 nodes)
+  - c6288 benchmark: 86k nodes, 490k non-zeros (0.007% density), ~1s/step
+
 - [x] ~~VACASKBenchmarkRunner module~~ (`jax_spice/benchmarks/`)
   - Generic runner for VACASK benchmark circuits
   - Subcircuit flattening with parameter expression evaluation
   - Uses production `transient_analysis_jit()` for simulation
-  - Supports: resistor, capacitor, vsource, isource, diode
+  - Supports: resistor, capacitor, vsource, isource, diode, PSP103 MOSFET
+  - Sparse and dense solver modes with automatic selection
   - Parses analysis params from .sim files (step, stop, icmode)
-  - Tests: rc, graetz, mul benchmarks passing; ring/c6288 skipped (need MOSFET)
+  - All benchmarks passing: rc, graetz, mul, ring, c6288
 
-- [x] ~~Full migration to analytical Jacobians~~ (dc_gpu.py and transient_gpu.py)
-  - Removed sparsejac dependency from GPU solvers
-  - dc_gpu.py reduced from 2006 → 584 lines
-  - AND gate convergence fixed (was failing with autodiff)
+- [x] ~~Removed legacy GPU solvers~~ (dc_gpu.py and transient_gpu.py)
+  - Removed sparsejac dependency
+  - VACASKBenchmarkRunner now handles all benchmarking
 
 - [x] ~~Create test suite using VACASK sim files~~ (`tests/test_vacask_jax.py`)
   - Parses actual VACASK `.sim` files
@@ -125,10 +131,9 @@ Implemented JIT-compiled vmap-based batched evaluation for OpenVAF devices:
   - MOSFET JAX output now matches MIR interpreter to 6 significant figures
   - Added `_build_multi_way_phi()` for >2 predecessor blocks
 
-- [x] ~~Fix PMOS current sign convention~~ in GPU solvers
-  - Both `dc_gpu.py` and `transient_gpu.py` updated
+- [x] ~~Fix PMOS current sign convention~~ (historical)
 
-- [x] ~~Add gds_min leakage~~ to GPU MOSFET model (partial fix)
+- [x] ~~Add gds_min leakage~~ to MOSFET model (historical)
 
 - [x] ~~Document VACASK OSDI input handling~~ (`docs/vacask_osdi_inputs.md`)
 
@@ -136,58 +141,35 @@ Implemented JIT-compiled vmap-based batched evaluation for OpenVAF devices:
   - `scripts/build_openvaf.sh`
   - `scripts/build_vacask.sh`
 
-### GPU Solver - Analytical Jacobians (COMPLETE)
-The GPU solver has been fully migrated to analytical Jacobians, fixing convergence issues with floating nodes.
-
-**Solution**: Replaced autodiff-based Jacobians with explicit Shichman-Hodges MOSFET model that computes analytical gm/gds stamps. This ensures proper minimum conductance (gds_min=1e-9 S) in cutoff regions.
-
-**Results**:
-| Circuit | Analytical | Autodiff |
-|---------|------------|----------|
-| Inverter | 5 iters | 6 iters |
-| AND gate | 78 iters | FAILED |
-| NOR gate | ~10 iters | ~15 iters |
-
-**Completed**:
-- [x] `dc_gpu.py` - Full migration, removed 1400+ lines of autodiff code
-- [x] `transient_gpu.py` - Full migration to analytical Jacobians
-- [x] All 61 tests passing
-
-**Files**:
-- `jax_spice/analysis/dc_gpu.py` - Analytical Jacobian DC solver (584 lines)
-- `jax_spice/analysis/transient_gpu.py` - Analytical Jacobian transient solver
-- `docs/gpu_solver_jacobian.md` - Analysis of the original issue
-
-
 ## Reference
 
 ### Key Files
 | Purpose | Location |
 |---------|----------|
-| GPU DC solver | `jax_spice/analysis/dc_gpu.py` |
-| GPU transient solver | `jax_spice/analysis/transient_gpu.py` |
 | CPU transient solver | `jax_spice/analysis/transient.py` |
+| MNA system | `jax_spice/analysis/mna.py` |
 | Benchmark runner | `jax_spice/benchmarks/runner.py` |
+| Benchmark profiling | `scripts/profile_gpu.py` |
+| Cloud Run profiling | `scripts/profile_gpu_cloudrun.py` |
 | OpenVAF device wrapper | `jax_spice/devices/openvaf_device.py` |
 | OpenVAF→JAX translator | `openvaf-py/openvaf_jax.py` |
 | VACASK parser | `jax_spice/netlist/parser.py` |
 | VACASK suite tests | `tests/test_vacask_suite.py` |
-| Jacobian issue analysis | `docs/gpu_solver_jacobian.md` |
 
 ### Test Commands
 ```bash
 # Run all tests
 JAX_PLATFORMS=cpu uv run pytest tests/ -v
 
-# Run VACASK JAX tests specifically
-JAX_PLATFORMS=cpu uv run pytest tests/test_vacask_jax.py -v
+# Run VACASK suite tests
+JAX_PLATFORMS=cpu uv run pytest tests/test_vacask_suite.py -v
 
 # Run openvaf-py tests
 cd openvaf-py && JAX_PLATFORMS=cpu ../.venv/bin/python -m pytest tests/ -v
 
-# Run GPU benchmarks (slow)
-JAX_PLATFORMS=cpu RUN_GPU_BENCHMARKS=1 uv run pytest tests/test_transient_gpu.py -v
+# Run local benchmark profiling
+JAX_PLATFORMS=cpu uv run python scripts/profile_gpu.py --benchmark ring
 
-# Run Cloud Run GPU tests
-uv run scripts/run_gpu_tests.py --watch
+# Run Cloud Run GPU profiling with Perfetto traces
+uv run scripts/profile_gpu_cloudrun.py --benchmark ring --timesteps 50
 ```

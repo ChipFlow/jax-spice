@@ -410,7 +410,6 @@ dependencies = [
     { name = "openvaf-py" },
     { name = "pytest" },
     { name = "scipy" },
-    { name = "sparsejac" },
 ]
 
 [package.optional-dependencies]
@@ -443,7 +442,6 @@ requires-dist = [
     { name = "ruff", marker = "extra == 'dev'" },
     { name = "sax", marker = "extra == 'sax'", specifier = ">=0.13.0" },
     { name = "scipy", specifier = ">=1.11.0" },
-    { name = "sparsejac", specifier = ">=0.1.3" },
 ]
 provides-extras = ["cuda12", "sax", "dev"]
 
@@ -1535,22 +1533,6 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/94/e7/b2c673351809dca68a0e064b6af791aa332cf192da575fd474ed7d6f16a2/six-1.17.0.tar.gz", hash = "sha256:ff70335d468e7eb6ec65b95b99d3a2836546063f63acc5171de367e834932a81", size = 34031, upload-time = "2024-12-04T17:35:28.174Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/b7/ce/149a00dd41f10bc29e5921b496af8b574d8413afcd5e30dfa0ed46c2cc5e/six-1.17.0-py2.py3-none-any.whl", hash = "sha256:4721f391ed90541fddacab5acf947aa0d3dc7d27b2e1e8eda2be8970586c3274", size = 11050, upload-time = "2024-12-04T17:35:26.475Z" },
-]
-
-[[package]]
-name = "sparsejac"
-version = "0.2.0"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "jax" },
-    { name = "jaxlib" },
-    { name = "networkx" },
-    { name = "numpy" },
-    { name = "scipy" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/e3/6a/e21c5d0d5e6e0120a9567eb20afd112148691eb377afdc863df46af54f49/sparsejac-0.2.0.tar.gz", hash = "sha256:7be53ed529f4c3aee6ff2635e3798290931033a87eb71b0cb7b15af741b7f3cf", size = 8968, upload-time = "2024-12-02T15:50:59.872Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/56/3c/2946761fc10a15641970897c7970cb073963b93fa98d84b97f5dec4d6d88/sparsejac-0.2.0-py3-none-any.whl", hash = "sha256:7c2ed4d3de9b52bdce3ff8a73dd1ebb9a1337a23d0499608cc6830e7fb0c8751", size = 6643, upload-time = "2024-12-02T15:50:58.353Z" },
 ]
 
 [[package]]
