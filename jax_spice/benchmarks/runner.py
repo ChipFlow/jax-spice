@@ -11,8 +11,10 @@ with Python-based Newton-Raphson for complex Verilog-A models.
 import re
 import sys
 from pathlib import Path
-from typing import Dict, List, Tuple, Any, Optional
+from typing import Callable, Dict, List, Tuple, Any, Optional
 
+import jax
+import jax.numpy as jnp
 import numpy as np
 
 from jax_spice.netlist.parser import VACASKParser
@@ -356,10 +358,21 @@ class VACASKBenchmarkRunner:
             translator = openvaf_jax.OpenVAFToJAX(module)
             jax_fn = translator.translate()
 
+            # Also generate array-based function for batched evaluation
+            jax_fn_array, array_metadata = translator.translate_array()
+
+            # Create vmapped function for batched evaluation
+            # Note: Not JIT-compiled because OpenVAF-generated code has Python conditionals
+            # that depend on input values (e.g., safe_log checks)
+            vmapped_fn = jax.vmap(jax_fn_array)
+
             self._compiled_models[model_type] = {
                 'module': module,
                 'translator': translator,
                 'jax_fn': jax_fn,
+                'jax_fn_array': jax_fn_array,
+                'vmapped_fn': vmapped_fn,
+                'array_metadata': array_metadata,
                 'param_names': list(module.param_names),
                 'param_kinds': list(module.param_kinds),
                 'nodes': list(module.nodes),
@@ -367,6 +380,154 @@ class VACASKBenchmarkRunner:
 
             if self.verbose:
                 print(f"    {model_type}: {len(module.param_names)} params, {len(module.nodes)} nodes")
+
+    def _prepare_batched_inputs(self, model_type: str, openvaf_devices: List[Dict],
+                                 V: np.ndarray, device_internal_nodes: Dict[str, Dict[str, int]],
+                                 ground: int) -> Tuple[jnp.ndarray, List[Dict]]:
+        """Prepare batched inputs for all devices of a given OpenVAF model type.
+
+        Args:
+            model_type: The model type (e.g., 'psp103')
+            openvaf_devices: List of device dicts of this model type
+            V: Current voltage vector (includes internal nodes)
+            device_internal_nodes: Map of device name -> internal node map
+            ground: Ground node index
+
+        Returns:
+            (batched_inputs, device_contexts) where:
+            - batched_inputs is shape (num_devices, num_params) JAX array
+            - device_contexts is list of dicts with node_map, ext_nodes for stamping
+        """
+        compiled = self._compiled_models.get(model_type)
+        if not compiled:
+            raise ValueError(f"OpenVAF model {model_type} not compiled")
+
+        param_names = compiled['param_names']
+        param_kinds = compiled['param_kinds']
+        model_nodes = compiled['nodes']
+
+        all_inputs = []
+        device_contexts = []
+
+        for dev in openvaf_devices:
+            ext_nodes = dev['nodes']  # [d, g, s, b]
+            params = dev['params']
+            internal_nodes = device_internal_nodes.get(dev['name'], {})
+
+            # Build node map: model node name -> global circuit node index
+            node_map = {}
+            for i, model_node in enumerate(model_nodes[:4]):
+                if i < len(ext_nodes):
+                    node_map[model_node] = ext_nodes[i]
+                else:
+                    node_map[model_node] = ground
+
+            # Internal nodes
+            for model_node, global_idx in internal_nodes.items():
+                node_map[model_node] = global_idx
+
+            # Also map sim_node names
+            for i, model_node in enumerate(model_nodes[:-1]):
+                node_map[f'sim_{model_node}'] = node_map.get(model_node, ground)
+
+            # Build input array for this device
+            inputs = []
+            for name, kind in zip(param_names, param_kinds):
+                if kind == 'voltage':
+                    voltage_val = self._compute_voltage_param(name, V, node_map, model_nodes, ground)
+                    inputs.append(voltage_val)
+                elif kind == 'param':
+                    param_lower = name.lower()
+                    if param_lower in params:
+                        inputs.append(float(params[param_lower]))
+                    elif name in params:
+                        inputs.append(float(params[name]))
+                    elif 'temperature' in param_lower or name == '$temperature':
+                        inputs.append(300.15)
+                    elif param_lower in ('tnom', 'tref', 'tr'):
+                        inputs.append(300.0)
+                    elif param_lower == 'mfactor':
+                        inputs.append(params.get('mfactor', 1.0))
+                    else:
+                        inputs.append(1.0)
+                elif kind == 'hidden_state':
+                    inputs.append(0.0)
+                else:
+                    inputs.append(0.0)
+
+            all_inputs.append(inputs)
+            device_contexts.append({
+                'name': dev['name'],
+                'node_map': node_map,
+                'ext_nodes': ext_nodes,
+            })
+
+        return jnp.array(all_inputs), device_contexts
+
+    def _stamp_batched_results(self, model_type: str, batch_residuals: jnp.ndarray,
+                                batch_jacobian: jnp.ndarray, device_contexts: List[Dict],
+                                f: np.ndarray, J: np.ndarray, ground: int):
+        """Stamp batched evaluation results into system matrices.
+
+        Args:
+            model_type: The model type (e.g., 'psp103')
+            batch_residuals: Shape (num_devices, num_nodes) residuals
+            batch_jacobian: Shape (num_devices, num_jac_entries) jacobian values
+            device_contexts: List of context dicts from _prepare_batched_inputs
+            f: Residual vector to stamp into
+            J: Jacobian matrix to stamp into
+            ground: Ground node index
+        """
+        compiled = self._compiled_models.get(model_type)
+        if not compiled:
+            return
+
+        metadata = compiled['array_metadata']
+        node_names = metadata['node_names']  # List of node names in residual order
+        jacobian_keys = metadata['jacobian_keys']  # List of (row, col) tuples
+
+        # Convert to numpy for stamping
+        batch_residuals_np = np.asarray(batch_residuals)
+        batch_jacobian_np = np.asarray(batch_jacobian)
+
+        for dev_idx, ctx in enumerate(device_contexts):
+            node_map = ctx['node_map']
+
+            # Stamp residuals
+            for res_idx, node_name in enumerate(node_names):
+                # Map node name to global index
+                if node_name.startswith('sim_'):
+                    model_node = node_name[4:]
+                else:
+                    model_node = node_name
+
+                node_idx = node_map.get(model_node, node_map.get(node_name, None))
+                if node_idx is None or node_idx == ground:
+                    continue
+
+                resist = batch_residuals_np[dev_idx, res_idx]
+                if not np.isnan(resist) and node_idx > 0 and node_idx - 1 < len(f):
+                    f[node_idx - 1] += resist
+
+            # Stamp Jacobian
+            for jac_idx, (row_name, col_name) in enumerate(jacobian_keys):
+                row_model = row_name[4:] if row_name.startswith('sim_') else row_name
+                col_model = col_name[4:] if col_name.startswith('sim_') else col_name
+
+                row_idx = node_map.get(row_model, node_map.get(row_name, None))
+                col_idx = node_map.get(col_model, node_map.get(col_name, None))
+
+                if row_idx is None or col_idx is None:
+                    continue
+                if row_idx == ground or col_idx == ground:
+                    continue
+
+                resist = batch_jacobian_np[dev_idx, jac_idx]
+                if not np.isnan(resist):
+                    ri = row_idx - 1
+                    ci = col_idx - 1
+                    if 0 <= ri < len(f) and 0 <= ci < len(f):
+                        J[ri, ci] += resist
 
     def _extract_analysis_params(self):
         """Extract analysis parameters from control block."""
@@ -602,6 +763,7 @@ class VACASKBenchmarkRunner:
         This solver handles a mix of simple devices (resistor, capacitor, etc.)
         and OpenVAF-compiled devices (like PSP103 MOSFETs).
 
+        Uses batched vmap evaluation for OpenVAF devices for better performance.
         Internal nodes of OpenVAF devices are added to the system matrix and
         solved simultaneously with external circuit nodes.
         """
@@ -620,6 +782,28 @@ class VACASKBenchmarkRunner:
 
         # Build time-varying source function
         source_fn = self._build_source_fn()
+
+        # Group OpenVAF devices by model type for batched evaluation
+        openvaf_by_type: Dict[str, List[Dict]] = {}
+        simple_devices = []
+        for dev in self.devices:
+            if dev.get('is_openvaf'):
+                model_type = dev['model']
+                if model_type not in openvaf_by_type:
+                    openvaf_by_type[model_type] = []
+                openvaf_by_type[model_type].append(dev)
+            else:
+                simple_devices.append(dev)
+
+        # Get cached vmapped functions
+        vmapped_fns: Dict[str, Callable] = {}
+        for model_type in openvaf_by_type:
+            compiled = self._compiled_models.get(model_type)
+            if compiled and 'vmapped_fn' in compiled:
+                vmapped_fns[model_type] = compiled['vmapped_fn']
+                if self.verbose:
+                    n_devs = len(openvaf_by_type[model_type])
+                    print(f"Using vmapped function for {model_type} ({n_devs} devices)")
 
         # Time stepping
         times = []
@@ -640,14 +824,32 @@ class VACASKBenchmarkRunner:
                 J = np.zeros((n_unknowns, n_unknowns))
                 f = np.zeros(n_unknowns)
 
-                # Stamp all devices
-                for dev in self.devices:
-                    if dev.get('is_openvaf'):
-                        internal_nodes = device_internal_nodes.get(dev['name'], {})
-                        self._stamp_openvaf_device(dev, V, V_prev, dt, f, J, ground,
-                                                   source_values, internal_nodes, n_total)
+                # Stamp simple devices (resistor, capacitor, diode, sources)
+                for dev in simple_devices:
+                    self._stamp_simple_device(dev, V, V_prev, dt, f, J, ground, source_values)
+
+                # Stamp OpenVAF devices using batched evaluation
+                for model_type, devices in openvaf_by_type.items():
+                    if model_type in vmapped_fns:
+                        # Prepare batched inputs
+                        batch_inputs, device_contexts = self._prepare_batched_inputs(
+                            model_type, devices, V, device_internal_nodes, ground
+                        )
+
+                        # Evaluate all devices in parallel
+                        batch_residuals, batch_jacobian = vmapped_fns[model_type](batch_inputs)
+
+                        # Stamp results into system
+                        self._stamp_batched_results(
+                            model_type, batch_residuals, batch_jacobian,
+                            device_contexts, f, J, ground
+                        )
                     else:
-                        self._stamp_simple_device(dev, V, V_prev, dt, f, J, ground, source_values)
+                        # Fallback to sequential evaluation
+                        for dev in devices:
+                            internal_nodes = device_internal_nodes.get(dev['name'], {})
+                            self._stamp_openvaf_device(dev, V, V_prev, dt, f, J, ground,
+                                                       source_values, internal_nodes, n_total)
 
                 # Check convergence
                 max_f = np.max(np.abs(f))

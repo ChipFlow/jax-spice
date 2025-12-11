@@ -57,14 +57,26 @@ The hybrid solver is functionally complete:
 - [x] Residual/Jacobian stamping into expanded system matrix
 - [x] Newton-Raphson converges (3 iterations for t=0)
 
-**Performance issue**: Each PSP103 JAX function call takes ~0.15s (not JIT-compiled).
-With 18 MOSFETs and 100 NR iterations, each timestep takes ~270s. Impractical for
-the ring benchmark which needs 20,000 timesteps.
+**Performance Optimization (2025-12)**:
+Implemented vmap-based batched evaluation for OpenVAF devices:
+- [x] Added `translate_array()` method to openvaf_jax.py for vmap-compatible output
+- [x] Batched input preparation for all MOSFETs in a circuit
+- [x] Cached vmapped function in runner.py
 
-**Next steps**:
-1. JIT-compile the entire NR loop with device evaluations
-2. Or vectorize multiple device evaluations in a single JAX call
-3. Or use OSDI interface directly with VACASK for benchmarking
+**Current performance** (18 PSP103 MOSFETs on ring oscillator):
+- Single device evaluation: ~0.23s (after warmup)
+- 18 devices batched (vmap): ~2.2s
+- Sequential 18 devices: ~4.14s
+- **Speedup from vmap: ~1.9x**
+
+**Remaining bottleneck**: Cannot JIT-compile the OpenVAF-generated code because it
+contains Python conditionals (`if` statements) that depend on traced values (e.g.,
+safe_log checks). JIT compilation fails with TracerBoolConversionError.
+
+**Future optimization options**:
+1. Modify openvaf_jax to use `jax.lax.cond` instead of Python `if` for JIT compatibility
+2. Implement OSDI interface to call compiled native code directly
+3. Use GPU acceleration (requires JIT compilation first)
 
 ## Low Priority
 
