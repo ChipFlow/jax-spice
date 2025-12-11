@@ -22,6 +22,7 @@ from jax_spice.netlist.parser import parse_netlist
 from jax_spice.devices.base import DeviceStamps
 from jax_spice.analysis.mna import MNASystem, DeviceInfo
 from jax_spice.analysis.dc import dc_operating_point
+from jax_spice.analysis.transient import transient_analysis
 
 # Paths - VACASK is at ../VACASK relative to jax-spice
 JAX_SPICE_ROOT = Path(__file__).parent.parent
@@ -277,6 +278,50 @@ def isource_eval(voltages, params, context):
     )
 
 
+def pulse_vsource_eval(voltages, params, context, time=0.0):
+    """Pulse voltage source for transient analysis.
+
+    Pulse parameters:
+        val0: Initial value (before delay)
+        val1: Pulse value (after rise)
+        delay: Time when pulse starts
+        rise: Rise time
+        fall: Fall time (not yet implemented)
+        width: Pulse width (not yet implemented)
+        period: Pulse period (not yet implemented)
+    """
+    Vp = voltages.get('p', 0.0)
+    Vn = voltages.get('n', 0.0)
+
+    # Get pulse parameters
+    val0 = float(params.get('val0', params.get('dc', 0.0)))
+    val1 = float(params.get('val1', val0))
+    delay = float(params.get('delay', 0.0))
+    rise = float(params.get('rise', 1e-9))  # Default 1ns rise
+
+    # Calculate voltage at current time
+    if time < delay:
+        V_target = val0
+    elif time < delay + rise:
+        # Linear ramp during rise time
+        V_target = val0 + (val1 - val0) * (time - delay) / rise
+    else:
+        V_target = val1
+
+    V_actual = Vp - Vn
+
+    G_big = 1e12
+    I = G_big * (V_actual - V_target)
+
+    return DeviceStamps(
+        currents={'p': jnp.array(I), 'n': jnp.array(-I)},
+        conductances={
+            ('p', 'p'): jnp.array(G_big), ('p', 'n'): jnp.array(-G_big),
+            ('n', 'p'): jnp.array(-G_big), ('n', 'n'): jnp.array(G_big)
+        }
+    )
+
+
 def inductor_eval(voltages, params, context):
     """Inductor evaluation function.
 
@@ -303,10 +348,12 @@ def capacitor_eval(voltages, params, context):
     """Capacitor evaluation function.
 
     For DC analysis: open circuit (gmin for numerical stability).
-    For transient: would need companion model with history.
+    For transient: returns capacitance for backward Euler companion model.
     """
     Vp = voltages.get('p', 0.0)
     Vn = voltages.get('n', 0.0)
+
+    C = float(params.get('c', 1e-12))
 
     # For DC, capacitor is open circuit - just add gmin for stability
     gmin = 1e-12
@@ -317,6 +364,10 @@ def capacitor_eval(voltages, params, context):
         conductances={
             ('p', 'p'): jnp.array(gmin), ('p', 'n'): jnp.array(-gmin),
             ('n', 'p'): jnp.array(-gmin), ('n', 'n'): jnp.array(gmin)
+        },
+        capacitances={
+            ('p', 'p'): jnp.array(C), ('p', 'n'): jnp.array(-C),
+            ('n', 'p'): jnp.array(-C), ('n', 'n'): jnp.array(C)
         }
     )
 
@@ -776,6 +827,278 @@ class TestVACASKOperatingPoint:
             # Should be very close to 0V due to inductor short
             print(f"V(1) = {v1}V (expected ~0V due to inductor short)")
             assert abs(v1) < 1e-3, f"V(1) expected ~0V, got {v1}V"
+
+
+class TestVACASKTransient:
+    """Run transient analysis tests from VACASK suite."""
+
+    def _simple_transient(
+        self,
+        circuit,
+        t_stop: float,
+        t_step: float,
+        ic: Dict[str, float] = None,
+    ) -> Tuple[np.ndarray, Dict[str, np.ndarray]]:
+        """Simple transient analysis with time-varying sources.
+
+        Uses backward Euler integration for capacitors.
+        Returns (times, node_voltages).
+        """
+        # Build node mapping
+        node_names = {'0': 0}
+        if circuit.ground and circuit.ground != '0':
+            node_names[circuit.ground] = 0
+
+        node_idx = 1
+        for inst in circuit.top_instances:
+            for terminal in inst.terminals:
+                if terminal not in node_names and terminal != circuit.ground:
+                    node_names[terminal] = node_idx
+                    node_idx += 1
+
+        num_nodes = node_idx
+        ground = 0
+
+        # Parse device info
+        devices = []
+        for inst in circuit.top_instances:
+            model = inst.model.lower()
+            node_indices = [node_names.get(t, node_names.get(circuit.ground, 0))
+                           for t in inst.terminals]
+            params = {}
+            for k, v in inst.params.items():
+                try:
+                    params[k] = parse_si_value(str(v))
+                except:
+                    params[k] = v
+
+            devices.append({
+                'name': inst.name,
+                'model': model,
+                'nodes': node_indices,
+                'params': params,
+            })
+
+        # Initial condition from DC operating point or IC
+        if ic:
+            V = np.zeros(num_nodes)
+            for name, val in ic.items():
+                if name in node_names:
+                    V[node_names[name]] = val
+        else:
+            # Run DC operating point to get initial condition
+            V = self._dc_solve(num_nodes, ground, devices, time=0.0)
+
+        # Time stepping
+        times = np.arange(0, t_stop + t_step, t_step)
+        results = {name: [V[idx]] for name, idx in node_names.items()}
+
+        V_prev = V.copy()
+
+        for t in times[1:]:
+            # Newton-Raphson for this timepoint
+            V_iter = V_prev.copy()
+
+            for _ in range(50):  # Max iterations
+                J = np.zeros((num_nodes - 1, num_nodes - 1))
+                f = np.zeros(num_nodes - 1)
+
+                # Stamp all devices
+                for dev in devices:
+                    self._stamp_device_transient(
+                        J, f, V_iter, V_prev, dev, t, t_step, ground
+                    )
+
+                # Check convergence
+                if np.max(np.abs(f)) < 1e-9:
+                    break
+
+                # Solve and update
+                try:
+                    delta = np.linalg.solve(J + 1e-12 * np.eye(J.shape[0]), -f)
+                except:
+                    delta = np.linalg.lstsq(J, -f, rcond=None)[0]
+
+                V_iter[1:] += delta
+
+                if np.max(np.abs(delta)) < 1e-12:
+                    break
+
+            # Store result
+            V_prev = V_iter.copy()
+            for name, idx in node_names.items():
+                results[name].append(V_iter[idx])
+
+        return times, {k: np.array(v) for k, v in results.items()}
+
+    def _dc_solve(self, num_nodes, ground, devices, time=0.0):
+        """Solve DC operating point."""
+        V = np.zeros(num_nodes)
+
+        for _ in range(100):  # Max iterations
+            J = np.zeros((num_nodes - 1, num_nodes - 1))
+            f = np.zeros(num_nodes - 1)
+
+            for dev in devices:
+                self._stamp_device_dc(J, f, V, dev, time, ground)
+
+            if np.max(np.abs(f)) < 1e-9:
+                break
+
+            try:
+                delta = np.linalg.solve(J + 1e-12 * np.eye(J.shape[0]), -f)
+            except:
+                delta = np.linalg.lstsq(J, -f, rcond=None)[0]
+
+            V[1:] += delta
+
+            if np.max(np.abs(delta)) < 1e-12:
+                break
+
+        return V
+
+    def _stamp_device_dc(self, J, f, V, dev, time, ground):
+        """Stamp device for DC analysis."""
+        model = dev['model']
+        nodes = dev['nodes']
+        params = dev['params']
+
+        if model in ('vsource', 'v'):
+            # Time-varying voltage source
+            src_type = str(params.get('type', 'dc')).strip('"\'')
+            if src_type == 'pulse':
+                val0 = params.get('val0', params.get('dc', 0))
+                val1 = params.get('val1', val0)
+                delay = params.get('delay', 0)
+                rise = params.get('rise', 1e-9)
+
+                if time < delay:
+                    V_target = val0
+                elif time < delay + rise:
+                    V_target = val0 + (val1 - val0) * (time - delay) / rise
+                else:
+                    V_target = val1
+            else:
+                V_target = params.get('dc', params.get('val0', 0))
+
+            np_idx, nn_idx = nodes[0], nodes[1]
+            V_actual = V[np_idx] - V[nn_idx]
+            G = 1e12
+            I = G * (V_actual - V_target)
+
+            if np_idx != ground:
+                f[np_idx - 1] += I
+                J[np_idx - 1, np_idx - 1] += G
+                if nn_idx != ground:
+                    J[np_idx - 1, nn_idx - 1] -= G
+            if nn_idx != ground:
+                f[nn_idx - 1] -= I
+                J[nn_idx - 1, nn_idx - 1] += G
+                if np_idx != ground:
+                    J[nn_idx - 1, np_idx - 1] -= G
+
+        elif model in ('resistor', 'r'):
+            R = params.get('r', 1000)
+            G = 1.0 / max(R, 1e-12)
+            np_idx, nn_idx = nodes[0], nodes[1]
+            Vd = V[np_idx] - V[nn_idx]
+            I = G * Vd
+
+            if np_idx != ground:
+                f[np_idx - 1] += I
+                J[np_idx - 1, np_idx - 1] += G
+                if nn_idx != ground:
+                    J[np_idx - 1, nn_idx - 1] -= G
+            if nn_idx != ground:
+                f[nn_idx - 1] -= I
+                J[nn_idx - 1, nn_idx - 1] += G
+                if np_idx != ground:
+                    J[nn_idx - 1, np_idx - 1] -= G
+
+        elif model in ('capacitor', 'c'):
+            # For DC, capacitor is open circuit (gmin)
+            gmin = 1e-12
+            np_idx, nn_idx = nodes[0], nodes[1]
+            Vd = V[np_idx] - V[nn_idx]
+            I = gmin * Vd
+
+            if np_idx != ground:
+                f[np_idx - 1] += I
+                J[np_idx - 1, np_idx - 1] += gmin
+            if nn_idx != ground:
+                f[nn_idx - 1] -= I
+                J[nn_idx - 1, nn_idx - 1] += gmin
+
+    def _stamp_device_transient(self, J, f, V, V_prev, dev, time, dt, ground):
+        """Stamp device for transient analysis with backward Euler."""
+        model = dev['model']
+        nodes = dev['nodes']
+        params = dev['params']
+
+        # First stamp DC contribution
+        self._stamp_device_dc(J, f, V, dev, time, ground)
+
+        # Then add capacitor transient contribution
+        if model in ('capacitor', 'c'):
+            C = params.get('c', 1e-12)
+            np_idx, nn_idx = nodes[0], nodes[1]
+
+            # Backward Euler: I = C/dt * (V - V_prev)
+            G_eq = C / dt
+            Vd = V[np_idx] - V[nn_idx]
+            Vd_prev = V_prev[np_idx] - V_prev[nn_idx]
+            I_cap = G_eq * (Vd - Vd_prev)
+
+            if np_idx != ground:
+                f[np_idx - 1] += I_cap
+                J[np_idx - 1, np_idx - 1] += G_eq
+                if nn_idx != ground:
+                    J[np_idx - 1, nn_idx - 1] -= G_eq
+            if nn_idx != ground:
+                f[nn_idx - 1] -= I_cap
+                J[nn_idx - 1, nn_idx - 1] += G_eq
+                if np_idx != ground:
+                    J[nn_idx - 1, np_idx - 1] -= G_eq
+
+    def test_test_tran(self):
+        """Test test_tran.sim - RC transient response.
+
+        Circuit: V1 (pulse 1→2V at 1ms) -- R1 (1k) -- C1 (1µF) -- GND
+        Time constant τ = RC = 1ms
+        Expected: V(2) = 1 + (1 - exp(-(t-1ms)/1ms)) for t > 1ms
+        """
+        sim_file = VACASK_TEST / "test_tran.sim"
+        if not sim_file.exists():
+            pytest.skip("VACASK test_tran.sim not found")
+
+        # Parse circuit
+        circuit = parse_netlist(sim_file)
+
+        # Run transient analysis
+        times, voltages = self._simple_transient(
+            circuit,
+            t_stop=10e-3,
+            t_step=10e-6,
+        )
+
+        # Calculate expected response
+        delay = 1e-3  # 1ms delay
+        tau = 1e-3    # 1ms time constant
+        v2 = voltages['2']
+
+        expected = 1.0 + (1.0 - np.exp(-(times - delay) / tau)) * (times > delay)
+
+        # Check max relative error
+        # Exclude first few points during the step
+        mask = times > (delay + 10e-6)
+        rel_err = np.abs(v2[mask] - expected[mask]) / np.maximum(np.abs(expected[mask]), 1e-6)
+        max_err = np.max(rel_err)
+
+        print(f"Max relative error: {max_err:.4e}")
+        print(f"V(2) at t=5ms: {v2[times >= 5e-3][0]:.4f}V (expected ~1.98V)")
+        print(f"V(2) at t=10ms: {v2[-1]:.4f}V (expected ~2.0V)")
+
+        assert max_err < 0.01, f"Max relative error {max_err:.4e} exceeds 1%"
 
 
 class TestVACASKSummary:
