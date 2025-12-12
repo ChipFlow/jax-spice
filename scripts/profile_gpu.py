@@ -124,8 +124,12 @@ class GPUProfiler:
             dt = runner.analysis_params.get('step', 1e-12)
 
             # Warmup run (includes JIT compilation)
+            log(f"      warmup ({warmup_steps} steps, includes JIT)...", end=" ")
+            warmup_start = time.perf_counter()
             runner.run_transient(t_stop=dt * warmup_steps, dt=dt,
                                 max_steps=warmup_steps, use_sparse=use_sparse)
+            warmup_time = time.perf_counter() - warmup_start
+            log(f"done ({warmup_time:.1f}s)")
 
             # Create fresh runner for timing (reuse compiled models)
             runner2 = VACASKBenchmarkRunner(sim_path, verbose=False)
@@ -254,9 +258,9 @@ def get_vacask_benchmarks(names: Optional[List[str]] = None) -> List[Tuple[str, 
     return benchmarks
 
 
-def log(msg=""):
+def log(msg="", end="\n"):
     """Print with flush for CI logs"""
-    print(msg, flush=True)
+    print(msg, end=end, flush=True)
 
 
 def main():
