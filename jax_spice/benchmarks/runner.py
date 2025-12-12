@@ -1364,6 +1364,13 @@ class VACASKBenchmarkRunner:
         )
         logger.info("Created GPU-resident build_system function")
 
+        # Create JIT-compiled NR solver (captures build_system_fn in closure)
+        # This is compiled once and reused for all timesteps
+        nr_solve = self._make_jitted_nr_solver(
+            build_system_fn, max_iterations=MAX_NR_ITERATIONS, abstol=1e-9, max_step=1.0
+        )
+        logger.info("Created JIT-compiled NR solver")
+
         times = []
 
         logger.info(f"initialising voltages: {n_external}")
@@ -1380,11 +1387,8 @@ class VACASKBenchmarkRunner:
             # Build source value arrays once per timestep (Python loop here, not in NR loop)
             vsource_vals, isource_vals = build_source_arrays(source_values)
 
-            # GPU-resident NR solve - entire loop runs on GPU via lax.while_loop
-            V_new, iterations, converged, max_f = self._gpu_resident_nr_solve(
-                build_system_fn, V, vsource_vals, isource_vals,
-                max_iterations=MAX_NR_ITERATIONS, abstol=1e-9, max_step=1.0
-            )
+            # GPU-resident NR solve - JIT compiled, runs on GPU via lax.while_loop
+            V_new, iterations, converged, max_f = nr_solve(V, vsource_vals, isource_vals)
 
             # Transfer results back to Python for logging/tracking (once per timestep)
             nr_iters = int(iterations)
@@ -1793,79 +1797,73 @@ class VACASKBenchmarkRunner:
 
         return build_system
 
-    def _gpu_resident_nr_solve(
+    def _make_jitted_nr_solver(
         self,
         build_system_fn: Callable,
-        V_init: jax.Array,
-        vsource_vals: jax.Array,
-        isource_vals: jax.Array,
         max_iterations: int = MAX_NR_ITERATIONS,
         abstol: float = 1e-9,
         max_step: float = 1.0,
-    ) -> Tuple[jax.Array, int, bool, float]:
-        """GPU-resident Newton-Raphson solver using lax.while_loop.
+    ) -> Callable:
+        """Create a JIT-compiled NR solver with build_system_fn captured in closure.
 
-        Runs entirely on GPU with no host-device transfers during iteration.
-
-        Args:
-            build_system_fn: Function (V, vsource_vals, isource_vals) -> (J, f)
-            V_init: Initial voltage vector
-            vsource_vals: Voltage source target values
-            isource_vals: Current source values
-            max_iterations: Maximum NR iterations
-            abstol: Absolute tolerance for convergence
-            max_step: Maximum voltage step per iteration
+        This avoids retracing on every timestep by capturing build_system_fn
+        in the closure rather than passing it as an argument.
 
         Returns:
-            Tuple of (V_final, iterations, converged, residual_norm)
+            JIT-compiled function: (V_init, vsource_vals, isource_vals) -> (V, iters, converged, max_f)
         """
-        # State: (V, iteration, converged, max_f, max_delta)
-        init_state = (
-            V_init,
-            jnp.array(0, dtype=jnp.int32),
-            jnp.array(False),
-            jnp.array(jnp.inf),
-            jnp.array(jnp.inf),
-        )
 
-        def cond_fn(state):
-            V, iteration, converged, max_f, max_delta = state
-            return jnp.logical_and(~converged, iteration < max_iterations)
+        @jax.jit
+        def nr_solve(V_init: jax.Array, vsource_vals: jax.Array, isource_vals: jax.Array):
+            # State: (V, iteration, converged, max_f, max_delta)
+            init_state = (
+                V_init,
+                jnp.array(0, dtype=jnp.int32),
+                jnp.array(False),
+                jnp.array(jnp.inf),
+                jnp.array(jnp.inf),
+            )
 
-        def body_fn(state):
-            V, iteration, _, _, _ = state
+            def cond_fn(state):
+                V, iteration, converged, max_f, max_delta = state
+                return jnp.logical_and(~converged, iteration < max_iterations)
 
-            # Build system (J and f)
-            J, f = build_system_fn(V, vsource_vals, isource_vals)
+            def body_fn(state):
+                V, iteration, _, _, _ = state
 
-            # Check residual convergence
-            max_f = jnp.max(jnp.abs(f))
-            residual_converged = max_f < abstol
+                # Build system (J and f) - build_system_fn captured in closure
+                J, f = build_system_fn(V, vsource_vals, isource_vals)
 
-            # Solve: J @ delta = -f
-            delta = jax.scipy.linalg.solve(J, -f)
+                # Check residual convergence
+                max_f = jnp.max(jnp.abs(f))
+                residual_converged = max_f < abstol
 
-            # Step limiting
-            max_delta = jnp.max(jnp.abs(delta))
-            scale = jnp.where(max_delta > max_step, max_step / max_delta, 1.0)
-            delta = delta * scale
+                # Solve: J @ delta = -f
+                delta = jax.scipy.linalg.solve(J, -f)
 
-            # Update V (ground at index 0 stays fixed)
-            V_new = V.at[1:].add(delta)
+                # Step limiting
+                max_delta = jnp.max(jnp.abs(delta))
+                scale = jnp.where(max_delta > max_step, max_step / max_delta, 1.0)
+                delta = delta * scale
 
-            # Check delta-based convergence
-            delta_converged = max_delta < 1e-12
+                # Update V (ground at index 0 stays fixed)
+                V_new = V.at[1:].add(delta)
 
-            converged = jnp.logical_or(residual_converged, delta_converged)
+                # Check delta-based convergence
+                delta_converged = max_delta < 1e-12
 
-            return (V_new, iteration + 1, converged, max_f, max_delta)
+                converged = jnp.logical_or(residual_converged, delta_converged)
 
-        # Run NR loop on GPU
-        V_final, iterations, converged, max_f, max_delta = lax.while_loop(
-            cond_fn, body_fn, init_state
-        )
+                return (V_new, iteration + 1, converged, max_f, max_delta)
 
-        return V_final, iterations, converged, max_f
+            # Run NR loop on GPU
+            V_final, iterations, converged, max_f, max_delta = lax.while_loop(
+                cond_fn, body_fn, init_state
+            )
+
+            return V_final, iterations, converged, max_f
+
+        return nr_solve
 
     def _compute_voltage_param(self, name: str, V: jax.Array,
                                 node_map: Dict[str, int],
