@@ -28,7 +28,7 @@ import jax
 
 jax.config.update("jax_enable_x64", True)
 
-from jax_spice.analysis.transient_gpu import transient_analysis_gpu
+from jax_spice.analysis.transient import transient_analysis_jit
 from jax_spice.benchmarks.c6288 import C6288Benchmark
 
 
@@ -76,26 +76,22 @@ def main():
     if not args.skip_warmup:
         # Warmup run (JIT compilation happens here, outside profiled region)
         print("Warmup run (JIT compilation)...")
-        _, _, _ = transient_analysis_gpu(
+        _, _, _ = transient_analysis_jit(
             system,
             t_stop=1e-12,
             t_step=1e-12,
-            vdd=1.2,
-            icmode="uic",
-            verbose=False,
+            backend="gpu",
         )
         print("Warmup complete")
         print()
 
     # Profiled run - nsys-jax captures this automatically
     print(f"Starting profiled run ({args.timesteps} timesteps)...")
-    times, solutions, info = transient_analysis_gpu(
+    times, solutions, info = transient_analysis_jit(
         system,
         t_stop=args.timesteps * 1e-12,
         t_step=1e-12,
-        vdd=1.2,
-        icmode="uic",
-        verbose=True,
+        backend="gpu",
     )
 
     print()
