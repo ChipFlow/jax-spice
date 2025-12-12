@@ -7,6 +7,7 @@ Compiles Verilog-A models to JAX functions using openvaf-py.
 # This must be done before any JAX imports
 import os
 import platform
+import logging
 
 if platform.system() == "Darwin" and platform.machine() == "arm64":
     # Apple Silicon - force CPU backend to avoid Metal/GPU issues
@@ -15,6 +16,9 @@ if platform.system() == "Darwin" and platform.machine() == "arm64":
 from typing import Dict, List, Callable, Any, Tuple, Set, Optional
 from dataclasses import dataclass
 import openvaf_py
+
+# Use jax_spice logger (inherits memory logging config when enabled)
+logger = logging.getLogger("jax_spice.openvaf")
 
 
 @dataclass
@@ -89,30 +93,24 @@ class OpenVAFToJAX:
 
         The inputs should be ordered according to self.params
         """
-        import sys
         import time
         t0 = time.perf_counter()
-        print("    translate: generating code...", flush=True)
-        sys.stdout.flush()
+        logger.info("    translate: generating code...")
         code_lines = self._generate_code()
         t1 = time.perf_counter()
-        print(f"    translate: code generated ({len(code_lines)} lines) in {t1-t0:.1f}s", flush=True)
-        sys.stdout.flush()
+        logger.info(f"    translate: code generated ({len(code_lines)} lines) in {t1-t0:.1f}s")
 
         code = '\n'.join(code_lines)
-        print(f"    translate: code size = {len(code)} chars", flush=True)
-        sys.stdout.flush()
+        logger.info(f"    translate: code size = {len(code)} chars")
 
         # Compile and return
         import jax.numpy as jnp
         from jax import lax
         local_ns = {'jnp': jnp, 'lax': lax}
-        print("    translate: exec()...", flush=True)
-        sys.stdout.flush()
+        logger.info("    translate: exec()...")
         exec(code, local_ns)
         t2 = time.perf_counter()
-        print(f"    translate: exec() done in {t2-t1:.1f}s", flush=True)
-        sys.stdout.flush()
+        logger.info(f"    translate: exec() done in {t2-t1:.1f}s")
         return local_ns['device_eval']
 
     def translate_array(self) -> Tuple[Callable, Dict]:
@@ -127,7 +125,6 @@ class OpenVAFToJAX:
 
         This output format is compatible with jax.vmap for batched evaluation.
         """
-        import sys
         import time
 
         # Profile code generation if OPENVAF_PROFILE=1
@@ -135,17 +132,15 @@ class OpenVAFToJAX:
             import cProfile
             import pstats
             import io
-            print("    translate_array: PROFILING ENABLED", flush=True)
+            logger.info("    translate_array: PROFILING ENABLED")
             profiler = cProfile.Profile()
             profiler.enable()
 
         t0 = time.perf_counter()
-        print("    translate_array: generating code...", flush=True)
-        sys.stdout.flush()
+        logger.info("    translate_array: generating code...")
         code_lines = self._generate_code_array()
         t1 = time.perf_counter()
-        print(f"    translate_array: code generated ({len(code_lines)} lines) in {t1-t0:.1f}s", flush=True)
-        sys.stdout.flush()
+        logger.info(f"    translate_array: code generated ({len(code_lines)} lines) in {t1-t0:.1f}s")
 
         # Print profile results
         if os.environ.get('OPENVAF_PROFILE') == '1':
@@ -153,23 +148,20 @@ class OpenVAFToJAX:
             s = io.StringIO()
             ps = pstats.Stats(profiler, stream=s).sort_stats('cumulative')
             ps.print_stats(30)  # Top 30 functions
-            print("    === CODE GENERATION PROFILE ===", flush=True)
-            print(s.getvalue(), flush=True)
+            logger.info("    === CODE GENERATION PROFILE ===")
+            logger.info(s.getvalue())
 
         code = '\n'.join(code_lines)
-        print(f"    translate_array: code size = {len(code)} chars", flush=True)
-        sys.stdout.flush()
+        logger.info(f"    translate_array: code size = {len(code)} chars")
 
         # Compile and return
         import jax.numpy as jnp
         from jax import lax
         local_ns = {'jnp': jnp, 'lax': lax}
-        print("    translate_array: exec()...", flush=True)
-        sys.stdout.flush()
+        logger.info("    translate_array: exec()...")
         exec(code, local_ns)
         t2 = time.perf_counter()
-        print(f"    translate_array: exec() done in {t2-t1:.1f}s", flush=True)
-        sys.stdout.flush()
+        logger.info(f"    translate_array: exec() done in {t2-t1:.1f}s")
 
         # Build metadata
         node_names = list(self.dae_data['residuals'].keys())
@@ -188,11 +180,9 @@ class OpenVAFToJAX:
         Returns:
             (lines, defined_vars) - code lines and set of defined variable names
         """
-        import sys
         import time
         t0 = time.perf_counter()
-        print(f"      _generate_core_code: starting...", flush=True)
-        sys.stdout.flush()
+        logger.info("      _generate_core_code: starting...")
 
         lines = []
         lines.append(f"def {func_name}(inputs):")
@@ -236,8 +226,7 @@ class OpenVAFToJAX:
 
         lines.append("")
 
-        print(f"      _generate_core_code: constants done ({len(lines)} lines)", flush=True)
-        sys.stdout.flush()
+        logger.info(f"      _generate_core_code: constants done ({len(lines)} lines)")
 
         # Map function parameters to inputs
         # Named eval params from user inputs, derivative selectors default to 0
@@ -326,8 +315,7 @@ class OpenVAFToJAX:
 
         lines.append("")
 
-        print(f"      _generate_core_code: init done ({len(lines)} lines)", flush=True)
-        sys.stdout.flush()
+        logger.info(f"      _generate_core_code: init done ({len(lines)} lines)")
 
         # Process eval blocks in topological order
         block_order = self._topological_sort()
@@ -366,8 +354,7 @@ class OpenVAFToJAX:
         lines.append("")
 
         t1 = time.perf_counter()
-        print(f"      _generate_core_code: eval blocks done ({len(lines)} lines in {t1-t0:.1f}s)", flush=True)
-        sys.stdout.flush()
+        logger.info(f"      _generate_core_code: eval blocks done ({len(lines)} lines in {t1-t0:.1f}s)")
 
         return lines, defined_vars
 
