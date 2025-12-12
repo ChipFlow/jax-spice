@@ -54,9 +54,14 @@ class VACASKBenchmarkRunner:
         'psp103va': 'psp103',  # PSP103 MOSFET
     }
 
-    # OpenVAF model sources (relative to openvaf-py/vendor/OpenVAF/integration_tests)
+    # OpenVAF model sources
+    # Keys are device types, values are (base_path_key, relative_path) tuples
+    # base_path_key: 'integration_tests' or 'vacask'
     OPENVAF_MODELS = {
-        'psp103': 'PSP103/psp103.va',
+        'psp103': ('integration_tests', 'PSP103/psp103.va'),
+        'resistor': ('vacask', 'resistor.va'),
+        'capacitor': ('vacask', 'capacitor.va'),
+        'diode': ('vacask', 'diode.va'),
     }
 
     # SPICE number suffixes
@@ -364,18 +369,27 @@ class VACASKBenchmarkRunner:
         if self.verbose:
             print(f"Compiling OpenVAF models: {openvaf_types}")
 
-        # Compile each model type
-        openvaf_base = Path(__file__).parent.parent.parent / "openvaf-py" / "vendor" / "OpenVAF" / "integration_tests"
+        # Base paths for different VA model sources
+        project_root = Path(__file__).parent.parent.parent
+        base_paths = {
+            'integration_tests': project_root / "openvaf-py" / "vendor" / "OpenVAF" / "integration_tests",
+            'vacask': project_root / "vendor" / "VACASK" / "devices",
+        }
 
         for model_type in openvaf_types:
             if model_type in self._compiled_models:
                 continue
 
-            va_path = self.OPENVAF_MODELS.get(model_type)
-            if not va_path:
+            model_info = self.OPENVAF_MODELS.get(model_type)
+            if not model_info:
                 raise ValueError(f"Unknown OpenVAF model type: {model_type}")
 
-            full_path = openvaf_base / va_path
+            base_key, va_path = model_info
+            base_path = base_paths.get(base_key)
+            if not base_path:
+                raise ValueError(f"Unknown base path key: {base_key}")
+
+            full_path = base_path / va_path
             if not full_path.exists():
                 raise FileNotFoundError(f"VA model not found: {full_path}")
 
@@ -1059,16 +1073,18 @@ class VACASKBenchmarkRunner:
         source_fn = self._build_source_fn()
 
         # Group devices by type
+        # All non-source devices (resistor, capacitor, diode, etc.) go through OpenVAF
+        # Only vsource and isource remain as "source devices" handled separately
         openvaf_by_type: Dict[str, List[Dict]] = {}
-        simple_devices = []
+        source_devices = []
         for dev in self.devices:
             if dev.get('is_openvaf'):
                 model_type = dev['model']
                 if model_type not in openvaf_by_type:
                     openvaf_by_type[model_type] = []
                 openvaf_by_type[model_type].append(dev)
-            else:
-                simple_devices.append(dev)
+            elif dev['model'] in ('vsource', 'isource'):
+                source_devices.append(dev)
 
         # Prepare OpenVAF: vmapped functions, static inputs, and stamp index mappings
         vmapped_fns: Dict[str, Callable] = {}
@@ -1107,8 +1123,8 @@ class VACASKBenchmarkRunner:
                     n_devs = len(openvaf_by_type[model_type])
                     print(f"Prepared {model_type}: {n_devs} devices, stamp indices cached")
 
-        # Pre-compute simple device stamp indices
-        simple_device_data = self._prepare_simple_devices_coo(simple_devices, ground, n_unknowns)
+        # Pre-compute source device stamp indices
+        source_device_data = self._prepare_source_devices_coo(source_devices, ground, n_unknowns)
 
         # Time stepping
         times = []
@@ -1132,9 +1148,9 @@ class VACASKBenchmarkRunner:
                 j_cols_list = []
                 j_vals_list = []
 
-                # Collect from simple devices
-                self._collect_simple_devices_coo(
-                    simple_device_data, V_iter, V_prev, dt, source_values, ground,
+                # Collect from source devices (vsource, isource)
+                self._collect_source_devices_coo(
+                    source_device_data, V_iter, source_values,
                     f_indices_list, f_values_list, j_rows_list, j_cols_list, j_vals_list
                 )
 
@@ -1259,13 +1275,16 @@ class VACASKBenchmarkRunner:
 
         return jnp.array(times), {k: jnp.array(v) for k, v in voltages.items()}, stats
 
-    def _prepare_simple_devices_coo(
+    def _prepare_source_devices_coo(
         self,
-        simple_devices: List[Dict],
+        source_devices: List[Dict],
         ground: int,
         n_unknowns: int,
     ) -> Dict[str, Any]:
-        """Pre-compute data structures and stamp templates for simple devices.
+        """Pre-compute data structures and stamp templates for source devices.
+
+        All other devices (resistor, capacitor, diode) are handled via OpenVAF.
+        This function only handles vsource and isource.
 
         Pre-computes static index arrays so runtime collection is fully vectorized
         with no Python loops.
@@ -1276,13 +1295,14 @@ class VACASKBenchmarkRunner:
 
         Returns dict with device data and pre-computed stamp templates.
         """
-        # Group by model type
+        # Group by model type (only vsource and isource expected)
         by_type: Dict[str, List[Dict]] = {}
-        for dev in simple_devices:
+        for dev in source_devices:
             model = dev['model']
-            if model not in by_type:
-                by_type[model] = []
-            by_type[model].append(dev)
+            if model in ('vsource', 'isource'):
+                if model not in by_type:
+                    by_type[model] = []
+                by_type[model].append(dev)
 
         result = {}
         for model, devs in by_type.items():
@@ -1334,13 +1354,7 @@ class VACASKBenchmarkRunner:
                 'j_signs': j_signs,      # (4,)
             }
 
-            if model == 'resistor':
-                R = jnp.array([d['params'].get('r', 1e3) for d in devs], dtype=jnp.float64)
-                result['resistor'] = {**base_data, 'R': R}
-            elif model == 'capacitor':
-                C = jnp.array([d['params'].get('c', 1e-12) for d in devs], dtype=jnp.float64)
-                result['capacitor'] = {**base_data, 'C': C}
-            elif model == 'vsource':
+            if model == 'vsource':
                 dc = jnp.array([d['params'].get('dc', 0.0) for d in devs], dtype=jnp.float64)
                 result['vsource'] = {**base_data, 'dc': dc, 'names': names}
             elif model == 'isource':
@@ -1355,30 +1369,26 @@ class VACASKBenchmarkRunner:
                     'j_cols': jnp.zeros((n, 0), dtype=jnp.int32),
                     'j_signs': jnp.array([]),
                 }
-            elif model == 'diode':
-                Is = jnp.array([d['params'].get('is', 1e-14) for d in devs], dtype=jnp.float64)
-                n_factor = jnp.array([d['params'].get('n', 1.0) for d in devs], dtype=jnp.float64)
-                result['diode'] = {**base_data, 'Is': Is, 'n_factor': n_factor}
 
         return result
 
-    def _collect_simple_devices_coo(
+    def _collect_source_devices_coo(
         self,
         device_data: Dict[str, Any],
         V: jax.Array,
-        V_prev: jax.Array,
-        dt: float,
         source_values: Dict,
-        ground: int,
         f_indices: List,
         f_values: List,
         j_rows: List,
         j_cols: List,
         j_vals: List,
     ):
-        """Collect COO triplets from simple devices using fully vectorized operations.
+        """Collect COO triplets from source devices using fully vectorized operations.
 
-        Uses pre-computed stamp templates from _prepare_simple_devices_coo.
+        All other devices (resistor, capacitor, diode) are handled via OpenVAF.
+        This function only handles vsource and isource.
+
+        Uses pre-computed stamp templates from _prepare_source_devices_coo.
         No Python loops - all operations are batched JAX operations.
         """
 
@@ -1404,25 +1414,6 @@ class VACASKBenchmarkRunner:
             j_rows.append(jnp.where(j_valid, j_row, 0))
             j_cols.append(jnp.where(j_valid, j_col, 0))
             j_vals.append(jnp.where(j_valid, j_val, 0.0))
-
-        # Resistors: I = G * (Vp - Vn), G = 1/R
-        if 'resistor' in device_data:
-            d = device_data['resistor']
-            G = 1.0 / d['R']
-            Vp = V[d['node_p']]
-            Vn = V[d['node_n']]
-            I = G * (Vp - Vn)
-            _stamp_two_terminal(d, I, G)
-
-        # Capacitors: I = G_eq * (V - V_prev), G_eq = C/dt
-        if 'capacitor' in device_data:
-            d = device_data['capacitor']
-            G_eq = d['C'] / dt
-            Vp, Vn = V[d['node_p']], V[d['node_n']]
-            Vp_prev, Vn_prev = V_prev[d['node_p']], V_prev[d['node_n']]
-            I_eq = G_eq * (Vp_prev - Vn_prev)
-            I = G_eq * (Vp - Vn) - I_eq
-            _stamp_two_terminal(d, I, G_eq)
 
         # Voltage sources: I = G * (Vp - Vn - Vtarget), G = 1e12
         if 'vsource' in device_data:
@@ -1453,38 +1444,6 @@ class VACASKBenchmarkRunner:
             f_valid = f_idx >= 0
             f_indices.append(jnp.where(f_valid, f_idx, 0))
             f_values.append(jnp.where(f_valid, f_val, 0.0))
-
-        # Diodes: I = Is * (exp(Vd/nVt) - 1), G = Is * exp(Vd/nVt) / nVt
-        if 'diode' in device_data:
-            d = device_data['diode']
-            Is, n_factor = d['Is'], d['n_factor']
-            Vt = 0.0258
-            nVt = n_factor * Vt
-            Vd = V[d['node_p']] - V[d['node_n']]
-            Vd_norm = Vd / nVt
-
-            # Vectorized diode current with limiting (no Python loop)
-            exp_40 = jnp.exp(40.0)
-            # Use jnp.where for vectorized conditional
-            I = jnp.where(
-                Vd_norm > 40,
-                Is * (exp_40 + exp_40 * (Vd_norm - 40) - 1),
-                jnp.where(
-                    Vd_norm < -40,
-                    -Is,
-                    Is * (jnp.exp(Vd_norm) - 1)
-                )
-            )
-            G = jnp.where(
-                Vd_norm > 40,
-                Is * exp_40 / nVt,
-                jnp.where(
-                    Vd_norm < -40,
-                    jnp.zeros_like(Is),
-                    Is * jnp.exp(Vd_norm) / nVt
-                )
-            )
-            _stamp_two_terminal(d, I, G)
 
     def _collect_openvaf_coo(
         self,
@@ -1525,131 +1484,6 @@ class VACASKBenchmarkRunner:
         j_rows.append(flat_jac_rows[valid_jac])
         j_cols.append(flat_jac_cols[valid_jac])
         j_vals.append(flat_jac_vals[valid_jac])
-
-    def _stamp_simple_device_jax_dense(self, dev: Dict, V: jax.Array, V_prev: jax.Array,
-                                        dt: float, f: jax.Array, J: jax.Array,
-                                        ground: int, source_values: Dict) -> Tuple[jax.Array, jax.Array]:
-        """Stamp a simple device into dense JAX matrices (f and J)."""
-        model = dev['model']
-        nodes = dev['nodes']
-        params = dev['params']
-
-        if model == 'vsource':
-            if dev['name'] in source_values:
-                V_target = source_values[dev['name']]
-            else:
-                V_target = params.get('dc', 0)
-
-            np_idx, nn_idx = nodes[0], nodes[1]
-            G = 1e12
-            I = G * (V[np_idx] - V[nn_idx] - V_target)
-
-            if np_idx != ground:
-                f = f.at[np_idx - 1].add(I)
-                J = J.at[np_idx - 1, np_idx - 1].add(G)
-                if nn_idx != ground:
-                    J = J.at[np_idx - 1, nn_idx - 1].add(-G)
-            if nn_idx != ground:
-                f = f.at[nn_idx - 1].add(-I)
-                J = J.at[nn_idx - 1, nn_idx - 1].add(G)
-                if np_idx != ground:
-                    J = J.at[nn_idx - 1, np_idx - 1].add(-G)
-
-        elif model == 'isource':
-            if dev['name'] in source_values:
-                I_val = source_values[dev['name']]
-            else:
-                I_val = params.get('dc', 0)
-
-            np_idx, nn_idx = nodes[0], nodes[1]
-            if np_idx != ground:
-                f = f.at[np_idx - 1].add(-I_val)
-            if nn_idx != ground:
-                f = f.at[nn_idx - 1].add(I_val)
-
-        elif model == 'resistor':
-            R = params.get('r', 1e3)
-            G = 1.0 / R
-            np_idx, nn_idx = nodes[0], nodes[1]
-            I = G * (V[np_idx] - V[nn_idx])
-
-            if np_idx != ground:
-                f = f.at[np_idx - 1].add(I)
-                J = J.at[np_idx - 1, np_idx - 1].add(G)
-                if nn_idx != ground:
-                    J = J.at[np_idx - 1, nn_idx - 1].add(-G)
-            if nn_idx != ground:
-                f = f.at[nn_idx - 1].add(-I)
-                J = J.at[nn_idx - 1, nn_idx - 1].add(G)
-                if np_idx != ground:
-                    J = J.at[nn_idx - 1, np_idx - 1].add(-G)
-
-        elif model == 'capacitor':
-            C = params.get('c', 1e-12)
-            np_idx, nn_idx = nodes[0], nodes[1]
-            G_eq = C / dt
-            I_eq = G_eq * (V_prev[np_idx] - V_prev[nn_idx])
-            I = G_eq * (V[np_idx] - V[nn_idx]) - I_eq
-
-            if np_idx != ground:
-                f = f.at[np_idx - 1].add(I)
-                J = J.at[np_idx - 1, np_idx - 1].add(G_eq)
-                if nn_idx != ground:
-                    J = J.at[np_idx - 1, nn_idx - 1].add(-G_eq)
-            if nn_idx != ground:
-                f = f.at[nn_idx - 1].add(-I)
-                J = J.at[nn_idx - 1, nn_idx - 1].add(G_eq)
-                if np_idx != ground:
-                    J = J.at[nn_idx - 1, np_idx - 1].add(-G_eq)
-
-        elif model == 'diode':
-            np_idx, nn_idx = nodes[0], nodes[1]
-            Is = params.get('is', 1e-14)
-            n = params.get('n', 1.0)
-            Vt = 0.0258
-            nVt = n * Vt
-
-            Vd = V[np_idx] - V[nn_idx]
-            Vd_norm = Vd / nVt
-            exp_40 = jnp.exp(40.0)
-
-            # Diode current with limiting
-            I = jax.lax.cond(
-                Vd_norm > 40,
-                lambda: Is * (exp_40 + exp_40 * (Vd_norm - 40) - 1),
-                lambda: jax.lax.cond(
-                    Vd_norm < -40,
-                    lambda: -Is,
-                    lambda: Is * (jnp.exp(Vd_norm) - 1)
-                )
-            )
-
-            # Diode conductance
-            G = jax.lax.cond(
-                Vd_norm > 40,
-                lambda: Is * exp_40 / nVt,
-                lambda: jax.lax.cond(
-                    Vd_norm < -40,
-                    lambda: 0.0,
-                    lambda: Is * jnp.exp(Vd_norm) / nVt
-                )
-            )
-
-            if np_idx != ground:
-                f = f.at[np_idx - 1].add(I)
-                J = J.at[np_idx - 1, np_idx - 1].add(G)
-                if nn_idx != ground:
-                    J = J.at[np_idx - 1, nn_idx - 1].add(-G)
-            if nn_idx != ground:
-                f = f.at[nn_idx - 1].add(-I)
-                J = J.at[nn_idx - 1, nn_idx - 1].add(G)
-                if np_idx != ground:
-                    J = J.at[nn_idx - 1, np_idx - 1].add(-G)
-
-        return f, J
-
-    # NOTE: GMRES sparse path (_run_transient_hybrid_sparse) removed
-    # Use BCOO/BCSR + spsolve via _run_transient_hybrid(use_dense=False) instead
 
     def _compute_voltage_param(self, name: str, V: jax.Array,
                                 node_map: Dict[str, int],
