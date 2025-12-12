@@ -28,7 +28,7 @@ import jax
 
 jax.config.update("jax_enable_x64", True)
 
-from jax_spice.analysis.transient import transient_analysis_jit
+from jax_spice.analysis.transient import transient_analysis_vectorized
 from jax_spice.benchmarks.c6288 import C6288Benchmark
 
 
@@ -76,10 +76,11 @@ def main():
     if not args.skip_warmup:
         # Warmup run (JIT compilation happens here, outside profiled region)
         print("Warmup run (JIT compilation)...")
-        _, _, _ = transient_analysis_jit(
+        _, _, _ = transient_analysis_vectorized(
             system,
             t_stop=1e-12,
             t_step=1e-12,
+            initial_conditions={},  # Use DC operating point
             backend="gpu",
         )
         print("Warmup complete")
@@ -87,15 +88,16 @@ def main():
 
     # Profiled run - nsys-jax captures this automatically
     print(f"Starting profiled run ({args.timesteps} timesteps)...")
-    times, solutions, info = transient_analysis_jit(
+    times, solutions, info = transient_analysis_vectorized(
         system,
         t_stop=args.timesteps * 1e-12,
         t_step=1e-12,
+        initial_conditions={},  # Use DC operating point
         backend="gpu",
     )
 
     print()
-    print(f"Completed: {len(times)} timesteps, {info['total_iterations']} iterations")
+    print(f"Completed: {len(times)} timesteps")
 
 
 if __name__ == "__main__":
