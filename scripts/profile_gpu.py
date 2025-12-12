@@ -137,7 +137,7 @@ class GPUProfiler:
             ctx = trace_ctx if trace_ctx else nullcontext()
             with ctx:
                 start = time.perf_counter()
-                times, voltages = runner2.run_transient(
+                times, voltages, stats = runner2.run_transient(
                     t_stop=dt * num_steps, dt=dt,
                     max_steps=num_steps, use_sparse=use_sparse
                 )
