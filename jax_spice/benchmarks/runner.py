@@ -355,10 +355,20 @@ class VACASKBenchmarkRunner:
         if self._has_openvaf_devices:
             self._compile_openvaf_models()
 
-    def _compile_openvaf_models(self):
-        """Compile OpenVAF models needed by the circuit."""
+    def _compile_openvaf_models(self, log_fn=None):
+        """Compile OpenVAF models needed by the circuit.
+
+        Args:
+            log_fn: Optional logging function for progress output
+        """
         if not HAS_OPENVAF:
             raise ImportError("OpenVAF support required but openvaf_py not available")
+
+        def log(msg):
+            if log_fn:
+                log_fn(msg)
+            elif self.verbose:
+                print(msg, flush=True)
 
         # Find unique OpenVAF model types
         openvaf_types = set()
@@ -366,8 +376,7 @@ class VACASKBenchmarkRunner:
             if dev.get('is_openvaf'):
                 openvaf_types.add(dev['model'])
 
-        if self.verbose:
-            print(f"Compiling OpenVAF models: {openvaf_types}")
+        log(f"Compiling OpenVAF models: {openvaf_types}")
 
         # Base paths for different VA model sources
         project_root = Path(__file__).parent.parent.parent
@@ -393,22 +402,23 @@ class VACASKBenchmarkRunner:
             if not full_path.exists():
                 raise FileNotFoundError(f"VA model not found: {full_path}")
 
-            if self.verbose:
-                print(f"  Compiling {model_type} from {va_path}...")
-
+            log(f"  {model_type}: compiling VA...")
             modules = openvaf_py.compile_va(str(full_path))
             if not modules:
                 raise ValueError(f"Failed to compile {va_path}")
 
+            log(f"  {model_type}: translating to JAX...")
             module = modules[0]
             translator = openvaf_jax.OpenVAFToJAX(module)
             jax_fn = translator.translate()
 
             # Also generate array-based function for batched evaluation
+            log(f"  {model_type}: generating array function...")
             jax_fn_array, array_metadata = translator.translate_array()
 
             # Create JIT-compiled vmapped function for fast batched evaluation
-            # JIT compilation is now possible after fixing boolean constants in openvaf_jax
+            # Note: jax.jit() returns a wrapper - actual JIT happens on first call
+            log(f"  {model_type}: wrapping with vmap+jit...")
             vmapped_fn = jax.jit(jax.vmap(jax_fn_array))
 
             self._compiled_models[model_type] = {
@@ -423,8 +433,7 @@ class VACASKBenchmarkRunner:
                 'nodes': list(module.nodes),
             }
 
-            if self.verbose:
-                print(f"    {model_type}: {len(module.param_names)} params, {len(module.nodes)} nodes")
+            log(f"  {model_type}: done ({len(module.param_names)} params, {len(module.nodes)} nodes)")
 
     def _prepare_static_inputs(self, model_type: str, openvaf_devices: List[Dict],
                                 device_internal_nodes: Dict[str, Dict[str, int]],

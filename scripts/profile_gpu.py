@@ -93,15 +93,22 @@ class GPUProfiler:
         Returns:
             BenchmarkResult with timing information
         """
+        import sys
+        log(f"      starting...")
+        sys.stdout.flush()
+        sys.stderr.flush()
+
         backend = jax.default_backend()
+        log(f"      backend: {backend}")
+        sys.stdout.flush()
+        sys.stderr.flush()
 
         try:
             # Parse circuit
             log(f"      parsing...")
-            import sys
             sys.stdout.flush()
             sys.stderr.flush()
-            runner = VACASKBenchmarkRunner(sim_path, verbose=False)
+            runner = VACASKBenchmarkRunner(sim_path, verbose=True)
             runner.parse()
             log("      parsing done")
 
@@ -356,6 +363,8 @@ def main():
     with trace_manager:
         for name, sim_path in benchmarks:
             log(f"  {name}:")
+            sys.stdout.flush()
+            sys.stderr.flush()
 
             # Determine which solvers to run
             run_dense = not args.sparse_only and name != 'c6288'  # c6288 too large for dense

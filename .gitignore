@@ -41,6 +41,8 @@ Thumbs.db
 # Project specific
 *.osdi
 .pdm-python
+profile_report.json
+profile_report.md
 
 # PDKs (may contain proprietary files)
 pdks/
