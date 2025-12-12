@@ -212,7 +212,7 @@ echo "Traces uploaded to: {trace_gcs_path}"
         "--gpu=1",
         "--gpu-type=nvidia-l4",
         "--no-gpu-zonal-redundancy",
-        "--cpu=8",
+        "--cpu=4",
         "--memory=32Gi",
         "--task-timeout=30m",
         "--max-retries=0",
