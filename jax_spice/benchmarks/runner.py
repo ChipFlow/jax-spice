@@ -1027,6 +1027,7 @@ class VACASKBenchmarkRunner:
         """
         from jax_spice.analysis.gpu_backend import get_device, get_default_dtype
         from jax_spice.analysis.sparse import build_csr_arrays, sparse_solve_csr
+        from jax.experimental.sparse import BCOO
 
         ground = 0
 
@@ -1173,7 +1174,7 @@ class VACASKBenchmarkRunner:
                     delta = jax.scipy.linalg.solve(J_reg, -f)
 
                 else:
-                    # === SPARSE PATH: Build Jacobian CSR from COO and solve ===
+                    # === SPARSE PATH: Build BCOO from COO and solve ===
                     if j_rows_list:
                         all_j_rows = jnp.concatenate(j_rows_list)
                         all_j_cols = jnp.concatenate(j_cols_list)
@@ -1185,10 +1186,16 @@ class VACASKBenchmarkRunner:
                         all_j_cols = jnp.concatenate([all_j_cols, diag_idx])
                         all_j_vals = jnp.concatenate([all_j_vals, jnp.full(n_unknowns, 1e-12)])
 
-                        data, indices, indptr = build_csr_arrays(
-                            all_j_rows, all_j_cols, all_j_vals, (n_unknowns, n_unknowns)
+                        # Build BCOO and sum duplicates (native JAX sparse)
+                        indices = jnp.stack([all_j_rows, all_j_cols], axis=1)
+                        J_bcoo = BCOO((all_j_vals, indices), shape=(n_unknowns, n_unknowns))
+                        J_bcoo = J_bcoo.sum_duplicates()
+
+                        # Convert to CSR for solve (JAX spsolve expects CSR)
+                        J_csr = J_bcoo.tocsr()
+                        delta = sparse_solve_csr(
+                            J_csr.data, J_csr.indices, J_csr.indptr, -f, (n_unknowns, n_unknowns)
                         )
-                        delta = sparse_solve_csr(data, indices, indptr, -f, (n_unknowns, n_unknowns))
                     else:
                         delta = -f
 
@@ -1228,9 +1235,16 @@ class VACASKBenchmarkRunner:
         ground: int,
         n_unknowns: int,
     ) -> Dict[str, Any]:
-        """Pre-compute data structures for simple device COO collection.
+        """Pre-compute data structures and stamp templates for simple devices.
 
-        Returns dict with device groups organized by type for vectorized evaluation.
+        Pre-computes static index arrays so runtime collection is fully vectorized
+        with no Python loops.
+
+        For 2-terminal devices (p, n), the stamp pattern is:
+        - Residual: f[p] += I, f[n] -= I (2 entries, masked by ground)
+        - Jacobian: J[p,p] += G, J[p,n] -= G, J[n,p] -= G, J[n,n] += G (4 entries)
+
+        Returns dict with device data and pre-computed stamp templates.
         """
         # Group by model type
         by_type: Dict[str, List[Dict]] = {}
@@ -1243,27 +1257,78 @@ class VACASKBenchmarkRunner:
         result = {}
         for model, devs in by_type.items():
             n = len(devs)
-            # Extract node indices
-            node_p = np.array([d['nodes'][0] for d in devs], dtype=np.int32)
-            node_n = np.array([d['nodes'][1] for d in devs], dtype=np.int32)
+            # Extract node indices as JAX arrays
+            node_p = jnp.array([d['nodes'][0] for d in devs], dtype=jnp.int32)
+            node_n = jnp.array([d['nodes'][1] for d in devs], dtype=jnp.int32)
             names = [d['name'] for d in devs]
 
+            # Pre-compute stamp templates for 2-terminal devices
+            # Residual indices: [p-1, n-1] for each device, -1 if grounded
+            f_idx_p = jnp.where(node_p != ground, node_p - 1, -1)
+            f_idx_n = jnp.where(node_n != ground, node_n - 1, -1)
+            # Stack to shape (n, 2): [[p0, n0], [p1, n1], ...]
+            f_indices = jnp.stack([f_idx_p, f_idx_n], axis=1)
+            f_signs = jnp.array([1.0, -1.0])  # I at p, -I at n
+
+            # Jacobian indices for 4-entry stamp pattern
+            # Entries: (p,p), (p,n), (n,n), (n,p)
+            mask_p = node_p != ground
+            mask_n = node_n != ground
+            mask_both = mask_p & mask_n
+
+            # Row indices: p, p, n, n (or -1 if invalid)
+            j_row_pp = jnp.where(mask_p, node_p - 1, -1)
+            j_row_pn = jnp.where(mask_both, node_p - 1, -1)
+            j_row_nn = jnp.where(mask_n, node_n - 1, -1)
+            j_row_np = jnp.where(mask_both, node_n - 1, -1)
+
+            # Col indices: p, n, n, p
+            j_col_pp = jnp.where(mask_p, node_p - 1, -1)
+            j_col_pn = jnp.where(mask_both, node_n - 1, -1)
+            j_col_nn = jnp.where(mask_n, node_n - 1, -1)
+            j_col_np = jnp.where(mask_both, node_p - 1, -1)
+
+            # Stack to shape (n, 4)
+            j_rows = jnp.stack([j_row_pp, j_row_pn, j_row_nn, j_row_np], axis=1)
+            j_cols = jnp.stack([j_col_pp, j_col_pn, j_col_nn, j_col_np], axis=1)
+            j_signs = jnp.array([1.0, -1.0, 1.0, -1.0])  # +G, -G, +G, -G
+
+            base_data = {
+                'node_p': node_p,
+                'node_n': node_n,
+                'n': n,
+                'f_indices': f_indices,  # (n, 2)
+                'f_signs': f_signs,      # (2,)
+                'j_rows': j_rows,        # (n, 4)
+                'j_cols': j_cols,        # (n, 4)
+                'j_signs': j_signs,      # (4,)
+            }
+
             if model == 'resistor':
-                R = np.array([d['params'].get('r', 1e3) for d in devs], dtype=np.float64)
-                result['resistor'] = {'node_p': node_p, 'node_n': node_n, 'R': R, 'n': n}
+                R = jnp.array([d['params'].get('r', 1e3) for d in devs], dtype=jnp.float64)
+                result['resistor'] = {**base_data, 'R': R}
             elif model == 'capacitor':
-                C = np.array([d['params'].get('c', 1e-12) for d in devs], dtype=np.float64)
-                result['capacitor'] = {'node_p': node_p, 'node_n': node_n, 'C': C, 'n': n}
+                C = jnp.array([d['params'].get('c', 1e-12) for d in devs], dtype=jnp.float64)
+                result['capacitor'] = {**base_data, 'C': C}
             elif model == 'vsource':
-                dc = np.array([d['params'].get('dc', 0.0) for d in devs], dtype=np.float64)
-                result['vsource'] = {'node_p': node_p, 'node_n': node_n, 'dc': dc, 'names': names, 'n': n}
+                dc = jnp.array([d['params'].get('dc', 0.0) for d in devs], dtype=jnp.float64)
+                result['vsource'] = {**base_data, 'dc': dc, 'names': names}
             elif model == 'isource':
-                dc = np.array([d['params'].get('dc', 0.0) for d in devs], dtype=np.float64)
-                result['isource'] = {'node_p': node_p, 'node_n': node_n, 'dc': dc, 'names': names, 'n': n}
+                dc = jnp.array([d['params'].get('dc', 0.0) for d in devs], dtype=jnp.float64)
+                # Current sources have no Jacobian contribution
+                result['isource'] = {
+                    'node_p': node_p, 'node_n': node_n, 'n': n, 'names': names,
+                    'dc': dc,
+                    'f_indices': f_indices, 'f_signs': f_signs,
+                    # No Jacobian for current sources
+                    'j_rows': jnp.zeros((n, 0), dtype=jnp.int32),
+                    'j_cols': jnp.zeros((n, 0), dtype=jnp.int32),
+                    'j_signs': jnp.array([]),
+                }
             elif model == 'diode':
-                Is = np.array([d['params'].get('is', 1e-14) for d in devs], dtype=np.float64)
-                n_factor = np.array([d['params'].get('n', 1.0) for d in devs], dtype=np.float64)
-                result['diode'] = {'node_p': node_p, 'node_n': node_n, 'Is': Is, 'n_factor': n_factor, 'n': n}
+                Is = jnp.array([d['params'].get('is', 1e-14) for d in devs], dtype=jnp.float64)
+                n_factor = jnp.array([d['params'].get('n', 1.0) for d in devs], dtype=jnp.float64)
+                result['diode'] = {**base_data, 'Is': Is, 'n_factor': n_factor}
 
         return result
 
@@ -1281,187 +1346,115 @@ class VACASKBenchmarkRunner:
         j_cols: List,
         j_vals: List,
     ):
-        """Collect COO triplets from simple devices using vectorized operations."""
+        """Collect COO triplets from simple devices using fully vectorized operations.
+
+        Uses pre-computed stamp templates from _prepare_simple_devices_coo.
+        No Python loops - all operations are batched JAX operations.
+        """
+
+        def _stamp_two_terminal(d: Dict, I: jax.Array, G: jax.Array):
+            """Vectorized stamp for 2-terminal devices with current I and conductance G."""
+            # Residual: shape (n, 2) -> flatten to (2*n,)
+            f_vals = I[:, None] * d['f_signs'][None, :]  # (n, 2)
+            f_idx = d['f_indices'].ravel()  # (2*n,)
+            f_val = f_vals.ravel()  # (2*n,)
+
+            # Jacobian: shape (n, 4) -> flatten to (4*n,)
+            j_vals_arr = G[:, None] * d['j_signs'][None, :]  # (n, 4)
+            j_row = d['j_rows'].ravel()  # (4*n,)
+            j_col = d['j_cols'].ravel()  # (4*n,)
+            j_val = j_vals_arr.ravel()  # (4*n,)
+
+            # Filter valid entries (index >= 0)
+            f_valid = f_idx >= 0
+            j_valid = j_row >= 0
+
+            f_indices.append(jnp.where(f_valid, f_idx, 0))
+            f_values.append(jnp.where(f_valid, f_val, 0.0))
+            j_rows.append(jnp.where(j_valid, j_row, 0))
+            j_cols.append(jnp.where(j_valid, j_col, 0))
+            j_vals.append(jnp.where(j_valid, j_val, 0.0))
 
         # Resistors: I = G * (Vp - Vn), G = 1/R
         if 'resistor' in device_data:
             d = device_data['resistor']
-            node_p, node_n, R = d['node_p'], d['node_n'], d['R']
-            G = 1.0 / R
-            Vp = jnp.asarray(V)[node_p]
-            Vn = jnp.asarray(V)[node_n]
+            G = 1.0 / d['R']
+            Vp = V[d['node_p']]
+            Vn = V[d['node_n']]
             I = G * (Vp - Vn)
-
-            # Residual contributions
-            for i in range(d['n']):
-                np_idx, nn_idx = int(node_p[i]), int(node_n[i])
-                curr = float(I[i])
-                g = float(G[i])
-
-                if np_idx != ground:
-                    f_indices.append(jnp.array([np_idx - 1], dtype=jnp.int32))
-                    f_values.append(jnp.array([curr]))
-                    j_rows.append(jnp.array([np_idx - 1], dtype=jnp.int32))
-                    j_cols.append(jnp.array([np_idx - 1], dtype=jnp.int32))
-                    j_vals.append(jnp.array([g]))
-                    if nn_idx != ground:
-                        j_rows.append(jnp.array([np_idx - 1], dtype=jnp.int32))
-                        j_cols.append(jnp.array([nn_idx - 1], dtype=jnp.int32))
-                        j_vals.append(jnp.array([-g]))
-
-                if nn_idx != ground:
-                    f_indices.append(jnp.array([nn_idx - 1], dtype=jnp.int32))
-                    f_values.append(jnp.array([-curr]))
-                    j_rows.append(jnp.array([nn_idx - 1], dtype=jnp.int32))
-                    j_cols.append(jnp.array([nn_idx - 1], dtype=jnp.int32))
-                    j_vals.append(jnp.array([g]))
-                    if np_idx != ground:
-                        j_rows.append(jnp.array([nn_idx - 1], dtype=jnp.int32))
-                        j_cols.append(jnp.array([np_idx - 1], dtype=jnp.int32))
-                        j_vals.append(jnp.array([-g]))
+            _stamp_two_terminal(d, I, G)
 
         # Capacitors: I = G_eq * (V - V_prev), G_eq = C/dt
         if 'capacitor' in device_data:
             d = device_data['capacitor']
-            node_p, node_n, C = d['node_p'], d['node_n'], d['C']
-            G_eq = C / dt
-            Vp = jnp.asarray(V)[node_p]
-            Vn = jnp.asarray(V)[node_n]
-            Vp_prev = jnp.asarray(V_prev)[node_p]
-            Vn_prev = jnp.asarray(V_prev)[node_n]
+            G_eq = d['C'] / dt
+            Vp, Vn = V[d['node_p']], V[d['node_n']]
+            Vp_prev, Vn_prev = V_prev[d['node_p']], V_prev[d['node_n']]
             I_eq = G_eq * (Vp_prev - Vn_prev)
             I = G_eq * (Vp - Vn) - I_eq
-
-            for i in range(d['n']):
-                np_idx, nn_idx = int(node_p[i]), int(node_n[i])
-                curr = float(I[i])
-                g = float(G_eq[i])
-
-                if np_idx != ground:
-                    f_indices.append(jnp.array([np_idx - 1], dtype=jnp.int32))
-                    f_values.append(jnp.array([curr]))
-                    j_rows.append(jnp.array([np_idx - 1], dtype=jnp.int32))
-                    j_cols.append(jnp.array([np_idx - 1], dtype=jnp.int32))
-                    j_vals.append(jnp.array([g]))
-                    if nn_idx != ground:
-                        j_rows.append(jnp.array([np_idx - 1], dtype=jnp.int32))
-                        j_cols.append(jnp.array([nn_idx - 1], dtype=jnp.int32))
-                        j_vals.append(jnp.array([-g]))
-
-                if nn_idx != ground:
-                    f_indices.append(jnp.array([nn_idx - 1], dtype=jnp.int32))
-                    f_values.append(jnp.array([-curr]))
-                    j_rows.append(jnp.array([nn_idx - 1], dtype=jnp.int32))
-                    j_cols.append(jnp.array([nn_idx - 1], dtype=jnp.int32))
-                    j_vals.append(jnp.array([g]))
-                    if np_idx != ground:
-                        j_rows.append(jnp.array([nn_idx - 1], dtype=jnp.int32))
-                        j_cols.append(jnp.array([np_idx - 1], dtype=jnp.int32))
-                        j_vals.append(jnp.array([-g]))
+            _stamp_two_terminal(d, I, G_eq)
 
         # Voltage sources: I = G * (Vp - Vn - Vtarget), G = 1e12
         if 'vsource' in device_data:
             d = device_data['vsource']
-            node_p, node_n, dc, names = d['node_p'], d['node_n'], d['dc'], d['names']
             G = 1e12
-            Vp = jnp.asarray(V)[node_p]
-            Vn = jnp.asarray(V)[node_n]
+            Vp, Vn = V[d['node_p']], V[d['node_n']]
+            # Build target voltage array from source_values dict
+            V_target = jnp.array([
+                source_values.get(name, float(dc))
+                for name, dc in zip(d['names'], d['dc'])
+            ])
+            I = G * (Vp - Vn - V_target)
+            G_arr = jnp.full(d['n'], G)
+            _stamp_two_terminal(d, I, G_arr)
 
-            for i in range(d['n']):
-                V_target = source_values.get(names[i], dc[i])
-                curr = G * (float(Vp[i]) - float(Vn[i]) - V_target)
-                np_idx, nn_idx = int(node_p[i]), int(node_n[i])
-
-                if np_idx != ground:
-                    f_indices.append(jnp.array([np_idx - 1], dtype=jnp.int32))
-                    f_values.append(jnp.array([curr]))
-                    j_rows.append(jnp.array([np_idx - 1], dtype=jnp.int32))
-                    j_cols.append(jnp.array([np_idx - 1], dtype=jnp.int32))
-                    j_vals.append(jnp.array([G]))
-                    if nn_idx != ground:
-                        j_rows.append(jnp.array([np_idx - 1], dtype=jnp.int32))
-                        j_cols.append(jnp.array([nn_idx - 1], dtype=jnp.int32))
-                        j_vals.append(jnp.array([-G]))
-
-                if nn_idx != ground:
-                    f_indices.append(jnp.array([nn_idx - 1], dtype=jnp.int32))
-                    f_values.append(jnp.array([-curr]))
-                    j_rows.append(jnp.array([nn_idx - 1], dtype=jnp.int32))
-                    j_cols.append(jnp.array([nn_idx - 1], dtype=jnp.int32))
-                    j_vals.append(jnp.array([G]))
-                    if np_idx != ground:
-                        j_rows.append(jnp.array([nn_idx - 1], dtype=jnp.int32))
-                        j_cols.append(jnp.array([np_idx - 1], dtype=jnp.int32))
-                        j_vals.append(jnp.array([-G]))
-
-        # Current sources (no Jacobian contribution)
+        # Current sources (residual only, no Jacobian)
         if 'isource' in device_data:
             d = device_data['isource']
-            node_p, node_n, dc, names = d['node_p'], d['node_n'], d['dc'], d['names']
+            # Build current array from source_values dict
+            I_arr = jnp.array([
+                source_values.get(name, float(dc))
+                for name, dc in zip(d['names'], d['dc'])
+            ])
+            # Residual: -I at p, +I at n (note sign convention)
+            f_vals = I_arr[:, None] * jnp.array([-1.0, 1.0])[None, :]  # (n, 2)
+            f_idx = d['f_indices'].ravel()
+            f_val = f_vals.ravel()
+            f_valid = f_idx >= 0
+            f_indices.append(jnp.where(f_valid, f_idx, 0))
+            f_values.append(jnp.where(f_valid, f_val, 0.0))
 
-            for i in range(d['n']):
-                I_val = source_values.get(names[i], dc[i])
-                np_idx, nn_idx = int(node_p[i]), int(node_n[i])
-
-                if np_idx != ground:
-                    f_indices.append(jnp.array([np_idx - 1], dtype=jnp.int32))
-                    f_values.append(jnp.array([-I_val]))
-                if nn_idx != ground:
-                    f_indices.append(jnp.array([nn_idx - 1], dtype=jnp.int32))
-                    f_values.append(jnp.array([I_val]))
-
-        # Diodes
+        # Diodes: I = Is * (exp(Vd/nVt) - 1), G = Is * exp(Vd/nVt) / nVt
         if 'diode' in device_data:
             d = device_data['diode']
-            node_p, node_n = d['node_p'], d['node_n']
             Is, n_factor = d['Is'], d['n_factor']
             Vt = 0.0258
-            Vp = jnp.asarray(V)[node_p]
-            Vn = jnp.asarray(V)[node_n]
-            Vd = Vp - Vn
+            nVt = n_factor * Vt
+            Vd = V[d['node_p']] - V[d['node_n']]
+            Vd_norm = Vd / nVt
 
-            for i in range(d['n']):
-                nVt = n_factor[i] * Vt
-                vd = float(Vd[i])
-                vd_norm = vd / nVt
-                is_val = Is[i]
-
-                # Diode current with limiting
-                if vd_norm > 40:
-                    exp_40 = float(jnp.exp(40.0))
-                    curr = is_val * (exp_40 + exp_40 * (vd_norm - 40) - 1)
-                    g = is_val * exp_40 / nVt
-                elif vd_norm < -40:
-                    curr = -is_val
-                    g = 0.0
-                else:
-                    exp_vd = float(jnp.exp(vd_norm))
-                    curr = is_val * (exp_vd - 1)
-                    g = is_val * exp_vd / nVt
-
-                np_idx, nn_idx = int(node_p[i]), int(node_n[i])
-
-                if np_idx != ground:
-                    f_indices.append(jnp.array([np_idx - 1], dtype=jnp.int32))
-                    f_values.append(jnp.array([curr]))
-                    j_rows.append(jnp.array([np_idx - 1], dtype=jnp.int32))
-                    j_cols.append(jnp.array([np_idx - 1], dtype=jnp.int32))
-                    j_vals.append(jnp.array([g]))
-                    if nn_idx != ground:
-                        j_rows.append(jnp.array([np_idx - 1], dtype=jnp.int32))
-                        j_cols.append(jnp.array([nn_idx - 1], dtype=jnp.int32))
-                        j_vals.append(jnp.array([-g]))
-
-                if nn_idx != ground:
-                    f_indices.append(jnp.array([nn_idx - 1], dtype=jnp.int32))
-                    f_values.append(jnp.array([-curr]))
-                    j_rows.append(jnp.array([nn_idx - 1], dtype=jnp.int32))
-                    j_cols.append(jnp.array([nn_idx - 1], dtype=jnp.int32))
-                    j_vals.append(jnp.array([g]))
-                    if np_idx != ground:
-                        j_rows.append(jnp.array([nn_idx - 1], dtype=jnp.int32))
-                        j_cols.append(jnp.array([np_idx - 1], dtype=jnp.int32))
-                        j_vals.append(jnp.array([-g]))
+            # Vectorized diode current with limiting (no Python loop)
+            exp_40 = jnp.exp(40.0)
+            # Use jnp.where for vectorized conditional
+            I = jnp.where(
+                Vd_norm > 40,
+                Is * (exp_40 + exp_40 * (Vd_norm - 40) - 1),
+                jnp.where(
+                    Vd_norm < -40,
+                    -Is,
+                    Is * (jnp.exp(Vd_norm) - 1)
+                )
+            )
+            G = jnp.where(
+                Vd_norm > 40,
+                Is * exp_40 / nVt,
+                jnp.where(
+                    Vd_norm < -40,
+                    jnp.zeros_like(Is),
+                    Is * jnp.exp(Vd_norm) / nVt
+                )
+            )
+            _stamp_two_terminal(d, I, G)
 
     def _update_voltage_inputs_vectorized(
         self,
