@@ -1247,11 +1247,12 @@ class VACASKBenchmarkRunner:
                         all_j_cols = jnp.concatenate(j_cols_list)
                         all_j_vals = jnp.concatenate(j_vals_list)
 
-                        # Add diagonal regularization
+                        # Add diagonal regularization (larger for sparse solver stability)
+                        # Sparse direct solvers are more sensitive to near-singular matrices
                         diag_idx = jnp.arange(n_unknowns, dtype=jnp.int32)
                         all_j_rows = jnp.concatenate([all_j_rows, diag_idx])
                         all_j_cols = jnp.concatenate([all_j_cols, diag_idx])
-                        all_j_vals = jnp.concatenate([all_j_vals, jnp.full(n_unknowns, 1e-12)])
+                        all_j_vals = jnp.concatenate([all_j_vals, jnp.full(n_unknowns, 1e-9)])
 
                         # Build BCOO and sum duplicates (native JAX sparse)
                         indices = jnp.stack([all_j_rows, all_j_cols], axis=1)
