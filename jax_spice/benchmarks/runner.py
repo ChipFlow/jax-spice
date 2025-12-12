@@ -939,12 +939,14 @@ class VACASKBenchmarkRunner:
 
             if use_sparse:
                 if self.verbose:
-                    print(f"Using sparse hybrid solver ({self.num_nodes} nodes, OpenVAF devices)")
-                return self._run_transient_hybrid_sparse(t_stop, dt, backend=backend)
+                    print(f"Using BCOO/BCSR sparse solver ({self.num_nodes} nodes, OpenVAF devices)")
+                # Use BCOO/BCSR + spsolve (direct sparse solver)
+                # This is more robust for circuit simulation than matrix-free GMRES
+                return self._run_transient_hybrid(t_stop, dt, backend=backend, use_dense=False)
             else:
                 if self.verbose:
                     print("Using dense hybrid solver (OpenVAF devices detected)")
-                return self._run_transient_hybrid(t_stop, dt, backend=backend)
+                return self._run_transient_hybrid(t_stop, dt, backend=backend, use_dense=True)
 
         # Convert to MNA system
         system = self.to_mna_system()
@@ -1027,7 +1029,7 @@ class VACASKBenchmarkRunner:
         """
         from jax_spice.analysis.gpu_backend import get_device, get_default_dtype
         from jax_spice.analysis.sparse import build_csr_arrays, sparse_solve_csr
-        from jax.experimental.sparse import BCOO
+        from jax.experimental.sparse import BCOO, BCSR
 
         ground = 0
 
@@ -1202,10 +1204,10 @@ class VACASKBenchmarkRunner:
                         J_bcoo = BCOO((all_j_vals, indices), shape=(n_unknowns, n_unknowns))
                         J_bcoo = J_bcoo.sum_duplicates()
 
-                        # Convert to CSR for solve (JAX spsolve expects CSR)
-                        J_csr = J_bcoo.tocsr()
+                        # Convert to BCSR for solve (JAX spsolve expects CSR format)
+                        J_bcsr = BCSR.from_bcoo(J_bcoo)
                         delta = sparse_solve_csr(
-                            J_csr.data, J_csr.indices, J_csr.indptr, -f, (n_unknowns, n_unknowns)
+                            J_bcsr.data, J_bcsr.indices, J_bcsr.indptr, -f, (n_unknowns, n_unknowns)
                         )
                     else:
                         delta = -f
