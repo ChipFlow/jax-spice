@@ -43,6 +43,10 @@ import numpy as np
 jax.config.update('jax_enable_x64', True)
 
 from jax_spice.benchmarks.runner import VACASKBenchmarkRunner
+from jax_spice.logging import enable_performance_logging
+
+# Enable verbose logging with flush for profiling visibility
+enable_performance_logging()
 
 
 @dataclass
