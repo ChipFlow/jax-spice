@@ -137,6 +137,10 @@ cd source
 # Install deps
 uv sync --locked --extra cuda12
 
+# Check GPU detection
+echo "=== Checking JAX GPU Detection ==="
+uv run python -c "import jax; print('Backend:', jax.default_backend()); print('Devices:', jax.devices())"
+
 echo "=== Starting GPU Profiling ==="
 echo "Benchmark: {args.benchmark}"
 echo "Trace output: {trace_gcs_path}"
