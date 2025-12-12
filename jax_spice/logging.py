@@ -53,8 +53,7 @@ def _get_memory_stats() -> str:
                 stats = dev.memory_stats()
                 if stats and 'bytes_in_use' in stats:
                     current_mb = stats['bytes_in_use'] / 1024 / 1024
-                    parts.append(f"GPU:{current_mb:.0f}MB")
-                break  # Only first GPU
+                    parts.append(f"{dev.platform}:{current_mb:.0f}MB")
     except Exception:
         pass
 
