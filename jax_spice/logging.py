@@ -42,12 +42,12 @@ class FlushingHandler(logging.StreamHandler):
 
 
 def enable_performance_logging():
-    """Enable INFO level logging with immediate flush for performance tracing.
+    """Enable DEBUG level logging with immediate flush for performance tracing.
 
     Use this when running on Cloud Run or when you need to see logs
     in real-time during long-running operations.
     """
-    logger.setLevel(logging.INFO)
+    logger.setLevel(logging.DEBUG)
 
     # Remove existing handlers
     for handler in logger.handlers[:]:
