@@ -131,7 +131,7 @@ class TestVACASKBenchmarks:
 
         try:
             # Parse circuit
-            runner = VACASKBenchmarkRunner(sim_file, verbose=True)
+            runner = VACASKBenchmarkRunner(sim_file)
             runner.parse()
 
             nodes = runner.num_nodes

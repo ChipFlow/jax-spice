@@ -47,7 +47,7 @@ class TestRCBenchmark:
         if not sim_path.exists():
             pytest.skip(f"RC benchmark not found at {sim_path}")
 
-        runner = VACASKBenchmarkRunner(sim_path, verbose=False)
+        runner = VACASKBenchmarkRunner(sim_path)
         runner.parse()
         return runner
 
@@ -145,7 +145,7 @@ class TestGraetzBenchmark:
         if not sim_path.exists():
             pytest.skip(f"Graetz benchmark not found at {sim_path}")
 
-        runner = VACASKBenchmarkRunner(sim_path, verbose=False)
+        runner = VACASKBenchmarkRunner(sim_path)
         runner.parse()
         return runner
 
@@ -207,7 +207,7 @@ class TestMulBenchmark:
         if not sim_path.exists():
             pytest.skip(f"Mul benchmark not found at {sim_path}")
 
-        runner = VACASKBenchmarkRunner(sim_path, verbose=False)
+        runner = VACASKBenchmarkRunner(sim_path)
         runner.parse()
         return runner
 
@@ -248,7 +248,7 @@ class TestRingBenchmark:
         if not sim_path.exists():
             pytest.skip(f"Ring benchmark not found at {sim_path}")
 
-        runner = VACASKBenchmarkRunner(sim_path, verbose=False)
+        runner = VACASKBenchmarkRunner(sim_path)
         runner.parse()
         return runner
 
@@ -312,7 +312,7 @@ class TestC6288Benchmark:
         if not sim_path.exists():
             pytest.skip(f"c6288 benchmark not found at {sim_path}")
 
-        runner = VACASKBenchmarkRunner(sim_path, verbose=False)
+        runner = VACASKBenchmarkRunner(sim_path)
         runner.parse()
         return runner
 

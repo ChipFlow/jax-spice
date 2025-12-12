@@ -84,7 +84,7 @@ def main():
 
     # Setup circuit using VACASKBenchmarkRunner
     print(f"Setting up circuit from {sim_path}...")
-    runner = VACASKBenchmarkRunner(sim_path, verbose=False)
+    runner = VACASKBenchmarkRunner(sim_path)
     runner.parse()
     system = runner.to_mna_system()
     system.build_device_groups()

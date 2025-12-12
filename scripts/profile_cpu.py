@@ -84,7 +84,7 @@ def run_benchmark(sim_path: Path, name: str, use_sparse: bool,
     try:
         # Parse circuit
         log(f"      parsing...")
-        runner = VACASKBenchmarkRunner(sim_path, verbose=True)
+        runner = VACASKBenchmarkRunner(sim_path)
         runner.parse()
         log("      parsing done")
 
@@ -119,7 +119,7 @@ def run_benchmark(sim_path: Path, name: str, use_sparse: bool,
         log(f"      warmup done ({warmup_time:.1f}s)")
 
         # Create fresh runner for timing (reuse compiled models)
-        runner2 = VACASKBenchmarkRunner(sim_path, verbose=False)
+        runner2 = VACASKBenchmarkRunner(sim_path)
         runner2.parse()
         if runner._has_openvaf_devices:
             runner2._compiled_models = runner._compiled_models

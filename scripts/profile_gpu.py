@@ -114,7 +114,7 @@ class GPUProfiler:
             log(f"      parsing...")
             sys.stdout.flush()
             sys.stderr.flush()
-            runner = VACASKBenchmarkRunner(sim_path, verbose=True)
+            runner = VACASKBenchmarkRunner(sim_path)
             runner.parse()
             log("      parsing done")
 
@@ -172,7 +172,7 @@ class GPUProfiler:
 
             solver='sparse' if use_sparse else 'dense',
 
-            log(f"benchmark  ({solver}) ran in {elapsed} seconds and {acutal_steps} steps")
+            log(f"benchmark ({solver}) ran in {elapsed:.2f}s and {actual_steps} steps")
 
             return BenchmarkResult(
                 name=name,

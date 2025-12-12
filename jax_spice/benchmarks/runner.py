@@ -28,6 +28,7 @@ from jax_spice.netlist.parser import VACASKParser
 from jax_spice.netlist.circuit import Instance
 from jax_spice.analysis.mna import MNASystem, DeviceInfo
 from jax_spice.analysis.transient import transient_analysis_jit
+from jax_spice.logging import logger
 
 # Try to import OpenVAF support
 _openvaf_path = Path(__file__).parent.parent.parent / "openvaf-py"
@@ -82,9 +83,8 @@ class VACASKBenchmarkRunner:
         'm': 1e-3, 'u': 1e-6, 'n': 1e-9, 'p': 1e-12, 'f': 1e-15
     }
 
-    def __init__(self, sim_path: Path, verbose: bool = False):
+    def __init__(self, sim_path: Path):
         self.sim_path = Path(sim_path)
-        self.verbose = verbose
         self.circuit = None
         self.devices = []
         self.node_names = {}
@@ -120,33 +120,28 @@ class VACASKBenchmarkRunner:
         import time
         import sys
 
-        if self.verbose:
-            print(f"parse(): starting...", flush=True)
-            sys.stdout.flush()
+        logger.info("parse(): starting...")
 
         t0 = time.perf_counter()
         parser = VACASKParser()
         self.circuit = parser.parse_file(self.sim_path)
         t1 = time.perf_counter()
 
-        if self.verbose:
-            print(f"Parsed: {self.circuit.title} ({t1-t0:.1f}s)", flush=True)
-            print(f"Models: {list(self.circuit.models.keys())}", flush=True)
-            if self.circuit.subckts:
-                print(f"Subcircuits: {list(self.circuit.subckts.keys())}", flush=True)
+        logger.info(f"Parsed: {self.circuit.title} ({t1-t0:.1f}s)")
+        logger.debug(f"Models: {list(self.circuit.models.keys())}")
+        if self.circuit.subckts:
+            logger.debug(f"Subcircuits: {list(self.circuit.subckts.keys())}")
 
         # Flatten subcircuit instances to leaf devices
-        if self.verbose:
-            print(f"Flattening subcircuit instances...", flush=True)
+        logger.info("Flattening subcircuit instances...")
         self.flat_instances = self._flatten_top_instances()
         t2 = time.perf_counter()
 
-        if self.verbose:
-            print(f"Flattened: {len(self.flat_instances)} leaf devices ({t2-t1:.1f}s)", flush=True)
-            for name, terms, model, params in self.flat_instances[:10]:
-                print(f"  {name}: {model} {terms}")
-            if len(self.flat_instances) > 10:
-                print(f"  ... and {len(self.flat_instances) - 10} more")
+        logger.info(f"Flattened: {len(self.flat_instances)} leaf devices ({t2-t1:.1f}s)")
+        for name, terms, model, params in self.flat_instances[:10]:
+            logger.debug(f"  {name}: {model} {terms}")
+        if len(self.flat_instances) > 10:
+            logger.debug(f"  ... and {len(self.flat_instances) - 10} more")
 
         # Build node mapping from flattened instances
         node_set = {'0'}
@@ -160,15 +155,13 @@ class VACASKBenchmarkRunner:
         self.num_nodes = len(self.node_names)
         t3 = time.perf_counter()
 
-        if self.verbose:
-            print(f"Node mapping: {self.num_nodes} nodes ({t3-t2:.1f}s)", flush=True)
+        logger.info(f"Node mapping: {self.num_nodes} nodes ({t3-t2:.1f}s)")
 
         # Build devices
         self._build_devices()
         t4 = time.perf_counter()
 
-        if self.verbose:
-            print(f"Built devices: {len(self.devices)} ({t4-t3:.1f}s)", flush=True)
+        logger.info(f"Built devices: {len(self.devices)} ({t4-t3:.1f}s)")
 
         # Extract analysis parameters
         self._extract_analysis_params()
@@ -220,8 +213,7 @@ class VACASKBenchmarkRunner:
             # Create synthetic top-level instance of the elaborated subcircuit
             subckt = self.circuit.subckts.get(elaborate_subckt)
             if subckt:
-                if self.verbose:
-                    print(f"Elaborating subcircuit: {elaborate_subckt}")
+                logger.debug(f"Elaborating subcircuit: {elaborate_subckt}")
                 # Create synthetic instance with no external ports
                 synthetic_inst = Instance(
                     name='top',
@@ -341,9 +333,7 @@ class VACASKBenchmarkRunner:
         import sys
         t_start = time.perf_counter()
 
-        if self.verbose:
-            print(f"_build_devices(): starting with {len(self.flat_instances)} instances", flush=True)
-            sys.stdout.flush()
+        logger.info(f"_build_devices(): starting with {len(self.flat_instances)} instances")
 
         self.devices = []
 
@@ -385,14 +375,12 @@ class VACASKBenchmarkRunner:
                 self._has_openvaf_devices = True
 
         t_loop = time.perf_counter()
-        if self.verbose:
-            print(f"_build_devices(): loop done in {t_loop - t_start:.1f}s", flush=True)
-            sys.stdout.flush()
-            print(f"Devices: {len(self.devices)}")
-            for dev in self.devices[:10]:
-                print(f"  {dev['name']}: {dev['model']} nodes={dev['nodes']}")
-            if len(self.devices) > 10:
-                print(f"  ... and {len(self.devices) - 10} more")
+        logger.info(f"_build_devices(): loop done in {t_loop - t_start:.1f}s")
+        logger.debug(f"Devices: {len(self.devices)}")
+        for dev in self.devices[:10]:
+            logger.debug(f"  {dev['name']}: {dev['model']} nodes={dev['nodes']}")
+        if len(self.devices) > 10:
+            logger.debug(f"  ... and {len(self.devices) - 10} more")
 
         # Compile OpenVAF models if needed
         if self._has_openvaf_devices:
@@ -413,14 +401,10 @@ class VACASKBenchmarkRunner:
             raise ImportError("OpenVAF support required but openvaf_py not available")
 
         def log(msg):
-            import sys
             if log_fn:
                 log_fn(msg)
-            elif self.verbose:
-                print(msg, flush=True)
-            # Force flush for Cloud Run logging
-            sys.stdout.flush()
-            sys.stderr.flush()
+            else:
+                logger.info(msg)
 
         # Find unique OpenVAF model types
         openvaf_types = set()
@@ -1001,8 +985,7 @@ class VACASKBenchmarkRunner:
                 'icmode': 'op',
             }
 
-        if self.verbose:
-            print(f"Analysis: {self.analysis_params}")
+        logger.debug(f"Analysis: {self.analysis_params}")
 
     def _build_source_fn(self):
         """Build time-varying source function from device parameters."""
@@ -1015,8 +998,7 @@ class VACASKBenchmarkRunner:
             params = dev['params']
             source_type = str(params.get('type', 'dc')).lower()
 
-            if self.verbose:
-                print(f"  Source {dev['name']}: type={source_type}")
+            logger.debug(f"  Source {dev['name']}: type={source_type}")
 
             if source_type in ('dc', '0', '0.0', ''):
                 # DC source - constant value
@@ -1127,9 +1109,9 @@ class VACASKBenchmarkRunner:
             - voltages: dict mapping node index to voltage array
             - stats: dict with convergence info (total_timesteps, non_converged_count, etc.)
         """
-        print("importing gpu backend", flush=True)
+        logger.debug("importing gpu backend")
         from jax_spice.analysis.gpu_backend import select_backend, is_gpu_available
-        print("imported gpu backend", flush=True)
+        logger.debug("imported gpu backend")
 
         if t_stop is None:
             t_stop = self.analysis_params.get('stop', 1e-3)
@@ -1140,17 +1122,14 @@ class VACASKBenchmarkRunner:
         num_steps = int(t_stop / dt)
         if num_steps > max_steps:
             dt = t_stop / max_steps
-            if self.verbose:
-                print(f"Limiting to {max_steps} steps, dt={dt:.2e}s")
+            logger.info(f"Limiting to {max_steps} steps, dt={dt:.2e}s")
 
         # Select backend if not specified
-
-        print("selecting gpu backend", flush=True)
+        logger.debug("selecting gpu backend")
         if backend is None or backend == "auto":
             backend = select_backend(self.num_nodes)
 
-        # if self.verbose:
-        print(f"Running transient: t_stop={t_stop:.2e}s, dt={dt:.2e}s, backend={backend}", flush=True)
+        logger.info(f"Running transient: t_stop={t_stop:.2e}s, dt={dt:.2e}s, backend={backend}")
 
         # Use hybrid solver if we have OpenVAF devices
         if self._has_openvaf_devices:
@@ -1160,22 +1139,20 @@ class VACASKBenchmarkRunner:
                 use_sparse = self.num_nodes > 1000
 
             if use_sparse:
-                # if self.verbose:
-                print(f"Using BCOO/BCSR sparse solver ({self.num_nodes} nodes, OpenVAF devices)", flush=True)
+                logger.info(f"Using BCOO/BCSR sparse solver ({self.num_nodes} nodes, OpenVAF devices)")
                 # Use BCOO/BCSR + spsolve (direct sparse solver)
                 # This is more robust for circuit simulation than matrix-free GMRES
                 return self._run_transient_hybrid(t_stop, dt, backend=backend, use_dense=False)
             else:
-                #if self.verbose:
-                print("Using dense hybrid solver (OpenVAF devices detected)", flush=True)
+                logger.info("Using dense hybrid solver (OpenVAF devices detected)")
                 return self._run_transient_hybrid(t_stop, dt, backend=backend, use_dense=True)
 
         # Convert to MNA system
-        print("Getting mna system", flush=True)
+        logger.debug("Getting mna system")
         system = self.to_mna_system()
 
         # Run production transient analysis with backend selection
-        print("Running transient analysis", flush=True)
+        logger.debug("Running transient analysis")
         times, voltages_array, stats = transient_analysis_jit(
             system=system,
             t_stop=t_stop,
@@ -1184,7 +1161,7 @@ class VACASKBenchmarkRunner:
             backend=backend,
         )
 
-        print("Creating voltage dict", flush=True)
+        logger.debug("Creating voltage dict")
         # Create voltage dict from JAX arrays
         voltages = {}
         for i in range(self.num_nodes):
@@ -1193,8 +1170,7 @@ class VACASKBenchmarkRunner:
             else:
                 voltages[i] = jnp.zeros(len(times))
 
-        # if self.verbose:
-        print(f"Completed: {len(times)} timesteps, {stats.get('iterations', 'N/A')} total NR iterations", flush=True)
+        logger.info(f"Completed: {len(times)} timesteps, {stats.get('iterations', 'N/A')} total NR iterations")
 
         return times, voltages, stats
 
@@ -1231,9 +1207,9 @@ class VACASKBenchmarkRunner:
 
             device_internal_nodes[dev['name']] = internal_map
 
-        if self.verbose and device_internal_nodes:
+        if device_internal_nodes:
             n_internal = next_internal - n_external
-            print(f"Allocated {n_internal} internal nodes for {len(device_internal_nodes)} OpenVAF devices")
+            logger.info(f"Allocated {n_internal} internal nodes for {len(device_internal_nodes)} OpenVAF devices")
 
         return next_internal, device_internal_nodes
 
@@ -1253,7 +1229,7 @@ class VACASKBenchmarkRunner:
                       If False, use COO collection + sparse CSR solve (better for large circuits).
         """
 
-        print(f"Importing backend ({backend})")
+        logger.info(f"Importing backend ({backend})")
 
         from jax_spice.analysis.gpu_backend import get_device, get_default_dtype
         from jax_spice.analysis.sparse import build_csr_arrays, sparse_solve_csr
@@ -1263,7 +1239,7 @@ class VACASKBenchmarkRunner:
     
         # Get target device for JAX operations
 
-        print("getting device and dtype", flush=True)
+        logger.info("getting device and dtype")
         device = get_device(backend)
         dtype = get_default_dtype(backend)
 
@@ -1273,17 +1249,16 @@ class VACASKBenchmarkRunner:
         n_unknowns = n_total - 1
 
         solver_type = "dense batched scatter" if use_dense else "COO sparse"
-        # if self.verbose:
-        print(f"Total nodes: {n_total} ({n_external} external, {n_total - n_external} internal)")
-        print(f"Backend: {backend}, device: {device.platform}")
-        print(f"Using {solver_type} solver", flush=True)
+        logger.info(f"Total nodes: {n_total} ({n_external} external, {n_total - n_external} internal)")
+        logger.info(f"Backend: {backend}, device: {device.platform}")
+        logger.info(f"Using {solver_type} solver")
 
         # Initialize voltages
         V = jnp.zeros(n_total, dtype=jnp.float64)
         V_prev = jnp.zeros(n_total, dtype=jnp.float64)
 
         # Build time-varying source function
-        print("Building source function", flush=True)
+        logger.info("Building source function")
         source_fn = self._build_source_fn()
 
         # Group devices by type
@@ -1300,24 +1275,24 @@ class VACASKBenchmarkRunner:
             elif dev['model'] in ('vsource', 'isource'):
                 source_devices.append(dev)
 
-        print(f"{len(source_devices)} source devices", flush=True)
+        logger.debug(f"{len(source_devices)} source devices")
         # Prepare OpenVAF: vmapped functions, static inputs, and stamp index mappings
         vmapped_fns: Dict[str, Callable] = {}
         static_inputs_cache: Dict[str, Tuple[Any, List[int], List[Dict], Dict]] = {}
 
         for model_type in openvaf_by_type:
-            print(f"Getting compiled model for {model_type}", flush=True)
+            logger.debug(f"Getting compiled model for {model_type}")
             compiled = self._compiled_models.get(model_type)
-            print(f"Got model: {compiled}", flush=True)
+            logger.debug(f"Got model: {compiled}")
 
             if compiled and 'vmapped_fn' in compiled:
                 vmapped_fns[model_type] = compiled['vmapped_fn']
-                print(f"Preparing static inputs: {model_type}, {openvaf_by_type[model_type]}, {device_internal_nodes}, {ground}", flush=True)
+                logger.debug(f"Preparing static inputs: {model_type}")
                 static_inputs, voltage_indices, device_contexts = self._prepare_static_inputs(
                     model_type, openvaf_by_type[model_type], device_internal_nodes, ground
                 )
                 # Pre-compute stamp index mapping (once per model type)
-                print("building stamp index mapping for {model_type}, {device_contexts}, {ground}", flush=True)
+                logger.debug(f"building stamp index mapping for {model_type}")
                 stamp_indices = self._build_stamp_index_mapping(
                     model_type, device_contexts, ground
                 )
@@ -1325,7 +1300,7 @@ class VACASKBenchmarkRunner:
                 n_devices = len(device_contexts)
                 n_voltages = len(voltage_indices)
                 # Build arrays directly from list comprehension (setup phase only)
-                print("building voltage model", flush=True)
+                logger.debug("building voltage model")
                 voltage_node1 = jnp.array([
                     [n1 for n1, n2 in ctx['voltage_node_pairs']]
                     for ctx in device_contexts
@@ -1336,7 +1311,7 @@ class VACASKBenchmarkRunner:
                 ], dtype=jnp.int32)
 
 
-                print("fetching static inputs", flush=True)
+                logger.debug("fetching static inputs")
                 if backend == "gpu":
                     with jax.default_device(device):
                         static_inputs = jnp.array(static_inputs, dtype=dtype)
@@ -1345,12 +1320,11 @@ class VACASKBenchmarkRunner:
                 static_inputs_cache[model_type] = (
                     static_inputs, voltage_indices, stamp_indices, voltage_node1, voltage_node2
                 )
-                # if self.verbose:
                 n_devs = len(openvaf_by_type[model_type])
-                print(f"Prepared {model_type}: {n_devs} devices, stamp indices cached", flush=True)
+                logger.info(f"Prepared {model_type}: {n_devs} devices, stamp indices cached")
 
         # Pre-compute source device stamp indices
-        print(f"Precomputing source device data for {source_devices}, {ground}, {n_unknowns}", flush=True)
+        logger.debug("Precomputing source device data")
         source_device_data = self._prepare_source_devices_coo(source_devices, ground, n_unknowns)
 
         # Helper to build source value arrays from dict (called once per timestep)
@@ -1378,7 +1352,7 @@ class VACASKBenchmarkRunner:
 
         # Time stepping
 
-        print("Running time steps", flush=True)
+        logger.info("Running time steps")
 
         times = []
         voltages = {i: [] for i in range(n_external)}
@@ -1504,8 +1478,7 @@ class VACASKBenchmarkRunner:
 
             if not converged:
                 non_converged_steps.append((t, max_f))
-                if self.verbose:
-                    print(f"Warning: t={t:.2e}s did not converge (max_f={max_f:.2e})")
+                logger.warning(f"t={t:.2e}s did not converge (max_f={max_f:.2e})")
 
             # Record state
             times.append(t)
@@ -1524,10 +1497,9 @@ class VACASKBenchmarkRunner:
             'convergence_rate': 1.0 - len(non_converged_steps) / max(len(times), 1),
         }
 
-        if self.verbose:
-            print(f"Completed: {len(times)} timesteps, {total_nr_iters} total NR iterations")
-            if non_converged_steps:
-                print(f"  Non-converged: {len(non_converged_steps)} steps ({100*(1-stats['convergence_rate']):.1f}%)")
+        logger.info(f"Completed: {len(times)} timesteps, {total_nr_iters} total NR iterations")
+        if non_converged_steps:
+            logger.info(f"  Non-converged: {len(non_converged_steps)} steps ({100*(1-stats['convergence_rate']):.1f}%)")
 
         return jnp.array(times), {k: jnp.array(v) for k, v in voltages.items()}, stats
 
