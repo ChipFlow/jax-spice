@@ -129,6 +129,16 @@ class OpenVAFToJAX:
         """
         import sys
         import time
+
+        # Profile code generation if OPENVAF_PROFILE=1
+        if os.environ.get('OPENVAF_PROFILE') == '1':
+            import cProfile
+            import pstats
+            import io
+            print("    translate_array: PROFILING ENABLED", flush=True)
+            profiler = cProfile.Profile()
+            profiler.enable()
+
         t0 = time.perf_counter()
         print("    translate_array: generating code...", flush=True)
         sys.stdout.flush()
@@ -136,6 +146,15 @@ class OpenVAFToJAX:
         t1 = time.perf_counter()
         print(f"    translate_array: code generated ({len(code_lines)} lines) in {t1-t0:.1f}s", flush=True)
         sys.stdout.flush()
+
+        # Print profile results
+        if os.environ.get('OPENVAF_PROFILE') == '1':
+            profiler.disable()
+            s = io.StringIO()
+            ps = pstats.Stats(profiler, stream=s).sort_stats('cumulative')
+            ps.print_stats(30)  # Top 30 functions
+            print("    === CODE GENERATION PROFILE ===", flush=True)
+            print(s.getvalue(), flush=True)
 
         code = '\n'.join(code_lines)
         print(f"    translate_array: code size = {len(code)} chars", flush=True)
@@ -1036,12 +1055,26 @@ class OpenVAFToJAX:
         return by_block
 
     def _build_branch_conditions(self) -> Dict[str, Dict[str, Tuple[str, bool]]]:
-        """Build a map of (block -> successor -> (condition, polarity)) for eval function"""
-        return self._build_branch_conditions_impl(self.mir_data.get('instructions', []))
+        """Build a map of (block -> successor -> (condition, polarity)) for eval function.
+
+        Results are cached for performance (avoids rebuilding for every PHI node).
+        """
+        if not hasattr(self, '_cached_branch_conditions'):
+            self._cached_branch_conditions = self._build_branch_conditions_impl(
+                self.mir_data.get('instructions', [])
+            )
+        return self._cached_branch_conditions
 
     def _build_init_branch_conditions(self) -> Dict[str, Dict[str, Tuple[str, bool]]]:
-        """Build a map of (block -> successor -> (condition, polarity)) for init function"""
-        return self._build_branch_conditions_impl(self.init_mir_data.get('instructions', []))
+        """Build a map of (block -> successor -> (condition, polarity)) for init function.
+
+        Results are cached for performance (avoids rebuilding for every PHI node).
+        """
+        if not hasattr(self, '_cached_init_branch_conditions'):
+            self._cached_init_branch_conditions = self._build_branch_conditions_impl(
+                self.init_mir_data.get('instructions', [])
+            )
+        return self._cached_init_branch_conditions
 
     def _build_branch_conditions_impl(self, instructions: List) -> Dict[str, Dict[str, Tuple[str, bool]]]:
         """Build a map of (block -> successor -> (condition, polarity))
