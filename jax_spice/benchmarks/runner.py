@@ -1365,12 +1365,15 @@ class VACASKBenchmarkRunner:
         logger.info("Created GPU-resident build_system function")
 
         times = []
+
+        logger.info(f"initialising voltages: {n_external}")
         voltages = {i: [] for i in range(n_external)}
 
         t = 0.0
         total_nr_iters = 0
         non_converged_steps = []  # Track (time, max_residual) for non-converged steps
 
+        logger.info("Starting NR iteration")
         while t <= t_stop:
             logger.debug(f"Step time:{t}")
             source_values = source_fn(t)

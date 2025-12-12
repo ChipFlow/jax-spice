@@ -104,7 +104,7 @@ def enable_performance_logging(with_memory: bool = True):
         handler = MemoryLoggingHandler(sys.stdout)
     else:
         handler = FlushingHandler(sys.stdout)
-    handler.setLevel(logging.INFO)
+    handler.setLevel(logging.DEBUG)
     handler.setFormatter(logging.Formatter("%(message)s"))
     logger.addHandler(handler)
 
