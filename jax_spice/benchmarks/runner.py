@@ -1287,8 +1287,7 @@ class VACASKBenchmarkRunner:
         for model_type in openvaf_by_type:
             logger.debug(f"Getting compiled model for {model_type}")
             compiled = self._compiled_models.get(model_type)
-            logger.debug(f"Got model: {compiled}")
-
+            logger.debug(f"Got model:\n  module: {compiled['module']}\n  translator: {compiled['translator']}\n  jax_fn_arrary: {compiled['jax_fn_array']}\n  vmapped_fn: {compiled['vmapped_fn']}\n  array_metadata size: {len(compiled['array_metadata'])}")
             if compiled and 'vmapped_fn' in compiled:
                 vmapped_fns[model_type] = compiled['vmapped_fn']
                 logger.debug(f"Preparing static inputs: {model_type}")
