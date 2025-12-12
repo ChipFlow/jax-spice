@@ -1357,18 +1357,35 @@ class VACASKBenchmarkRunner:
 
         logger.info("Running time steps")
 
-        # Create GPU-resident build_system function (closure captures all static data)
-        build_system_fn = self._make_gpu_resident_build_system_fn(
-            source_device_data, vmapped_fns, static_inputs_cache, n_unknowns, use_dense
-        )
-        logger.info("Created GPU-resident build_system function")
+        # Determine source counts for cache key
+        n_vsources = len(source_device_data.get('vsource', {}).get('names', []))
+        n_isources = len(source_device_data.get('isource', {}).get('names', []))
+        n_nodes = n_unknowns + 1  # Include ground
 
-        # Create JIT-compiled NR solver (captures build_system_fn in closure)
-        # This is compiled once and reused for all timesteps
-        nr_solve = self._make_jitted_nr_solver(
-            build_system_fn, max_iterations=MAX_NR_ITERATIONS, abstol=1e-9, max_step=1.0
-        )
-        logger.info("Created JIT-compiled NR solver")
+        # Create cache key from circuit topology
+        cache_key = (n_nodes, n_vsources, n_isources, use_dense)
+
+        # Check if we have a cached AoT-compiled solver for this topology
+        if hasattr(self, '_cached_nr_solve') and self._cached_solver_key == cache_key:
+            logger.info("Reusing cached AoT-compiled NR solver")
+            nr_solve = self._cached_nr_solve
+        else:
+            # Create GPU-resident build_system function (closure captures all static data)
+            build_system_fn = self._make_gpu_resident_build_system_fn(
+                source_device_data, vmapped_fns, static_inputs_cache, n_unknowns, use_dense
+            )
+            logger.info("Created GPU-resident build_system function")
+
+            # AoT compile NR solver (trace -> lower -> compile)
+            nr_solve = self._make_aot_compiled_solver(
+                build_system_fn, n_nodes, n_vsources, n_isources,
+                max_iterations=MAX_NR_ITERATIONS, abstol=1e-9, max_step=1.0
+            )
+
+            # Cache for reuse within this instance
+            self._cached_nr_solve = nr_solve
+            self._cached_solver_key = cache_key
+            logger.info("Cached AoT-compiled NR solver")
 
         times = []
 
@@ -1796,23 +1813,39 @@ class VACASKBenchmarkRunner:
 
         return build_system
 
-    def _make_jitted_nr_solver(
+    def _make_aot_compiled_solver(
         self,
         build_system_fn: Callable,
+        n_nodes: int,
+        n_vsources: int,
+        n_isources: int,
         max_iterations: int = MAX_NR_ITERATIONS,
         abstol: float = 1e-9,
         max_step: float = 1.0,
     ) -> Callable:
-        """Create a JIT-compiled NR solver with build_system_fn captured in closure.
+        """Create an AoT-compiled NR solver with explicit shape specs.
 
-        This avoids retracing on every timestep by capturing build_system_fn
-        in the closure rather than passing it as an argument.
+        Uses JAX's ahead-of-time compilation to:
+        1. Trace the function with ShapeDtypeStruct (no actual data needed)
+        2. Lower to StableHLO
+        3. Compile to optimized executable
+
+        The compiled function can be cached and reused for identical shapes.
+
+        Args:
+            build_system_fn: Function (V, vsource_vals, isource_vals) -> (J, f)
+            n_nodes: Total node count including ground (V.shape[0])
+            n_vsources: Number of voltage sources
+            n_isources: Number of current sources
+            max_iterations: Maximum NR iterations
+            abstol: Absolute tolerance for convergence
+            max_step: Maximum voltage step per iteration
 
         Returns:
-            JIT-compiled function: (V_init, vsource_vals, isource_vals) -> (V, iters, converged, max_f)
+            AoT-compiled function: (V, vsource_vals, isource_vals) -> (V, iters, converged, max_f)
         """
+        from jax import ShapeDtypeStruct
 
-        @jax.jit
         def nr_solve(V_init: jax.Array, vsource_vals: jax.Array, isource_vals: jax.Array):
             # State: (V, iteration, converged, max_f, max_delta)
             init_state = (
@@ -1862,7 +1895,16 @@ class VACASKBenchmarkRunner:
 
             return V_final, iterations, converged, max_f
 
-        return nr_solve
+        # Create shape specs for AoT compilation (no actual data needed)
+        V_spec = ShapeDtypeStruct((n_nodes,), jnp.float64)
+        vs_spec = ShapeDtypeStruct((n_vsources,), jnp.float64)
+        is_spec = ShapeDtypeStruct((n_isources,), jnp.float64)
+
+        # AoT: trace -> lower -> compile (done once, reusable)
+        logger.info(f"AoT compiling NR solver: V({n_nodes}), vs({n_vsources}), is({n_isources})")
+        compiled = jax.jit(nr_solve).trace(V_spec, vs_spec, is_spec).lower().compile()
+
+        return compiled
 
     def _compute_voltage_param(self, name: str, V: jax.Array,
                                 node_map: Dict[str, int],
