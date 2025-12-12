@@ -365,10 +365,14 @@ class VACASKBenchmarkRunner:
             raise ImportError("OpenVAF support required but openvaf_py not available")
 
         def log(msg):
+            import sys
             if log_fn:
                 log_fn(msg)
             elif self.verbose:
                 print(msg, flush=True)
+            # Force flush for Cloud Run logging
+            sys.stdout.flush()
+            sys.stderr.flush()
 
         # Find unique OpenVAF model types
         openvaf_types = set()
@@ -402,29 +406,38 @@ class VACASKBenchmarkRunner:
             if not full_path.exists():
                 raise FileNotFoundError(f"VA model not found: {full_path}")
 
+            import time
+            t0 = time.perf_counter()
             log(f"  {model_type}: compiling VA...")
             modules = openvaf_py.compile_va(str(full_path))
+            t1 = time.perf_counter()
+            log(f"  {model_type}: VA compiled in {t1-t0:.1f}s")
             if not modules:
                 raise ValueError(f"Failed to compile {va_path}")
 
-            log(f"  {model_type}: translating to JAX...")
+            log(f"  {model_type}: creating translator...")
             module = modules[0]
             translator = openvaf_jax.OpenVAFToJAX(module)
-            jax_fn = translator.translate()
+            t2 = time.perf_counter()
+            log(f"  {model_type}: translator created in {t2-t1:.1f}s")
 
-            # Also generate array-based function for batched evaluation
-            log(f"  {model_type}: generating array function...")
+            # Skip translate() - only translate_array() is needed for batched evaluation
+            # translate() generates a dict-based function that we don't use
+            log(f"  {model_type}: translate_array() - generating array function...")
             jax_fn_array, array_metadata = translator.translate_array()
+            t3 = time.perf_counter()
+            log(f"  {model_type}: translate_array() done in {t3-t2:.1f}s")
 
             # Create JIT-compiled vmapped function for fast batched evaluation
             # Note: jax.jit() returns a wrapper - actual JIT happens on first call
             log(f"  {model_type}: wrapping with vmap+jit...")
             vmapped_fn = jax.jit(jax.vmap(jax_fn_array))
+            t4 = time.perf_counter()
+            log(f"  {model_type}: vmap+jit wrapped in {t4-t3:.1f}s")
 
             self._compiled_models[model_type] = {
                 'module': module,
                 'translator': translator,
-                'jax_fn': jax_fn,
                 'jax_fn_array': jax_fn_array,
                 'vmapped_fn': vmapped_fn,
                 'array_metadata': array_metadata,
