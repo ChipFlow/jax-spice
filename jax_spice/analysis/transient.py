@@ -571,6 +571,9 @@ def transient_analysis_vectorized(
     reltol: float = 1e-3,
     gmin: float = 1e-12,
     backend: Optional[str] = None,
+    use_sparse: bool = False,
+    gmres_maxiter: int = 100,
+    gmres_tol: float = 1e-6,
 ) -> Tuple[Array, Array, Dict]:
     """GPU-optimized transient analysis using vectorized device evaluation.
 
@@ -589,6 +592,9 @@ def transient_analysis_vectorized(
         reltol: Relative convergence tolerance
         gmin: GMIN conductance for numerical stability
         backend: 'gpu', 'cpu', or None (auto-select based on circuit size)
+        use_sparse: If True, use iterative solver (GMRES) for sparse GPU solving
+        gmres_maxiter: Max iterations for GMRES solver
+        gmres_tol: Tolerance for GMRES solver
 
     Returns:
         Tuple of (times, solutions, info)
@@ -631,51 +637,116 @@ def transient_analysis_vectorized(
         times = jnp.linspace(t_start, t_stop, num_timesteps + 1)
 
         # JIT-compiled Newton solver for one timestep
-        @jax.jit
-        def newton_timestep(V_prev: Array, dt: float) -> Array:
-            """Solve one timestep using Newton-Raphson."""
-            V = V_prev  # Initial guess is previous solution
+        if use_sparse:
+            # Matrix-free Newton using GMRES (for sparse GPU)
+            from jax.scipy.sparse.linalg import gmres
 
-            def cond_fn(state):
-                V_iter, iteration, converged = state
-                return jnp.logical_and(~converged, iteration < max_iterations)
+            @jax.jit
+            def newton_timestep(V_prev: Array, dt: float) -> Array:
+                """Solve one timestep using Newton-Raphson with GMRES."""
+                V = V_prev  # Initial guess is previous solution
 
-            def body_fn(state):
-                V_iter, iteration, _ = state
+                def cond_fn(state):
+                    V_iter, iteration, converged = state
+                    return jnp.logical_and(~converged, iteration < max_iterations)
 
-                # Compute residual
-                f = residual_fn(V_iter, V_prev, dt)
-                residual_norm = jnp.max(jnp.abs(f))
+                def body_fn(state):
+                    V_iter, iteration, _ = state
 
-                # Compute Jacobian via autodiff (only w.r.t. V, not V_prev)
-                J = jax.jacfwd(lambda v: residual_fn(v, V_prev, dt))(V_iter)
-                J = J[:, 1:]  # Remove ground column
+                    # Compute residual (excluding ground)
+                    f_full = residual_fn(V_iter, V_prev, dt)
+                    f = f_full  # Full residual
 
-                # Regularization for numerical stability
-                reg = 1e-14 * jnp.eye(J.shape[0], dtype=J.dtype)
-                J_reg = J + reg
+                    residual_norm = jnp.max(jnp.abs(f))
 
-                # Solve for update
-                delta_V = jax.scipy.linalg.solve(J_reg, -f)
+                    # Matrix-free Jacobian-vector product
+                    # J @ v = d/dε [residual_fn(V + ε * v_padded)] at ε=0
+                    def matvec(v):
+                        # v is the delta for non-ground nodes
+                        # Pad with zero for ground
+                        v_padded = jnp.concatenate([jnp.array([0.0], dtype=v.dtype), v])
+                        _, jvp_result = jax.jvp(
+                            lambda x: residual_fn(x, V_prev, dt),
+                            (V_iter,),
+                            (v_padded,)
+                        )
+                        return jvp_result
 
-                # Update (ground stays at 0)
-                V_new = V_iter.at[1:].add(delta_V)
+                    # Solve J @ delta_V = -f using GMRES
+                    # We solve for non-ground nodes only
+                    delta_V, info = gmres(
+                        matvec,
+                        -f,
+                        x0=jnp.zeros(n - 1, dtype=dtype),
+                        tol=gmres_tol,
+                        maxiter=gmres_maxiter,
+                    )
 
-                # Check convergence
-                delta_norm = jnp.max(jnp.abs(delta_V))
-                v_norm = jnp.max(jnp.abs(V_new[1:]))
-                converged = jnp.logical_or(
-                    residual_norm < abstol,
-                    delta_norm < (abstol + reltol * jnp.maximum(v_norm, 1.0))
-                )
+                    # Update (ground stays at 0)
+                    V_new = V_iter.at[1:].add(delta_V)
 
-                return (V_new, iteration + 1, converged)
+                    # Check convergence
+                    delta_norm = jnp.max(jnp.abs(delta_V))
+                    v_norm = jnp.max(jnp.abs(V_new[1:]))
+                    converged = jnp.logical_or(
+                        residual_norm < abstol,
+                        delta_norm < (abstol + reltol * jnp.maximum(v_norm, 1.0))
+                    )
 
-            init_state = (V, jnp.array(0), jnp.array(False))
-            final_state = lax.while_loop(cond_fn, body_fn, init_state)
-            V_final, _, _ = final_state
+                    return (V_new, iteration + 1, converged)
 
-            return V_final
+                init_state = (V, jnp.array(0), jnp.array(False))
+                final_state = lax.while_loop(cond_fn, body_fn, init_state)
+                V_final, _, _ = final_state
+
+                return V_final
+        else:
+            # Dense Newton (original implementation)
+            @jax.jit
+            def newton_timestep(V_prev: Array, dt: float) -> Array:
+                """Solve one timestep using Newton-Raphson."""
+                V = V_prev  # Initial guess is previous solution
+
+                def cond_fn(state):
+                    V_iter, iteration, converged = state
+                    return jnp.logical_and(~converged, iteration < max_iterations)
+
+                def body_fn(state):
+                    V_iter, iteration, _ = state
+
+                    # Compute residual
+                    f = residual_fn(V_iter, V_prev, dt)
+                    residual_norm = jnp.max(jnp.abs(f))
+
+                    # Compute Jacobian via autodiff (only w.r.t. V, not V_prev)
+                    J = jax.jacfwd(lambda v: residual_fn(v, V_prev, dt))(V_iter)
+                    J = J[:, 1:]  # Remove ground column
+
+                    # Regularization for numerical stability
+                    reg = 1e-14 * jnp.eye(J.shape[0], dtype=J.dtype)
+                    J_reg = J + reg
+
+                    # Solve for update
+                    delta_V = jax.scipy.linalg.solve(J_reg, -f)
+
+                    # Update (ground stays at 0)
+                    V_new = V_iter.at[1:].add(delta_V)
+
+                    # Check convergence
+                    delta_norm = jnp.max(jnp.abs(delta_V))
+                    v_norm = jnp.max(jnp.abs(V_new[1:]))
+                    converged = jnp.logical_or(
+                        residual_norm < abstol,
+                        delta_norm < (abstol + reltol * jnp.maximum(v_norm, 1.0))
+                    )
+
+                    return (V_new, iteration + 1, converged)
+
+                init_state = (V, jnp.array(0), jnp.array(False))
+                final_state = lax.while_loop(cond_fn, body_fn, init_state)
+                V_final, _, _ = final_state
+
+                return V_final
 
         # JIT-compiled timestep function for lax.scan
         @jax.jit
@@ -699,6 +770,7 @@ def transient_analysis_vectorized(
         'vectorized': True,
         'backend': backend,
         'device': str(device),
+        'solver': 'gmres' if use_sparse else 'dense',
     }
 
     return times, all_solutions, info

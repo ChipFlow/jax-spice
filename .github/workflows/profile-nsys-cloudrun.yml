@@ -20,6 +20,10 @@ on:
         description: 'Skip warmup (include JIT in profile)'
         type: boolean
         default: false
+      sparse:
+        description: 'Use sparse GMRES solver (for large circuits)'
+        type: boolean
+        default: false
 
 env:
   GCP_PROJECT: jax-spice-cuda-test
@@ -131,6 +135,11 @@ jobs:
             SKIP_WARMUP_FLAG="--skip-warmup"
           fi
 
+          SPARSE_FLAG=""
+          if [ "${{ inputs.sparse }}" = "true" ]; then
+            SPARSE_FLAG="--sparse"
+          fi
+
           # Create the profiling script
           cat > /tmp/profile_script.sh << 'SCRIPT_EOF'
           #!/bin/bash
@@ -154,7 +163,7 @@ jobs:
 
           # Run profiling with nsys-jax
           nsys-jax -o /tmp/PROFILE_NAME_PLACEHOLDER.zip \
-              uv run python scripts/nsys_profile_target.py ${{ inputs.circuit }} ${{ inputs.timesteps }} SKIP_WARMUP_PLACEHOLDER
+              uv run python scripts/nsys_profile_target.py ${{ inputs.circuit }} ${{ inputs.timesteps }} SKIP_WARMUP_PLACEHOLDER SPARSE_PLACEHOLDER
 
           # Upload profile archive to GCS using curl (no gsutil needed)
           echo "=== Uploading profile to GCS ==="
@@ -173,6 +182,7 @@ jobs:
           # Replace placeholders
           sed -i "s/PROFILE_NAME_PLACEHOLDER/${PROFILE_NAME}/g" /tmp/profile_script.sh
           sed -i "s/SKIP_WARMUP_PLACEHOLDER/${SKIP_WARMUP_FLAG}/g" /tmp/profile_script.sh
+          sed -i "s/SPARSE_PLACEHOLDER/${SPARSE_FLAG}/g" /tmp/profile_script.sh
 
           # Base64 encode for safe passing to Cloud Run
           SCRIPT_B64=$(base64 -w0 /tmp/profile_script.sh)

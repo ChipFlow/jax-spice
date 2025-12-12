@@ -60,6 +60,11 @@ def main():
         choices=["cpu", "gpu", "auto"],
         help="Backend to use (default: gpu)",
     )
+    parser.add_argument(
+        "--sparse",
+        action="store_true",
+        help="Use sparse GMRES solver (for large circuits)",
+    )
     args = parser.parse_args()
 
     print(f"JAX backend: {jax.default_backend()}")
@@ -100,6 +105,7 @@ def main():
             t_stop=dt,
             t_step=dt,
             backend=args.backend,
+            use_sparse=args.sparse,
         )
         print("Warmup complete")
         print()
@@ -111,6 +117,7 @@ def main():
         t_stop=args.timesteps * dt,
         t_step=dt,
         backend=args.backend,
+        use_sparse=args.sparse,
     )
 
     print()
