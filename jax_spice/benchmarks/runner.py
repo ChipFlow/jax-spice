@@ -1377,16 +1377,25 @@ class VACASKBenchmarkRunner:
             # Build source value arrays once per timestep (Python loop here, not in NR loop)
             vsource_vals, isource_vals = build_source_arrays(source_values)
 
-            # GPU-resident NR solve - entire loop runs on GPU via lax.while_loop
-            V_new, iterations, converged, max_f = self._gpu_resident_nr_solve(
-                build_system_fn, V, vsource_vals, isource_vals,
-                max_iterations=MAX_NR_ITERATIONS, abstol=1e-9, max_step=1.0
-            )
+            if use_dense:
+                # GPU-resident NR solve - entire loop runs on GPU via lax.while_loop
+                # Only works for dense matrices (small-medium circuits)
+                V_new, iterations, converged, max_f = self._gpu_resident_nr_solve(
+                    build_system_fn, V, vsource_vals, isource_vals,
+                    max_iterations=MAX_NR_ITERATIONS, abstol=1e-9, max_step=1.0
+                )
 
-            # Transfer results back to Python for logging/tracking (once per timestep)
-            nr_iters = int(iterations)
-            is_converged = bool(converged)
-            residual = float(max_f)
+                # Transfer results back to Python for logging/tracking (once per timestep)
+                nr_iters = int(iterations)
+                is_converged = bool(converged)
+                residual = float(max_f)
+            else:
+                # Sparse path - Python loop with JAX sparse operations
+                # Dense matrix too large for 86k+ unknowns, must use sparse solver
+                V_new, nr_iters, is_converged, residual = self._sparse_nr_solve(
+                    source_device_data, openvaf_by_type, vmapped_fns, static_inputs_cache,
+                    V, vsource_vals, isource_vals, n_unknowns, sparse_solve_csr
+                )
 
             V = V_new
             total_nr_iters += nr_iters
@@ -1765,24 +1774,20 @@ class VACASKBenchmarkRunner:
                 all_j_cols = jnp.concatenate([p[1] for p in j_parts])
                 all_j_vals = jnp.concatenate([p[2] for p in j_parts])
 
-                if use_dense:
-                    # Dense: COO -> dense matrix via segment_sum
-                    flat_indices = all_j_rows * n_unknowns + all_j_cols
-                    J_flat = jax.ops.segment_sum(
-                        all_j_vals, flat_indices, num_segments=n_unknowns * n_unknowns
-                    )
-                    J = J_flat.reshape((n_unknowns, n_unknowns))
-                    # Add regularization
-                    J = J + 1e-12 * jnp.eye(n_unknowns, dtype=jnp.float64)
-                else:
-                    # Sparse path - return COO data for external handling
-                    # For now, still build dense (sparse lax.while_loop needs more work)
-                    flat_indices = all_j_rows * n_unknowns + all_j_cols
-                    J_flat = jax.ops.segment_sum(
-                        all_j_vals, flat_indices, num_segments=n_unknowns * n_unknowns
-                    )
-                    J = J_flat.reshape((n_unknowns, n_unknowns))
-                    J = J + 1e-12 * jnp.eye(n_unknowns, dtype=jnp.float64)
+                # Add diagonal regularization to COO data
+                diag_idx = jnp.arange(n_unknowns, dtype=jnp.int32)
+                all_j_rows = jnp.concatenate([all_j_rows, diag_idx])
+                all_j_cols = jnp.concatenate([all_j_cols, diag_idx])
+                reg_val = 1e-9 if not use_dense else 1e-12
+                all_j_vals = jnp.concatenate([all_j_vals, jnp.full(n_unknowns, reg_val)])
+
+                # Both paths use segment_sum to handle duplicates (GPU-friendly)
+                # This is equivalent to sum_duplicates but with fixed output shape
+                flat_indices = all_j_rows * n_unknowns + all_j_cols
+                J_flat = jax.ops.segment_sum(
+                    all_j_vals, flat_indices, num_segments=n_unknowns * n_unknowns
+                )
+                J = J_flat.reshape((n_unknowns, n_unknowns))
             else:
                 J = jnp.eye(n_unknowns, dtype=jnp.float64) * 1e-12
 
