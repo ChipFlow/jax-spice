@@ -355,8 +355,79 @@ class VACASKBenchmarkRunner:
         if self._has_openvaf_devices:
             self._compile_openvaf_models()
 
+    def _get_cache_path(self, model_type: str, va_path: Path) -> Path:
+        """Get cache file path for a model, based on VA file hash."""
+        import hashlib
+
+        # Hash the VA file content
+        va_content = va_path.read_bytes()
+        va_hash = hashlib.sha256(va_content).hexdigest()[:16]
+
+        # Cache in project root/.openvaf_cache/
+        project_root = Path(__file__).parent.parent.parent
+        cache_dir = project_root / ".openvaf_cache"
+        cache_dir.mkdir(exist_ok=True)
+
+        return cache_dir / f"{model_type}_{va_hash}.json"
+
+    def _load_cached_model(self, cache_path: Path, log) -> Optional[Dict]:
+        """Load a cached model if it exists."""
+        import json
+
+        if not cache_path.exists():
+            return None
+
+        try:
+            log(f"  Loading from cache: {cache_path.name}")
+            with open(cache_path, 'r') as f:
+                cached = json.load(f)
+
+            # Reconstruct the JAX function from cached code
+            import jax.numpy as jnp
+            from jax import lax
+            local_ns = {'jnp': jnp, 'lax': lax}
+            exec(cached['code'], local_ns)
+            jax_fn_array = local_ns['device_eval_array']
+
+            # Create vmapped function
+            vmapped_fn = jax.jit(jax.vmap(jax_fn_array))
+
+            return {
+                'jax_fn_array': jax_fn_array,
+                'vmapped_fn': vmapped_fn,
+                'array_metadata': cached['array_metadata'],
+                'param_names': cached['param_names'],
+                'param_kinds': cached['param_kinds'],
+                'nodes': cached['nodes'],
+            }
+        except Exception as e:
+            log(f"  Cache load failed: {e}")
+            return None
+
+    def _save_cached_model(self, cache_path: Path, code: str, metadata: Dict,
+                           param_names: List, param_kinds: List, nodes: List, log):
+        """Save a compiled model to cache."""
+        import json
+
+        try:
+            cached = {
+                'code': code,
+                'array_metadata': metadata,
+                'param_names': param_names,
+                'param_kinds': param_kinds,
+                'nodes': nodes,
+            }
+            with open(cache_path, 'w') as f:
+                json.dump(cached, f)
+            log(f"  Saved to cache: {cache_path.name}")
+        except Exception as e:
+            log(f"  Cache save failed: {e}")
+
     def _compile_openvaf_models(self, log_fn=None):
         """Compile OpenVAF models needed by the circuit.
+
+        Uses disk cache to avoid recompiling models. Cache is keyed by
+        VA file content hash.
 
         Args:
             log_fn: Optional logging function for progress output
@@ -406,8 +477,19 @@ class VACASKBenchmarkRunner:
             if not full_path.exists():
                 raise FileNotFoundError(f"VA model not found: {full_path}")
 
+            # Try to load from cache first
             import time
             t0 = time.perf_counter()
+            cache_path = self._get_cache_path(model_type, full_path)
+            cached = self._load_cached_model(cache_path, log)
+
+            if cached:
+                t1 = time.perf_counter()
+                log(f"  {model_type}: loaded from cache in {t1-t0:.1f}s")
+                self._compiled_models[model_type] = cached
+                continue
+
+            # Not in cache - compile from scratch
             log(f"  {model_type}: compiling VA...")
             modules = openvaf_py.compile_va(str(full_path))
             t1 = time.perf_counter()
@@ -421,12 +503,18 @@ class VACASKBenchmarkRunner:
             t2 = time.perf_counter()
             log(f"  {model_type}: translator created in {t2-t1:.1f}s")
 
-            # Skip translate() - only translate_array() is needed for batched evaluation
-            # translate() generates a dict-based function that we don't use
+            # Generate array function with caching support
             log(f"  {model_type}: translate_array() - generating array function...")
-            jax_fn_array, array_metadata = translator.translate_array()
+            jax_fn_array, array_metadata, generated_code = translator.translate_array_with_code()
             t3 = time.perf_counter()
             log(f"  {model_type}: translate_array() done in {t3-t2:.1f}s")
+
+            # Save to cache
+            self._save_cached_model(
+                cache_path, generated_code, array_metadata,
+                list(module.param_names), list(module.param_kinds), list(module.nodes),
+                log
+            )
 
             # Create JIT-compiled vmapped function for fast batched evaluation
             # Note: jax.jit() returns a wrapper - actual JIT happens on first call
