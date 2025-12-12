@@ -62,6 +62,16 @@ jobs:
           echo "GHCR_IMAGE=${GHCR_IMAGE}" >> "$GITHUB_ENV"
           echo "GHCR_PATH=${REPO_LC}/gpu-base" >> "$GITHUB_ENV"
 
+      - name: Free disk space for Docker build
+        run: |
+          echo "=== Disk space before cleanup ==="
+          df -h
+          # Remove large unused directories
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          sudo docker image prune -af
+          echo "=== Disk space after cleanup ==="
+          df -h
+
       - name: Check if base image needs rebuild
         id: check-rebuild
         run: |
@@ -141,16 +151,20 @@ jobs:
           echo "Timesteps: ${{ inputs.timesteps }}"
           echo "Commit: ${{ github.sha }}"
 
-          # Ensure GCS bucket exists
-          gsutil ls gs://${{ env.GCP_PROJECT }}-traces || gsutil mb -l ${{ env.GCP_REGION }} -p ${{ env.GCP_PROJECT }} gs://${{ env.GCP_PROJECT }}-traces
-
           # Run profiling with nsys-jax
           nsys-jax -o /tmp/PROFILE_NAME_PLACEHOLDER.zip \
               uv run python scripts/nsys_profile_target.py ${{ inputs.circuit }} ${{ inputs.timesteps }} SKIP_WARMUP_PLACEHOLDER
 
-          # Upload profile archive to GCS
+          # Upload profile archive to GCS using curl (no gsutil needed)
           echo "=== Uploading profile to GCS ==="
-          gsutil cp /tmp/PROFILE_NAME_PLACEHOLDER.zip gs://${{ env.GCP_PROJECT }}-traces/PROFILE_NAME_PLACEHOLDER.zip
+          TOKEN=$(curl -sf "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token" \
+              -H "Metadata-Flavor: Google" | python3 -c "import sys,json; print(json.load(sys.stdin)['access_token'])")
+          curl -sf -X POST \
+              "https://storage.googleapis.com/upload/storage/v1/b/${{ env.GCP_PROJECT }}-traces/o?uploadType=media&name=PROFILE_NAME_PLACEHOLDER.zip" \
+              -H "Authorization: Bearer \$TOKEN" \
+              -H "Content-Type: application/zip" \
+              --data-binary @/tmp/PROFILE_NAME_PLACEHOLDER.zip
+          echo "Upload complete"
 
           echo "=== Profiling Complete ==="
           SCRIPT_EOF

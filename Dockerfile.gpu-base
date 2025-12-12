@@ -55,7 +55,8 @@ RUN git clone --depth 1 --filter=blob:none --sparse https://github.com/openxla/x
     && pip install --no-cache-dir git+https://github.com/NVIDIA/JAX-Toolbox.git#subdirectory=.github/container/nsys_jax \
     && (nsys-jax-patch-nsys || true)
 
-RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | bash -s -- -y
+# Install Rust with minimal profile (no rust-docs/clippy/rustfmt) to save space
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | bash -s -- -y --profile minimal
 ENV PATH="$PATH:/root/.cargo/bin"
 
 RUN wget https://github.com/mozilla/sccache/releases/download/v0.12.0/sccache-v0.12.0-x86_64-unknown-linux-musl.tar.gz \
