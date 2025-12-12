@@ -3,6 +3,7 @@
 ## Pure JAX Requirement
 
 **CRITICAL**: This is a JAX-native circuit simulator. All numerical code MUST use JAX, not numpy or scipy.
+**CRITICAL**: All functionality should be optimised to run as much on GPU as possible, minimising CPU to GPU context switching and data transfer
 
 ### Forbidden Patterns
 
