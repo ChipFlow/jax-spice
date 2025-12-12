@@ -122,6 +122,31 @@ class GPUProfiler:
             devices = len(runner.devices)
             openvaf_devices = sum(1 for d in runner.devices if d.get('is_openvaf'))
 
+            # Estimate total nodes including internal nodes from OpenVAF devices
+            # PSP103 has 8 internal nodes per device (13 total - 4 external - 1 branch)
+            estimated_internal = openvaf_devices * 8  # Conservative estimate for PSP103
+            total_nodes_estimate = nodes + estimated_internal
+            log(f"      nodes: {nodes} external, ~{estimated_internal} internal ({total_nodes_estimate} total)")
+
+            # Skip if system is too large for GPU memory
+            # 86k nodes sparse system requires ~20GB for LU factorization with fill-in
+            MAX_GPU_NODES = 50000  # Safe limit for L4 GPU with 24GB VRAM
+            if total_nodes_estimate > MAX_GPU_NODES and backend == "gpu":
+                log(f"      WARNING: System too large for GPU ({total_nodes_estimate} > {MAX_GPU_NODES} nodes)")
+                return BenchmarkResult(
+                    name=name,
+                    nodes=nodes,
+                    devices=devices,
+                    openvaf_devices=openvaf_devices,
+                    timesteps=0,
+                    total_time_s=0,
+                    time_per_step_ms=0,
+                    solver='sparse' if use_sparse else 'dense',
+                    backend=backend,
+                    converged=True,
+                    error=f"System too large ({total_nodes_estimate} nodes > {MAX_GPU_NODES} max)"
+                )
+
             # Skip sparse for non-OpenVAF circuits (they use JIT solver)
             if use_sparse and not runner._has_openvaf_devices:
                 return BenchmarkResult(
@@ -373,11 +398,15 @@ def main():
             sys.stderr.flush()
 
             # Determine which solvers to run
-            run_dense = not args.sparse_only and name != 'c6288'  # c6288 too large for dense
+            # c6288 has ~86k total nodes (5k external + 81k internal from PSP103)
+            # Dense matrix would be 86k x 86k x 8 bytes = ~56GB - skip dense
+            run_dense = not args.sparse_only and name != 'c6288'
             run_sparse = not args.dense_only
 
-            if name == 'c6288' and not args.sparse_only:
-                log(f"    Skipping dense (86k nodes would need ~56GB)")
+            if name == 'c6288':
+                log(f"    Note: ~86k total nodes (5k external + 81k internal)")
+                if not args.sparse_only:
+                    log(f"    Skipping dense (would need ~56GB memory)")
 
             # Run dense
             if run_dense:
