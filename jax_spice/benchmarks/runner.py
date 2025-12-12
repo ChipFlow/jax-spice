@@ -1011,19 +1011,19 @@ class VACASKBenchmarkRunner:
         return next_internal, device_internal_nodes
 
     def _run_transient_hybrid(self, t_stop: float, dt: float,
-                               backend: str = "cpu") -> Tuple[jax.Array, Dict[int, jax.Array]]:
-        """Run transient analysis with OpenVAF devices using COO-based sparse solver.
+                               backend: str = "cpu",
+                               use_dense: bool = True) -> Tuple[jax.Array, Dict[int, jax.Array]]:
+        """Run transient analysis with OpenVAF devices.
 
         This solver handles a mix of simple devices (resistor, capacitor, etc.)
         and OpenVAF-compiled devices (like PSP103 MOSFETs).
-
-        Uses COO triplet collection + segment_sum for efficient GPU-friendly
-        matrix assembly, then sparse CSR solve.
 
         Args:
             t_stop: Simulation stop time
             dt: Time step
             backend: 'gpu' or 'cpu' for device evaluation.
+            use_dense: If True, use dense matrices with batched scatter (faster for small circuits).
+                      If False, use COO collection + sparse CSR solve (better for large circuits).
         """
         from jax_spice.analysis.gpu_backend import get_device, get_default_dtype
         from jax_spice.analysis.sparse import build_csr_arrays, sparse_solve_csr
@@ -1039,10 +1039,11 @@ class VACASKBenchmarkRunner:
         n_external = self.num_nodes
         n_unknowns = n_total - 1
 
+        solver_type = "dense batched scatter" if use_dense else "COO sparse"
         if self.verbose:
             print(f"Total nodes: {n_total} ({n_external} external, {n_total - n_external} internal)")
             print(f"Backend: {backend}, device: {device.platform}")
-            print(f"Using COO-based sparse solver")
+            print(f"Using {solver_type} solver")
 
         # Initialize voltages
         V = jnp.zeros(n_total, dtype=jnp.float64)
@@ -1107,15 +1108,14 @@ class VACASKBenchmarkRunner:
             V_iter = V
 
             for nr_iter in range(100):
-                # Collect COO triplets using numpy (fast in-place)
-                # Pre-allocate lists for COO data
+                # === Pure JAX: COO collection for both dense and sparse paths ===
                 f_indices_list = []
                 f_values_list = []
                 j_rows_list = []
                 j_cols_list = []
                 j_vals_list = []
 
-                # Collect from simple devices (numpy-based, fast)
+                # Collect from simple devices
                 self._collect_simple_devices_coo(
                     simple_device_data, V_iter, V_prev, dt, source_values, ground,
                     f_indices_list, f_values_list, j_rows_list, j_cols_list, j_vals_list
@@ -1127,15 +1127,11 @@ class VACASKBenchmarkRunner:
                         static_inputs, voltage_indices, device_contexts, stamp_indices = \
                             static_inputs_cache[model_type]
 
-                        # Update voltage inputs (vectorized)
                         batch_inputs = self._update_voltage_inputs_vectorized(
                             static_inputs, voltage_indices, device_contexts, V_iter
                         )
-
-                        # Evaluate all devices in parallel
                         batch_residuals, batch_jacobian = vmapped_fns[model_type](batch_inputs)
 
-                        # Collect COO triplets using pre-computed indices
                         self._collect_openvaf_coo(
                             batch_residuals, batch_jacobian, stamp_indices,
                             f_indices_list, f_values_list,
@@ -1156,28 +1152,45 @@ class VACASKBenchmarkRunner:
                     converged = True
                     break
 
-                # Build Jacobian CSR and solve
-                if j_rows_list:
-                    all_j_rows = jnp.concatenate(j_rows_list)
-                    all_j_cols = jnp.concatenate(j_cols_list)
-                    all_j_vals = jnp.concatenate(j_vals_list)
+                if use_dense:
+                    # === DENSE PATH: COO -> dense matrix via segment_sum ===
+                    if j_rows_list:
+                        all_j_rows = jnp.concatenate(j_rows_list)
+                        all_j_cols = jnp.concatenate(j_cols_list)
+                        all_j_vals = jnp.concatenate(j_vals_list)
 
-                    # Add diagonal regularization entries
-                    diag_idx = jnp.arange(n_unknowns, dtype=jnp.int32)
-                    all_j_rows = jnp.concatenate([all_j_rows, diag_idx])
-                    all_j_cols = jnp.concatenate([all_j_cols, diag_idx])
-                    all_j_vals = jnp.concatenate([all_j_vals, jnp.full(n_unknowns, 1e-12)])
+                        # Convert (row, col) to flat index and use segment_sum
+                        flat_indices = all_j_rows * n_unknowns + all_j_cols
+                        J_flat = jax.ops.segment_sum(
+                            all_j_vals, flat_indices, num_segments=n_unknowns * n_unknowns
+                        )
+                        J = J_flat.reshape((n_unknowns, n_unknowns))
+                    else:
+                        J = jnp.zeros((n_unknowns, n_unknowns), dtype=jnp.float64)
 
-                    # Build CSR (segment_sum handles duplicates)
-                    data, indices, indptr = build_csr_arrays(
-                        all_j_rows, all_j_cols, all_j_vals, (n_unknowns, n_unknowns)
-                    )
+                    # Dense solve with regularization
+                    J_reg = J + 1e-12 * jnp.eye(n_unknowns, dtype=jnp.float64)
+                    delta = jax.scipy.linalg.solve(J_reg, -f)
 
-                    # Sparse solve
-                    delta = sparse_solve_csr(data, indices, indptr, -f, (n_unknowns, n_unknowns))
                 else:
-                    # Fallback: no devices, just regularization
-                    delta = -f
+                    # === SPARSE PATH: Build Jacobian CSR from COO and solve ===
+                    if j_rows_list:
+                        all_j_rows = jnp.concatenate(j_rows_list)
+                        all_j_cols = jnp.concatenate(j_cols_list)
+                        all_j_vals = jnp.concatenate(j_vals_list)
+
+                        # Add diagonal regularization
+                        diag_idx = jnp.arange(n_unknowns, dtype=jnp.int32)
+                        all_j_rows = jnp.concatenate([all_j_rows, diag_idx])
+                        all_j_cols = jnp.concatenate([all_j_cols, diag_idx])
+                        all_j_vals = jnp.concatenate([all_j_vals, jnp.full(n_unknowns, 1e-12)])
+
+                        data, indices, indptr = build_csr_arrays(
+                            all_j_rows, all_j_cols, all_j_vals, (n_unknowns, n_unknowns)
+                        )
+                        delta = sparse_solve_csr(data, indices, indptr, -f, (n_unknowns, n_unknowns))
+                    else:
+                        delta = -f
 
                 # Limit voltage step
                 max_delta = float(jnp.max(jnp.abs(delta)))
@@ -1415,14 +1428,14 @@ class VACASKBenchmarkRunner:
 
                 # Diode current with limiting
                 if vd_norm > 40:
-                    exp_40 = np.exp(40.0)
+                    exp_40 = float(jnp.exp(40.0))
                     curr = is_val * (exp_40 + exp_40 * (vd_norm - 40) - 1)
                     g = is_val * exp_40 / nVt
                 elif vd_norm < -40:
                     curr = -is_val
                     g = 0.0
                 else:
-                    exp_vd = np.exp(vd_norm)
+                    exp_vd = float(jnp.exp(vd_norm))
                     curr = is_val * (exp_vd - 1)
                     g = is_val * exp_vd / nVt
 
