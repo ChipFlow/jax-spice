@@ -79,8 +79,9 @@ def get_vacask_benchmarks(names: Optional[List[str]] = None) -> List[Tuple[str, 
 
 
 def run_benchmark(sim_path: Path, name: str, use_sparse: bool,
-                  num_steps: int = 20, warmup_steps: int = 5) -> BenchmarkResult:
+                  num_steps: int = 20) -> BenchmarkResult:
     """Run a single benchmark configuration."""
+    warmup_steps = 5  # Fixed warmup for JIT compilation
     try:
         # Parse circuit
         log(f"      parsing...")
@@ -181,12 +182,6 @@ def main():
         help="Number of timesteps per benchmark (default: 20)",
     )
     parser.add_argument(
-        "--warmup-steps",
-        type=int,
-        default=5,
-        help="Number of warmup steps (default: 5)",
-    )
-    parser.add_argument(
         "--sparse-only",
         action="store_true",
         help="Only run sparse solver (skip dense comparison)",
@@ -239,7 +234,7 @@ def main():
         if run_dense:
             result_dense = run_benchmark(
                 sim_path, name, use_sparse=False,
-                num_steps=args.timesteps, warmup_steps=args.warmup_steps
+                num_steps=args.timesteps
             )
             results.append(result_dense)
             if result_dense.error:
@@ -251,7 +246,7 @@ def main():
         if run_sparse:
             result_sparse = run_benchmark(
                 sim_path, name, use_sparse=True,
-                num_steps=args.timesteps, warmup_steps=args.warmup_steps
+                num_steps=args.timesteps
             )
             results.append(result_sparse)
             if result_sparse.error:

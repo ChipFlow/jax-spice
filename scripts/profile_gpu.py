@@ -84,8 +84,7 @@ class GPUProfiler:
         return 0.0
 
     def run_benchmark(self, sim_path: Path, name: str, use_sparse: bool,
-                      num_steps: int = 20, warmup_steps: int = 5,
-                      trace_ctx=None) -> BenchmarkResult:
+                      num_steps: int = 20, trace_ctx=None) -> BenchmarkResult:
         """Run a single benchmark configuration.
 
         Args:
@@ -93,12 +92,12 @@ class GPUProfiler:
             name: Benchmark name
             use_sparse: Whether to use sparse solver
             num_steps: Number of timesteps for timing
-            warmup_steps: Number of warmup steps (includes JIT compilation)
             trace_ctx: Optional JAX profiler trace context for Perfetto
 
         Returns:
             BenchmarkResult with timing information
         """
+        warmup_steps = 5  # Fixed warmup for JIT compilation
         import sys
         log(f"      starting...")
         sys.stdout.flush()
@@ -304,12 +303,6 @@ def main():
         help="Number of timesteps per benchmark (default: 20)",
     )
     parser.add_argument(
-        "--warmup-steps",
-        type=int,
-        default=5,
-        help="Number of warmup steps (default: 5)",
-    )
-    parser.add_argument(
         "--trace",
         action="store_true",
         help="Enable Perfetto tracing (for Cloud Run profiling)",
@@ -391,7 +384,7 @@ def main():
             if run_dense:
                 result_dense = profiler.run_benchmark(
                     sim_path, name, use_sparse=False,
-                    num_steps=args.timesteps, warmup_steps=args.warmup_steps
+                    num_steps=args.timesteps
                 )
                 profiler.results.append(result_dense)
                 if result_dense.error:
@@ -403,7 +396,7 @@ def main():
             if run_sparse:
                 result_sparse = profiler.run_benchmark(
                     sim_path, name, use_sparse=True,
-                    num_steps=args.timesteps, warmup_steps=args.warmup_steps
+                    num_steps=args.timesteps
                 )
                 profiler.results.append(result_sparse)
                 if result_sparse.error:
