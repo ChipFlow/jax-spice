@@ -326,7 +326,10 @@ def run_single_benchmark(args):
 
 
 def run_benchmark_subprocess(name: str, solver: str, timesteps: int, warmup_steps: int) -> Optional[BenchmarkResult]:
-    """Run a benchmark in a separate subprocess to ensure memory cleanup."""
+    """Run a benchmark in a separate subprocess to ensure memory cleanup.
+
+    Streams stdout/stderr in real-time and captures the JSON result from the last line.
+    """
     script_path = Path(__file__)
     cmd = [
         sys.executable, str(script_path),
@@ -336,23 +339,32 @@ def run_benchmark_subprocess(name: str, solver: str, timesteps: int, warmup_step
     ]
 
     try:
-        result = subprocess.run(
+        # Start subprocess with pipes for streaming
+        proc = subprocess.Popen(
             cmd,
-            capture_output=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,  # Merge stderr into stdout
             text=True,
-            timeout=1800,  # 30 minute timeout
-            env={**os.environ, 'JAX_PLATFORMS': 'cuda'},
+            bufsize=1,  # Line buffered
+            env={**os.environ},
         )
 
-        # Find the JSON line in output (last non-empty line)
-        stdout_lines = [l for l in result.stdout.strip().split('\n') if l.strip()]
-        if not stdout_lines:
+        # Stream output and capture lines
+        output_lines = []
+        for line in proc.stdout:
+            line = line.rstrip('\n')
+            output_lines.append(line)
+            # Print with indent to show it's from subprocess
+            print(f"      {line}", flush=True)
+
+        proc.wait(timeout=1800)  # 30 minute timeout
+
+        if not output_lines:
             logger.error(f"  No output from subprocess")
-            logger.error(f"  stderr: {result.stderr[:500] if result.stderr else 'none'}")
             return None
 
         # Try to parse the last line as JSON
-        json_line = stdout_lines[-1]
+        json_line = output_lines[-1]
         try:
             data = json.loads(json_line)
             if 'error' in data and data.get('nodes') is None:
@@ -365,6 +377,7 @@ def run_benchmark_subprocess(name: str, solver: str, timesteps: int, warmup_step
             return None
 
     except subprocess.TimeoutExpired:
+        proc.kill()
         logger.error(f"  Benchmark timed out after 30 minutes")
         return BenchmarkResult(
             name=name, nodes=0, devices=0, openvaf_devices=0,
