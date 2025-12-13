@@ -377,7 +377,7 @@ def run_single_benchmark(args):
 
 
 def run_benchmark_subprocess(name: str, solver: str, timesteps: int, warmup_steps: int,
-                              full: bool = False) -> Optional[BenchmarkResult]:
+                              full: bool = False, cpu: bool = False) -> Optional[BenchmarkResult]:
     """Run a benchmark in a separate subprocess to ensure memory cleanup.
 
     Streams stdout/stderr in real-time and captures the JSON result from the last line.
@@ -391,6 +391,8 @@ def run_benchmark_subprocess(name: str, solver: str, timesteps: int, warmup_step
     ]
     if full:
         cmd.append('--full')
+    if cpu:
+        cmd.append('--cpu')
 
     try:
         # Start subprocess with pipes for streaming
@@ -498,6 +500,11 @@ def main():
         action="store_true",
         help="Run with original VACASK parameters (full simulation, comparable results)",
     )
+    parser.add_argument(
+        "--cpu",
+        action="store_true",
+        help="Allow running on CPU (skip GPU requirement check)",
+    )
     args = parser.parse_args()
 
     # Single benchmark mode (run in subprocess)
@@ -515,11 +522,13 @@ def main():
     logger.info(f"  JAX devices: {jax.devices()}")
     logger.info(f"  Float64 enabled: {jax.config.jax_enable_x64}")
 
-    # Require GPU backend
+    # Check for GPU backend
     has_gpu = any(d.platform == 'gpu' for d in jax.devices())
-    if not has_gpu:
-        logger.error("ERROR: No GPU device found. Use profile_cpu.py for CPU-only profiling.")
+    if not has_gpu and not args.cpu:
+        logger.error("ERROR: No GPU device found. Use --cpu flag for CPU-only profiling.")
         sys.exit(1)
+    if not has_gpu:
+        logger.info("  Running in CPU-only mode (--cpu flag)")
     logger.info("")
 
     # Parse benchmark names
@@ -571,7 +580,7 @@ def main():
             if run_dense:
                 logger.info(f"    dense:  running in subprocess...")
                 sys.stdout.flush()
-                result_dense = run_benchmark_subprocess(name, 'dense', args.timesteps, args.warmup_steps, args.full)
+                result_dense = run_benchmark_subprocess(name, 'dense', args.timesteps, args.warmup_steps, args.full, args.cpu)
                 if result_dense:
                     profiler.results.append(result_dense)
                     if result_dense.error:
@@ -585,7 +594,7 @@ def main():
             if run_sparse:
                 logger.info(f"    sparse: running in subprocess...")
                 sys.stdout.flush()
-                result_sparse = run_benchmark_subprocess(name, 'sparse', args.timesteps, args.warmup_steps, args.full)
+                result_sparse = run_benchmark_subprocess(name, 'sparse', args.timesteps, args.warmup_steps, args.full, args.cpu)
                 if result_sparse:
                     profiler.results.append(result_sparse)
                     if result_sparse.error:

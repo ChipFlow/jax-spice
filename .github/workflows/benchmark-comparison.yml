@@ -1,0 +1,208 @@
+name: Benchmark Comparison
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  benchmark-comparison:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout with submodules
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            cmake ninja-build \
+            flex bison \
+            libsuitesparse-dev \
+            bc
+
+      - name: Install LLVM 18
+        run: |
+          wget https://apt.llvm.org/llvm.sh
+          chmod +x llvm.sh
+          sudo ./llvm.sh 18
+          echo "LLVM_SYS_181_PREFIX=/usr/lib/llvm-18" >> "$GITHUB_ENV"
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            openvaf-py
+            openvaf-py/vendor/OpenVAF
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+
+      - name: Set up Python
+        run: uv python install 3.11
+
+      - name: Build openvaf-py
+        working-directory: openvaf-py
+        run: |
+          uv sync
+          uv run maturin develop --release
+
+      - name: Build openvaf-r (standalone compiler for VACASK)
+        working-directory: openvaf-py/vendor/OpenVAF
+        run: |
+          cargo build --release --bin openvaf-r --no-default-features --features llvm18
+          echo "OPENVAF_DIR=${{ github.workspace }}/openvaf-py/vendor/OpenVAF/target/release" >> "$GITHUB_ENV"
+
+      - name: Install jax-spice
+        run: uv sync --extra dev
+
+      - name: Run JAX-SPICE tests
+        env:
+          JAX_PLATFORMS: cpu
+        run: uv run pytest tests/test_vacask_suite.py tests/test_vacask_jax.py -v --tb=short
+
+      # Build VACASK simulator
+      - name: Cache Boost 1.88
+        uses: actions/cache@v4
+        id: cache-boost
+        with:
+          path: /tmp/boost_1_88_0
+          key: boost-1.88.0-${{ runner.os }}
+
+      - name: Download and build Boost 1.88
+        if: steps.cache-boost.outputs.cache-hit != 'true'
+        run: |
+          cd /tmp
+          wget -q https://archives.boost.io/release/1.88.0/source/boost_1_88_0.tar.gz
+          tar -xzf boost_1_88_0.tar.gz
+          cd boost_1_88_0
+          ./bootstrap.sh --with-libraries=filesystem,process,system
+          ./b2 -j"$(nproc)" link=static
+
+      - name: Cache VACASK build
+        uses: actions/cache@v4
+        with:
+          path: vendor/VACASK/build
+          key: vacask-build-${{ runner.os }}-${{ hashFiles('vendor/VACASK/CMakeLists.txt', 'vendor/VACASK/lib/**', 'vendor/VACASK/simulator/**') }}
+
+      - name: Build VACASK
+        run: |
+          cd vendor/VACASK
+          mkdir -p build && cd build
+          cmake .. \
+            -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBoost_INCLUDE_DIR=/tmp/boost_1_88_0 \
+            -DOPENVAF_DIR="${OPENVAF_DIR}"
+          ninja vacask
+
+      # Run JAX-SPICE benchmarks
+      - name: Run JAX-SPICE benchmarks
+        env:
+          JAX_PLATFORMS: cpu
+          JAX_ENABLE_X64: "1"
+        run: |
+          # Run benchmarks on smaller circuits (CPU-only)
+          for bench in rc graetz ring; do
+            echo "Running JAX-SPICE benchmark: $bench"
+            uv run python scripts/profile_gpu.py --benchmark "$bench" --timesteps 100 --dense-only --cpu 2>&1 | tee "/tmp/jax-spice-$bench.log" || true
+          done
+
+      # Run VACASK benchmarks
+      - name: Run VACASK benchmarks
+        run: |
+          VACASK_BIN="${{ github.workspace }}/vendor/VACASK/build/simulator/vacask"
+
+          for bench in rc graetz ring; do
+            echo "Running VACASK benchmark: $bench"
+            cd "${{ github.workspace }}/vendor/VACASK/benchmark"
+
+            # Run benchmark (1 run, no warmup for CI)
+            python3 benchmark.py -n 1 -wd "/tmp/vacask-$bench" "$bench/vacask" "$VACASK_BIN" 2>&1 | tee "/tmp/vacask-$bench.log" || true
+          done
+
+      # Generate comparison summary
+      - name: Generate comparison summary
+        run: |
+          {
+            echo "## Benchmark Comparison: JAX-SPICE vs VACASK"
+            echo ""
+            echo "### Environment"
+            echo "- **Platform**: CPU (GitHub Actions runner)"
+            echo "- **JAX Backend**: cpu"
+            echo ""
+            echo "### JAX-SPICE Results"
+            echo ""
+            echo "| Benchmark | Runtime (s) | Steps | Time/Step (ms) |"
+            echo "|-----------|-------------|-------|----------------|"
+
+            for bench in rc graetz ring; do
+              if [ -f "/tmp/jax-spice-$bench.log" ]; then
+                runtime=$(grep -oP 'Runtime:\s+\K[\d.]+' "/tmp/jax-spice-$bench.log" | tail -1 || echo "N/A")
+                steps=$(grep -oP 'Timesteps:\s+\K\d+' "/tmp/jax-spice-$bench.log" | tail -1 || echo "N/A")
+                per_step=$(grep -oP 'Time per step:\s+\K[\d.]+' "/tmp/jax-spice-$bench.log" | tail -1 || echo "N/A")
+                echo "| $bench | $runtime | $steps | $per_step |"
+              else
+                echo "| $bench | N/A | N/A | N/A |"
+              fi
+            done
+
+            echo ""
+            echo "### VACASK Results"
+            echo ""
+            echo "| Benchmark | Runtime (s) |"
+            echo "|-----------|-------------|"
+
+            for bench in rc graetz ring; do
+              if [ -f "/tmp/vacask-$bench.log" ]; then
+                runtime=$(grep -oP 'Runtime:\s+\K[\d.]+' "/tmp/vacask-$bench.log" || echo "N/A")
+                echo "| $bench | $runtime |"
+              else
+                echo "| $bench | N/A |"
+              fi
+            done
+
+            echo ""
+            echo "### Comparison"
+            echo ""
+            echo "| Benchmark | JAX-SPICE (s) | VACASK (s) | Ratio |"
+            echo "|-----------|---------------|------------|-------|"
+
+            for bench in rc graetz ring; do
+              jax_time=$(grep -oP 'Runtime:\s+\K[\d.]+' "/tmp/jax-spice-$bench.log" 2>/dev/null | tail -1 || echo "0")
+              vacask_time=$(grep -oP 'Runtime:\s+\K[\d.]+' "/tmp/vacask-$bench.log" 2>/dev/null || echo "0")
+
+              if [ "$vacask_time" != "0" ] && [ "$jax_time" != "0" ] && [ "$vacask_time" != "N/A" ] && [ "$jax_time" != "N/A" ]; then
+                ratio=$(echo "scale=2; $jax_time / $vacask_time" | bc || echo "N/A")
+                echo "| $bench | $jax_time | $vacask_time | ${ratio}x |"
+              else
+                echo "| $bench | $jax_time | $vacask_time | N/A |"
+              fi
+            done
+
+            echo ""
+            echo "_Ratio > 1.0 means JAX-SPICE is slower, < 1.0 means faster_"
+            echo ""
+            echo "_Note: This is a CPU-only comparison. GPU performance differs significantly._"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload benchmark logs
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: benchmark-logs
+          path: |
+            /tmp/jax-spice-*.log
+            /tmp/vacask-*.log
+            profile_report.md
+            profile_report.json
