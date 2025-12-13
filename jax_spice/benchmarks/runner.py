@@ -1878,7 +1878,7 @@ class VACASKBenchmarkRunner:
                     diag_idx = jnp.arange(n_unknowns, dtype=jnp.int32)
                     all_j_rows = jnp.concatenate([all_j_rows, diag_idx])
                     all_j_cols = jnp.concatenate([all_j_cols, diag_idx])
-                    all_j_vals = jnp.concatenate([all_j_vals, jnp.full(n_unknowns, 1e-9)])
+                    all_j_vals = jnp.concatenate([all_j_vals, jnp.full(n_unknowns, 1e-6)])
 
                     # Build BCOO with duplicates (BCSR.from_bcoo handles them)
                     indices = jnp.stack([all_j_rows, all_j_cols], axis=1)
@@ -2030,7 +2030,7 @@ class VACASKBenchmarkRunner:
                 # Sparse solve: J @ delta = -f using QR factorization
                 # J and f are n_unknowns sized (ground already excluded)
                 delta = spsolve(
-                    J_bcsr.data, J_bcsr.indices, J_bcsr.indptr, -f, tol=1e-9
+                    J_bcsr.data, J_bcsr.indices, J_bcsr.indptr, -f, tol=1e-6
                 )
 
                 # Step limiting
