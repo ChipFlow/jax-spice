@@ -1380,17 +1380,39 @@ class VACASKBenchmarkRunner:
             build_system_jit = jax.jit(build_system_fn)
             logger.info("Created JIT-wrapped build_system function")
 
-            # Create JIT-compiled NR solver (not AoT - let JAX compile lazily)
-            # This allows nested JIT to work correctly
-            nr_solve = self._make_jit_compiled_solver(
-                build_system_jit, n_nodes,
-                max_iterations=MAX_NR_ITERATIONS, abstol=1e-6, max_step=1.0
-            )
+            # Create JIT-compiled NR solver
+            if use_dense:
+                # Dense solver for small/medium circuits
+                nr_solve = self._make_jit_compiled_solver(
+                    build_system_jit, n_nodes,
+                    max_iterations=MAX_NR_ITERATIONS, abstol=1e-6, max_step=1.0
+                )
+            else:
+                # Sparse solver for large circuits (uses spsolve with QR factorization)
+                # Pre-compute nse by running build_system once to get sparsity pattern
+                logger.info("Pre-computing sparse matrix nse...")
+                V_init = jnp.zeros(n_nodes, dtype=jnp.float64)
+                vsource_init = jnp.zeros(n_vsources, dtype=jnp.float64)
+                isource_init = jnp.zeros(n_isources, dtype=jnp.float64)
+                J_bcoo_probe, _ = build_system_fn(V_init, vsource_init, isource_init)
+
+                # Sum duplicates to get true nse
+                unique_indices = jnp.unique(
+                    J_bcoo_probe.indices[:, 0] * n_unknowns + J_bcoo_probe.indices[:, 1],
+                    size=None
+                )
+                nse = int(unique_indices.shape[0])
+                logger.info(f"Sparse matrix: {J_bcoo_probe.nse} entries -> {nse} unique (nse)")
+
+                nr_solve = self._make_sparse_jit_compiled_solver(
+                    build_system_jit, n_nodes, nse,
+                    max_iterations=MAX_NR_ITERATIONS, abstol=1e-6, max_step=1.0
+                )
 
             # Cache for reuse within this instance
             self._cached_nr_solve = nr_solve
             self._cached_solver_key = cache_key
-            logger.info("Cached AoT-compiled NR solver")
+            logger.info(f"Cached {'dense' if use_dense else 'sparse'} NR solver")
 
         times = []
 
@@ -1803,14 +1825,18 @@ class VACASKBenchmarkRunner:
                     # Add regularization (1e-9 matches sparse solver)
                     J = J + 1e-9 * jnp.eye(n_unknowns, dtype=jnp.float64)
                 else:
-                    # Sparse path - return COO data for external handling
-                    # For now, still build dense (sparse lax.while_loop needs more work)
-                    flat_indices = all_j_rows * n_unknowns + all_j_cols
-                    J_flat = jax.ops.segment_sum(
-                        all_j_vals, flat_indices, num_segments=n_unknowns * n_unknowns
-                    )
-                    J = J_flat.reshape((n_unknowns, n_unknowns))
-                    J = J + 1e-12 * jnp.eye(n_unknowns, dtype=jnp.float64)
+                    # Sparse path - build BCOO sparse matrix
+                    from jax.experimental.sparse import BCOO
+
+                    # Add diagonal regularization entries
+                    diag_idx = jnp.arange(n_unknowns, dtype=jnp.int32)
+                    all_j_rows = jnp.concatenate([all_j_rows, diag_idx])
+                    all_j_cols = jnp.concatenate([all_j_cols, diag_idx])
+                    all_j_vals = jnp.concatenate([all_j_vals, jnp.full(n_unknowns, 1e-9)])
+
+                    # Build BCOO with duplicates (BCSR.from_bcoo handles them)
+                    indices = jnp.stack([all_j_rows, all_j_cols], axis=1)
+                    J = BCOO((all_j_vals, indices), shape=(n_unknowns, n_unknowns))
             else:
                 J = jnp.eye(n_unknowns, dtype=jnp.float64) * 1e-12
 
@@ -1896,6 +1922,92 @@ class VACASKBenchmarkRunner:
 
         # Return JIT-wrapped function - compilation happens lazily on first call
         logger.info(f"Creating JIT-compiled NR solver: V({n_nodes})")
+        return jax.jit(nr_solve)
+
+    def _make_sparse_jit_compiled_solver(
+        self,
+        build_system_jit: Callable,
+        n_nodes: int,
+        nse: int,
+        max_iterations: int = MAX_NR_ITERATIONS,
+        abstol: float = 1e-6,
+        max_step: float = 1.0,
+    ) -> Callable:
+        """Create a JIT-compiled sparse NR solver using spsolve.
+
+        Uses JAX's sparse direct solver (QR factorization) for large circuits
+        where dense linear algebra would OOM.
+
+        Args:
+            build_system_jit: JIT-wrapped function returning (J_bcoo, f)
+            n_nodes: Total node count including ground
+            nse: Number of stored elements after summing duplicates
+            max_iterations: Maximum NR iterations
+            abstol: Absolute tolerance for convergence
+            max_step: Maximum voltage step per iteration
+
+        Returns:
+            JIT-compiled sparse solver function
+        """
+        from jax.experimental.sparse import BCSR
+        from jax.experimental.sparse.linalg import spsolve
+
+        def nr_solve(V_init: jax.Array, vsource_vals: jax.Array, isource_vals: jax.Array):
+            init_state = (
+                V_init,
+                jnp.array(0, dtype=jnp.int32),
+                jnp.array(False),
+                jnp.array(jnp.inf),
+                jnp.array(jnp.inf),
+            )
+
+            def cond_fn(state):
+                V, iteration, converged, max_f, max_delta = state
+                return jnp.logical_and(~converged, iteration < max_iterations)
+
+            def body_fn(state):
+                V, iteration, _, _, _ = state
+
+                # Build sparse system (J_bcoo and f)
+                J_bcoo, f = build_system_jit(V, vsource_vals, isource_vals)
+
+                # Check residual convergence (exclude ground)
+                max_f = jnp.max(jnp.abs(f[1:]))
+                residual_converged = max_f < abstol
+
+                # Sum duplicates before converting to BCSR (required for scipy fallback)
+                J_bcoo_dedup = J_bcoo.sum_duplicates(nse=nse)
+
+                # Convert BCOO to BCSR for spsolve
+                J_bcsr = BCSR.from_bcoo(J_bcoo_dedup)
+
+                # Sparse solve: J @ delta = -f using QR factorization
+                # J and f are n_unknowns sized (ground already excluded)
+                delta = spsolve(
+                    J_bcsr.data, J_bcsr.indices, J_bcsr.indptr, -f, tol=1e-9
+                )
+
+                # Step limiting
+                max_delta = jnp.max(jnp.abs(delta))
+                scale = jnp.where(max_delta > max_step, max_step / max_delta, 1.0)
+                delta = delta * scale
+
+                # Update V (ground at index 0 stays fixed, delta is for nodes 1:n_nodes)
+                V_new = V.at[1:].add(delta)
+
+                # Check delta-based convergence
+                delta_converged = max_delta < 1e-12
+                converged = jnp.logical_or(residual_converged, delta_converged)
+
+                return (V_new, iteration + 1, converged, max_f, max_delta)
+
+            V_final, iterations, converged, max_f, max_delta = lax.while_loop(
+                cond_fn, body_fn, init_state
+            )
+
+            return V_final, iterations, converged, max_f
+
+        logger.info(f"Creating sparse JIT-compiled NR solver: V({n_nodes})")
         return jax.jit(nr_solve)
 
     def _compute_voltage_param(self, name: str, V: jax.Array,
