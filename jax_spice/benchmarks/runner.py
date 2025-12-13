@@ -1375,16 +1375,15 @@ class VACASKBenchmarkRunner:
                 source_device_data, vmapped_fns, static_inputs_cache, n_unknowns, use_dense
             )
 
-            # Pre-JIT build_system_fn separately (layered compilation)
-            # This compiles device evaluation + matrix assembly as a separate unit,
-            # so nr_solve's trace only includes loop control + linear algebra
+            # JIT compile build_system_fn separately (layered compilation)
+            # JAX handles nested JIT naturally - inner JIT is compiled as a call
             build_system_jit = jax.jit(build_system_fn)
-            logger.info("Pre-JIT compiled build_system function")
+            logger.info("Created JIT-wrapped build_system function")
 
-            # AoT compile NR solver (trace -> lower -> compile)
-            # Since build_system_jit is already compiled, this trace is small
-            nr_solve = self._make_aot_compiled_solver(
-                build_system_jit, n_nodes, n_vsources, n_isources,
+            # Create JIT-compiled NR solver (not AoT - let JAX compile lazily)
+            # This allows nested JIT to work correctly
+            nr_solve = self._make_jit_compiled_solver(
+                build_system_jit, n_nodes,
                 max_iterations=MAX_NR_ITERATIONS, abstol=1e-9, max_step=1.0
             )
 
@@ -1819,39 +1818,31 @@ class VACASKBenchmarkRunner:
 
         return build_system
 
-    def _make_aot_compiled_solver(
+    def _make_jit_compiled_solver(
         self,
         build_system_jit: Callable,
         n_nodes: int,
-        n_vsources: int,
-        n_isources: int,
         max_iterations: int = MAX_NR_ITERATIONS,
         abstol: float = 1e-9,
         max_step: float = 1.0,
     ) -> Callable:
-        """Create an AoT-compiled NR solver with explicit shape specs.
+        """Create a JIT-compiled NR solver with nested JIT for build_system.
 
         Uses layered JIT compilation for efficient compilation of large circuits:
-        - build_system_jit should already be JIT-compiled (via jax.jit)
-        - This function's AoT trace only includes loop control + linear algebra
-        - Device evaluation and matrix assembly are NOT traced inline
-
-        This layered approach prevents OOM during AoT compilation for large
-        circuits like c6288 (86k nodes, 10k devices).
+        - build_system_jit is already JIT-wrapped (via jax.jit)
+        - When the outer JIT traces nr_solve, the inner JIT becomes a call boundary
+        - This prevents inlining of all device evaluations into the outer trace
 
         Args:
-            build_system_jit: Pre-JIT'd function (V, vsource_vals, isource_vals) -> (J, f)
+            build_system_jit: JIT-wrapped function (V, vsource_vals, isource_vals) -> (J, f)
             n_nodes: Total node count including ground (V.shape[0])
-            n_vsources: Number of voltage sources
-            n_isources: Number of current sources
             max_iterations: Maximum NR iterations
             abstol: Absolute tolerance for convergence
             max_step: Maximum voltage step per iteration
 
         Returns:
-            AoT-compiled function: (V, vsource_vals, isource_vals) -> (V, iters, converged, max_f)
+            JIT-compiled function: (V, vsource_vals, isource_vals) -> (V, iters, converged, max_f)
         """
-        from jax import ShapeDtypeStruct
 
         def nr_solve(V_init: jax.Array, vsource_vals: jax.Array, isource_vals: jax.Array):
             # State: (V, iteration, converged, max_f, max_delta)
@@ -1870,7 +1861,7 @@ class VACASKBenchmarkRunner:
             def body_fn(state):
                 V, iteration, _, _, _ = state
 
-                # Build system (J and f) - calls pre-JIT'd function (not traced inline)
+                # Build system (J and f) - calls JIT'd function
                 J, f = build_system_jit(V, vsource_vals, isource_vals)
 
                 # Check residual convergence
@@ -1902,16 +1893,9 @@ class VACASKBenchmarkRunner:
 
             return V_final, iterations, converged, max_f
 
-        # Create shape specs for AoT compilation (no actual data needed)
-        V_spec = ShapeDtypeStruct((n_nodes,), jnp.float64)
-        vs_spec = ShapeDtypeStruct((n_vsources,), jnp.float64)
-        is_spec = ShapeDtypeStruct((n_isources,), jnp.float64)
-
-        # AoT: trace -> lower -> compile (done once, reusable)
-        logger.info(f"AoT compiling NR solver: V({n_nodes}), vs({n_vsources}), is({n_isources})")
-        compiled = jax.jit(nr_solve).trace(V_spec, vs_spec, is_spec).lower().compile()
-
-        return compiled
+        # Return JIT-wrapped function - compilation happens lazily on first call
+        logger.info(f"Creating JIT-compiled NR solver: V({n_nodes})")
+        return jax.jit(nr_solve)
 
     def _compute_voltage_param(self, name: str, V: jax.Array,
                                 node_map: Dict[str, int],
