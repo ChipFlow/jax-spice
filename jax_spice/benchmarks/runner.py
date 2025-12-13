@@ -100,6 +100,10 @@ class VACASKBenchmarkRunner:
         self._compiled_models: Dict[str, Any] = {}
         self._has_openvaf_devices = False
 
+        # Transient setup cache (reused across multiple run_transient calls)
+        self._transient_setup_cache: Dict[str, Any] | None = None
+        self._transient_setup_key: str | None = None
+
     def clear_cache(self):
         """Clear all cached data to free memory between benchmarks.
 
@@ -116,6 +120,10 @@ class VACASKBenchmarkRunner:
             del self._cached_nr_solve
         if hasattr(self, '_cached_solver_key'):
             del self._cached_solver_key
+
+        # Clear transient setup cache
+        self._transient_setup_cache = None
+        self._transient_setup_key = None
 
         # Clear JAX compilation caches
         jax.clear_caches()
@@ -148,6 +156,10 @@ class VACASKBenchmarkRunner:
         """Parse the sim file and extract circuit information."""
         import time
         import sys
+
+        # Clear transient setup cache when re-parsing (circuit may have changed)
+        self._transient_setup_cache = None
+        self._transient_setup_key = None
 
         logger.info("parse(): starting...")
 
@@ -1272,11 +1284,116 @@ class VACASKBenchmarkRunner:
         device = get_device(backend)
         dtype = get_default_dtype(backend)
 
-        # Set up internal nodes for OpenVAF devices
-        n_total, device_internal_nodes = self._setup_internal_nodes()
-        n_external = self.num_nodes
-        n_unknowns = n_total - 1
+        # Create transient setup cache key (topology-based)
+        setup_cache_key = f"{self.num_nodes}_{len(self.devices)}_{use_dense}_{backend}"
 
+        # Check if we have cached transient setup data
+        if (self._transient_setup_cache is not None and
+            self._transient_setup_key == setup_cache_key):
+            # Reuse cached setup data
+            logger.info("Reusing cached transient setup")
+            setup = self._transient_setup_cache
+            n_total = setup['n_total']
+            device_internal_nodes = setup['device_internal_nodes']
+            n_unknowns = setup['n_unknowns']
+            source_fn = setup['source_fn']
+            openvaf_by_type = setup['openvaf_by_type']
+            vmapped_fns = setup['vmapped_fns']
+            static_inputs_cache = setup['static_inputs_cache']
+            source_device_data = setup['source_device_data']
+        else:
+            # Build all setup data (first time or after topology change)
+            logger.info("Building transient setup (first run)...")
+
+            # Set up internal nodes for OpenVAF devices
+            n_total, device_internal_nodes = self._setup_internal_nodes()
+            n_unknowns = n_total - 1
+
+            # Build time-varying source function
+            logger.info("Building source function")
+            source_fn = self._build_source_fn()
+
+            # Group devices by type
+            # All non-source devices (resistor, capacitor, diode, etc.) go through OpenVAF
+            # Only vsource and isource remain as "source devices" handled separately
+            openvaf_by_type: Dict[str, List[Dict]] = {}
+            source_devices = []
+            for dev in self.devices:
+                if dev.get('is_openvaf'):
+                    model_type = dev['model']
+                    if model_type not in openvaf_by_type:
+                        openvaf_by_type[model_type] = []
+                    openvaf_by_type[model_type].append(dev)
+                elif dev['model'] in ('vsource', 'isource'):
+                    source_devices.append(dev)
+
+            logger.debug(f"{len(source_devices)} source devices")
+            # Prepare OpenVAF: vmapped functions, static inputs, and stamp index mappings
+            vmapped_fns: Dict[str, Callable] = {}
+            static_inputs_cache: Dict[str, Tuple[Any, List[int], List[Dict], Dict]] = {}
+
+            for model_type in openvaf_by_type:
+                logger.debug(f"Getting compiled model for {model_type}")
+                compiled = self._compiled_models.get(model_type)
+                logger.debug(f"Got model:\n  module: {compiled['module']}\n  translator: {compiled['translator']}\n  jax_fn_arrary: {compiled['jax_fn_array']}\n  vmapped_fn: {compiled['vmapped_fn']}\n  array_metadata size: {len(compiled['array_metadata'])}")
+                if compiled and 'vmapped_fn' in compiled:
+                    vmapped_fns[model_type] = compiled['vmapped_fn']
+                    logger.debug(f"Preparing static inputs: {model_type}")
+                    static_inputs, voltage_indices, device_contexts = self._prepare_static_inputs(
+                        model_type, openvaf_by_type[model_type], device_internal_nodes, ground
+                    )
+                    # Pre-compute stamp index mapping (once per model type)
+                    logger.debug(f"building stamp index mapping for {model_type}")
+                    stamp_indices = self._build_stamp_index_mapping(
+                        model_type, device_contexts, ground
+                    )
+                    # Pre-compute voltage node arrays for vectorized update
+                    n_devices = len(device_contexts)
+                    n_voltages = len(voltage_indices)
+                    # Build arrays directly from list comprehension (setup phase only)
+                    logger.debug("building voltage model")
+                    voltage_node1 = jnp.array([
+                        [n1 for n1, n2 in ctx['voltage_node_pairs']]
+                        for ctx in device_contexts
+                    ], dtype=jnp.int32)
+                    voltage_node2 = jnp.array([
+                        [n2 for n1, n2 in ctx['voltage_node_pairs']]
+                        for ctx in device_contexts
+                    ], dtype=jnp.int32)
+
+
+                    logger.debug("fetching static inputs")
+                    if backend == "gpu":
+                        with jax.default_device(device):
+                            static_inputs = jnp.array(static_inputs, dtype=dtype)
+                    else:
+                        static_inputs = jnp.array(static_inputs, dtype=jnp.float64)
+                    static_inputs_cache[model_type] = (
+                        static_inputs, voltage_indices, stamp_indices, voltage_node1, voltage_node2
+                    )
+                    n_devs = len(openvaf_by_type[model_type])
+                    logger.info(f"Prepared {model_type}: {n_devs} devices, stamp indices cached")
+
+            # Pre-compute source device stamp indices
+            logger.debug("Precomputing source device data")
+            source_device_data = self._prepare_source_devices_coo(source_devices, ground, n_unknowns)
+
+            # Cache setup data for reuse
+            self._transient_setup_cache = {
+                'n_total': n_total,
+                'device_internal_nodes': device_internal_nodes,
+                'n_unknowns': n_unknowns,
+                'source_fn': source_fn,
+                'openvaf_by_type': openvaf_by_type,
+                'vmapped_fns': vmapped_fns,
+                'static_inputs_cache': static_inputs_cache,
+                'source_device_data': source_device_data,
+            }
+            self._transient_setup_key = setup_cache_key
+            logger.info("Cached transient setup for reuse")
+
+        # Variables used outside the cached setup block
+        n_external = self.num_nodes
         solver_type = "dense batched scatter" if use_dense else "COO sparse"
         logger.info(f"Total nodes: {n_total} ({n_external} external, {n_total - n_external} internal)")
         logger.info(f"Backend: {backend}, device: {device.platform}")
@@ -1285,75 +1402,6 @@ class VACASKBenchmarkRunner:
         # Initialize voltages
         V = jnp.zeros(n_total, dtype=jnp.float64)
         V_prev = jnp.zeros(n_total, dtype=jnp.float64)
-
-        # Build time-varying source function
-        logger.info("Building source function")
-        source_fn = self._build_source_fn()
-
-        # Group devices by type
-        # All non-source devices (resistor, capacitor, diode, etc.) go through OpenVAF
-        # Only vsource and isource remain as "source devices" handled separately
-        openvaf_by_type: Dict[str, List[Dict]] = {}
-        source_devices = []
-        for dev in self.devices:
-            if dev.get('is_openvaf'):
-                model_type = dev['model']
-                if model_type not in openvaf_by_type:
-                    openvaf_by_type[model_type] = []
-                openvaf_by_type[model_type].append(dev)
-            elif dev['model'] in ('vsource', 'isource'):
-                source_devices.append(dev)
-
-        logger.debug(f"{len(source_devices)} source devices")
-        # Prepare OpenVAF: vmapped functions, static inputs, and stamp index mappings
-        vmapped_fns: Dict[str, Callable] = {}
-        static_inputs_cache: Dict[str, Tuple[Any, List[int], List[Dict], Dict]] = {}
-
-        for model_type in openvaf_by_type:
-            logger.debug(f"Getting compiled model for {model_type}")
-            compiled = self._compiled_models.get(model_type)
-            logger.debug(f"Got model:\n  module: {compiled['module']}\n  translator: {compiled['translator']}\n  jax_fn_arrary: {compiled['jax_fn_array']}\n  vmapped_fn: {compiled['vmapped_fn']}\n  array_metadata size: {len(compiled['array_metadata'])}")
-            if compiled and 'vmapped_fn' in compiled:
-                vmapped_fns[model_type] = compiled['vmapped_fn']
-                logger.debug(f"Preparing static inputs: {model_type}")
-                static_inputs, voltage_indices, device_contexts = self._prepare_static_inputs(
-                    model_type, openvaf_by_type[model_type], device_internal_nodes, ground
-                )
-                # Pre-compute stamp index mapping (once per model type)
-                logger.debug(f"building stamp index mapping for {model_type}")
-                stamp_indices = self._build_stamp_index_mapping(
-                    model_type, device_contexts, ground
-                )
-                # Pre-compute voltage node arrays for vectorized update
-                n_devices = len(device_contexts)
-                n_voltages = len(voltage_indices)
-                # Build arrays directly from list comprehension (setup phase only)
-                logger.debug("building voltage model")
-                voltage_node1 = jnp.array([
-                    [n1 for n1, n2 in ctx['voltage_node_pairs']]
-                    for ctx in device_contexts
-                ], dtype=jnp.int32)
-                voltage_node2 = jnp.array([
-                    [n2 for n1, n2 in ctx['voltage_node_pairs']]
-                    for ctx in device_contexts
-                ], dtype=jnp.int32)
-
-
-                logger.debug("fetching static inputs")
-                if backend == "gpu":
-                    with jax.default_device(device):
-                        static_inputs = jnp.array(static_inputs, dtype=dtype)
-                else:
-                    static_inputs = jnp.array(static_inputs, dtype=jnp.float64)
-                static_inputs_cache[model_type] = (
-                    static_inputs, voltage_indices, stamp_indices, voltage_node1, voltage_node2
-                )
-                n_devs = len(openvaf_by_type[model_type])
-                logger.info(f"Prepared {model_type}: {n_devs} devices, stamp indices cached")
-
-        # Pre-compute source device stamp indices
-        logger.debug("Precomputing source device data")
-        source_device_data = self._prepare_source_devices_coo(source_devices, ground, n_unknowns)
 
         # Helper to build source value arrays from dict (called once per timestep)
         def build_source_arrays(source_values: Dict) -> Tuple[jax.Array, jax.Array]:
