@@ -144,8 +144,8 @@ jobs:
             echo "Running VACASK benchmark: $bench"
             cd "${{ github.workspace }}/vendor/VACASK/benchmark"
 
-            # Run benchmark (1 run, no warmup for CI)
-            python3 benchmark.py -n 1 -wd "/tmp/vacask-$bench" "$bench/vacask" "$VACASK_BIN" 2>&1 | tee "/tmp/vacask-$bench.log" || true
+            # Run benchmark (1 run, no warmup for CI) using uv's python which has numpy
+            uv run python benchmark.py -n 1 -wd "/tmp/vacask-$bench" "$bench/vacask" "$VACASK_BIN" 2>&1 | tee "/tmp/vacask-$bench.log" || true
           done
 
       # Generate comparison summary
