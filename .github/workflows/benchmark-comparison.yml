@@ -33,6 +33,10 @@ jobs:
           wget https://apt.llvm.org/llvm.sh
           chmod +x llvm.sh
           sudo ./llvm.sh 18
+          # Install additional LLVM tools needed by OpenVAF
+          sudo apt-get install -y lld-18
+          # Add LLVM tools to PATH and set environment
+          echo "/usr/lib/llvm-18/bin" >> "$GITHUB_PATH"
           echo "LLVM_SYS_181_PREFIX=/usr/lib/llvm-18" >> "$GITHUB_ENV"
 
       - name: Set up Rust
@@ -59,6 +63,9 @@ jobs:
 
       - name: Build openvaf-r (standalone compiler for VACASK)
         working-directory: openvaf-py/vendor/OpenVAF
+        env:
+          # Skip Windows cross-compilation library generation (we only need Linux)
+          RUST_CHECK: "1"
         run: |
           cargo build --release --bin openvaf-r --no-default-features --features llvm18
           echo "OPENVAF_DIR=${{ github.workspace }}/openvaf-py/vendor/OpenVAF/target/release" >> "$GITHUB_ENV"
