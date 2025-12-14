@@ -110,7 +110,9 @@ jobs:
           cmake .. \
             -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
+            -DBoost_NO_SYSTEM_PATHS=TRUE \
             -DBoost_INCLUDE_DIR=/tmp/boost_1_88_0 \
+            -DCMAKE_PREFIX_PATH="/tmp/boost_1_88_0/stage/lib/cmake" \
             -DOPENVAF_DIR="${OPENVAF_DIR}"
           ninja vacask
 
