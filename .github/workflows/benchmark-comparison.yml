@@ -97,6 +97,12 @@ jobs:
           ./bootstrap.sh --with-libraries=filesystem,process,system
           ./b2 -j"$(nproc)" link=static
 
+      - name: Download toml++ 3.4.0
+        run: |
+          cd /tmp
+          wget -q https://github.com/marzer/tomlplusplus/archive/refs/tags/v3.4.0.tar.gz
+          tar -xzf v3.4.0.tar.gz
+
       - name: Cache VACASK build
         uses: actions/cache@v4
         with:
@@ -113,6 +119,7 @@ jobs:
             -DBoost_NO_SYSTEM_PATHS=TRUE \
             -DBoost_INCLUDE_DIR=/tmp/boost_1_88_0 \
             -DCMAKE_PREFIX_PATH="/tmp/boost_1_88_0/stage/lib/cmake" \
+            -DTOMLPP_DIR=/tmp/tomlplusplus-3.4.0 \
             -DOPENVAF_DIR="${OPENVAF_DIR}"
           ninja vacask
 
