@@ -121,8 +121,8 @@ jobs:
             -DCMAKE_PREFIX_PATH="/tmp/boost_1_88_0/stage/lib/cmake" \
             -DTOMLPP_DIR=/tmp/tomlplusplus-3.4.0 \
             -DOPENVAF_DIR="${OPENVAF_DIR}"
-          # Build simulator and device models (OSDI files)
-          ninja vacask build_and_stage_devices
+          # Build simulator only - device OSDI compilation crashes openvaf on Linux/LLVM18
+          ninja vacask
 
       # Run JAX-SPICE benchmarks
       - name: Run JAX-SPICE benchmarks
@@ -137,22 +137,15 @@ jobs:
           done
 
       # Run VACASK benchmarks
+      # NOTE: Disabled because openvaf-r crashes on Linux/LLVM18 when compiling OSDI device files
+      # TODO: Re-enable once OpenVAF bug is fixed
       - name: Run VACASK benchmarks
         run: |
-          VACASK_BIN="${{ github.workspace }}/vendor/VACASK/build/simulator/vacask"
-          OSDI_DIR="${{ github.workspace }}/vendor/VACASK/build/devices"
-
+          echo "VACASK benchmarks skipped - openvaf-r crashes on Linux/LLVM18 when compiling device models"
+          echo "See: https://github.com/pascalkuthe/OpenVAF/issues/"
+          # Create placeholder logs
           for bench in rc graetz ring; do
-            echo "Running VACASK benchmark: $bench"
-            cd "${{ github.workspace }}/vendor/VACASK/benchmark"
-
-            # Set up work directory with OSDI files
-            WORK_DIR="/tmp/vacask-$bench"
-            mkdir -p "$WORK_DIR/spice"
-            cp -r "$OSDI_DIR/spice/"*.osdi "$WORK_DIR/spice/" 2>/dev/null || true
-
-            # Run benchmark (1 run, no warmup for CI) using uv's python which has numpy
-            uv run python benchmark.py -n 1 -wd "$WORK_DIR" "$bench/vacask" "$VACASK_BIN" 2>&1 | tee "/tmp/vacask-$bench.log" || true
+            echo "VACASK benchmark skipped due to openvaf crash" > "/tmp/vacask-$bench.log"
           done
 
       # Generate comparison summary
