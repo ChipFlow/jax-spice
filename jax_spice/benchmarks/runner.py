@@ -1217,6 +1217,35 @@ class VACASKBenchmarkRunner:
 
         return times, voltages, stats
 
+    # =========================================================================
+    # Node Collapse Implementation
+    # =========================================================================
+    #
+    # JAX-SPICE vs VACASK Node Count Comparison:
+    #
+    # VACASK reports two metrics via 'print stats':
+    #   - "Number of nodes" = nodeCount() = all Node objects in nodeMap
+    #   - "Number of unknowns" = unknownCount() = system size after collapse
+    #
+    # Key difference:
+    #   - VACASK creates Node objects for ALL internal nodes, even collapsed ones.
+    #     After collapse, multiple Node objects share the same unknownIndex.
+    #   - JAX-SPICE doesn't create objects for collapsed internal nodes at all.
+    #     We directly allocate circuit nodes only for non-collapsed internals.
+    #
+    # Comparison for c6288 benchmark (PSP103 with all resistance params = 0):
+    #   VACASK nodeCount():    ~86,000 (5,123 external + 81k internal Node objects)
+    #   VACASK unknownCount(): ~15,234 (actual system matrix size after collapse)
+    #   JAX-SPICE total_nodes: ~15,235 (directly matches unknownCount + 1 for ground)
+    #
+    # JAX-SPICE's approach is more memory-efficient: we don't allocate internal
+    # node objects that would just be collapsed anyway. Our total_nodes from
+    # _setup_internal_nodes() should match VACASK's unknownCount() + 1.
+    #
+    # The +1 difference is because VACASK's unknownCount excludes ground (index 0),
+    # while JAX-SPICE counts ground as node 0 in the total.
+    # =========================================================================
+
     def _should_collapse_all_pairs(self, model_type: str, model_params: Dict[str, float]) -> bool:
         """Determine if all collapsible pairs should be collapsed for a model.
 
