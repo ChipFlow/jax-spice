@@ -397,15 +397,21 @@ class TestNodeCountComparison:
             timeout=120
         )
 
-        # Parse "Number of nodes:" from output
-        match = re.search(r"Number of nodes:\s+(\d+)", result.stdout)
-        if match:
-            return int(match.group(1))
+        # Parse both "Number of nodes:" and "Number of unknonws:" from output
+        # Note: VACASK has a typo "unknonws" instead of "unknowns"
+        nodes_match = re.search(r"Number of nodes:\s+(\d+)", result.stdout)
+        unknowns_match = re.search(r"Number of unknonws:\s+(\d+)", result.stdout)
 
-        # If not found in stdout, try stderr
-        match = re.search(r"Number of nodes:\s+(\d+)", result.stderr)
-        if match:
-            return int(match.group(1))
+        if not nodes_match:
+            nodes_match = re.search(r"Number of nodes:\s+(\d+)", result.stderr)
+        if not unknowns_match:
+            unknowns_match = re.search(r"Number of unknonws:\s+(\d+)", result.stderr)
+
+        if nodes_match and unknowns_match:
+            return {
+                'nodes': int(nodes_match.group(1)),
+                'unknowns': int(unknowns_match.group(1))
+            }
 
         raise ValueError(
             f"Could not parse node count from VACASK output.\n"
@@ -422,57 +428,85 @@ class TestNodeCountComparison:
 
     @pytest.mark.parametrize("benchmark", ["rc", "graetz", "ring"])
     def test_node_count_matches_vacask(self, vacask_bin, benchmark):
-        """Compare JAX-SPICE node count with VACASK for simple benchmarks."""
+        """Compare JAX-SPICE node count with VACASK for simple benchmarks.
+
+        For simple benchmarks without complex internal nodes, we compare:
+        - JAX-SPICE external nodes (num_nodes) vs VACASK's nodeCount
+        - JAX-SPICE total nodes vs VACASK's unknownCount + 1 (for ground)
+        """
         sim_path = get_benchmark_sim(benchmark)
         if not sim_path.exists():
             pytest.skip(f"Benchmark not found at {sim_path}")
 
-        # Get VACASK node count
-        vacask_nodes = self.get_vacask_node_count(vacask_bin, benchmark)
+        # Get VACASK counts (both nodes and unknowns)
+        vacask_counts = self.get_vacask_node_count(vacask_bin, benchmark)
+        vacask_nodes = vacask_counts['nodes']
+        vacask_unknowns = vacask_counts['unknowns']
 
-        # Get JAX-SPICE node count
+        # Get JAX-SPICE counts
         runner = VACASKBenchmarkRunner(sim_path)
         runner.parse()
-        jax_nodes = runner.num_nodes
+        jax_external = runner.num_nodes
+        n_total, _ = runner._setup_internal_nodes()
 
         # Report counts
-        print(f"\n{benchmark}: JAX-SPICE={jax_nodes}, VACASK={vacask_nodes}")
+        print(f"\n{benchmark}:")
+        print(f"  VACASK: nodes={vacask_nodes}, unknowns={vacask_unknowns}")
+        print(f"  JAX-SPICE: external={jax_external}, total={n_total}")
 
-        # Allow tolerance of 1 for ground node handling differences
-        diff = abs(jax_nodes - vacask_nodes)
-        assert diff <= 1, \
-            f"{benchmark}: JAX-SPICE has {jax_nodes} nodes, VACASK has {vacask_nodes} (diff={diff})"
+        # For simple benchmarks, external nodes should match VACASK's nodeCount
+        # and total should match unknowns + 1 (VACASK excludes ground)
+        diff_external = abs(jax_external - vacask_nodes)
+        diff_total = abs(n_total - (vacask_unknowns + 1))
+
+        assert diff_external <= 1, \
+            f"{benchmark}: external nodes differ: JAX-SPICE={jax_external}, VACASK={vacask_nodes}"
+        assert diff_total <= 1, \
+            f"{benchmark}: total nodes differ: JAX-SPICE={n_total}, VACASK unknowns+1={vacask_unknowns+1}"
 
     def test_c6288_node_count(self, vacask_bin):
         """Test c6288 node count - this is the main target for node collapse fix.
 
-        Expected: ~5,000-10,000 nodes with proper node collapse
-        Current (broken): ~86,000 nodes without node collapse
+        VACASK reports two metrics:
+        - nodeCount: Total Node objects (~86k for c6288, includes all internal nodes)
+        - unknownCount: Actual system size after collapse (~15k for c6288)
+
+        JAX-SPICE's total_nodes should match VACASK's unknownCount + 1 (for ground).
         """
         benchmark = "c6288"
         sim_path = get_benchmark_sim(benchmark)
         if not sim_path.exists():
             pytest.skip(f"c6288 benchmark not found at {sim_path}")
 
-        # Get VACASK node count (the reference)
-        vacask_nodes = self.get_vacask_node_count(vacask_bin, benchmark)
+        # Get VACASK counts
+        vacask_counts = self.get_vacask_node_count(vacask_bin, benchmark)
+        vacask_nodes = vacask_counts['nodes']
+        vacask_unknowns = vacask_counts['unknowns']
 
         # Get JAX-SPICE total node count (external + internal after collapse)
         runner = VACASKBenchmarkRunner(sim_path)
         runner.parse()
         n_total, _ = runner._setup_internal_nodes()
-        jax_nodes = n_total
+        jax_total = n_total
 
         # Report counts
-        print(f"\nc6288: JAX-SPICE total={jax_nodes}, VACASK={vacask_nodes}")
-        print(f"  External nodes: {runner.num_nodes}")
-        print(f"  Internal nodes: {jax_nodes - runner.num_nodes}")
-        print(f"  Ratio: {jax_nodes / vacask_nodes:.1f}x")
+        print(f"\nc6288:")
+        print(f"  VACASK: nodes={vacask_nodes}, unknowns={vacask_unknowns}")
+        print(f"  JAX-SPICE: external={runner.num_nodes}, total={jax_total}")
+        print(f"  Internal nodes: {jax_total - runner.num_nodes}")
+
+        # Compare JAX-SPICE total with VACASK unknowns + 1
+        # (VACASK's unknownCount excludes ground, JAX-SPICE includes it)
+        expected = vacask_unknowns + 1
+        diff = abs(jax_total - expected)
+        ratio = diff / expected if expected > 0 else 0
+
+        print(f"  Comparison: JAX-SPICE total={jax_total} vs VACASK unknowns+1={expected}")
+        print(f"  Difference: {diff} ({ratio*100:.1f}%)")
 
         # Allow 10% tolerance for slight differences in node handling
-        diff = abs(jax_nodes - vacask_nodes)
-        assert diff <= vacask_nodes * 0.1, \
-            f"c6288: JAX-SPICE={jax_nodes}, VACASK={vacask_nodes} (diff={diff}, {diff/vacask_nodes*100:.1f}%)"
+        assert ratio <= 0.1, \
+            f"c6288: JAX-SPICE total={jax_total}, VACASK unknowns+1={expected} (diff={diff}, {ratio*100:.1f}%)"
 
 
 class TestNodeCollapseStandalone:
