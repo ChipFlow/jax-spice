@@ -338,5 +338,146 @@ class TestC6288Benchmark:
         assert len(times) > 0, "No timesteps returned"
 
 
+class TestNodeCountComparison:
+    """Test that JAX-SPICE node counts match VACASK.
+
+    VACASK outputs node count via 'print stats':
+        System stats:
+          Number of nodes:                 <nodeCount>
+          Number of unknonws:              <unknownCount>
+
+    These tests require VACASK to be built and available.
+    """
+
+    @staticmethod
+    def find_vacask_binary() -> Path | None:
+        """Find VACASK simulator binary."""
+        import shutil
+        import os
+
+        # Check environment variable
+        env_path = os.environ.get("VACASK_BIN")
+        if env_path and Path(env_path).exists():
+            return Path(env_path)
+
+        # Check common build locations relative to jax-spice
+        project_root = Path(__file__).parent.parent
+        candidates = [
+            project_root / "vendor" / "VACASK" / "build" / "simulator" / "vacask",
+            project_root / "vendor" / "VACASK" / "build.VACASK" / "Release" / "simulator" / "vacask",
+            project_root / "vendor" / "VACASK" / "build.VACASK" / "Debug" / "simulator" / "vacask",
+        ]
+
+        for candidate in candidates:
+            if candidate.exists():
+                return candidate
+
+        # Check system PATH
+        found = shutil.which("vacask")
+        if found:
+            return Path(found)
+
+        return None
+
+    @staticmethod
+    def get_vacask_node_count(vacask_bin: Path, benchmark: str) -> int:
+        """Run VACASK on benchmark and extract node count from 'print stats'."""
+        import subprocess
+        import re
+
+        sim_file = get_benchmark_sim(benchmark)
+        if not sim_file.exists():
+            raise FileNotFoundError(f"Benchmark sim file not found: {sim_file}")
+
+        result = subprocess.run(
+            [str(vacask_bin), str(sim_file)],
+            capture_output=True,
+            text=True,
+            cwd=sim_file.parent,
+            timeout=120
+        )
+
+        # Parse "Number of nodes:" from output
+        match = re.search(r"Number of nodes:\s+(\d+)", result.stdout)
+        if match:
+            return int(match.group(1))
+
+        # If not found in stdout, try stderr
+        match = re.search(r"Number of nodes:\s+(\d+)", result.stderr)
+        if match:
+            return int(match.group(1))
+
+        raise ValueError(
+            f"Could not parse node count from VACASK output.\n"
+            f"stdout: {result.stdout[:500]}\nstderr: {result.stderr[:500]}"
+        )
+
+    @pytest.fixture
+    def vacask_bin(self):
+        """Get VACASK binary path, skip if not available."""
+        binary = self.find_vacask_binary()
+        if binary is None:
+            pytest.skip("VACASK binary not found. Set VACASK_BIN env var or build VACASK.")
+        return binary
+
+    @pytest.mark.parametrize("benchmark", ["rc", "graetz", "ring"])
+    def test_node_count_matches_vacask(self, vacask_bin, benchmark):
+        """Compare JAX-SPICE node count with VACASK for simple benchmarks."""
+        sim_path = get_benchmark_sim(benchmark)
+        if not sim_path.exists():
+            pytest.skip(f"Benchmark not found at {sim_path}")
+
+        # Get VACASK node count
+        vacask_nodes = self.get_vacask_node_count(vacask_bin, benchmark)
+
+        # Get JAX-SPICE node count
+        runner = VACASKBenchmarkRunner(sim_path)
+        runner.parse()
+        jax_nodes = runner.num_nodes
+
+        # Report counts
+        print(f"\n{benchmark}: JAX-SPICE={jax_nodes}, VACASK={vacask_nodes}")
+
+        # Allow tolerance of 1 for ground node handling differences
+        diff = abs(jax_nodes - vacask_nodes)
+        assert diff <= 1, \
+            f"{benchmark}: JAX-SPICE has {jax_nodes} nodes, VACASK has {vacask_nodes} (diff={diff})"
+
+    def test_c6288_node_count(self, vacask_bin):
+        """Test c6288 node count - this is the main target for node collapse fix.
+
+        Expected: ~5,000-10,000 nodes with proper node collapse
+        Current (broken): ~86,000 nodes without node collapse
+        """
+        benchmark = "c6288"
+        sim_path = get_benchmark_sim(benchmark)
+        if not sim_path.exists():
+            pytest.skip(f"c6288 benchmark not found at {sim_path}")
+
+        # Get VACASK node count (the reference)
+        vacask_nodes = self.get_vacask_node_count(vacask_bin, benchmark)
+
+        # Get JAX-SPICE node count
+        runner = VACASKBenchmarkRunner(sim_path)
+        runner.parse()
+        jax_nodes = runner.num_nodes
+
+        # Report counts
+        print(f"\nc6288: JAX-SPICE={jax_nodes}, VACASK={vacask_nodes}")
+        print(f"  Ratio: {jax_nodes / vacask_nodes:.1f}x")
+
+        # For now, just record the difference
+        # Once node collapse is implemented, this should pass with diff <= 1
+        if jax_nodes > vacask_nodes * 2:
+            pytest.xfail(
+                f"c6288 node count mismatch: JAX-SPICE={jax_nodes}, VACASK={vacask_nodes}. "
+                f"Need to implement node collapse."
+            )
+
+        diff = abs(jax_nodes - vacask_nodes)
+        assert diff <= vacask_nodes * 0.1, \
+            f"c6288: JAX-SPICE={jax_nodes}, VACASK={vacask_nodes} (diff={diff}, {diff/vacask_nodes*100:.1f}%)"
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
