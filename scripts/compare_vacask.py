@@ -329,16 +329,19 @@ def main():
     print("Summary (total wall time)")
     print("=" * 70)
     print()
-    print("| Benchmark | Steps | JAX-SPICE (s) | VACASK (s) | Ratio |")
-    print("|-----------|-------|---------------|------------|-------|")
+    print("| Benchmark | Steps | JAX-SPICE (ms) | VACASK (ms) | Ratio |")
+    print("|-----------|-------|----------------|-------------|-------|")
     for r in results:
-        vacask_str = f"{r['vacask_wall']:.3f}" if r['vacask_wall'] else "N/A"
+        # Convert wall time from seconds to milliseconds for better precision
+        jax_wall_ms = r['jax_wall'] * 1000
+        vacask_wall_ms = r['vacask_wall'] * 1000 if r['vacask_wall'] else None
+        vacask_str = f"{vacask_wall_ms:.1f}" if vacask_wall_ms else "N/A"
         if r['vacask_wall']:
             ratio = r['jax_wall'] / r['vacask_wall']
             ratio_str = f"{ratio:.2f}x"
         else:
             ratio_str = "N/A"
-        print(f"| {r['name']:9} | {r['steps']:5} | {r['jax_wall']:13.3f} | {vacask_str:10} | {ratio_str:5} |")
+        print(f"| {r['name']:9} | {r['steps']:5} | {jax_wall_ms:14.1f} | {vacask_str:11} | {ratio_str:5} |")
 
     print()
     print("=" * 70)
