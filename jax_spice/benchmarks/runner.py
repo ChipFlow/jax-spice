@@ -81,6 +81,23 @@ class VACASKBenchmarkRunner:
         'diode': ('vacask', 'diode.va'),
     }
 
+    # Default parameter values for OpenVAF models
+    # These match the defaults in the Verilog-A model definitions
+    # Used when circuit doesn't specify a parameter value
+    MODEL_PARAM_DEFAULTS = {
+        'diode': {
+            'is': 1e-14, 'n': 1.0, 'rs': 0.0, 'bv': 1e20, 'ibv': 1e-10,
+            'xti': 3.0, 'eg': 1.12, 'tnom': 27.0, 'cjo': 0.0, 'vj': 1.0,
+            'm': 0.5, 'fc': 0.5, 'tt': 0.0, 'area': 1.0,
+        },
+        'resistor': {
+            'r': 1000.0, 'zeta': 0.0, 'tnom': 300.0,
+        },
+        'capacitor': {
+            'c': 1e-12,
+        },
+    }
+
     # SPICE number suffixes
     SUFFIXES = {
         't': 1e12, 'g': 1e9, 'meg': 1e6, 'k': 1e3,
@@ -574,12 +591,12 @@ class VACASKBenchmarkRunner:
             internal_nodes = device_internal_nodes.get(dev['name'], {})
 
             # Build node map: model node name -> global circuit node index
+            # Use actual number of external terminals (not hardcoded 4 for MOSFETs)
             node_map = {}
-            for i, model_node in enumerate(model_nodes[:4]):
-                if i < len(ext_nodes):
-                    node_map[model_node] = ext_nodes[i]
-                else:
-                    node_map[model_node] = ground
+            n_ext_terminals = len(ext_nodes)
+            for i in range(n_ext_terminals):
+                model_node = model_nodes[i]
+                node_map[model_node] = ext_nodes[i]
 
             # Internal nodes
             for model_node, global_idx in internal_nodes.items():
@@ -596,10 +613,29 @@ class VACASKBenchmarkRunner:
                 node_pair = self._parse_voltage_param(name, node_map, model_nodes, ground)
                 voltage_node_pairs.append(node_pair)
 
+            # Get model-specific defaults
+            model_defaults = self.MODEL_PARAM_DEFAULTS.get(model_type, {})
+
+            # Check if model has MULT as a separate param (like PSP103)
+            # If so, mfactor sysfun should stay 0 (it's derived internally)
+            # If not (like diode), mfactor should be 1.0 as the device multiplier
+            has_mult_param = 'MULT' in param_names and param_kinds[param_names.index('MULT')] == 'param'
+
             # Fill input array for this device (static params only, voltages stay 0)
             for param_idx, (name, kind) in enumerate(zip(param_names, param_kinds)):
                 if kind == 'voltage':
                     pass  # Already 0 from np.zeros
+                elif kind == 'temperature':
+                    # Temperature parameters (e.g., $temperature)
+                    all_inputs[dev_idx, param_idx] = 300.15  # ~27°C in Kelvin
+                elif kind == 'sysfun':
+                    # System functions like mfactor
+                    # For models with MULT param (PSP103), leave mfactor=0 (derived from MULT)
+                    # For diode (which has no MULT), set mfactor=1.0 (device multiplier)
+                    # For resistor/capacitor, leave mfactor=0 to preserve original behavior
+                    # (their Jacobian contributions are handled differently)
+                    if name.lower() == 'mfactor' and not has_mult_param and model_type == 'diode':
+                        all_inputs[dev_idx, param_idx] = params.get('mfactor', 1.0)
                 elif kind == 'param':
                     param_lower = name.lower()
                     if param_lower in params:
@@ -612,9 +648,12 @@ class VACASKBenchmarkRunner:
                         all_inputs[dev_idx, param_idx] = 300.0
                     elif param_lower == 'mfactor':
                         all_inputs[dev_idx, param_idx] = params.get('mfactor', 1.0)
+                    elif param_lower in model_defaults:
+                        # Use model-specific default
+                        all_inputs[dev_idx, param_idx] = model_defaults[param_lower]
                     else:
                         all_inputs[dev_idx, param_idx] = 1.0
-                # hidden_state and others stay 0 from np.zeros
+                # hidden_state, current, param_given stay 0 from np.zeros
             device_contexts.append({
                 'name': dev['name'],
                 'node_map': node_map,
@@ -827,11 +866,15 @@ class VACASKBenchmarkRunner:
         """
         import re
 
-        # PSP103 internal node mapping
+        # Node name mapping for different model types
+        # Maps Verilog-A node names to generic node indices (node0, node1, ...)
         internal_name_map = {
+            # PSP103 MOSFET nodes
             'GP': 'node4', 'SI': 'node5', 'DI': 'node6', 'BP': 'node7',
             'BS': 'node8', 'BD': 'node9', 'BI': 'node10', 'NOI': 'node11',
             'G': 'node1', 'D': 'node0', 'S': 'node2', 'B': 'node3',
+            # Diode nodes (A=anode, C=cathode, CI=internal cathode)
+            'A': 'node0', 'C': 'node1', 'CI': 'node2',
         }
 
         match = re.match(r'V\(([^,)]+)(?:,([^)]+))?\)', name)
@@ -881,12 +924,12 @@ class VACASKBenchmarkRunner:
             internal_nodes = device_internal_nodes.get(dev['name'], {})
 
             # Build node map: model node name -> global circuit node index
+            # Use actual number of external terminals (not hardcoded 4 for MOSFETs)
             node_map = {}
-            for i, model_node in enumerate(model_nodes[:4]):
-                if i < len(ext_nodes):
-                    node_map[model_node] = ext_nodes[i]
-                else:
-                    node_map[model_node] = ground
+            n_ext_terminals = len(ext_nodes)
+            for i in range(n_ext_terminals):
+                model_node = model_nodes[i]
+                node_map[model_node] = ext_nodes[i]
 
             # Internal nodes
             for model_node, global_idx in internal_nodes.items():
@@ -1368,14 +1411,18 @@ class VACASKBenchmarkRunner:
             model_nodes = compiled['nodes']
             n_model_nodes = len(model_nodes)
 
-            # Map external nodes to device's external circuit nodes (indices 0-3)
+            # Determine if last node is a branch current node (skip it if so)
+            # Branch current nodes have names like 'br[Branch(BranchId(N))]'
+            last_is_branch = n_model_nodes > 0 and model_nodes[-1].startswith('br[')
+            n_internal_end = n_model_nodes - 1 if last_is_branch else n_model_nodes
+
+            # Map external nodes to device's external circuit nodes
+            # Number of external terminals is determined by the device instance
             ext_nodes = dev['nodes']
+            n_ext_terminals = len(ext_nodes)
             ext_node_map = {}
-            for i in range(min(4, n_model_nodes)):
-                if i < len(ext_nodes):
-                    ext_node_map[i] = ext_nodes[i]
-                else:
-                    ext_node_map[i] = 0  # Ground
+            for i in range(n_ext_terminals):
+                ext_node_map[i] = ext_nodes[i]
 
             if should_collapse and model_type in collapse_roots_cache:
                 collapse_roots = collapse_roots_cache[model_type]
@@ -1385,10 +1432,11 @@ class VACASKBenchmarkRunner:
                 internal_root_to_circuit: Dict[int, int] = {}
                 node_mapping: Dict[int, int] = {}
 
-                for i in range(4, n_model_nodes - 1):  # Internal nodes only (skip external and branch)
+                # Internal nodes start after external terminals
+                for i in range(n_ext_terminals, n_internal_end):
                     root = collapse_roots.get(i, i)
 
-                    if root < 4:
+                    if root < n_ext_terminals:
                         # Root is an external node - use its circuit node
                         node_mapping[i] = ext_node_map[root]
                     else:
@@ -1400,13 +1448,13 @@ class VACASKBenchmarkRunner:
             else:
                 # No collapse - allocate internal nodes normally
                 node_mapping = {}
-                for i in range(4, n_model_nodes - 1):
+                for i in range(n_ext_terminals, n_internal_end):
                     node_mapping[i] = next_internal
                     next_internal += 1
 
             # Build internal_map: model node name -> circuit node index
             internal_map = {}
-            for i in range(4, n_model_nodes - 1):
+            for i in range(n_ext_terminals, n_internal_end):
                 node_name = model_nodes[i]
                 internal_map[node_name] = node_mapping[i]
 
