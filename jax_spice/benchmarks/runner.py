@@ -52,6 +52,7 @@ _COMPILED_MODEL_CACHE: Dict[str, Any] = {}
 
 # Newton-Raphson solver constants
 MAX_NR_ITERATIONS = 100  # Maximum Newton-Raphson iterations per timestep
+DEFAULT_ABSTOL = 1e-3  # Absolute tolerance for NR convergence (matches SPICE reltol)
 
 
 class VACASKBenchmarkRunner:
@@ -65,7 +66,7 @@ class VACASKBenchmarkRunner:
     MODULE_TO_DEVICE = {
         'sp_resistor': 'resistor',
         'sp_capacitor': 'capacitor',
-        'sp_diode': 'diode',
+        'sp_diode': 'diode',  # Use simplified diode model (sp_diode model has NaN issues)
         'vsource': 'vsource',
         'isource': 'isource',
         'psp103va': 'psp103',  # PSP103 MOSFET
@@ -79,6 +80,7 @@ class VACASKBenchmarkRunner:
         'resistor': ('vacask', 'resistor.va'),
         'capacitor': ('vacask', 'capacitor.va'),
         'diode': ('vacask', 'diode.va'),
+        'sp_diode': ('vacask', 'spice/sn/diode.va'),  # Full SPICE diode model
     }
 
     # Default parameter values for OpenVAF models
@@ -89,6 +91,12 @@ class VACASKBenchmarkRunner:
             'is': 1e-14, 'n': 1.0, 'rs': 0.0, 'bv': 1e20, 'ibv': 1e-10,
             'xti': 3.0, 'eg': 1.12, 'tnom': 27.0, 'cjo': 0.0, 'vj': 1.0,
             'm': 0.5, 'fc': 0.5, 'tt': 0.0, 'area': 1.0,
+        },
+        'sp_diode': {
+            # Full SPICE diode model defaults from spice/sn/diode.va
+            'is': 1e-14, 'jsw': 0.0, 'tnom': 0.0, 'rs': 0.0,
+            'n': 1.0, 'ns': 1.0, 'tt': 0.0, 'cjo': 0.0, 'vj': 1.0,
+            'm': 0.5, 'bv': 0.0, 'ibv': 1e-3, 'area': 0.0, 'pj': 0.0,
         },
         'resistor': {
             'r': 1000.0, 'zeta': 0.0, 'tnom': 300.0,
@@ -1681,7 +1689,7 @@ class VACASKBenchmarkRunner:
                 # Dense solver for small/medium circuits
                 nr_solve = self._make_jit_compiled_solver(
                     build_system_jit, n_nodes,
-                    max_iterations=MAX_NR_ITERATIONS, abstol=1e-6, max_step=1.0
+                    max_iterations=MAX_NR_ITERATIONS, abstol=DEFAULT_ABSTOL, max_step=1.0
                 )
             else:
                 # Sparse solver for large circuits (uses spsolve with QR factorization)
@@ -1702,7 +1710,7 @@ class VACASKBenchmarkRunner:
 
                 nr_solve = self._make_sparse_jit_compiled_solver(
                     build_system_jit, n_nodes, nse,
-                    max_iterations=MAX_NR_ITERATIONS, abstol=1e-6, max_step=1.0
+                    max_iterations=MAX_NR_ITERATIONS, abstol=DEFAULT_ABSTOL, max_step=1.0
                 )
 
             # Cache JIT-wrapped solver (JAX handles compilation automatically)
