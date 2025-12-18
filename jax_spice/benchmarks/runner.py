@@ -1292,25 +1292,17 @@ class VACASKBenchmarkRunner:
     def _should_collapse_all_pairs(self, model_type: str, model_params: Dict[str, float]) -> bool:
         """Determine if all collapsible pairs should be collapsed for a model.
 
-        For PSP103, when resistance parameters (rbulko, rwello, rjundo, rjunso) are all 0,
-        all internal nodes associated with those resistors should collapse.
+        Always returns True - we always collapse internal nodes as specified by the
+        model's collapsible_pairs. This reduces system size significantly for models
+        like PSP103 where many internal nodes can be merged.
 
         Args:
             model_type: The model type (e.g., 'psp103')
-            model_params: Model parameters dictionary
+            model_params: Model parameters dictionary (unused, kept for API compat)
 
         Returns:
-            True if all collapsible pairs should be collapsed
+            True - always collapse
         """
-        if model_type.lower() != 'psp103':
-            return False
-
-        # PSP103 collapse parameters - when all zero, collapse all internal nodes
-        collapse_params = ['rbulko', 'rwello', 'rjundo', 'rjunso']
-        for param in collapse_params:
-            if model_params.get(param, 0.0) != 0.0:
-                return False
-
         return True
 
     def _get_model_params_for_collapse(self, model_type: str) -> Dict[str, float]:
