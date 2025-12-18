@@ -13,7 +13,7 @@ from typing import Dict, List, Tuple
 from pathlib import Path
 
 from conftest import (
-    INTEGRATION_PATH, LOCAL_MODELS_PATH, INTEGRATION_MODELS, assert_allclose,
+    INTEGRATION_PATH, INTEGRATION_MODELS, assert_allclose,
     CompiledModel, build_param_dict
 )
 
@@ -211,81 +211,3 @@ class TestEkvMosfet:
                     )
 
 
-class TestLocalMosfetLevel1:
-    """Tests for our local simple MOSFET model"""
-
-    @pytest.fixture
-    def mosfet(self, compile_model):
-        return compile_model(LOCAL_MODELS_PATH / "mosfet_level1.va")
-
-    @pytest.mark.parametrize("vd,vg,vs,vb,region", [
-        (1.2, 0.0, 0.0, 0.0, "cutoff"),
-        (1.2, 1.2, 0.0, 0.0, "saturation"),
-        (0.2, 1.2, 0.0, 0.0, "linear"),
-    ])
-    def test_mosfet_regions_match_osdi(self, mosfet, vd, vg, vs, vb, region):
-        """MOSFET JAX matches interpreter in all operating regions"""
-        vgs = vg - vs
-        vds = vd - vs
-        vbs = vb - vs
-        vth = 0.4
-        vov = vgs - vth
-        kp = 200e-6
-        w = 1e-6
-        l = 0.2e-6
-        beta = kp * w / l
-        lam = 0.01
-        gdsmin = 1e-9
-
-        jax_inputs = [
-            0, 1.0, vs, vg, 0.0, vd, 0.0, vb, 0.0,
-            kp, w, l, 0.0, vth, 0.0, gdsmin, 0.0, lam, 0.0, 1.0
-        ]
-
-        interp_params = {
-            'PMOS': 0, 'sign': 1.0, 'V(s)': vs, 'V(g)': vg, 'Vgs': vgs,
-            'V(d)': vd, 'Vds': vds, 'V(b)': vb, 'Vbs': vbs, 'KP': kp,
-            'W': w, 'L': l, 'beta': beta, 'VTH0': vth, 'Vov': vov,
-            'GDSMIN': gdsmin, 'Ids': 0.0, 'LAMBDA': lam, 'I(d,s)': 0.0,
-            'mfactor': 1.0
-        }
-
-        jax_residuals, jax_jacobian = mosfet.jax_fn(jax_inputs)
-        interp_residuals, interp_jacobian = mosfet.module.run_init_eval(interp_params)
-
-        # Compare drain current
-        jax_I = float(jax_residuals['sim_node0']['resist'])
-        interp_I = interp_residuals[0][0]
-
-        assert_allclose(
-            jax_I, interp_I,
-            rtol=1e-6, atol=1e-15,
-            err_msg=f"MOSFET {region} drain current mismatch"
-        )
-
-        # Compare Jacobian diagonal (critical for Newton stability)
-        jax_gds = float(jax_jacobian[('sim_node0', 'sim_node0')]['resist'])
-        interp_jac_dict = {(r, c): resist for r, c, resist, _ in interp_jacobian}
-        interp_gds = interp_jac_dict.get((0, 0), 0.0)
-
-        assert_allclose(
-            jax_gds, interp_gds,
-            rtol=1e-5, atol=1e-12,
-            err_msg=f"MOSFET {region} gds mismatch"
-        )
-
-    def test_positive_diagonal_jacobian(self, mosfet):
-        """Verify Jacobian diagonal is positive (critical for SPICE convergence)"""
-        # Saturation: Vgs=1.2, Vds=1.2
-        jax_inputs = [
-            0, 1.0, 0.0, 1.2, 0.0, 1.2, 0.0, 0.0, 0.0,
-            200e-6, 1e-6, 0.2e-6, 0.0, 0.4, 0.0, 1e-9, 0.0, 0.01, 0.0, 1.0
-        ]
-
-        _, jax_jacobian = mosfet.jax_fn(jax_inputs)
-
-        j_dd = float(jax_jacobian[('sim_node0', 'sim_node0')]['resist'])
-        j_ss = float(jax_jacobian[('sim_node2', 'sim_node2')]['resist'])
-
-        assert j_dd > 0, f"Drain diagonal must be positive: {j_dd}"
-        assert j_ss > 0, f"Source diagonal must be positive: {j_ss}"

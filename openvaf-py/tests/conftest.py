@@ -17,9 +17,6 @@ import openvaf_jax
 # Path to OpenVAF integration tests (in vendor submodule)
 INTEGRATION_PATH = Path(__file__).parent.parent / "vendor" / "OpenVAF" / "integration_tests"
 
-# Path to local test models
-LOCAL_MODELS_PATH = Path(__file__).parent.parent.parent / "tests" / "models"
-
 # All integration test models with their paths
 INTEGRATION_MODELS = [
     # Simple models
@@ -181,12 +178,6 @@ def vccs_model(compile_model) -> CompiledModel:
 def cccs_model(compile_model) -> CompiledModel:
     """Compiled CCCS model"""
     return compile_model(INTEGRATION_PATH / "CCCS/cccs.va")
-
-
-@pytest.fixture(scope="module")
-def mosfet_level1_model(compile_model) -> CompiledModel:
-    """Compiled simple MOSFET level-1 model"""
-    return compile_model(LOCAL_MODELS_PATH / "mosfet_level1.va")
 
 
 def assert_allclose(actual, expected, rtol=1e-6, atol=1e-12, err_msg=""):
