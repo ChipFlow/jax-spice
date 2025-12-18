@@ -179,16 +179,19 @@ class GPUProfiler:
                 t_stop = dt * num_steps
                 expected_steps = num_steps
 
-            # Warmup run (includes JIT compilation)
-            logger.info(f"      warmup ({warmup_steps} steps, includes JIT)...")
-            sys.stdout.flush()
-            sys.stderr.flush()
-            warmup_start = time.perf_counter()
-            runner.run_transient(t_stop=dt * warmup_steps, dt=dt,
-                                max_steps=warmup_steps, use_sparse=use_sparse,
-                                backend=selected_backend)
-            warmup_time = time.perf_counter() - warmup_start
-            logger.info(f"      warmup done ({warmup_time:.1f}s)")
+            # Warmup run (includes JIT compilation) - optional
+            if warmup_steps > 0:
+                logger.info(f"      warmup ({warmup_steps} steps, includes JIT)...")
+                sys.stdout.flush()
+                sys.stderr.flush()
+                warmup_start = time.perf_counter()
+                runner.run_transient(t_stop=dt * warmup_steps, dt=dt,
+                                    max_steps=warmup_steps, use_sparse=use_sparse,
+                                    backend=selected_backend)
+                warmup_time = time.perf_counter() - warmup_start
+                logger.info(f"      warmup done ({warmup_time:.1f}s)")
+            else:
+                logger.info("      skipping warmup (JIT included in timing)")
 
             # Timed run (optionally with tracing)
             # This is the measurement comparable to VACASK benchmark.py "Runtime"
@@ -492,8 +495,8 @@ def main():
     parser.add_argument(
         "--warmup-steps",
         type=int,
-        default=5,
-        help="Number of warmup steps for JIT compilation (default: 5)",
+        default=0,
+        help="Number of warmup steps for JIT compilation (default: 0, timing includes JIT)",
     )
     parser.add_argument(
         "--full",
