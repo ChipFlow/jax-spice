@@ -1174,12 +1174,12 @@ class VACASKBenchmarkRunner:
 
     def run_transient(self, t_stop: Optional[float] = None, dt: Optional[float] = None,
                       max_steps: int = 10000, use_sparse: Optional[bool] = None,
-                      backend: Optional[str] = None) -> Tuple[jax.Array, Dict[int, jax.Array], Dict]:
+                      backend: Optional[str] = None,
+                      use_scan: bool = False) -> Tuple[jax.Array, Dict[int, jax.Array], Dict]:
         """Run transient analysis.
 
-        Uses the JIT-compiled solver for circuits with only simple devices.
-        Uses a hybrid Python-based solver for circuits with OpenVAF devices.
-        Automatically uses sparse matrices for large circuits (>1000 nodes).
+        All computation is JIT-compiled. Automatically uses sparse matrices
+        for large circuits (>1000 nodes).
 
         Args:
             t_stop: Stop time (default: from analysis params or 1ms)
@@ -1188,6 +1188,7 @@ class VACASKBenchmarkRunner:
             use_sparse: Force sparse (True) or dense (False) solver. If None, auto-detect.
             backend: 'gpu', 'cpu', or None (auto-select based on circuit size).
                      For circuits >500 nodes with GPU available, uses GPU acceleration.
+            use_scan: If True, use fully JIT'd lax.scan version (faster but less diagnostics)
 
         Returns:
             (times, voltages, stats) tuple where:
@@ -1219,10 +1220,17 @@ class VACASKBenchmarkRunner:
 
         # Use hybrid solver if we have OpenVAF devices
         if self._has_openvaf_devices:
-            # Auto-detect sparse usage if not specified
-            # Dense matrix for 86k nodes would be ~56GB, so use sparse for large circuits
+            # Default to dense solver - sparse must be explicitly requested
             if use_sparse is None:
-                use_sparse = self.num_nodes > 1000
+                use_sparse = False
+
+            use_dense = not use_sparse
+
+            if use_scan:
+                # Fully JIT'd version using lax.scan - faster but less diagnostics
+                logger.info(f"Using fully JIT'd lax.scan solver ({self.num_nodes} nodes, "
+                           f"{'sparse' if use_sparse else 'dense'})")
+                return self._run_transient_fully_jit(t_stop, dt, backend=backend, use_dense=use_dense)
 
             if use_sparse:
                 logger.info(f"Using BCOO/BCSR sparse solver ({self.num_nodes} nodes, OpenVAF devices)")
@@ -1689,31 +1697,10 @@ class VACASKBenchmarkRunner:
                     max_iterations=MAX_NR_ITERATIONS, abstol=1e-6, max_step=1.0
                 )
 
-            # Cache for reuse within this instance
+            # Cache JIT-wrapped solver (JAX handles compilation automatically)
             self._cached_nr_solve = nr_solve
             self._cached_solver_key = cache_key
             logger.info(f"Cached {'dense' if use_dense else 'sparse'} NR solver")
-
-            # Warmup: explicit lower/compile phases with timing
-            import time as time_module
-            warmup_V = jnp.zeros(n_nodes, dtype=jnp.float64)
-            warmup_vsource = jnp.zeros(n_vsources, dtype=jnp.float64)
-            warmup_isource = jnp.zeros(n_isources, dtype=jnp.float64)
-
-            logger.info("Warmup: lowering (tracing JAX IR)...")
-            t0 = time_module.perf_counter()
-            lowered = nr_solve.lower(warmup_V, warmup_vsource, warmup_isource)
-            t1 = time_module.perf_counter()
-            logger.info(f"Warmup: lowered in {t1-t0:.1f}s")
-
-            logger.info("Warmup: compiling (XLA compilation)...")
-            compiled = lowered.compile()
-            t2 = time_module.perf_counter()
-            logger.info(f"Warmup: compiled in {t2-t1:.1f}s")
-
-            # Replace nr_solve with compiled version for faster subsequent calls
-            nr_solve = compiled
-            self._cached_nr_solve = nr_solve
 
         times = []
 
@@ -1771,6 +1758,210 @@ class VACASKBenchmarkRunner:
             logger.info(f"  Non-converged: {len(non_converged_steps)} steps ({100*(1-stats['convergence_rate']):.1f}%)")
 
         return jnp.array(times), {k: jnp.array(v) for k, v in voltages.items()}, stats
+
+    def _run_transient_fully_jit(self, t_stop: float, dt: float,
+                                  backend: str = "cpu",
+                                  use_dense: bool = True) -> Tuple[jax.Array, Dict[int, jax.Array], Dict]:
+        """Fully JIT-compiled transient analysis using lax.scan.
+
+        This version pre-computes all source values and uses lax.scan for the
+        timestep loop, eliminating Python loop overhead entirely.
+
+        Args:
+            t_stop: Simulation stop time
+            dt: Time step
+            backend: 'gpu' or 'cpu' for device evaluation
+            use_dense: If True, use dense solver; if False, use sparse solver
+        """
+        from jax_spice.analysis.gpu_backend import get_device, get_default_dtype
+        import time as time_module
+
+        ground = 0
+        device = get_device(backend)
+        dtype = get_default_dtype(backend)
+
+        # Reuse cached setup from _run_transient_hybrid
+        setup_cache_key = f"{self.num_nodes}_{len(self.devices)}_{use_dense}_{backend}"
+
+        if (self._transient_setup_cache is None or
+            self._transient_setup_key != setup_cache_key):
+            # Build setup by calling hybrid version with 0 steps
+            logger.info("Building transient setup...")
+            self._run_transient_hybrid(t_stop=0, dt=dt, backend=backend, use_dense=use_dense)
+
+        setup = self._transient_setup_cache
+        n_total = setup['n_total']
+        n_unknowns = setup['n_unknowns']
+        source_fn = setup['source_fn']
+        source_device_data = setup['source_device_data']
+        vmapped_fns = setup['vmapped_fns']
+        static_inputs_cache = setup['static_inputs_cache']
+
+        n_external = self.num_nodes
+        n_vsources = len(source_device_data.get('vsource', {}).get('names', []))
+        n_isources = len(source_device_data.get('isource', {}).get('names', []))
+        n_nodes = n_unknowns + 1
+
+        # Generate all time points
+        num_timesteps = int(t_stop / dt)
+        times = jnp.linspace(0.0, t_stop, num_timesteps + 1)
+        logger.info(f"Fully JIT transient: {num_timesteps} timesteps, {n_total} nodes")
+
+        # Pre-compute source values for all timesteps
+        logger.info("Pre-computing source values for all timesteps...")
+        t0 = time_module.perf_counter()
+
+        # Build source value arrays for each timestep
+        vsource_names = source_device_data.get('vsource', {}).get('names', [])
+        isource_names = source_device_data.get('isource', {}).get('names', [])
+        vsource_dc = source_device_data.get('vsource', {}).get('dc', jnp.array([]))
+        isource_dc = source_device_data.get('isource', {}).get('dc', jnp.array([]))
+
+        # Pre-compute source values using vectorized evaluation
+        # Source functions are already JAX-compatible (use jnp.where)
+        if n_vsources > 0:
+            all_vsource = []
+            for i, name in enumerate(vsource_names):
+                src_fn = {k: v for d in self.devices
+                         for k, v in [(d['name'], self._get_source_fn_for_device(d))]
+                         if d['name'] == name}.get(name)
+                if src_fn is not None:
+                    # Vectorize over time
+                    vals = jax.vmap(src_fn)(times[1:])  # Skip t=0 (initial condition)
+                    all_vsource.append(vals)
+                else:
+                    all_vsource.append(jnp.full(num_timesteps, float(vsource_dc[i])))
+            all_vsource_vals = jnp.stack(all_vsource, axis=1) if all_vsource else jnp.zeros((num_timesteps, 0))
+        else:
+            all_vsource_vals = jnp.zeros((num_timesteps, 0))
+
+        if n_isources > 0:
+            all_isource = []
+            for i, name in enumerate(isource_names):
+                src_fn = {k: v for d in self.devices
+                         for k, v in [(d['name'], self._get_source_fn_for_device(d))]
+                         if d['name'] == name}.get(name)
+                if src_fn is not None:
+                    vals = jax.vmap(src_fn)(times[1:])
+                    all_isource.append(vals)
+                else:
+                    all_isource.append(jnp.full(num_timesteps, float(isource_dc[i])))
+            all_isource_vals = jnp.stack(all_isource, axis=1) if all_isource else jnp.zeros((num_timesteps, 0))
+        else:
+            all_isource_vals = jnp.zeros((num_timesteps, 0))
+
+        t1 = time_module.perf_counter()
+        logger.info(f"Source pre-computation: {t1-t0:.3f}s")
+
+        # Get or create the NR solver
+        cache_key = (n_nodes, n_vsources, n_isources, use_dense)
+        if hasattr(self, '_cached_nr_solve') and self._cached_solver_key == cache_key:
+            nr_solve = self._cached_nr_solve
+        else:
+            # Need to build the solver - call hybrid to set it up
+            self._run_transient_hybrid(t_stop=dt, dt=dt, backend=backend, use_dense=use_dense)
+            nr_solve = self._cached_nr_solve
+
+        # Initial condition (DC operating point = 0 for now)
+        V0 = jnp.zeros(n_nodes, dtype=jnp.float64)
+
+        # Create the scan function
+        def step_fn(V_prev, source_inputs):
+            """Single timestep for lax.scan - fully traceable."""
+            vsource_vals, isource_vals = source_inputs
+            V_new, iterations, converged, max_f = nr_solve(V_prev, vsource_vals, isource_vals)
+            # Return new state and output (voltage at external nodes only)
+            return V_new, (V_new[:n_external], iterations, converged)
+
+        # JIT compile the entire scan
+        @jax.jit
+        def run_all_steps(V_init, vsource_all, isource_all):
+            """Run all timesteps using lax.scan - fully JIT'd."""
+            source_inputs = (vsource_all, isource_all)
+            final_V, (all_V, all_iters, all_converged) = jax.lax.scan(
+                step_fn, V_init, source_inputs
+            )
+            return all_V, all_iters, all_converged
+
+        # Warmup / compile
+        logger.info("JIT compiling full simulation (lax.scan)...")
+        t2 = time_module.perf_counter()
+
+        # Run the fully JIT'd simulation
+        all_V, all_iters, all_converged = run_all_steps(V0, all_vsource_vals, all_isource_vals)
+
+        t3 = time_module.perf_counter()
+        total_time = t3 - t2
+
+        # Prepend initial condition
+        all_V_with_ic = jnp.concatenate([V0[:n_external][None, :], all_V], axis=0)
+
+        # Build stats
+        total_iters = int(jnp.sum(all_iters))
+        non_converged = int(jnp.sum(~all_converged))
+
+        stats = {
+            'total_timesteps': num_timesteps + 1,
+            'total_nr_iterations': total_iters,
+            'non_converged_count': non_converged,
+            'non_converged_steps': [],  # Not tracking individual steps in JIT mode
+            'convergence_rate': 1.0 - non_converged / max(num_timesteps, 1),
+            'wall_time': total_time,
+            'time_per_step_ms': total_time / num_timesteps * 1000,
+            'fully_jit': True,
+        }
+
+        logger.info(f"Completed: {num_timesteps} steps in {total_time:.3f}s "
+                   f"({stats['time_per_step_ms']:.2f}ms/step, {total_iters} NR iters)")
+
+        # Convert to dict format for compatibility
+        voltages = {i: all_V_with_ic[:, i] for i in range(n_external)}
+
+        return times, voltages, stats
+
+    def _get_source_fn_for_device(self, dev: Dict):
+        """Get the source function for a device, or None if not a source."""
+        if dev['model'] not in ('vsource', 'isource'):
+            return None
+
+        params = dev['params']
+        source_type = str(params.get('type', 'dc')).lower()
+
+        if source_type in ('dc', '0', '0.0', ''):
+            dc_val = params.get('dc', 0)
+            return lambda t, v=dc_val: v
+
+        elif source_type == 'pulse':
+            val0 = params.get('val0', 0)
+            val1 = params.get('val1', 1)
+            rise = params.get('rise', 1e-9)
+            fall = params.get('fall', 1e-9)
+            width = params.get('width', 1e-6)
+            period = params.get('period', 2e-6)
+            delay = params.get('delay', 0)
+
+            def pulse_fn(t, v0=val0, v1=val1, r=rise, f=fall, w=width, p=period, d=delay):
+                t_in_period = (t - d) % p
+                rising = v0 + (v1 - v0) * t_in_period / r
+                falling = v1 - (v1 - v0) * (t_in_period - r - w) / f
+                return jnp.where(
+                    t < d, v0,
+                    jnp.where(t_in_period < r, rising,
+                        jnp.where(t_in_period < r + w, v1,
+                            jnp.where(t_in_period < r + w + f, falling, v0))))
+            return pulse_fn
+
+        elif source_type == 'sine':
+            sinedc = params.get('sinedc', 0)
+            ampl = params.get('ampl', 1)
+            freq = params.get('freq', 1e6)
+            phase = params.get('phase', 0)
+
+            def sine_fn(t, dc=sinedc, a=ampl, f=freq, ph=phase):
+                return dc + a * jnp.sin(2 * jnp.pi * f * t + ph)
+            return sine_fn
+
+        return None
 
     def _prepare_source_devices_coo(
         self,
