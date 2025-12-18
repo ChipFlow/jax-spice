@@ -756,16 +756,19 @@ impl VaModule {
 ///     allow_analog_in_cond: Allow analog operators (limexp, ddt, idt) in conditionals.
 ///                           Default is false. Set to true for foundry models that use
 ///                           non-standard Verilog-A (like GF130 PDK).
+///     allow_builtin_primitives: Allow built-in primitives like `nmos` and `pmos`.
+///                               Default is false.
 #[pyfunction]
-#[pyo3(signature = (path, allow_analog_in_cond=false))]
-fn compile_va(path: &str, allow_analog_in_cond: bool) -> PyResult<Vec<VaModule>> {
+#[pyo3(signature = (path, allow_analog_in_cond=false, allow_builtin_primitives=false))]
+fn compile_va(path: &str, allow_analog_in_cond: bool, allow_builtin_primitives: bool) -> PyResult<Vec<VaModule>> {
     let input = std::path::Path::new(path)
         .canonicalize()
         .map_err(|e| PyValueError::new_err(format!("Failed to resolve path: {}", e)))?;
     let input = AbsPathBuf::assert(input);
 
     let opts = CompilationOpts {
-        allow_analog_in_cond,
+        allow_analog_in_cond: allow_analog_in_cond,
+        allow_builtin_primitives: allow_builtin_primitives,
     };
 
     let db = CompilationDB::new_fs(input, &[], &[], &[], &opts)

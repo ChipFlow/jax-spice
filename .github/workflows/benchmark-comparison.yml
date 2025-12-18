@@ -65,9 +65,8 @@ jobs:
         working-directory: openvaf-py/vendor/OpenVAF
         run: |
           # Build openvaf-r binary for OSDI compilation
-          # Note: Don't set RUST_CHECK - it skips stdlib bitcode generation which breaks OSDI compilation
-          # Use --locked to ensure Cargo.lock is respected
-          cargo build --release -p openvaf-driver --bin openvaf-r --locked
+          # Use --no-default-features --features llvm18 to build with LLVM 18 (default is LLVM 21)
+          cargo build --release -p openvaf-driver --bin openvaf-r --no-default-features --features llvm18
           echo "OPENVAF_DIR=${{ github.workspace }}/openvaf-py/vendor/OpenVAF/target/release" >> "$GITHUB_ENV"
 
       - name: Install jax-spice
