@@ -1715,12 +1715,16 @@ class VACASKBenchmarkRunner:
         logger.info(f"initialising voltages: {n_external}")
         voltages = {i: [] for i in range(n_external)}
 
-        t = 0.0
         total_nr_iters = 0
         non_converged_steps = []  # Track (time, max_residual) for non-converged steps
 
-        logger.info("Starting NR iteration")
-        while t <= t_stop:
+        # Use integer-based iteration to avoid floating-point comparison issues
+        # This ensures Python loop and lax.scan produce the same number of timesteps
+        num_timesteps = int(round(t_stop / dt)) + 1
+
+        logger.info(f"Starting NR iteration ({num_timesteps} timesteps)")
+        for step_idx in range(num_timesteps):
+            t = step_idx * dt
             logger.debug(f"Step time:{t}")
             source_values = source_fn(t)
             # Build source value arrays once per timestep (Python loop here, not in NR loop)
@@ -1750,7 +1754,6 @@ class VACASKBenchmarkRunner:
                 voltages[i].append(float(V[i]))
 
             V_prev = V
-            t += dt
 
         # Build stats dict
         stats = {
@@ -1830,51 +1833,88 @@ class VACASKBenchmarkRunner:
                     isource_dc.append(dev['params'].get('dc', 0))
 
         # Pre-allocate output arrays
-        num_timesteps = int(t_stop / dt) + 1
+        # Use round() to avoid floating-point errors in timestep count
+        num_timesteps = int(round(t_stop / dt)) + 1
         logger.info(f"While-loop transient: {num_timesteps} timesteps, {n_total} nodes")
 
-        # Build static source values (for DC sources) and check for time-varying
-        # For simplicity, assume DC sources for now (most common case)
-        # Time-varying sources would need pre-computation like lax.scan
-        vsource_static = jnp.array([dc for dc in vsource_dc], dtype=jnp.float64) if vsource_dc else jnp.array([], dtype=jnp.float64)
-        isource_static = jnp.array([dc for dc in isource_dc], dtype=jnp.float64) if isource_dc else jnp.array([], dtype=jnp.float64)
+        # Generate time array for source pre-computation
+        times = jnp.linspace(0.0, t_stop, num_timesteps)
 
-        # Check if we have time-varying sources
-        has_time_varying = any(
-            self._get_source_fn_for_device(d) is not None and
-            str(d['params'].get('type', 'dc')).lower() not in ('dc', '0', '0.0', '')
-            for d in self.devices if d['model'] in ('vsource', 'isource')
-        )
-        if has_time_varying:
-            logger.warning("Time-varying sources detected - while_loop will use DC values only")
+        # Pre-compute source values for ALL timesteps (handles time-varying sources)
+        logger.info("Pre-computing source values for all timesteps...")
+        t_precompute = time_module.perf_counter()
+
+        # Build vsource values array [num_timesteps, n_vsources]
+        if n_vsources > 0:
+            vsource_names = source_device_data['vsource']['names']
+            all_vsource = []
+            for name in vsource_names:
+                dev = next((d for d in self.devices if d['name'] == name), None)
+                if dev:
+                    src_fn = self._get_source_fn_for_device(dev)
+                    if src_fn is not None:
+                        # Time-varying source - evaluate at all times
+                        vals = jax.vmap(src_fn)(times)
+                    else:
+                        # DC source
+                        dc_val = dev['params'].get('dc', 0.0)
+                        vals = jnp.full(num_timesteps, float(dc_val))
+                    all_vsource.append(vals)
+            all_vsource_vals = jnp.stack(all_vsource, axis=1)  # [num_timesteps, n_vsources]
+        else:
+            all_vsource_vals = jnp.zeros((num_timesteps, 0))
+
+        # Build isource values array [num_timesteps, n_isources]
+        if n_isources > 0:
+            isource_names = source_device_data['isource']['names']
+            all_isource = []
+            for name in isource_names:
+                dev = next((d for d in self.devices if d['name'] == name), None)
+                if dev:
+                    src_fn = self._get_source_fn_for_device(dev)
+                    if src_fn is not None:
+                        vals = jax.vmap(src_fn)(times)
+                    else:
+                        dc_val = dev['params'].get('dc', 0.0)
+                        vals = jnp.full(num_timesteps, float(dc_val))
+                    all_isource.append(vals)
+            all_isource_vals = jnp.stack(all_isource, axis=1)  # [num_timesteps, n_isources]
+        else:
+            all_isource_vals = jnp.zeros((num_timesteps, 0))
+
+        logger.info(f"Source pre-computation: {time_module.perf_counter() - t_precompute:.3f}s")
 
         # Initial state
         V0 = jnp.zeros(n_nodes, dtype=jnp.float64)
 
-        # Cache key for the scan function (needs to include num_timesteps)
-        scan_cache_key = (n_nodes, n_vsources, n_isources, n_external, num_timesteps, use_dense)
+        # Cache key for the scan function
+        # Note: Does NOT include num_timesteps - lax.scan handles variable-length inputs
+        scan_cache_key = (n_nodes, n_vsources, n_isources, n_external, use_dense)
 
         if hasattr(self, '_cached_scan_fn') and self._cached_scan_key == scan_cache_key:
             run_simulation_with_outputs = self._cached_scan_fn
             logger.info("Reusing cached lax.scan simulation function")
         else:
             # Create and cache the scan function
-            # The function must capture nr_solve and shapes as closures
-            def make_scan_fn(nr_solve_fn, n_ext, n_steps):
+            # Source values are passed per-timestep via lax.scan's xs argument
+            def make_scan_fn(nr_solve_fn, n_ext):
                 @jax.jit
-                def run_simulation_with_outputs(V_init, vsource_vals, isource_vals):
-                    """Run simulation and collect all outputs using lax.scan."""
-                    def step_fn(V, _):
+                def run_simulation_with_outputs(V_init, all_vsource, all_isource):
+                    """Run simulation with time-varying sources using lax.scan."""
+                    def step_fn(V, source_vals):
+                        vsource_vals, isource_vals = source_vals
                         V_new, iterations, converged, max_f = nr_solve_fn(V, vsource_vals, isource_vals)
                         return V_new, (V_new[:n_ext], iterations, converged)
 
+                    # Stack source arrays for scan input
+                    source_inputs = (all_vsource, all_isource)
                     _, (all_V, all_iters, all_converged) = jax.lax.scan(
-                        step_fn, V_init, None, length=n_steps
+                        step_fn, V_init, source_inputs
                     )
                     return all_V, all_iters, all_converged
                 return run_simulation_with_outputs
 
-            run_simulation_with_outputs = make_scan_fn(nr_solve, n_external, num_timesteps)
+            run_simulation_with_outputs = make_scan_fn(nr_solve, n_external)
             self._cached_scan_fn = run_simulation_with_outputs
             self._cached_scan_key = scan_cache_key
             logger.info("Created and cached lax.scan simulation function")
@@ -1882,7 +1922,7 @@ class VACASKBenchmarkRunner:
         # Run the simulation
         logger.info("Running lax.scan simulation...")
         t0 = time_module.perf_counter()
-        all_V, all_iters, all_converged = run_simulation_with_outputs(V0, vsource_static, isource_static)
+        all_V, all_iters, all_converged = run_simulation_with_outputs(V0, all_vsource_vals, all_isource_vals)
         jax.block_until_ready(all_V)
         total_time = time_module.perf_counter() - t0
 

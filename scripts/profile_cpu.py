@@ -79,9 +79,8 @@ def get_vacask_benchmarks(names: Optional[List[str]] = None) -> List[Tuple[str, 
 
 
 def run_benchmark(sim_path: Path, name: str, use_sparse: bool,
-                  num_steps: int = 20) -> BenchmarkResult:
+                  num_steps: int = 20, use_scan: bool = False) -> BenchmarkResult:
     """Run a single benchmark configuration."""
-    warmup_steps = 5  # Fixed warmup for JIT compilation
     try:
         # Parse circuit
         log(f"      parsing...")
@@ -112,24 +111,23 @@ def run_benchmark(sim_path: Path, name: str, use_sparse: bool,
         dt = runner.analysis_params.get('step', 1e-12)
 
         # Warmup run (includes JIT compilation)
-        log(f"      warmup ({warmup_steps} steps, includes JIT)...")
+        # IMPORTANT: Use same num_steps as timed run to avoid JAX re-tracing
+        # JAX traces based on array shapes, so different timestep counts cause recompilation
+        mode_str = "lax.scan" if use_scan else "Python loop"
+        log(f"      warmup ({num_steps} steps, {mode_str}, includes JIT)...")
         warmup_start = time.perf_counter()
-        runner.run_transient(t_stop=dt * warmup_steps, dt=dt,
-                            max_steps=warmup_steps, use_sparse=use_sparse)
+        runner.run_transient(t_stop=dt * num_steps, dt=dt,
+                            max_steps=num_steps, use_sparse=use_sparse,
+                            use_while_loop=use_scan)
         warmup_time = time.perf_counter() - warmup_start
         log(f"      warmup done ({warmup_time:.1f}s)")
 
-        # Create fresh runner for timing (reuse compiled models)
-        runner2 = VACASKBenchmarkRunner(sim_path)
-        runner2.parse()
-        if runner._has_openvaf_devices:
-            runner2._compiled_models = runner._compiled_models
-
-        # Timed run
+        # Timed run - use same runner with cached JIT functions
         start = time.perf_counter()
-        times, voltages, stats = runner2.run_transient(
+        times, voltages, stats = runner.run_transient(
             t_stop=dt * num_steps, dt=dt,
-            max_steps=num_steps, use_sparse=use_sparse
+            max_steps=num_steps, use_sparse=use_sparse,
+            use_while_loop=use_scan
         )
         elapsed = time.perf_counter() - start
 
@@ -191,6 +189,11 @@ def main():
         action="store_true",
         help="Only run dense solver (skip sparse comparison)",
     )
+    parser.add_argument(
+        "--use-scan",
+        action="store_true",
+        help="Use lax.scan for fully JIT-compiled simulation (faster but less debugging info)",
+    )
     args = parser.parse_args()
 
     log("=" * 70)
@@ -234,7 +237,7 @@ def main():
         if run_dense:
             result_dense = run_benchmark(
                 sim_path, name, use_sparse=False,
-                num_steps=args.timesteps
+                num_steps=args.timesteps, use_scan=args.use_scan
             )
             results.append(result_dense)
             if result_dense.error:
@@ -246,7 +249,7 @@ def main():
         if run_sparse:
             result_sparse = run_benchmark(
                 sim_path, name, use_sparse=True,
-                num_steps=args.timesteps
+                num_steps=args.timesteps, use_scan=args.use_scan
             )
             results.append(result_sparse)
             if result_sparse.error:
