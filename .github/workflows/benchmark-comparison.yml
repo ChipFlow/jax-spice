@@ -138,9 +138,10 @@ jobs:
         run: |
           echo "Running JAX-SPICE vs VACASK comparison..."
           # Run comparison script - it handles VACASK availability gracefully
+          # Use 200 steps to keep c6288 runtime reasonable
           uv run python scripts/compare_vacask.py \
-            --benchmark rc,graetz,ring \
-            --max-steps 1000 \
+            --benchmark rc,graetz,ring,c6288 \
+            --max-steps 200 \
             --use-scan 2>&1 | tee /tmp/benchmark-comparison.log || true
 
       # Generate comparison summary for GitHub step output
@@ -153,7 +154,7 @@ jobs:
             echo "- **Platform**: CPU (GitHub Actions runner)"
             echo "- **JAX Backend**: cpu"
             echo "- **Mode**: lax.scan (JIT-compiled)"
-            echo "- **Steps**: 1000"
+            echo "- **Steps**: 200"
             echo ""
 
             # Extract and display the comparison output

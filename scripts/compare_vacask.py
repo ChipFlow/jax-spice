@@ -262,8 +262,8 @@ def main():
     if args.benchmark:
         benchmark_names = [b.strip() for b in args.benchmark.split(',')]
     else:
-        # Default: all except c6288 (too large for dense solver)
-        benchmark_names = ['rc', 'graetz', 'ring']
+        # Default: all benchmarks including c6288 (uses sparse solver automatically)
+        benchmark_names = ['rc', 'graetz', 'ring', 'c6288']
 
     # Run benchmarks
     results = []
