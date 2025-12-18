@@ -109,8 +109,8 @@ def find_vacask_binary() -> Optional[Path]:
     return None
 
 
-def run_vacask(config: BenchmarkConfig, num_steps: int) -> Optional[float]:
-    """Run VACASK and return time per step in ms.
+def run_vacask(config: BenchmarkConfig, num_steps: int) -> Optional[Tuple[float, float]]:
+    """Run VACASK and return (time_per_step_ms, wall_time_s).
 
     Returns None if VACASK is not available or fails.
     """
@@ -160,7 +160,8 @@ def run_vacask(config: BenchmarkConfig, num_steps: int) -> Optional[float]:
             vacask_elapsed = float(elapsed_match.group(1))
             # Use the number of timesteps we requested for fair comparison
             # NR solver calls != timesteps (multiple NR iters per timestep)
-            return vacask_elapsed / num_steps * 1000  # ms per timestep
+            time_per_step = vacask_elapsed / num_steps * 1000  # ms per timestep
+            return time_per_step, vacask_elapsed
         elif result.returncode != 0:
             # Only report failure if no elapsed time found AND returncode is non-zero
             print(f"VACASK failed (rc={result.returncode}): {result.stdout[:200]}")
@@ -181,8 +182,9 @@ def run_vacask(config: BenchmarkConfig, num_steps: int) -> Optional[float]:
             temp_sim.unlink()
 
 
-def run_jax_spice(config: BenchmarkConfig, num_steps: int, use_scan: bool) -> Tuple[float, Dict]:
-    """Run JAX-SPICE and return (time_per_step_ms, stats)."""
+def run_jax_spice(config: BenchmarkConfig, num_steps: int, use_scan: bool,
+                  use_sparse: bool = False) -> Tuple[float, float, Dict]:
+    """Run JAX-SPICE and return (time_per_step_ms, wall_time_s, stats)."""
     runner = VACASKBenchmarkRunner(config.sim_path)
     runner.parse()
 
@@ -191,7 +193,7 @@ def run_jax_spice(config: BenchmarkConfig, num_steps: int, use_scan: bool) -> Tu
     # Warmup (use same num_steps to avoid re-tracing)
     _ = runner.run_transient(
         t_stop=t_stop, dt=config.dt,
-        max_steps=num_steps, use_sparse=False,
+        max_steps=num_steps, use_sparse=use_sparse,
         use_while_loop=use_scan
     )
 
@@ -199,7 +201,7 @@ def run_jax_spice(config: BenchmarkConfig, num_steps: int, use_scan: bool) -> Tu
     start = time.perf_counter()
     times, voltages, stats = runner.run_transient(
         t_stop=t_stop, dt=config.dt,
-        max_steps=num_steps, use_sparse=False,
+        max_steps=num_steps, use_sparse=use_sparse,
         use_while_loop=use_scan
     )
     elapsed = time.perf_counter() - start
@@ -207,7 +209,7 @@ def run_jax_spice(config: BenchmarkConfig, num_steps: int, use_scan: bool) -> Tu
     actual_steps = len(times)
     time_per_step = elapsed / actual_steps * 1000
 
-    return time_per_step, stats
+    return time_per_step, elapsed, stats
 
 
 def main():
@@ -229,6 +231,11 @@ def main():
         action="store_true",
         help="Use lax.scan for JAX-SPICE (faster)",
     )
+    parser.add_argument(
+        "--use-sparse",
+        action="store_true",
+        help="Use sparse solver (required for large circuits like c6288)",
+    )
     args = parser.parse_args()
 
     print("=" * 70)
@@ -244,6 +251,7 @@ def main():
         print("VACASK binary: NOT FOUND (set VACASK_BIN or build in vendor/VACASK/build)")
     print(f"JAX backend: {jax.default_backend()}")
     print(f"Mode: {'lax.scan' if args.use_scan else 'Python loop'}")
+    print(f"Solver: {'sparse' if args.use_sparse else 'dense'}")
     print(f"Max steps: {args.max_steps}")
     print()
 
@@ -268,37 +276,41 @@ def main():
         print(f"--- {name} ({num_steps} steps, dt={config.dt:.2e}) ---")
 
         # Run JAX-SPICE
+        # Auto-enable sparse for c6288 (too large for dense)
+        use_sparse = args.use_sparse or name == 'c6288'
         print("  JAX-SPICE warmup...", end=" ", flush=True)
-        jax_ms, stats = run_jax_spice(config, num_steps, args.use_scan)
+        jax_ms, jax_wall, stats = run_jax_spice(config, num_steps, args.use_scan, use_sparse)
         print(f"done")
-        print(f"  JAX-SPICE: {jax_ms:.3f} ms/step")
+        print(f"  JAX-SPICE: {jax_ms:.3f} ms/step ({jax_wall:.3f}s total)")
 
         # Run VACASK
+        vacask_ms = None
+        vacask_wall = None
         if vacask_bin:
             print("  VACASK...", end=" ", flush=True)
-            vacask_ms = run_vacask(config, num_steps)
-            if vacask_ms is not None:
+            vacask_result = run_vacask(config, num_steps)
+            if vacask_result is not None:
+                vacask_ms, vacask_wall = vacask_result
                 print(f"done")
-                print(f"  VACASK: {vacask_ms:.3f} ms/step")
+                print(f"  VACASK: {vacask_ms:.3f} ms/step ({vacask_wall:.3f}s total)")
                 ratio = jax_ms / vacask_ms
                 print(f"  Ratio: {ratio:.2f}x {'slower' if ratio > 1 else 'faster'}")
             else:
                 print("failed")
-                vacask_ms = None
-        else:
-            vacask_ms = None
 
         results.append({
             'name': name,
             'steps': num_steps,
             'jax_ms': jax_ms,
+            'jax_wall': jax_wall,
             'vacask_ms': vacask_ms,
+            'vacask_wall': vacask_wall,
         })
         print()
 
     # Summary table
     print("=" * 70)
-    print("Summary")
+    print("Summary (per-step timing)")
     print("=" * 70)
     print()
     print("| Benchmark | Steps | JAX-SPICE (ms) | VACASK (ms) | Ratio |")
@@ -311,6 +323,22 @@ def main():
         else:
             ratio_str = "N/A"
         print(f"| {r['name']:9} | {r['steps']:5} | {r['jax_ms']:14.3f} | {vacask_str:11} | {ratio_str:5} |")
+
+    print()
+    print("=" * 70)
+    print("Summary (total wall time)")
+    print("=" * 70)
+    print()
+    print("| Benchmark | Steps | JAX-SPICE (s) | VACASK (s) | Ratio |")
+    print("|-----------|-------|---------------|------------|-------|")
+    for r in results:
+        vacask_str = f"{r['vacask_wall']:.3f}" if r['vacask_wall'] else "N/A"
+        if r['vacask_wall']:
+            ratio = r['jax_wall'] / r['vacask_wall']
+            ratio_str = f"{ratio:.2f}x"
+        else:
+            ratio_str = "N/A"
+        print(f"| {r['name']:9} | {r['steps']:5} | {r['jax_wall']:13.3f} | {vacask_str:10} | {ratio_str:5} |")
 
     print()
     print("=" * 70)

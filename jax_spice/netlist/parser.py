@@ -59,9 +59,26 @@ class Lexer:
                 self.pos += 1
                 continue
 
-            # Comment
+            # Line comment (//)
             if self.pos + 1 < len(self.text) and self.text[self.pos:self.pos+2] == '//':
                 while self.pos < len(self.text) and self.text[self.pos] != '\n':
+                    self.pos += 1
+                continue
+
+            # Block comment (/* ... */)
+            if self.pos + 1 < len(self.text) and self.text[self.pos:self.pos+2] == '/*':
+                self.pos += 2
+                self.col += 2
+                while self.pos + 1 < len(self.text):
+                    if self.text[self.pos:self.pos+2] == '*/':
+                        self.pos += 2
+                        self.col += 2
+                        break
+                    if self.text[self.pos] == '\n':
+                        self.line += 1
+                        self.col = 1
+                    else:
+                        self.col += 1
                     self.pos += 1
                 continue
 
