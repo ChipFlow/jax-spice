@@ -554,10 +554,10 @@ class TestNodeCollapseStandalone:
         assert n_total < 20000, \
             f"Total nodes too high: {n_total} (expected <20000 with node collapse)"
 
-    def test_ring_no_collapse_when_resistance_nonzero(self):
-        """Test that node collapse doesn't happen when resistance params are non-zero.
+    def test_ring_node_collapse(self):
+        """Test that node collapse is applied to ring benchmark.
 
-        The ring benchmark may have different model params that don't enable collapse.
+        Ring has 18 PSP103 devices, each with 1 internal node after collapse.
         """
         sim_path = get_benchmark_sim("ring")
         if not sim_path.exists():
@@ -569,14 +569,17 @@ class TestNodeCollapseStandalone:
         # Get total nodes
         n_total, _ = runner._setup_internal_nodes()
         n_internal = n_total - runner.num_nodes
+        n_psp103 = sum(1 for d in runner.devices if d.get('model') == 'psp103')
 
         print(f"\nring benchmark:")
         print(f"  External nodes: {runner.num_nodes}")
         print(f"  Internal nodes: {n_internal}")
         print(f"  Total nodes: {n_total}")
+        print(f"  PSP103 devices: {n_psp103}")
 
-        # Ring benchmark should work regardless of collapse
-        assert n_total > 0
+        # With collapse, each PSP103 should have 1 internal node
+        assert n_internal == n_psp103, \
+            f"Expected {n_psp103} internal nodes (1 per device), got {n_internal}"
 
 
 if __name__ == "__main__":
