@@ -4,36 +4,30 @@
 # dependencies = []
 # ///
 """
-Run GPU profiling on Cloud Run and download Perfetto traces locally.
+Run JAX-SPICE vs VACASK benchmark comparison on Cloud Run GPU.
 
 This script:
-1. Triggers a Cloud Run job that runs scripts/profile_gpu.py with --trace
-2. Waits for completion
-3. Downloads the trace files from Cloud Storage
-4. Opens Perfetto UI with the traces
+1. Triggers a Cloud Run job that runs scripts/compare_vacask.py
+2. Streams logs and waits for completion
+3. Downloads the benchmark results
 
 Usage:
-    uv run scripts/profile_gpu_cloudrun.py [--benchmark rc|graetz|mul|ring|c6288]
+    uv run scripts/profile_gpu_cloudrun.py [--benchmark rc,graetz,ring,c6288]
 
 Prerequisites:
     - gcloud CLI authenticated with access to jax-spice-cuda-test project
-    - gsutil for downloading traces
 """
 
 import argparse
 import base64
 import subprocess
 import sys
-import tempfile
 import time
-from pathlib import Path
 
 
 GCP_PROJECT = "jax-spice-cuda-test"
 GCP_REGION = "us-central1"
-JOB_NAME = "jax-spice-gpu-profile"
-GCS_BUCKET = f"gs://{GCP_PROJECT}-traces"
-GCS_BUCKET_NAME = f"{GCP_PROJECT}-traces"
+JOB_NAME = "jax-spice-gpu-benchmark"
 
 
 def run_cmd(
@@ -53,47 +47,31 @@ def run_cmd(
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Run GPU profiling on Cloud Run with Perfetto"
+        description="Run JAX-SPICE vs VACASK benchmark on Cloud Run GPU"
     )
     parser.add_argument(
         "--benchmark",
         type=str,
-        default="ring",
-        help="Comma-separated benchmarks to profile (default: ring)",
+        default="rc,graetz,ring,c6288",
+        help="Comma-separated benchmarks to run (default: rc,graetz,ring,c6288)",
     )
     parser.add_argument(
-        "--timesteps",
+        "--max-steps",
         type=int,
-        default=50,
-        help="Number of timesteps to simulate (default: 50)",
-    )
-    parser.add_argument(
-        "--sparse-only",
-        action="store_true",
-        help="Only run sparse solver",
-    )
-    parser.add_argument(
-        "--open-perfetto",
-        action="store_true",
-        help="Open Perfetto UI after downloading traces",
+        default=200,
+        help="Maximum timesteps per benchmark (default: 200)",
     )
     args = parser.parse_args()
 
-    timestamp = int(time.time())
-    trace_gcs_path = f"{GCS_BUCKET}/{args.benchmark.replace(',', '-')}-{timestamp}"
-    local_trace_dir = Path(tempfile.gettempdir()) / f"jax-trace-{args.benchmark.replace(',', '-')}-{timestamp}"
-
     print("=" * 60)
-    print("JAX-SPICE GPU Profiling on Cloud Run")
+    print("JAX-SPICE vs VACASK Benchmark on Cloud Run GPU")
     print("=" * 60)
-    print(f"Benchmark: {args.benchmark}")
-    print(f"Timesteps: {args.timesteps}")
-    print(f"GCS path: {trace_gcs_path}")
-    print(f"Local dir: {local_trace_dir}")
+    print(f"Benchmarks: {args.benchmark}")
+    print(f"Max steps: {args.max_steps}")
     print()
 
     # Check gcloud auth
-    print("[1/5] Checking gcloud authentication...")
+    print("[1/4] Checking gcloud authentication...")
     (result, stdout, stderr) = run_cmd(
         ["gcloud", "auth", "print-identity-token"], capture=True, check=False
     )
@@ -103,29 +81,17 @@ def main():
     print("  Authenticated")
     print()
 
-    # Create GCS bucket if needed
-    print("[2/5] Ensuring GCS bucket exists...")
-    run_cmd(["gsutil", "ls", GCS_BUCKET], check=False)
-    run_cmd(
-        ["gsutil", "mb", "-l", GCP_REGION, "-p", GCP_PROJECT, GCS_BUCKET], check=False
-    )
-    print()
-
-    # Build the profile_gpu.py command
-    profile_cmd = [
-        "uv", "run", "python", "scripts/profile_gpu.py",
+    # Build the compare_vacask.py command
+    compare_cmd = [
+        "uv", "run", "python", "scripts/compare_vacask.py",
         "--benchmark", args.benchmark,
-        "--timesteps", str(args.timesteps),
-        "--trace",
-        "--trace-dir", "/tmp/jax-trace",
+        "--max-steps", str(args.max_steps),
+        "--use-scan",
     ]
-    if args.sparse_only:
-        profile_cmd.append("--sparse-only")
-
-    profile_cmd_str = " ".join(profile_cmd)
+    compare_cmd_str = " ".join(compare_cmd)
 
     # Create the bash script that runs on Cloud Run
-    profile_script = f'''#!/bin/bash
+    benchmark_script = f'''#!/bin/bash
 set -e
 
 cd /app
@@ -134,70 +100,31 @@ cd /app
 git clone --depth 1 --recurse-submodules https://github.com/ChipFlow/jax-spice.git source
 cd source
 
-# Install deps
+# Install deps (with CUDA support)
 uv sync --locked --extra cuda12
 
 # Check GPU detection
 echo "=== Checking JAX GPU Detection ==="
 uv run python -c "import jax; print('Backend:', jax.default_backend()); print('Devices:', jax.devices())"
 
-echo "=== Starting GPU Profiling ==="
-echo "Benchmark: {args.benchmark}"
-echo "Trace output: {trace_gcs_path}"
+echo ""
+echo "=== Starting Benchmark Comparison ==="
+echo "Benchmarks: {args.benchmark}"
+echo "Max steps: {args.max_steps}"
+echo ""
 
-# Run the profiling script
-{profile_cmd_str}
+# Run the benchmark comparison
+{compare_cmd_str}
 
-# Get access token from metadata server (workload identity)
-echo "Fetching access token from metadata server..."
-TOKEN=$(curl -s -H "Metadata-Flavor: Google" \\
-  "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token" | \\
-  python3 -c "import sys,json; print(json.load(sys.stdin)['access_token'])")
-
-if [ -z "$TOKEN" ]; then
-  echo "ERROR: Failed to get access token"
-  exit 1
-fi
-echo "Got access token (length: ${{#TOKEN}})"
-
-# Upload traces to GCS
-echo "=== Uploading traces to GCS ==="
-for f in /tmp/jax-trace/*; do
-  if [ -f "$f" ]; then
-    fname=$(basename "$f")
-    echo "Uploading $fname..."
-    curl -s -X PUT -H "Authorization: Bearer $TOKEN" \\
-      -H "Content-Type: application/octet-stream" \\
-      --data-binary @"$f" \\
-      "https://storage.googleapis.com/upload/storage/v1/b/{GCS_BUCKET_NAME}/o?uploadType=media&name={args.benchmark.replace(',', '-')}-{timestamp}/$fname"
-  fi
-done
-
-# Also upload the reports
-for f in profile_report.md profile_report.json; do
-  if [ -f "$f" ]; then
-    echo "Uploading $f..."
-    curl -s -X PUT -H "Authorization: Bearer $TOKEN" \\
-      -H "Content-Type: application/octet-stream" \\
-      --data-binary @"$f" \\
-      "https://storage.googleapis.com/upload/storage/v1/b/{GCS_BUCKET_NAME}/o?uploadType=media&name={args.benchmark.replace(',', '-')}-{timestamp}/$f"
-  fi
-done
-
-echo "=== Profiling Complete ==="
-echo "Traces uploaded to: {trace_gcs_path}"
+echo ""
+echo "=== Benchmark Complete ==="
 '''
 
-    # Write bash script to temp file for debugging
-    script_path = Path(tempfile.gettempdir()) / "profile_script.sh"
-    script_path.write_text(profile_script)
-    print(f"[3/5] Bash script saved to: {script_path}")
-
     # Create or update the Cloud Run job
-    print("[4/5] Creating/updating Cloud Run job...")
+    print("[2/4] Creating/updating Cloud Run job...")
 
     # Use base64-encoded script to avoid shell escaping issues
-    script_b64 = base64.b64encode(profile_script.encode()).decode()
+    script_b64 = base64.b64encode(benchmark_script.encode()).decode()
     job_args = f"echo {script_b64} | base64 -d | bash"
 
     job_cmd = [
@@ -224,7 +151,7 @@ echo "Traces uploaded to: {trace_gcs_path}"
     print()
 
     # Execute the job
-    print("[5/5] Executing Cloud Run job...")
+    print("[3/4] Executing Cloud Run job...")
     (result, exec_id, _) = run_cmd(
         [
             "gcloud", "run", "jobs", "execute", JOB_NAME,
@@ -251,7 +178,8 @@ echo "Traces uploaded to: {trace_gcs_path}"
     )
 
     # Poll job status until completion
-    print("Waiting for job to complete...")
+    print("[4/4] Waiting for job to complete (streaming logs)...")
+    print()
     job_succeeded = False
     try:
         while True:
@@ -291,36 +219,13 @@ echo "Traces uploaded to: {trace_gcs_path}"
         print("Job failed! Check logs with:")
         print(f"  gcloud beta run jobs executions logs read {exec_id} --region={GCP_REGION}")
         sys.exit(1)
-    print()
-
-    # Download traces
-    print("Downloading traces...")
-    local_trace_dir.mkdir(parents=True, exist_ok=True)
-    run_cmd(["gsutil", "-m", "cp", "-r", f"{trace_gcs_path}/*", str(local_trace_dir)])
-    print()
 
     print("=" * 60)
-    print("Profiling complete!")
+    print("Benchmark complete!")
     print("=" * 60)
-    print(f"Traces downloaded to: {local_trace_dir}")
     print()
-    print("To view in Perfetto:")
-    print("  1. Open https://ui.perfetto.dev/")
-    print(f"  2. Load trace file from: {local_trace_dir}")
-    print()
-
-    # List downloaded files
-    trace_files = list(local_trace_dir.rglob("*"))
-    if trace_files:
-        print("Downloaded files:")
-        for f in sorted(trace_files)[:10]:
-            if f.is_file():
-                size_kb = f.stat().st_size / 1024
-                print(f"  {f.name} ({size_kb:.1f} KB)")
-
-    if args.open_perfetto:
-        import webbrowser
-        webbrowser.open("https://ui.perfetto.dev/")
+    print("To view full logs:")
+    print(f"  gcloud beta run jobs executions logs read {exec_id} --region={GCP_REGION}")
 
 
 if __name__ == "__main__":
