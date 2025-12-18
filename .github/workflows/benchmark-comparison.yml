@@ -124,7 +124,11 @@ jobs:
           # Build simulator and OSDI device files
           ninja vacask
           # Try to build device OSDI files (may fail on some platforms)
-          ninja build_and_stage_devices || echo "Warning: OSDI device compilation failed (some benchmarks will be skipped)"
+          ninja build_and_stage_devices || {
+            echo "Warning: OSDI device compilation failed"
+            echo "=== OpenVAF crash logs ==="
+            cat /tmp/openvaf-crash-*.log 2>/dev/null || echo "No crash logs found"
+          }
 
       # Run benchmark comparison
       # NOTE: VACASK benchmarks require OSDI device files compiled by openvaf-r
@@ -156,14 +160,20 @@ jobs:
 
             # Extract and display the comparison output
             if [ -f "/tmp/benchmark-comparison.log" ]; then
-              # Check if VACASK was available
+              # Check if VACASK was available and working
               if grep -q "VACASK binary: NOT FOUND" /tmp/benchmark-comparison.log; then
-                echo "### ⚠️ VACASK Not Available"
+                echo "### ⚠️ VACASK Binary Not Found"
                 echo ""
-                echo "VACASK OSDI device compilation failed on Linux/LLVM18 (known upstream issue)."
+                echo "VACASK simulator binary was not built. Check the Build VACASK step."
+                echo ""
+              elif grep -q "\.osdi' not found" /tmp/benchmark-comparison.log; then
+                echo "### ⚠️ VACASK OSDI Files Missing"
+                echo ""
+                echo "VACASK binary exists but OSDI device files are missing."
+                echo "openvaf-r OSDI compilation fails on Linux/LLVM18 (known upstream issue)."
                 echo "JAX-SPICE benchmarks ran successfully - showing JAX-SPICE only results."
                 echo ""
-                echo "For full comparison results, run locally on macOS or use a different LLVM version."
+                echo "For full comparison results, run locally on macOS."
                 echo ""
               fi
 
