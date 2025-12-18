@@ -189,8 +189,8 @@ jobs:
               echo ""
               echo "### Total Wall Time"
               echo ""
-              echo "| Benchmark | Steps | JAX-SPICE (s) | VACASK (s) | Ratio |"
-              echo "|-----------|-------|---------------|------------|-------|"
+              echo "| Benchmark | Steps | JAX-SPICE (ms) | VACASK (ms) | Ratio |"
+              echo "|-----------|-------|----------------|-------------|-------|"
 
               # Parse the total time summary table from the log
               grep -A 10 "Summary (total wall time)" /tmp/benchmark-comparison.log | \
