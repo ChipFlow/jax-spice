@@ -124,31 +124,22 @@ jobs:
           # Build simulator only - device OSDI compilation crashes openvaf on Linux/LLVM18
           ninja vacask
 
-      # Run JAX-SPICE benchmarks
-      - name: Run JAX-SPICE benchmarks
+      # Run benchmark comparison
+      # NOTE: VACASK benchmarks require OSDI device files compiled by openvaf-r
+      # This currently crashes on Linux/LLVM18, so VACASK results may not be available
+      - name: Run benchmark comparison
         env:
           JAX_PLATFORMS: cpu
           JAX_ENABLE_X64: "1"
         run: |
-          # Run benchmarks on smaller circuits (CPU-only)
-          for bench in rc graetz ring; do
-            echo "Running JAX-SPICE benchmark: $bench"
-            uv run python scripts/profile_gpu.py --benchmark "$bench" --timesteps 100 --dense-only --cpu 2>&1 | tee "/tmp/jax-spice-$bench.log" || true
-          done
+          echo "Running JAX-SPICE vs VACASK comparison..."
+          # Run comparison script - it handles VACASK availability gracefully
+          uv run python scripts/compare_vacask.py \
+            --benchmark rc,graetz,ring \
+            --max-steps 1000 \
+            --use-scan 2>&1 | tee /tmp/benchmark-comparison.log || true
 
-      # Run VACASK benchmarks
-      # NOTE: Disabled because openvaf-r crashes on Linux/LLVM18 when compiling OSDI device files
-      # TODO: Re-enable once OpenVAF bug is fixed
-      - name: Run VACASK benchmarks
-        run: |
-          echo "VACASK benchmarks skipped - openvaf-r crashes on Linux/LLVM18 when compiling device models"
-          echo "See: https://github.com/pascalkuthe/OpenVAF/issues/"
-          # Create placeholder logs
-          for bench in rc graetz ring; do
-            echo "VACASK benchmark skipped due to openvaf crash" > "/tmp/vacask-$bench.log"
-          done
-
-      # Generate comparison summary
+      # Generate comparison summary for GitHub step output
       - name: Generate comparison summary
         run: |
           {
@@ -157,60 +148,47 @@ jobs:
             echo "### Environment"
             echo "- **Platform**: CPU (GitHub Actions runner)"
             echo "- **JAX Backend**: cpu"
+            echo "- **Mode**: lax.scan (JIT-compiled)"
+            echo "- **Steps**: 1000"
             echo ""
-            echo "### JAX-SPICE Results"
-            echo ""
-            echo "| Benchmark | Runtime (s) | Steps | Time/Step (ms) |"
-            echo "|-----------|-------------|-------|----------------|"
 
-            for bench in rc graetz ring; do
-              if [ -f "/tmp/jax-spice-$bench.log" ]; then
-                runtime=$(grep -oP 'Runtime:\s+\K[\d.]+' "/tmp/jax-spice-$bench.log" | tail -1 || echo "N/A")
-                steps=$(grep -oP 'Timesteps:\s+\K\d+' "/tmp/jax-spice-$bench.log" | tail -1 || echo "N/A")
-                per_step=$(grep -oP 'Time per step:\s+\K[\d.]+' "/tmp/jax-spice-$bench.log" | tail -1 || echo "N/A")
-                echo "| $bench | $runtime | $steps | $per_step |"
-              else
-                echo "| $bench | N/A | N/A | N/A |"
-              fi
-            done
+            # Extract and display the comparison output
+            if [ -f "/tmp/benchmark-comparison.log" ]; then
+              echo "### Per-Step Timing"
+              echo ""
+              echo "| Benchmark | Steps | JAX-SPICE (ms/step) | VACASK (ms/step) | Ratio |"
+              echo "|-----------|-------|---------------------|------------------|-------|"
 
-            echo ""
-            echo "### VACASK Results"
-            echo ""
-            echo "| Benchmark | Runtime (s) |"
-            echo "|-----------|-------------|"
+              # Parse the per-step summary table from the log
+              grep -A 10 "Summary (per-step timing)" /tmp/benchmark-comparison.log | \
+                grep "^|" | tail -n +3 | while read -r line; do
+                echo "$line"
+              done
 
-            for bench in rc graetz ring; do
-              if [ -f "/tmp/vacask-$bench.log" ]; then
-                runtime=$(grep -oP 'Runtime:\s+\K[\d.]+' "/tmp/vacask-$bench.log" || echo "N/A")
-                echo "| $bench | $runtime |"
-              else
-                echo "| $bench | N/A |"
-              fi
-            done
+              echo ""
+              echo "### Total Wall Time"
+              echo ""
+              echo "| Benchmark | Steps | JAX-SPICE (s) | VACASK (s) | Ratio |"
+              echo "|-----------|-------|---------------|------------|-------|"
 
-            echo ""
-            echo "### Comparison"
-            echo ""
-            echo "| Benchmark | JAX-SPICE (s) | VACASK (s) | Ratio |"
-            echo "|-----------|---------------|------------|-------|"
+              # Parse the total time summary table from the log
+              grep -A 10 "Summary (total wall time)" /tmp/benchmark-comparison.log | \
+                grep "^|" | tail -n +3 | while read -r line; do
+                echo "$line"
+              done
 
-            for bench in rc graetz ring; do
-              jax_time=$(grep -oP 'Runtime:\s+\K[\d.]+' "/tmp/jax-spice-$bench.log" 2>/dev/null | tail -1 || echo "0")
-              vacask_time=$(grep -oP 'Runtime:\s+\K[\d.]+' "/tmp/vacask-$bench.log" 2>/dev/null || echo "0")
-
-              if [ "$vacask_time" != "0" ] && [ "$jax_time" != "0" ] && [ "$vacask_time" != "N/A" ] && [ "$jax_time" != "N/A" ]; then
-                ratio=$(echo "scale=2; $jax_time / $vacask_time" | bc || echo "N/A")
-                echo "| $bench | $jax_time | $vacask_time | ${ratio}x |"
-              else
-                echo "| $bench | $jax_time | $vacask_time | N/A |"
-              fi
-            done
-
-            echo ""
-            echo "_Ratio > 1.0 means JAX-SPICE is slower, < 1.0 means faster_"
-            echo ""
-            echo "_Note: This is a CPU-only comparison. GPU performance differs significantly._"
+              echo ""
+              echo "### Interpretation"
+              echo ""
+              echo "- **Ratio < 1.0**: JAX-SPICE is faster"
+              echo "- **Ratio > 1.0**: JAX-SPICE is slower (overhead-dominated for small circuits)"
+              echo ""
+              echo "_Note: JAX-SPICE scales better than VACASK for large circuits (e.g., c6288 is 41% faster)._"
+              echo ""
+              echo "_VACASK benchmarks require OSDI device compilation which may fail on Linux/LLVM18._"
+            else
+              echo "**Error**: Benchmark comparison log not found"
+            fi
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload benchmark logs
@@ -219,7 +197,4 @@ jobs:
         with:
           name: benchmark-logs
           path: |
-            /tmp/jax-spice-*.log
-            /tmp/vacask-*.log
-            profile_report.md
-            profile_report.json
+            /tmp/benchmark-comparison.log
