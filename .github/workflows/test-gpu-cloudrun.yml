@@ -254,52 +254,35 @@ jobs:
             # Use Python to generate signed URLs from the SA JSON key
             pip install --quiet google-cloud-storage
 
-            python3 << 'PYTHON_SCRIPT'
-import json
-import os
-import urllib.parse
-from datetime import timedelta
-from google.cloud import storage
+            # Write Python script to temp file to avoid YAML heredoc issues
+            cat > /tmp/gen_signed_urls.py << 'EOF'
+          import os, re, urllib.parse
+          from datetime import timedelta
+          from google.cloud import storage
 
-creds_file = os.environ["GOOGLE_APPLICATION_CREDENTIALS"]
-bucket_name = "jax-spice-cuda-test-traces"
-trace_path = os.environ.get("TRACE_PATH", "")
-summary_file = os.environ["GITHUB_STEP_SUMMARY"]
+          bucket_name = "jax-spice-cuda-test-traces"
+          summary_file = os.environ["GITHUB_STEP_SUMMARY"]
+          trace_files = [f.strip() for f in os.environ.get("TRACE_FILES", "").split("\n") if f.strip()]
 
-# Get trace files from env (newline-separated)
-trace_files_str = os.environ.get("TRACE_FILES", "")
-trace_files = [f.strip() for f in trace_files_str.split("\n") if f.strip()]
+          client = storage.Client()
+          bucket = client.bucket(bucket_name)
 
-client = storage.Client()
-bucket = client.bucket(bucket_name)
+          with open(summary_file, "a") as summary:
+              for gcs_path in trace_files:
+                  blob_name = gcs_path.replace(f"gs://{bucket_name}/", "")
+                  blob = bucket.blob(blob_name)
+                  match = re.search(r'benchmark_[^/]+', blob_name)
+                  benchmark = match.group(0) if match else "trace"
+                  try:
+                      signed_url = blob.generate_signed_url(version="v4", expiration=timedelta(days=7), method="GET")
+                      encoded_url = urllib.parse.quote(signed_url, safe='')
+                      perfetto_url = f"https://ui.perfetto.dev/#!/?url={encoded_url}"
+                      summary.write(f"- [{benchmark}]({perfetto_url})\n")
+                  except Exception as e:
+                      summary.write(f"- {benchmark}: (failed: {str(e)[:100]})\n")
+          EOF
 
-with open(summary_file, "a") as summary:
-    for gcs_path in trace_files:
-        # Extract blob name from gs:// URL
-        blob_name = gcs_path.replace(f"gs://{bucket_name}/", "")
-        blob = bucket.blob(blob_name)
-
-        # Extract benchmark name
-        import re
-        match = re.search(r'benchmark_[^/]+', blob_name)
-        benchmark = match.group(0) if match else "trace"
-
-        try:
-            # Generate signed URL valid for 7 days
-            signed_url = blob.generate_signed_url(
-                version="v4",
-                expiration=timedelta(days=7),
-                method="GET"
-            )
-
-            # URL-encode for Perfetto
-            encoded_url = urllib.parse.quote(signed_url, safe='')
-            perfetto_url = f"https://ui.perfetto.dev/#!/?url={encoded_url}"
-
-            summary.write(f"- [{benchmark}]({perfetto_url})\n")
-        except Exception as e:
-            summary.write(f"- {benchmark}: (failed: {str(e)[:100]})\n")
-PYTHON_SCRIPT
+            python3 /tmp/gen_signed_urls.py
 
             echo "" >> "$GITHUB_STEP_SUMMARY"
             echo "Or download via CLI: \`uv run scripts/view_traces.py\`" >> "$GITHUB_STEP_SUMMARY"
