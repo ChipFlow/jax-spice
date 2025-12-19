@@ -239,14 +239,15 @@ jobs:
             } >> "$GITHUB_STEP_SUMMARY"
           fi
 
-      - name: Download profiling traces from GCS
+      - name: Fetch traces from GCS and upload as artifact
         if: always()
         run: |
-          # Download traces uploaded by the Cloud Run job
+          # Cloud Run uploads traces to GCS during job execution.
+          # We fetch them here to re-upload as a GitHub artifact for easier access.
           TRACE_PATH="${{ github.sha }}"
           GCS_BUCKET="jax-spice-cuda-test-traces"
 
-          echo "Downloading traces from gs://${GCS_BUCKET}/${TRACE_PATH}/"
+          echo "Fetching traces from gs://${GCS_BUCKET}/${TRACE_PATH}/"
           mkdir -p /tmp/profiling-traces
 
           gsutil -m cp -r "gs://${GCS_BUCKET}/${TRACE_PATH}/*" /tmp/profiling-traces/ 2>/dev/null || {
@@ -254,10 +255,10 @@ jobs:
             exit 0
           }
 
-          echo "Downloaded traces:"
+          echo "Fetched traces:"
           ls -la /tmp/profiling-traces/ || true
 
-      - name: Upload profiling traces as artifact
+      - name: Upload profiling traces as GitHub artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:

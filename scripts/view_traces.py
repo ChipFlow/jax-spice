@@ -12,17 +12,21 @@ This script:
 3. Provides instructions for loading traces
 
 Usage:
-    # View traces from a directory
-    uv run scripts/view_traces.py /tmp/jax-spice-traces
+    # View traces from latest CI run (default)
+    uv run scripts/view_traces.py
 
-    # View traces from CI artifact (after downloading)
-    uv run scripts/view_traces.py ~/Downloads/profiling-traces-abc123
+    # View traces from a specific workflow run
+    uv run scripts/view_traces.py --run 20378600298
+
+    # View traces from a local directory
+    uv run scripts/view_traces.py /tmp/jax-spice-traces
 
     # Download and view traces from GCS
     uv run scripts/view_traces.py --gcs gs://jax-spice-cuda-test-traces/abc123
 """
 
 import argparse
+import json
 import subprocess
 import sys
 import tempfile
@@ -37,6 +41,76 @@ def list_trace_files(trace_dir: Path) -> list[Path]:
         trace_files.extend(trace_dir.glob(pattern))
         trace_files.extend(trace_dir.glob(f"**/{pattern}"))
     return sorted(set(trace_files))
+
+
+def download_from_github(run_id: str | None = None) -> Path:
+    """Download traces from GitHub workflow artifact.
+
+    If run_id is None, downloads from the latest successful GPU Tests run.
+    """
+    # Find the run ID if not specified
+    if run_id is None:
+        print("Finding latest GPU Tests workflow run...")
+        result = subprocess.run(
+            [
+                "gh", "run", "list",
+                "--workflow=GPU Tests (Cloud Run)",
+                "--status=success",
+                "--limit=1",
+                "--json=databaseId,headSha,createdAt",
+            ],
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode != 0:
+            print(f"Error listing workflow runs: {result.stderr}")
+            sys.exit(1)
+
+        runs = json.loads(result.stdout)
+        if not runs:
+            print("No successful GPU Tests runs found.")
+            sys.exit(1)
+
+        run_id = str(runs[0]["databaseId"])
+        commit = runs[0]["headSha"][:8]
+        created = runs[0]["createdAt"]
+        print(f"  Found run {run_id} (commit {commit}, {created})")
+
+    # Create download directory
+    local_dir = Path(tempfile.gettempdir()) / f"jax-traces-run-{run_id}"
+    local_dir.mkdir(parents=True, exist_ok=True)
+
+    # Download the artifact
+    print(f"Downloading profiling traces from run {run_id}...")
+    result = subprocess.run(
+        [
+            "gh", "run", "download", run_id,
+            "--name", f"profiling-traces-*",
+            "--dir", str(local_dir),
+        ],
+        capture_output=True,
+        text=True,
+    )
+
+    if result.returncode != 0:
+        # Try with pattern matching (older gh versions)
+        result = subprocess.run(
+            [
+                "gh", "run", "download", run_id,
+                "--pattern", "profiling-traces-*",
+                "--dir", str(local_dir),
+            ],
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode != 0:
+            print(f"Error downloading artifact: {result.stderr}")
+            print()
+            print("Make sure you have gh CLI installed and authenticated:")
+            print("  gh auth login")
+            sys.exit(1)
+
+    return local_dir
 
 
 def download_from_gcs(gcs_path: str) -> Path:
@@ -80,8 +154,14 @@ def main():
         "trace_dir",
         type=str,
         nargs="?",
-        default="/tmp/jax-spice-traces",
-        help="Directory containing trace files (default: /tmp/jax-spice-traces)",
+        help="Directory containing trace files (default: download from latest CI run)",
+    )
+    parser.add_argument(
+        "--run",
+        type=str,
+        nargs="?",
+        const="latest",
+        help="Download from GitHub workflow run (default: latest successful run)",
     )
     parser.add_argument(
         "--gcs",
@@ -95,11 +175,18 @@ def main():
     )
     args = parser.parse_args()
 
-    # Handle GCS download
+    # Determine trace source
     if args.gcs:
         trace_dir = download_from_gcs(args.gcs)
-    else:
+    elif args.run is not None:
+        # --run with optional run ID
+        run_id = None if args.run == "latest" else args.run
+        trace_dir = download_from_github(run_id)
+    elif args.trace_dir:
         trace_dir = Path(args.trace_dir)
+    else:
+        # Default: download from latest CI run
+        trace_dir = download_from_github(None)
 
     if not trace_dir.exists():
         print(f"Error: Trace directory does not exist: {trace_dir}")
