@@ -226,5 +226,37 @@ jobs:
               echo "- **Ratio < 1.0**: JAX-SPICE is faster"
               echo "- **Ratio > 1.0**: JAX-SPICE is slower"
               echo "- **N/A**: VACASK comparison not available"
+              echo ""
+              echo "### Profiling Traces"
+              echo ""
+              echo "Perfetto traces are available as workflow artifacts."
+              echo "To view: download the artifact, then open [Perfetto UI](https://ui.perfetto.dev/) and load the trace files."
             } >> "$GITHUB_STEP_SUMMARY"
           fi
+
+      - name: Download profiling traces from GCS
+        if: always()
+        run: |
+          # Download traces uploaded by the Cloud Run job
+          TRACE_PATH="${{ github.sha }}"
+          GCS_BUCKET="jax-spice-cuda-test-traces"
+
+          echo "Downloading traces from gs://${GCS_BUCKET}/${TRACE_PATH}/"
+          mkdir -p /tmp/profiling-traces
+
+          gsutil -m cp -r "gs://${GCS_BUCKET}/${TRACE_PATH}/*" /tmp/profiling-traces/ 2>/dev/null || {
+            echo "No traces found (profiling may have been skipped or failed)"
+            exit 0
+          }
+
+          echo "Downloaded traces:"
+          ls -la /tmp/profiling-traces/ || true
+
+      - name: Upload profiling traces as artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: profiling-traces-${{ github.sha }}
+          path: /tmp/profiling-traces/
+          if-no-files-found: ignore
+          retention-days: 30

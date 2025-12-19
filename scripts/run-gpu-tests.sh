@@ -76,5 +76,33 @@ uv run python scripts/compare_vacask.py \
   --profile \
   --profile-dir /tmp/jax-spice-traces
 
+# Upload traces to GCS for artifact download
+echo "=== Uploading profiling traces to GCS ==="
+GCS_BUCKET="jax-spice-cuda-test-traces"
+TRACE_PATH="${GITHUB_SHA:-$(date +%s)}"
+
+# Get access token from metadata server (workload identity)
+TOKEN=$(curl -s -H "Metadata-Flavor: Google" \
+  "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token" | \
+  python3 -c "import sys,json; print(json.load(sys.stdin)['access_token'])" 2>/dev/null || echo "")
+
+if [ -n "$TOKEN" ] && [ -d "/tmp/jax-spice-traces" ]; then
+  echo "Uploading traces to gs://${GCS_BUCKET}/${TRACE_PATH}/"
+  for f in /tmp/jax-spice-traces/*; do
+    if [ -f "$f" ]; then
+      fname=$(basename "$f")
+      echo "  Uploading $fname..."
+      curl -s -X PUT -H "Authorization: Bearer $TOKEN" \
+        -H "Content-Type: application/octet-stream" \
+        --data-binary @"$f" \
+        "https://storage.googleapis.com/upload/storage/v1/b/${GCS_BUCKET}/o?uploadType=media&name=${TRACE_PATH}/${fname}" || true
+    fi
+  done
+  echo "Traces uploaded to: gs://${GCS_BUCKET}/${TRACE_PATH}/"
+  echo "TRACE_GCS_PATH=${TRACE_PATH}" >> /tmp/trace_info.env
+else
+  echo "Skipping trace upload (no token or no traces)"
+fi
+
 echo "Running tests..."
 uv run pytest tests/ -v --tb=short -x
