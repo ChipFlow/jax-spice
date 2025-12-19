@@ -139,30 +139,15 @@ def main():
     # Build the trace upload script (only if profiling enabled)
     if enable_profiling:
         upload_script = f'''
-# Get access token from metadata server (workload identity)
-echo "Fetching access token from metadata server..."
-TOKEN=$(curl -s -H "Metadata-Flavor: Google" \\
-  "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token" | \\
-  python3 -c "import sys,json; print(json.load(sys.stdin)['access_token'])")
-
-if [ -z "$TOKEN" ]; then
-  echo "WARNING: Failed to get access token, skipping trace upload"
-else
-  echo "Got access token (length: ${{#TOKEN}})"
-
-  # Upload traces to GCS (recursively - JAX creates subdirectories)
-  echo "=== Uploading traces to GCS ==="
-  find /tmp/jax-trace -type f | while read -r f; do
-    relpath="${{f#/tmp/jax-trace/}}"
-    # URL-encode the object name (replace / with %2F) for the GCS JSON API
-    object_name=$(echo "{args.benchmark.replace(',', '-')}-{timestamp}/$relpath" | sed 's|/|%2F|g')
-    echo "Uploading $relpath..."
-    curl -s -X PUT -H "Authorization: Bearer $TOKEN" \\
-      -H "Content-Type: application/octet-stream" \\
-      --data-binary @"$f" \\
-      "https://storage.googleapis.com/upload/storage/v1/b/{GCS_BUCKET_NAME}/o?uploadType=media&name=$object_name"
-  done
+# Upload traces to GCS using gsutil (uses workload identity from metadata server)
+echo "=== Uploading traces to GCS ==="
+if [ -d "/tmp/jax-trace" ]; then
+  gsutil -m cp -r /tmp/jax-trace/* "{trace_gcs_path}/" || {{
+    echo "Warning: Failed to upload traces (gsutil error)"
+  }}
   echo "Traces uploaded to: {trace_gcs_path}"
+else
+  echo "No traces found to upload"
 fi
 '''
     else:

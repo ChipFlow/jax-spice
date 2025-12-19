@@ -81,34 +81,18 @@ echo "=== Uploading profiling traces to GCS ==="
 GCS_BUCKET="jax-spice-cuda-test-traces"
 TRACE_PATH="${GITHUB_SHA:-$(date +%s)}"
 
-# Get access token from metadata server (workload identity)
-TOKEN=$(curl -s -H "Metadata-Flavor: Google" \
-  "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token" | \
-  python3 -c "import sys,json; print(json.load(sys.stdin)['access_token'])" 2>/dev/null || echo "")
-
-if [ -n "$TOKEN" ] && [ -d "/tmp/jax-spice-traces" ]; then
+if [ -d "/tmp/jax-spice-traces" ]; then
   echo "Uploading traces to gs://${GCS_BUCKET}/${TRACE_PATH}/"
 
-  # JAX profiler creates subdirectories for each trace (e.g., benchmark_rc/plugins/...)
-  # Find all actual files recursively
-  file_count=0
-  find /tmp/jax-spice-traces -type f | while read -r f; do
-    # Get relative path from trace dir
-    relpath="${f#/tmp/jax-spice-traces/}"
-    # URL-encode the object name (replace / with %2F) for the GCS JSON API
-    object_name=$(echo "${TRACE_PATH}/${relpath}" | sed 's|/|%2F|g')
-    echo "  Uploading ${relpath}..."
-    curl -s -X PUT -H "Authorization: Bearer $TOKEN" \
-      -H "Content-Type: application/octet-stream" \
-      --data-binary @"$f" \
-      "https://storage.googleapis.com/upload/storage/v1/b/${GCS_BUCKET}/o?uploadType=media&name=${object_name}" || true
-    file_count=$((file_count + 1))
-  done
+  # Use gsutil with workload identity credentials (auto-detected from metadata server)
+  gsutil -m cp -r /tmp/jax-spice-traces/* "gs://${GCS_BUCKET}/${TRACE_PATH}/" || {
+    echo "Warning: Failed to upload traces (gsutil error)"
+  }
 
   echo "Traces uploaded to: gs://${GCS_BUCKET}/${TRACE_PATH}/"
   echo "TRACE_GCS_PATH=${TRACE_PATH}" >> /tmp/trace_info.env
 else
-  echo "Skipping trace upload (no token or no traces)"
+  echo "Skipping trace upload (no traces found)"
 fi
 
 echo "Running tests..."
