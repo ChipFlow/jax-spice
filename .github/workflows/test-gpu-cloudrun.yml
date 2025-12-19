@@ -241,8 +241,8 @@ jobs:
           echo "### Profiling Traces" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
 
-          # List trace files in GCS
-          TRACE_FILES=$(gsutil ls "gs://${GCS_BUCKET}/${TRACE_PATH}/**/*.xplane.pb" 2>/dev/null || echo "")
+          # List trace files in GCS (use .trace.json.gz - Perfetto native format, not .xplane.pb)
+          TRACE_FILES=$(gsutil ls "gs://${GCS_BUCKET}/${TRACE_PATH}/**/*.trace.json.gz" 2>/dev/null || echo "")
           export TRACE_FILES
 
           if [ -z "$TRACE_FILES" ]; then
