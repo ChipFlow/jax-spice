@@ -26,10 +26,14 @@ Usage:
 """
 
 import argparse
+import http.server
 import json
+import socketserver
 import subprocess
 import sys
 import tempfile
+import threading
+import urllib.parse
 import webbrowser
 from pathlib import Path
 
@@ -41,6 +45,78 @@ def list_trace_files(trace_dir: Path) -> list[Path]:
         trace_files.extend(trace_dir.glob(pattern))
         trace_files.extend(trace_dir.glob(f"**/{pattern}"))
     return sorted(set(trace_files))
+
+
+class CORSRequestHandler(http.server.SimpleHTTPRequestHandler):
+    """HTTP handler with CORS headers for Perfetto UI."""
+
+    def __init__(self, *args, directory=None, **kwargs):
+        self.directory = directory
+        super().__init__(*args, directory=directory, **kwargs)
+
+    def end_headers(self):
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Methods", "GET, OPTIONS")
+        self.send_header("Access-Control-Allow-Headers", "*")
+        super().end_headers()
+
+    def do_OPTIONS(self):
+        self.send_response(200)
+        self.end_headers()
+
+    def log_message(self, format, *args):
+        # Suppress default logging
+        pass
+
+
+def serve_and_open_perfetto(trace_file: Path, port: int = 9001) -> None:
+    """Start a local HTTP server and open Perfetto UI with the trace.
+
+    Uses Perfetto's deep linking: https://perfetto.dev/docs/visualization/deep-linking-to-perfetto-ui
+    """
+    trace_dir = trace_file.parent
+    trace_name = trace_file.name
+
+    # Find an available port
+    for try_port in range(port, port + 100):
+        try:
+            with socketserver.TCPServer(("", try_port), None) as test:
+                port = try_port
+                break
+        except OSError:
+            continue
+
+    # Create handler with the trace directory
+    handler = lambda *args, **kwargs: CORSRequestHandler(
+        *args, directory=str(trace_dir), **kwargs
+    )
+
+    # Start server in background thread
+    server = socketserver.TCPServer(("", port), handler)
+    server_thread = threading.Thread(target=server.serve_forever)
+    server_thread.daemon = True
+    server_thread.start()
+
+    # Build Perfetto deep link URL
+    trace_url = f"http://localhost:{port}/{trace_name}"
+    encoded_url = urllib.parse.quote(trace_url, safe="")
+    perfetto_url = f"https://ui.perfetto.dev/#!/?url={encoded_url}"
+
+    print(f"Serving trace at: {trace_url}")
+    print(f"Opening Perfetto UI...")
+    print()
+    print(f"Deep link: {perfetto_url}")
+    print()
+    print("Press Ctrl+C to stop the server when done viewing.")
+
+    webbrowser.open(perfetto_url)
+
+    # Keep server running until interrupted
+    try:
+        server_thread.join()
+    except KeyboardInterrupt:
+        print("\nShutting down server...")
+        server.shutdown()
 
 
 def download_from_github(run_id: str | None = None) -> Path:
@@ -214,25 +290,33 @@ def main():
         print("Expected file types: .pb, .pb.gz, .json, .perfetto-trace")
         sys.exit(1)
 
+    # Sort by size (largest first - usually most interesting)
+    trace_files_by_size = sorted(trace_files, key=lambda f: f.stat().st_size, reverse=True)
+
     print(f"Found {len(trace_files)} trace file(s):")
-    for f in trace_files[:10]:
+    for i, f in enumerate(trace_files_by_size[:10]):
         size_kb = f.stat().st_size / 1024
-        print(f"  {f.name} ({size_kb:.1f} KB)")
+        # Show relative path from trace_dir for clarity
+        rel_path = f.relative_to(trace_dir) if trace_dir in f.parents or f.parent == trace_dir else f.name
+        marker = " <- largest" if i == 0 else ""
+        print(f"  {rel_path} ({size_kb:.1f} KB){marker}")
     if len(trace_files) > 10:
         print(f"  ... and {len(trace_files) - 10} more")
     print()
 
-    print("To view traces in Perfetto:")
-    print("  1. Open https://ui.perfetto.dev/")
-    print("  2. Click 'Open trace file' or drag & drop")
-    print(f"  3. Select file(s) from: {trace_dir}")
-    print()
-
-    if not args.no_browser:
-        print("Opening Perfetto UI in browser...")
-        webbrowser.open("https://ui.perfetto.dev/")
+    if args.no_browser:
+        print("To view traces in Perfetto:")
+        print("  1. Open https://ui.perfetto.dev/")
+        print("  2. Click 'Open trace file' or drag & drop")
+        print(f"  3. Select file(s) from: {trace_dir}")
     else:
-        print("(Browser opening skipped with --no-browser)")
+        # Select the largest .xplane.pb file (most detailed trace)
+        xplane_files = [f for f in trace_files_by_size if f.name.endswith(".xplane.pb")]
+        trace_to_open = xplane_files[0] if xplane_files else trace_files_by_size[0]
+
+        print(f"Opening: {trace_to_open.relative_to(trace_dir)}")
+        print()
+        serve_and_open_perfetto(trace_to_open)
 
 
 if __name__ == "__main__":
