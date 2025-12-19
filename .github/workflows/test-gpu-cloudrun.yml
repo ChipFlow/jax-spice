@@ -229,8 +229,13 @@ jobs:
               echo ""
               echo "### Profiling Traces"
               echo ""
-              echo "Perfetto traces are available as workflow artifacts."
-              echo "To view: download the artifact, then open [Perfetto UI](https://ui.perfetto.dev/) and load the trace files."
+              echo "**GCS Location:** \`gs://jax-spice-cuda-test-traces/${{ github.sha }}/\`"
+              echo ""
+              echo "**How to view:**"
+              echo "1. Download traces: \`uv run scripts/view_traces.py --gcs gs://jax-spice-cuda-test-traces/${{ github.sha }}\`"
+              echo "2. Open [Perfetto UI](https://ui.perfetto.dev/) and load the \`.xplane.pb\` files"
+              echo ""
+              echo "Or download the workflow artifact below."
             } >> "$GITHUB_STEP_SUMMARY"
           fi
 
