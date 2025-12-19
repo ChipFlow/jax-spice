@@ -236,6 +236,8 @@ jobs:
           # Generate signed URLs for traces and add clickable Perfetto links to summary
           TRACE_PATH="${{ github.sha }}"
           GCS_BUCKET="jax-spice-cuda-test-traces"
+          # Service account email for signing (from the JSON credentials)
+          SA_EMAIL=$(jq -r '.client_email' "$GOOGLE_APPLICATION_CREDENTIALS")
 
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo "### Profiling Traces" >> "$GITHUB_STEP_SUMMARY"
@@ -257,18 +259,19 @@ jobs:
                 benchmark="trace"
               fi
 
-              # Generate signed URL using gcloud (works with application default credentials)
-              # The key file is set via GOOGLE_APPLICATION_CREDENTIALS
-              signed_url=$(gcloud storage sign-url "$gcs_file" --duration=7d --private-key-file="$GOOGLE_APPLICATION_CREDENTIALS" 2>/dev/null | grep -oE 'https://[^ ]+' | tail -1)
+              # Generate signed URL using service account impersonation
+              signed_output=$(gcloud storage sign-url "$gcs_file" --duration=7d --impersonate-service-account="$SA_EMAIL" 2>&1)
+              url=$(echo "$signed_output" | grep -oE 'https://storage\.googleapis\.com[^ ]+' | head -1)
 
-              if [ -n "$signed_url" ]; then
+              if [ -n "$url" ]; then
                 # URL-encode the signed URL for Perfetto
-                encoded_url=$(python3 -c "import urllib.parse; print(urllib.parse.quote('$signed_url', safe=''))")
+                encoded_url=$(python3 -c "import urllib.parse; print(urllib.parse.quote('$url', safe=''))")
                 perfetto_url="https://ui.perfetto.dev/#!/?url=${encoded_url}"
 
                 echo "- [${benchmark}](${perfetto_url})" >> "$GITHUB_STEP_SUMMARY"
               else
-                echo "- ${benchmark}: (signed URL generation failed)" >> "$GITHUB_STEP_SUMMARY"
+                # Show error for debugging (truncated)
+                echo "- ${benchmark}: (failed: ${signed_output:0:100})" >> "$GITHUB_STEP_SUMMARY"
               fi
             done
 

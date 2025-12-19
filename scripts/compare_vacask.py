@@ -14,8 +14,15 @@ Usage:
     # Use lax.scan (faster)
     uv run scripts/compare_vacask.py --benchmark ring --use-scan
 
-    # Enable JAX profiling (GPU only)
-    uv run scripts/compare_vacask.py --profile --profile-dir /tmp/traces
+    # Enable JAX profiling (GPU only, creates Perfetto traces)
+    uv run scripts/compare_vacask.py --profile-mode jax --profile-dir /tmp/traces
+
+    # Enable nsys-jax profiling (GPU only, creates .nsys-rep + analysis zip)
+    # Note: Requires nsys-jax to be installed (from JAX-Toolbox)
+    uv run scripts/compare_vacask.py --profile-mode nsys --profile-dir /tmp/traces
+
+    # Enable both profiling modes (run separately to avoid interference)
+    uv run scripts/compare_vacask.py --profile-mode both --profile-dir /tmp/traces
 """
 
 import argparse
@@ -264,7 +271,14 @@ def main():
     parser.add_argument(
         "--profile",
         action="store_true",
-        help="Enable JAX/CUDA profiling (GPU only, creates Perfetto traces)",
+        help="[DEPRECATED] Use --profile-mode=jax instead",
+    )
+    parser.add_argument(
+        "--profile-mode",
+        type=str,
+        choices=["none", "jax", "nsys", "both"],
+        default="none",
+        help="Profiling mode: none, jax (Perfetto traces), nsys (nsys-jax), or both",
     )
     parser.add_argument(
         "--profile-dir",
@@ -290,13 +304,79 @@ def main():
     print(f"Solver: {'sparse' if args.use_sparse else 'dense'}")
     print(f"Max steps: {args.max_steps}")
 
-    # Setup profiling if requested
+    # Handle deprecated --profile flag
+    profile_mode = args.profile_mode
+    if args.profile and profile_mode == "none":
+        print("Warning: --profile is deprecated, use --profile-mode=jax instead")
+        profile_mode = "jax"
+
+    # Check if we're running under nsys-jax (it sets this env var)
+    running_under_nsys = os.environ.get("NSYS_PROFILING_SESSION_ID") is not None
+
+    # For nsys mode, re-exec under nsys-jax if not already running under it
+    if profile_mode in ("nsys", "both") and not running_under_nsys:
+        nsys_output = Path(args.profile_dir) / "nsys-jax-output"
+        nsys_output.mkdir(parents=True, exist_ok=True)
+
+        # Build nsys-jax command
+        nsys_cmd = [
+            "nsys-jax",
+            "-o", str(nsys_output / "profile"),
+            "--capture-range=cudaProfilerApi",
+            "--capture-range-end=stop",
+            "python", sys.argv[0],
+        ]
+        # Pass through arguments, but change profile-mode to jax if both
+        for i, arg in enumerate(sys.argv[1:]):
+            if arg == "--profile-mode":
+                continue  # Skip, we'll add our own
+            if i > 0 and sys.argv[i] == "--profile-mode":
+                continue  # Skip the value too
+            nsys_cmd.append(arg)
+
+        # If mode is 'both', run JAX profiling in this process first
+        if profile_mode == "both":
+            print("Running JAX profiling first, then nsys-jax...")
+            nsys_cmd.extend(["--profile-mode", "none"])  # nsys run won't do JAX profiling
+        else:
+            nsys_cmd.extend(["--profile-mode", "none"])  # Just use CUDA markers
+
+        # Mark that we want CUDA profiler markers
+        os.environ["JAX_SPICE_NSYS_MARKERS"] = "1"
+
+        print(f"Re-executing under nsys-jax: {' '.join(nsys_cmd[:5])}...")
+        result = subprocess.run(nsys_cmd)
+        if result.returncode != 0:
+            print(f"nsys-jax failed with code {result.returncode}")
+            sys.exit(result.returncode)
+
+        print(f"\nnsys-jax output saved to: {nsys_output}")
+        print("To analyze, unzip and open Jupyter notebooks:")
+        print(f"  unzip {nsys_output}/profile.zip -d {nsys_output}/")
+        print(f"  jupyter notebook {nsys_output}/")
+
+        if profile_mode == "nsys":
+            sys.exit(0)  # Done, nsys-jax already ran the benchmarks
+        # If 'both', continue to run JAX profiling below
+
+    # Setup JAX profiling if requested
     profile_config = None
-    if args.profile:
+    use_cuda_markers = os.environ.get("JAX_SPICE_NSYS_MARKERS") == "1"
+
+    if profile_mode in ("jax", "both") or use_cuda_markers:
         has_gpu = any(d.platform != 'cpu' for d in jax.devices())
         if has_gpu:
-            profile_config = ProfileConfig(jax=True, cuda=True, trace_dir=args.profile_dir)
-            print(f"Profiling: ENABLED (traces -> {args.profile_dir})")
+            # JAX profiling for jax/both modes, CUDA markers for nsys mode
+            enable_jax = profile_mode in ("jax", "both")
+            profile_config = ProfileConfig(
+                jax=enable_jax,
+                cuda=use_cuda_markers or running_under_nsys,
+                trace_dir=args.profile_dir
+            )
+            if enable_jax:
+                print(f"JAX Profiling: ENABLED (traces -> {args.profile_dir})")
+            if use_cuda_markers or running_under_nsys:
+                print("CUDA Profiler Markers: ENABLED (for nsys-jax)")
         else:
             print("Profiling: SKIPPED (no GPU available)")
     print()
@@ -394,17 +474,28 @@ def main():
     print()
 
     # Report profiling traces location
-    if profile_config:
+    if profile_config and profile_config.jax:
         trace_dir = Path(args.profile_dir)
         if trace_dir.exists():
-            traces = list(trace_dir.glob("*"))
-            if traces:
-                print(f"Profiling traces saved to: {trace_dir}")
+            # Find JAX traces (directories with .xplane.pb files)
+            jax_traces = list(trace_dir.glob("benchmark_*"))
+            if jax_traces:
+                print(f"JAX profiling traces saved to: {trace_dir}")
                 print(f"  To view in Perfetto: https://ui.perfetto.dev/")
-                for t in traces[:5]:  # Show first 5
-                    print(f"    - {t.name}")
-                if len(traces) > 5:
-                    print(f"    ... and {len(traces) - 5} more")
+                for t in jax_traces[:5]:  # Show first 5
+                    print(f"    - {t.name}/")
+                if len(jax_traces) > 5:
+                    print(f"    ... and {len(jax_traces) - 5} more")
+
+            # Check for nsys-jax output
+            nsys_output = trace_dir / "nsys-jax-output"
+            if nsys_output.exists():
+                nsys_zips = list(nsys_output.glob("*.zip"))
+                if nsys_zips:
+                    print(f"\nnsys-jax traces saved to: {nsys_output}")
+                    print("  To analyze:")
+                    print(f"    unzip {nsys_zips[0]} -d {nsys_output}/analysis")
+                    print(f"    jupyter notebook {nsys_output}/analysis/")
     print("=" * 70)
 
 
