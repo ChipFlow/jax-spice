@@ -95,11 +95,13 @@ if [ -n "$TOKEN" ] && [ -d "/tmp/jax-spice-traces" ]; then
   find /tmp/jax-spice-traces -type f | while read -r f; do
     # Get relative path from trace dir
     relpath="${f#/tmp/jax-spice-traces/}"
+    # URL-encode the object name (replace / with %2F) for the GCS JSON API
+    object_name=$(echo "${TRACE_PATH}/${relpath}" | sed 's|/|%2F|g')
     echo "  Uploading ${relpath}..."
     curl -s -X PUT -H "Authorization: Bearer $TOKEN" \
       -H "Content-Type: application/octet-stream" \
       --data-binary @"$f" \
-      "https://storage.googleapis.com/upload/storage/v1/b/${GCS_BUCKET}/o?uploadType=media&name=${TRACE_PATH}/${relpath}" || true
+      "https://storage.googleapis.com/upload/storage/v1/b/${GCS_BUCKET}/o?uploadType=media&name=${object_name}" || true
     file_count=$((file_count + 1))
   done
 

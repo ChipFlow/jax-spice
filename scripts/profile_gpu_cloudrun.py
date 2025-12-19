@@ -154,11 +154,13 @@ else
   echo "=== Uploading traces to GCS ==="
   find /tmp/jax-trace -type f | while read -r f; do
     relpath="${{f#/tmp/jax-trace/}}"
+    # URL-encode the object name (replace / with %2F) for the GCS JSON API
+    object_name=$(echo "{args.benchmark.replace(',', '-')}-{timestamp}/$relpath" | sed 's|/|%2F|g')
     echo "Uploading $relpath..."
     curl -s -X PUT -H "Authorization: Bearer $TOKEN" \\
       -H "Content-Type: application/octet-stream" \\
       --data-binary @"$f" \\
-      "https://storage.googleapis.com/upload/storage/v1/b/{GCS_BUCKET_NAME}/o?uploadType=media&name={args.benchmark.replace(',', '-')}-{timestamp}/$relpath"
+      "https://storage.googleapis.com/upload/storage/v1/b/{GCS_BUCKET_NAME}/o?uploadType=media&name=$object_name"
   done
   echo "Traces uploaded to: {trace_gcs_path}"
 fi
