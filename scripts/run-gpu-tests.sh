@@ -38,7 +38,7 @@ sccache --show-stats || echo "sccache stats not available"
 
 echo "Installing workspace packages..."
 # Install the workspace in the pre-existing venv
-uv sync --locked --extra cuda12
+uv sync --locked --extra cuda12 --extra dev
 
 echo "=== sccache diagnostics (after build) ==="
 sccache --show-stats || echo "sccache stats not available"
