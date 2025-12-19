@@ -257,8 +257,9 @@ jobs:
                 benchmark="trace"
               fi
 
-              # Generate signed URL (valid for 7 days)
-              signed_url=$(gsutil signurl -d 7d -u "$gcs_file" 2>/dev/null | grep -oE 'https://[^ ]+' | tail -1)
+              # Generate signed URL using gcloud (works with application default credentials)
+              # The key file is set via GOOGLE_APPLICATION_CREDENTIALS
+              signed_url=$(gcloud storage sign-url "$gcs_file" --duration=7d --private-key-file="$GOOGLE_APPLICATION_CREDENTIALS" 2>/dev/null | grep -oE 'https://[^ ]+' | tail -1)
 
               if [ -n "$signed_url" ]; then
                 # URL-encode the signed URL for Perfetto
@@ -266,6 +267,8 @@ jobs:
                 perfetto_url="https://ui.perfetto.dev/#!/?url=${encoded_url}"
 
                 echo "- [${benchmark}](${perfetto_url})" >> "$GITHUB_STEP_SUMMARY"
+              else
+                echo "- ${benchmark}: (signed URL generation failed)" >> "$GITHUB_STEP_SUMMARY"
               fi
             done
 
