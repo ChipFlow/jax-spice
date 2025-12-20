@@ -26,12 +26,12 @@ Usage:
 """
 
 import argparse
-import logging
 import os
 import subprocess
 
-# Configure logging to see JAX-SPICE runner debug output
-logging.basicConfig(level=logging.INFO, format='%(name)s: %(message)s')
+# Enable jax_spice performance logging to see solver selection info
+from jax_spice.logging import enable_performance_logging
+enable_performance_logging(with_memory=False)
 import sys
 import time
 import re
