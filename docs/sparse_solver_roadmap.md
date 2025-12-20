@@ -198,6 +198,66 @@ Some applications have varying sparsity. Our circuit simulation has fixed patter
 2. Work with XLA team on sparse primitive design
 3. Investigate AMD ROCm sparse solver integration
 
+## TODO: TPU and Non-NVIDIA GPU Support
+
+### Open Issues
+
+- [ ] **TPU CI failing** - [PR #1](https://github.com/ChipFlow/jax-spice/pull/1) adds TPU CI but tests are timing out/cancelled
+  - TPU tests ran for 6+ hours before being cancelled
+  - Need to investigate: is it a VM provisioning issue or actual test hang?
+
+### TPU Support Tasks
+
+- [ ] **Implement GMRES + block-Jacobi fallback solver**
+  - Create `jax_spice/analysis/iterative_solver.py`
+  - Extract diagonal blocks from Jacobian for preconditioner
+  - Use `jax.scipy.sparse.linalg.gmres` with matrix-free matvec
+  - Benchmark on TPU vs dense solver
+
+- [ ] **Test dense solver on TPU**
+  - Verify current dense path works on TPU
+  - Measure performance for c6288 benchmark
+  - Document TPU-specific tuning (e.g., padding for XLA efficiency)
+
+- [ ] **Fix TPU CI workflow**
+  - Debug why TPU tests timeout
+  - Add proper timeout handling
+  - Consider running smaller benchmarks for CI
+
+### Non-NVIDIA GPU Support Tasks
+
+- [ ] **AMD ROCm investigation**
+  - Check if JAX `spsolve` works on ROCm
+  - Investigate hipSPARSE/rocSOLVER for cached factorization
+  - Look for ROCm equivalent to cuDSS
+
+- [ ] **Intel GPU investigation**
+  - Check JAX Intel plugin status
+  - Investigate oneMKL sparse solver support
+
+### Backend Detection Strategy
+
+Current auto-detection in `runner.py`:
+```python
+if jax.default_backend() == 'gpu':
+    try:
+        from spineax.cudss.solver import CuDSSSolver
+        use_spineax = True  # NVIDIA GPU with Spineax
+    except ImportError:
+        use_spineax = False  # Non-NVIDIA GPU, fall back to spsolve
+elif jax.default_backend() == 'tpu':
+    # TODO: Use GMRES or dense
+    pass
+else:
+    # CPU: dense solver is fast enough
+    pass
+```
+
+Need to extend this to:
+1. Detect NVIDIA vs AMD vs Intel GPU
+2. Select appropriate solver for each
+3. Fall back gracefully when optimal solver unavailable
+
 ## References
 
 ### JAX Sparse
