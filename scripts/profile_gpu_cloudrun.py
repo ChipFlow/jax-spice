@@ -89,6 +89,11 @@ def main():
         action="store_true",
         help="Use sparse solver (default: dense for better GPU performance)",
     )
+    parser.add_argument(
+        "--profile-full",
+        action="store_true",
+        help="Profile entire run including warmup (helps identify overhead)",
+    )
     args = parser.parse_args()
 
     timestamp = int(time.time())
@@ -101,7 +106,8 @@ def main():
     print("=" * 60)
     print(f"Benchmarks: {args.benchmark}")
     print(f"Max steps: {args.max_steps}")
-    print(f"Profiling: {'ENABLED' if enable_profiling else 'DISABLED'}")
+    profile_mode = "FULL" if args.profile_full else ("ENABLED" if enable_profiling else "DISABLED")
+    print(f"Profiling: {profile_mode}")
     if enable_profiling:
         print(f"GCS path: {trace_gcs_path}")
         print(f"Local dir: {local_trace_dir}")
@@ -143,6 +149,8 @@ def main():
         compare_cmd.append("--force-dense")
     if enable_profiling:
         compare_cmd.extend(["--profile-mode", "jax", "--profile-dir", "/tmp/jax-trace"])
+        if args.profile_full:
+            compare_cmd.append("--profile-full")
     compare_cmd_str = " ".join(compare_cmd)
 
     # Build the trace upload script (only if profiling enabled)
@@ -176,6 +184,12 @@ git submodule update --init --recursive --depth 1
 # Install deps (with CUDA support)
 uv sync --locked --extra cuda12
 
+# Set up LD_LIBRARY_PATH for NVIDIA pip packages
+# JAX's pip packages install CUDA libraries to site-packages/nvidia/*/lib
+NVIDIA_BASE=".venv/lib/python3.13/site-packages/nvidia"
+export LD_LIBRARY_PATH="${{NVIDIA_BASE}}/cuda_runtime/lib:${{NVIDIA_BASE}}/cublas/lib:${{NVIDIA_BASE}}/cusparse/lib:${{NVIDIA_BASE}}/cudnn/lib:${{NVIDIA_BASE}}/cufft/lib:${{NVIDIA_BASE}}/cusolver/lib:${{NVIDIA_BASE}}/nvjitlink/lib:${{NVIDIA_BASE}}/nccl/lib:${{LD_LIBRARY_PATH:-}}"
+echo "LD_LIBRARY_PATH set for NVIDIA packages"
+
 # Check GPU detection
 echo "=== Checking JAX GPU Detection ==="
 uv run python -c "import jax; print('Backend:', jax.default_backend()); print('Devices:', jax.devices())"
@@ -184,7 +198,7 @@ echo ""
 echo "=== Starting Benchmark Comparison ==="
 echo "Benchmarks: {args.benchmark}"
 echo "Max steps: {args.max_steps}"
-echo "Profiling: {'ENABLED' if enable_profiling else 'DISABLED'}"
+echo "Profiling: {profile_mode}"
 echo ""
 
 # Run the benchmark comparison
