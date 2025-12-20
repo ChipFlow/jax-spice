@@ -267,9 +267,12 @@ def run_jax_spice(config: BenchmarkConfig, num_steps: int, use_scan: bool,
         # Force completion of async JAX operations
         _ = float(voltages[0][0])
         end = time.perf_counter()
-        elapsed = end - start
-        print(f"TIMED_RUN_END: {end:.6f} (elapsed: {elapsed:.6f}s, sync took: {end - after_transient:.6f}s)")
+        external_elapsed = end - start
+        print(f"TIMED_RUN_END: {end:.6f} (elapsed: {external_elapsed:.6f}s, sync took: {end - after_transient:.6f}s)")
 
+        # Use wall_time from stats (excludes trace saving overhead)
+        # Fall back to external timing if not available
+        elapsed = stats.get('wall_time', external_elapsed)
         actual_steps = len(times) - 1  # Exclude t=0 initial condition
         time_per_step = elapsed / actual_steps * 1000
 
