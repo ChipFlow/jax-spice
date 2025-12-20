@@ -168,9 +168,10 @@ set -e
 
 cd /app
 
-# Clone repo at main
-git clone --depth 1 --recurse-submodules https://github.com/ChipFlow/jax-spice.git source
+# Clone repo at main (shallow clone, then init submodules separately for reliability)
+git clone --depth 1 https://github.com/ChipFlow/jax-spice.git source
 cd source
+git submodule update --init --recursive --depth 1
 
 # Install deps (with CUDA support)
 uv sync --locked --extra cuda12
