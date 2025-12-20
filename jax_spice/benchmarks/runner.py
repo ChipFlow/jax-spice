@@ -1721,8 +1721,8 @@ class VACASKBenchmarkRunner:
                         from spineax.cudss.solver import CuDSSSolver
                         use_spineax = True
                         logger.info("Spineax available - will use cuDSS with cached symbolic factorization")
-                    except ImportError:
-                        logger.info("Spineax not available - using JAX spsolve")
+                    except Exception as e:
+                        logger.info(f"Spineax not available ({type(e).__name__}: {e}) - using JAX spsolve")
 
                 if use_spineax:
                     # Pre-compute BCSR pattern for Spineax
