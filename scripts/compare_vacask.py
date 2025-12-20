@@ -260,12 +260,14 @@ def run_jax_spice(config: BenchmarkConfig, num_steps: int, use_scan: bool,
 
         t_stop = config.dt * num_steps
 
-        # Warmup (use same num_steps to avoid re-tracing)
-        _ = runner.run_transient(
+        # Warmup/startup (includes parsing, JIT compilation, first run)
+        startup_start = time.perf_counter()
+        _, _, warmup_stats = runner.run_transient(
             t_stop=t_stop, dt=config.dt,
             max_steps=num_steps, use_sparse=use_sparse,
             use_while_loop=use_scan
         )
+        startup_time = time.perf_counter() - startup_start
 
         # Timed run - print perf_counter for correlation with Perfetto traces
         start = time.perf_counter()
@@ -289,6 +291,9 @@ def run_jax_spice(config: BenchmarkConfig, num_steps: int, use_scan: bool,
         elapsed = stats.get('wall_time', external_elapsed)
         actual_steps = len(times) - 1  # Exclude t=0 initial condition
         time_per_step = elapsed / actual_steps * 1000
+
+        # Add startup time to stats
+        stats['startup_time'] = startup_time
 
         return time_per_step, elapsed, stats
 
@@ -474,8 +479,9 @@ def main():
             config, num_steps, args.use_scan, use_sparse, profile_config,
             profile_full=args.profile_full
         )
+        startup_time = stats.get('startup_time', 0)
         print(f"done")
-        print(f"  JAX-SPICE: {jax_ms:.3f} ms/step ({jax_wall:.3f}s total)")
+        print(f"  JAX-SPICE: {jax_ms:.3f} ms/step ({jax_wall:.3f}s total, startup: {startup_time:.1f}s)")
 
         # Run VACASK or use reference times
         vacask_ms = None
@@ -507,6 +513,7 @@ def main():
             'steps': num_steps,
             'jax_ms': jax_ms,
             'jax_wall': jax_wall,
+            'startup_time': startup_time,
             'vacask_ms': vacask_ms,
             'vacask_wall': vacask_wall,
             'vacask_source': vacask_source,
@@ -557,6 +564,32 @@ def main():
     if has_reference:
         print()
         print("* VACASK reference times from AMD Threadripper 7970 (single-threaded)")
+
+    # Startup time summary (shows JIT compilation overhead and breakeven analysis)
+    print()
+    print("=" * 70)
+    print("Startup overhead (JIT compilation)")
+    print("=" * 70)
+    print()
+    print("| Benchmark | Startup (s) | Per-step speedup | Breakeven steps |")
+    print("|-----------|-------------|------------------|-----------------|")
+    for r in results:
+        startup_s = r.get('startup_time', 0)
+        if r['vacask_ms'] and r['jax_ms'] < r['vacask_ms']:
+            # JAX is faster per-step, calculate breakeven
+            # breakeven = startup / (vacask_time - jax_time) per step
+            speedup_per_step_ms = r['vacask_ms'] - r['jax_ms']
+            breakeven = int(startup_s * 1000 / speedup_per_step_ms) if speedup_per_step_ms > 0 else float('inf')
+            speedup_str = f"{r['vacask_ms'] / r['jax_ms']:.1f}x faster"
+            breakeven_str = f"{breakeven:,}"
+        elif r['vacask_ms']:
+            # JAX is slower per-step
+            speedup_str = f"{r['jax_ms'] / r['vacask_ms']:.1f}x slower"
+            breakeven_str = "N/A (slower)"
+        else:
+            speedup_str = "N/A"
+            breakeven_str = "N/A"
+        print(f"| {r['name']:9} | {startup_s:11.1f} | {speedup_str:16} | {breakeven_str:15} |")
 
     print()
 
