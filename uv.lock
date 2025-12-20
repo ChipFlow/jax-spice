@@ -1750,7 +1750,7 @@ wheels = [
 [[package]]
 name = "spineax"
 version = "0.0.2"
-source = { git = "https://github.com/robtaylor/spineax.git#a63ad61eddf5efe8b9dec69351aa7511456123fc" }
+source = { git = "https://github.com/robtaylor/spineax.git#2393208c65c6dc0ab7927660e21b8311d067fcd0" }
 dependencies = [
     { name = "jax", extra = ["cuda12"] },
     { name = "jaxtyping" },
