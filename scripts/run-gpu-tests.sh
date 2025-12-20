@@ -79,7 +79,7 @@ echo "Running JAX-SPICE vs VACASK benchmark comparison..."
 # generates larger output files - use for detailed GPU kernel analysis
 uv run python scripts/compare_vacask.py \
   --benchmark rc,graetz,ring,c6288 \
-  --max-steps 200 \
+  --max-steps 50 \
   --use-scan \
   --profile-mode jax \
   --profile-dir /tmp/jax-spice-traces
