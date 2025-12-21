@@ -625,11 +625,6 @@ class VACASKBenchmarkRunner:
             # Get model-specific defaults
             model_defaults = self.MODEL_PARAM_DEFAULTS.get(model_type, {})
 
-            # Check if model has MULT as a separate param (like PSP103)
-            # If so, mfactor sysfun should stay 0 (it's derived internally)
-            # If not (like diode), mfactor should be 1.0 as the device multiplier
-            has_mult_param = 'MULT' in param_names and param_kinds[param_names.index('MULT')] == 'param'
-
             # Fill input array for this device (static params only, voltages stay 0)
             for param_idx, (name, kind) in enumerate(zip(param_names, param_kinds)):
                 if kind == 'voltage':
@@ -639,11 +634,9 @@ class VACASKBenchmarkRunner:
                     all_inputs[dev_idx, param_idx] = 300.15  # ~27°C in Kelvin
                 elif kind == 'sysfun':
                     # System functions like mfactor
-                    # For models with MULT param (PSP103), leave mfactor=0 (derived from MULT)
-                    # For diode (which has no MULT), set mfactor=1.0 (device multiplier)
-                    # For resistor/capacitor, leave mfactor=0 to preserve original behavior
-                    # (their Jacobian contributions are handled differently)
-                    if name.lower() == 'mfactor' and not has_mult_param and model_type == 'diode':
+                    # mfactor is the system-level device multiplier and must be 1.0 by default
+                    # (it's independent of the MULT model parameter)
+                    if name.lower() == 'mfactor':
                         all_inputs[dev_idx, param_idx] = params.get('mfactor', 1.0)
                 elif kind == 'param':
                     param_lower = name.lower()
@@ -877,10 +870,15 @@ class VACASKBenchmarkRunner:
 
         # Node name mapping for different model types
         # Maps Verilog-A node names to generic node indices (node0, node1, ...)
+        # PSP103 node order from PSP103_module.include:
+        # External: D(node0), G(node1), S(node2), B(node3)
+        # Internal: NOI(node4), GP(node5), SI(node6), DI(node7),
+        #           BP(node8), BI(node9), BS(node10), BD(node11)
         internal_name_map = {
-            # PSP103 MOSFET nodes
-            'GP': 'node4', 'SI': 'node5', 'DI': 'node6', 'BP': 'node7',
-            'BS': 'node8', 'BD': 'node9', 'BI': 'node10', 'NOI': 'node11',
+            # PSP103 MOSFET nodes (corrected order based on PSP103_module.include)
+            'NOI': 'node4',
+            'GP': 'node5', 'SI': 'node6', 'DI': 'node7', 'BP': 'node8',
+            'BI': 'node9', 'BS': 'node10', 'BD': 'node11',
             'G': 'node1', 'D': 'node0', 'S': 'node2', 'B': 'node3',
             # Diode nodes (A=anode, C=cathode, CI=internal cathode)
             'A': 'node0', 'C': 'node1', 'CI': 'node2',
@@ -970,6 +968,15 @@ class VACASKBenchmarkRunner:
                         inputs.append(1.0)
                 elif kind == 'hidden_state':
                     inputs.append(0.0)
+                elif kind == 'sysfun':
+                    # System functions like mfactor
+                    # mfactor is the system-level device multiplier and must be 1.0 by default
+                    if name.lower() == 'mfactor':
+                        inputs.append(params.get('mfactor', 1.0))
+                    else:
+                        inputs.append(0.0)
+                elif kind == 'temperature':
+                    inputs.append(300.15)
                 else:
                     inputs.append(0.0)
 
@@ -3069,11 +3076,14 @@ class VACASKBenchmarkRunner:
         node2_name = match.group(2).strip() if match.group(2) else None
 
         # Map node names to indices
-        # PSP103 internal node mapping:
-        # GP, SI, DI, BP, BS, BD, BI, NOI correspond to node4-node11
+        # PSP103 node order from PSP103_module.include:
+        # External: D(node0), G(node1), S(node2), B(node3)
+        # Internal: NOI(node4), GP(node5), SI(node6), DI(node7),
+        #           BP(node8), BI(node9), BS(node10), BD(node11)
         internal_name_map = {
-            'GP': 'node4', 'SI': 'node5', 'DI': 'node6', 'BP': 'node7',
-            'BS': 'node8', 'BD': 'node9', 'BI': 'node10', 'NOI': 'node11',
+            'NOI': 'node4',
+            'GP': 'node5', 'SI': 'node6', 'DI': 'node7', 'BP': 'node8',
+            'BI': 'node9', 'BS': 'node10', 'BD': 'node11',
             'G': 'node1', 'D': 'node0', 'S': 'node2', 'B': 'node3',
         }
 
