@@ -383,27 +383,44 @@ class OpenVAFToJAX:
         return lines
 
     def _generate_code_array(self) -> List[str]:
-        """Generate JAX function code with array outputs (vmap-compatible)."""
+        """Generate JAX function code with array outputs (vmap-compatible).
+
+        Returns function with signature:
+            f(inputs) -> (residuals_resist, residuals_react, jacobian_resist, jacobian_react)
+
+        For DC analysis: use only resistive terms
+        For transient: f_total = f_resist + Q_react/dt, J_total = J_resist + C_react/dt
+        """
         lines, defined_vars = self._generate_core_code("device_eval_array")
 
         # Build array output expressions
         lines.append("    # Build output arrays (vmap-compatible)")
+        lines.append("    # Resistive: currents and conductances")
+        lines.append("    # Reactive: charges and capacitances (for transient analysis)")
 
-        # Residuals array - one entry per node
-        residual_exprs = []
+        # Residuals arrays - one entry per node (resistive and reactive)
+        residual_resist_exprs = []
+        residual_react_exprs = []
         for node, res in self.dae_data['residuals'].items():
             resist_val = res['resist'] if res['resist'] in defined_vars else '0.0'
-            residual_exprs.append(resist_val)
-        lines.append(f"    residuals = jnp.array([{', '.join(residual_exprs)}])")
+            react_val = res['react'] if res['react'] in defined_vars else '0.0'
+            residual_resist_exprs.append(resist_val)
+            residual_react_exprs.append(react_val)
+        lines.append(f"    residuals_resist = jnp.array([{', '.join(residual_resist_exprs)}])")
+        lines.append(f"    residuals_react = jnp.array([{', '.join(residual_react_exprs)}])")
 
-        # Jacobian array - one entry per (row, col) pair
-        jacobian_exprs = []
+        # Jacobian arrays - one entry per (row, col) pair (resistive and reactive)
+        jacobian_resist_exprs = []
+        jacobian_react_exprs = []
         for entry in self.dae_data['jacobian']:
             resist_val = entry['resist'] if entry['resist'] in defined_vars else '0.0'
-            jacobian_exprs.append(resist_val)
-        lines.append(f"    jacobian = jnp.array([{', '.join(jacobian_exprs)}])")
+            react_val = entry['react'] if entry['react'] in defined_vars else '0.0'
+            jacobian_resist_exprs.append(resist_val)
+            jacobian_react_exprs.append(react_val)
+        lines.append(f"    jacobian_resist = jnp.array([{', '.join(jacobian_resist_exprs)}])")
+        lines.append(f"    jacobian_react = jnp.array([{', '.join(jacobian_react_exprs)}])")
 
-        lines.append("    return residuals, jacobian")
+        lines.append("    return residuals_resist, residuals_react, jacobian_resist, jacobian_react")
         return lines
 
     def _build_init_param_mapping(self) -> Dict[str, Optional[int]]:

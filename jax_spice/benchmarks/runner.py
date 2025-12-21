@@ -1711,7 +1711,9 @@ class VACASKBenchmarkRunner:
                 V_init = jnp.zeros(n_nodes, dtype=jnp.float64)
                 vsource_init = jnp.zeros(n_vsources, dtype=jnp.float64)
                 isource_init = jnp.zeros(n_isources, dtype=jnp.float64)
-                J_bcoo_probe, _ = build_system_fn(V_init, vsource_init, isource_init)
+                Q_init = jnp.zeros(n_unknowns, dtype=jnp.float64)
+                # Use inv_dt=0 for DC (no reactive terms in probe)
+                J_bcoo_probe, _, _ = build_system_fn(V_init, vsource_init, isource_init, Q_init, 0.0)
 
                 # Sum duplicates to get true nse
                 unique_indices = jnp.unique(
@@ -1788,11 +1790,18 @@ class VACASKBenchmarkRunner:
         total_nr_iters = 0
         non_converged_steps = []  # Track (time, max_residual) for non-converged steps
 
+        # Initialize charge state for reactive (capacitance) tracking
+        # Q represents charges at each node, used for backward Euler integration
+        # Q has shape (n_unknowns,) = (n_nodes - 1,) since ground is excluded
+        n_unknowns = n_nodes - 1
+        Q_prev = jnp.zeros(n_unknowns, dtype=jnp.float64)
+        inv_dt = 1.0 / dt  # Precompute for transient (1/timestep)
+
         # Use integer-based iteration to avoid floating-point comparison issues
         # This ensures Python loop and lax.scan produce the same number of timesteps
         num_timesteps = int(round(t_stop / dt)) + 1
 
-        logger.info(f"Starting NR iteration ({num_timesteps} timesteps)")
+        logger.info(f"Starting NR iteration ({num_timesteps} timesteps, inv_dt={inv_dt:.2e})")
         for step_idx in range(num_timesteps):
             t = step_idx * dt
             logger.debug(f"Step time:{t}")
@@ -1801,7 +1810,8 @@ class VACASKBenchmarkRunner:
             vsource_vals, isource_vals = build_source_arrays(source_values)
 
             # GPU-resident NR solve - JIT compiled, runs on GPU via lax.while_loop
-            V_new, iterations, converged, max_f = nr_solve(V, vsource_vals, isource_vals)
+            # Backward Euler: f = f_resist + (Q - Q_prev)/dt, J = J_resist + C/dt
+            V_new, iterations, converged, max_f, Q = nr_solve(V, vsource_vals, isource_vals, Q_prev, inv_dt)
 
             # Transfer results back to Python for logging/tracking (once per timestep)
             nr_iters = int(iterations)
@@ -1809,6 +1819,7 @@ class VACASKBenchmarkRunner:
             residual = float(max_f)
 
             V = V_new
+            Q_prev = Q  # Update charge state for next timestep
             total_nr_iters += nr_iters
 
             if not is_converged:
@@ -1924,9 +1935,15 @@ class VACASKBenchmarkRunner:
                 isource_idx += 1
 
         # Run NR iterations until convergence
+        # For DC: inv_dt=0 means no reactive terms (dQ/dt = 0 at steady state)
+        # Q_prev doesn't matter when inv_dt=0, but needs correct shape (n_unknowns,)
+        n_unknowns = n_nodes - 1
+        Q_prev = jnp.zeros(n_unknowns, dtype=jnp.float64)
+        inv_dt = 0.0  # DC analysis - no time derivative terms
+
         converged = False
         for iteration in range(max_iterations):
-            V_new, nr_iters, is_converged, max_f = nr_solve(V, vsource_vals, isource_vals)
+            V_new, nr_iters, is_converged, max_f, _ = nr_solve(V, vsource_vals, isource_vals, Q_prev, inv_dt)
 
             if bool(is_converged):
                 converged = True
@@ -2101,7 +2118,8 @@ class VACASKBenchmarkRunner:
 
         # Cache key for the scan function
         # Note: Does NOT include num_timesteps - lax.scan handles variable-length inputs
-        scan_cache_key = (n_nodes, n_vsources, n_isources, n_external, use_dense)
+        # Includes dt in key since inv_dt is captured in the closure
+        scan_cache_key = (n_nodes, n_vsources, n_isources, n_external, use_dense, dt)
 
         if hasattr(self, '_cached_scan_fn') and self._cached_scan_key == scan_cache_key:
             run_simulation_with_outputs = self._cached_scan_fn
@@ -2109,39 +2127,52 @@ class VACASKBenchmarkRunner:
         else:
             # Create and cache the scan function
             # Source values are passed per-timestep via lax.scan's xs argument
-            def make_scan_fn(nr_solve_fn, n_ext):
+            inv_dt = 1.0 / dt  # Captured in closure for backward Euler
+
+            def make_scan_fn(nr_solve_fn, n_ext, inv_dt_val):
                 @jax.jit
-                def run_simulation_with_outputs(V_init, all_vsource, all_isource):
-                    """Run simulation with time-varying sources using lax.scan."""
-                    def step_fn(V, source_vals):
+                def run_simulation_with_outputs(V_init, Q_init, all_vsource, all_isource):
+                    """Run simulation with time-varying sources using lax.scan.
+
+                    Carry includes both V and Q for reactive term tracking.
+                    Uses backward Euler: f = f_resist + (Q - Q_prev)/dt
+                    """
+                    def step_fn(carry, source_vals):
+                        V, Q_prev = carry
                         vsource_vals, isource_vals = source_vals
-                        V_new, iterations, converged, max_f = nr_solve_fn(V, vsource_vals, isource_vals)
-                        return V_new, (V_new[:n_ext], iterations, converged)
+                        V_new, iterations, converged, max_f, Q = nr_solve_fn(
+                            V, vsource_vals, isource_vals, Q_prev, inv_dt_val
+                        )
+                        return (V_new, Q), (V_new[:n_ext], iterations, converged)
 
                     # Stack source arrays for scan input
                     source_inputs = (all_vsource, all_isource)
                     _, (all_V, all_iters, all_converged) = jax.lax.scan(
-                        step_fn, V_init, source_inputs
+                        step_fn, (V_init, Q_init), source_inputs
                     )
                     return all_V, all_iters, all_converged
                 return run_simulation_with_outputs
 
-            run_simulation_with_outputs = make_scan_fn(nr_solve, n_external)
+            run_simulation_with_outputs = make_scan_fn(nr_solve, n_external, inv_dt)
             self._cached_scan_fn = run_simulation_with_outputs
             self._cached_scan_key = scan_cache_key
-            logger.info("Created and cached lax.scan simulation function")
+            logger.info(f"Created and cached lax.scan simulation function (inv_dt={inv_dt:.2e})")
+
+        # Initialize charge state for reactive terms
+        # Q has shape (n_unknowns,) = (n_nodes - 1,) since ground is excluded
+        Q0 = jnp.zeros(n_unknowns, dtype=jnp.float64)
 
         # Run the simulation (with optional profiling of just the core loop)
         logger.info("Running lax.scan simulation...")
         t0 = time_module.perf_counter()
         if profile_config:
             with profile_section("lax_scan_simulation", profile_config):
-                all_V, all_iters, all_converged = run_simulation_with_outputs(V0, all_vsource_vals, all_isource_vals)
+                all_V, all_iters, all_converged = run_simulation_with_outputs(V0, Q0, all_vsource_vals, all_isource_vals)
                 jax.block_until_ready(all_V)
                 # Measure time BEFORE profile_section.__exit__ (which saves trace to disk)
                 t1 = time_module.perf_counter()
         else:
-            all_V, all_iters, all_converged = run_simulation_with_outputs(V0, all_vsource_vals, all_isource_vals)
+            all_V, all_iters, all_converged = run_simulation_with_outputs(V0, Q0, all_vsource_vals, all_isource_vals)
             jax.block_until_ready(all_V)
             t1 = time_module.perf_counter()
         total_time = t1 - t0
@@ -2300,37 +2331,49 @@ class VACASKBenchmarkRunner:
                 if 'vdd' in name.lower() or 'vcc' in name.lower():
                     V0 = V0.at[idx].set(vdd_value)
 
-        # Create the scan function
-        def step_fn(V_prev, source_inputs):
-            """Single timestep for lax.scan - fully traceable."""
+        # Precompute inv_dt for backward Euler integration
+        inv_dt = 1.0 / dt
+        # Q has shape (n_unknowns,) = (n_nodes - 1,) since ground is excluded
+        Q0 = jnp.zeros(n_unknowns, dtype=jnp.float64)  # Initial charges
+
+        # Create the scan function with reactive term tracking
+        def step_fn(carry, source_inputs):
+            """Single timestep for lax.scan - fully traceable.
+
+            Carry: (V, Q) for voltage and charge state
+            Uses backward Euler: f = f_resist + (Q - Q_prev)/dt
+            """
+            V_prev, Q_prev = carry
             vsource_vals, isource_vals = source_inputs
-            V_new, iterations, converged, max_f = nr_solve(V_prev, vsource_vals, isource_vals)
+            V_new, iterations, converged, max_f, Q = nr_solve(
+                V_prev, vsource_vals, isource_vals, Q_prev, inv_dt
+            )
             # Return new state and output (voltage at external nodes only)
-            return V_new, (V_new[:n_external], iterations, converged)
+            return (V_new, Q), (V_new[:n_external], iterations, converged)
 
         # JIT compile the entire scan
         @jax.jit
-        def run_all_steps(V_init, vsource_all, isource_all):
+        def run_all_steps(V_init, Q_init, vsource_all, isource_all):
             """Run all timesteps using lax.scan - fully JIT'd."""
             source_inputs = (vsource_all, isource_all)
-            final_V, (all_V, all_iters, all_converged) = jax.lax.scan(
-                step_fn, V_init, source_inputs
+            (final_V, final_Q), (all_V, all_iters, all_converged) = jax.lax.scan(
+                step_fn, (V_init, Q_init), source_inputs
             )
             return all_V, all_iters, all_converged
 
         # Run the fully JIT'd simulation (with optional profiling of just the core loop)
-        logger.info("Running full simulation (lax.scan)...")
+        logger.info(f"Running full simulation (lax.scan, inv_dt={inv_dt:.2e})...")
         t2 = time_module.perf_counter()
 
         if profile_config:
             with profile_section("lax_scan_simulation", profile_config):
-                all_V, all_iters, all_converged = run_all_steps(V0, all_vsource_vals, all_isource_vals)
+                all_V, all_iters, all_converged = run_all_steps(V0, Q0, all_vsource_vals, all_isource_vals)
                 # Wait for computation to complete (JAX operations are async)
                 all_V.block_until_ready()
                 # Measure time BEFORE profile_section.__exit__ (which saves trace to disk)
                 t3 = time_module.perf_counter()
         else:
-            all_V, all_iters, all_converged = run_all_steps(V0, all_vsource_vals, all_isource_vals)
+            all_V, all_iters, all_converged = run_all_steps(V0, Q0, all_vsource_vals, all_isource_vals)
             all_V.block_until_ready()
             t3 = time_module.perf_counter()
 
@@ -2639,7 +2682,10 @@ class VACASKBenchmarkRunner:
             use_dense: Whether to use dense or sparse matrix assembly
 
         Returns:
-            Function build_system(V, vsource_vals, isource_vals) -> (J, f)
+            Function build_system(V, vsource_vals, isource_vals, Q_prev, inv_dt) -> (J, f, Q)
+
+            For DC analysis: pass inv_dt=0.0 and Q_prev=zeros (reactive terms ignored)
+            For transient: pass inv_dt=1/dt and Q_prev from previous timestep
         """
         from jax.experimental.sparse import BCOO, BCSR
         from jax_spice.analysis.sparse import sparse_solve_csr
@@ -2647,22 +2693,38 @@ class VACASKBenchmarkRunner:
         # Capture model types as static list (unrolled at trace time)
         model_types = list(static_inputs_cache.keys())
 
-        def build_system(V: jax.Array, vsource_vals: jax.Array, isource_vals: jax.Array
-                        ) -> Tuple[Any, jax.Array]:
+        def build_system(V: jax.Array, vsource_vals: jax.Array, isource_vals: jax.Array,
+                        Q_prev: jax.Array, inv_dt: float
+                        ) -> Tuple[Any, jax.Array, jax.Array]:
             """Build Jacobian J and residual f from current voltages.
 
             Fully JAX-traceable - no Python lists or dynamic allocation.
             All device contributions are concatenated into fixed-size arrays.
 
+            For transient analysis with backward Euler:
+                f = f_resist + (Q - Q_prev) / dt
+                J = J_resist + C / dt
+
+            Args:
+                V: Current voltage vector
+                vsource_vals: Voltage source values
+                isource_vals: Current source values
+                Q_prev: Charges from previous timestep (shape: n_unknowns)
+                inv_dt: 1/dt for transient, 0 for DC analysis
+
             Returns:
-                J: Jacobian matrix (dense jax.Array if use_dense=True, BCOO if use_dense=False)
-                f: Residual vector (jax.Array)
+                J: Jacobian matrix (dense or BCOO)
+                f: Residual vector
+                Q: Current charges (for tracking across timesteps)
             """
-            f_parts = []
-            j_parts = []
+            f_resist_parts = []
+            f_react_parts = []  # Charge contributions
+            j_resist_parts = []
+            j_react_parts = []  # Capacitance contributions
 
             # === Source devices contribution ===
             # Voltage sources: I = G * (Vp - Vn - Vtarget), G = 1e12
+            # Sources are resistive only (no reactive component)
             if 'vsource' in source_device_data and vsource_vals.size > 0:
                 d = source_device_data['vsource']
                 G = 1e12
@@ -2670,26 +2732,26 @@ class VACASKBenchmarkRunner:
                 I = G * (Vp - Vn - vsource_vals)
                 G_arr = jnp.full(d['n'], G)
 
-                # Residual contribution
+                # Residual contribution (resistive only)
                 f_vals = I[:, None] * d['f_signs'][None, :]  # (n, 2)
                 f_idx = d['f_indices'].ravel()
                 f_val = f_vals.ravel()
                 f_valid = f_idx >= 0
-                f_parts.append((jnp.where(f_valid, f_idx, 0), jnp.where(f_valid, f_val, 0.0)))
+                f_resist_parts.append((jnp.where(f_valid, f_idx, 0), jnp.where(f_valid, f_val, 0.0)))
 
-                # Jacobian contribution
+                # Jacobian contribution (resistive only)
                 j_vals_arr = G_arr[:, None] * d['j_signs'][None, :]  # (n, 4)
                 j_row = d['j_rows'].ravel()
                 j_col = d['j_cols'].ravel()
                 j_val = j_vals_arr.ravel()
                 j_valid = j_row >= 0
-                j_parts.append((
+                j_resist_parts.append((
                     jnp.where(j_valid, j_row, 0),
                     jnp.where(j_valid, j_col, 0),
                     jnp.where(j_valid, j_val, 0.0)
                 ))
 
-            # Current sources (residual only)
+            # Current sources (resistive residual only)
             # Residual: +I at p (current leaves), -I at n (current enters)
             if 'isource' in source_device_data and isource_vals.size > 0:
                 d = source_device_data['isource']
@@ -2697,9 +2759,10 @@ class VACASKBenchmarkRunner:
                 f_idx = d['f_indices'].ravel()
                 f_val = f_vals.ravel()
                 f_valid = f_idx >= 0
-                f_parts.append((jnp.where(f_valid, f_idx, 0), jnp.where(f_valid, f_val, 0.0)))
+                f_resist_parts.append((jnp.where(f_valid, f_idx, 0), jnp.where(f_valid, f_val, 0.0)))
 
             # === OpenVAF devices contribution (unrolled at trace time) ===
+            # Devices return 4 arrays: (res_resist, res_react, jac_resist, jac_react)
             for model_type in model_types:
                 static_inputs, voltage_indices, stamp_indices, voltage_node1, voltage_node2 = \
                     static_inputs_cache[model_type]
@@ -2709,80 +2772,126 @@ class VACASKBenchmarkRunner:
                 voltage_updates = V[voltage_node1] - V[voltage_node2]
                 batch_inputs = static_inputs.at[:, jnp.array(voltage_indices)].set(voltage_updates)
 
-                # Batched device evaluation
-                batch_residuals, batch_jacobian = vmapped_fn(batch_inputs)
+                # Batched device evaluation - now returns 4 arrays
+                batch_res_resist, batch_res_react, batch_jac_resist, batch_jac_react = vmapped_fn(batch_inputs)
 
                 # Collect COO triplets using pre-computed indices
                 res_idx = stamp_indices['res_indices']
                 jac_row_idx = stamp_indices['jac_row_indices']
                 jac_col_idx = stamp_indices['jac_col_indices']
 
-                # Residuals - use masking instead of boolean indexing for static shapes
+                # === Resistive residuals ===
                 flat_res_idx = res_idx.ravel()
-                flat_res_val = batch_residuals.ravel()
+                flat_res_resist_val = batch_res_resist.ravel()
                 valid_res = flat_res_idx >= 0
-                # Mask invalid indices to 0, mask invalid values to 0
                 flat_res_idx_masked = jnp.where(valid_res, flat_res_idx, 0)
-                flat_res_val_masked = jnp.where(valid_res, flat_res_val, 0.0)
-                flat_res_val_masked = jnp.where(jnp.isnan(flat_res_val_masked), 0.0, flat_res_val_masked)
-                f_parts.append((flat_res_idx_masked, flat_res_val_masked))
+                flat_res_resist_masked = jnp.where(valid_res, flat_res_resist_val, 0.0)
+                flat_res_resist_masked = jnp.where(jnp.isnan(flat_res_resist_masked), 0.0, flat_res_resist_masked)
+                f_resist_parts.append((flat_res_idx_masked, flat_res_resist_masked))
 
-                # Jacobian - use masking instead of boolean indexing
+                # === Reactive residuals (charges) ===
+                flat_res_react_val = batch_res_react.ravel()
+                flat_res_react_masked = jnp.where(valid_res, flat_res_react_val, 0.0)
+                flat_res_react_masked = jnp.where(jnp.isnan(flat_res_react_masked), 0.0, flat_res_react_masked)
+                f_react_parts.append((flat_res_idx_masked, flat_res_react_masked))
+
+                # === Resistive Jacobian (conductances) ===
                 flat_jac_rows = jac_row_idx.ravel()
                 flat_jac_cols = jac_col_idx.ravel()
-                flat_jac_vals = batch_jacobian.ravel()
+                flat_jac_resist_vals = batch_jac_resist.ravel()
                 valid_jac = (flat_jac_rows >= 0) & (flat_jac_cols >= 0)
                 flat_jac_rows_masked = jnp.where(valid_jac, flat_jac_rows, 0)
                 flat_jac_cols_masked = jnp.where(valid_jac, flat_jac_cols, 0)
-                flat_jac_vals_masked = jnp.where(valid_jac, flat_jac_vals, 0.0)
-                flat_jac_vals_masked = jnp.where(jnp.isnan(flat_jac_vals_masked), 0.0, flat_jac_vals_masked)
-                j_parts.append((
+                flat_jac_resist_masked = jnp.where(valid_jac, flat_jac_resist_vals, 0.0)
+                flat_jac_resist_masked = jnp.where(jnp.isnan(flat_jac_resist_masked), 0.0, flat_jac_resist_masked)
+                j_resist_parts.append((
                     flat_jac_rows_masked,
                     flat_jac_cols_masked,
-                    flat_jac_vals_masked
+                    flat_jac_resist_masked
                 ))
 
-            # === Build residual vector f using segment_sum ===
-            if f_parts:
-                all_f_idx = jnp.concatenate([p[0] for p in f_parts])
-                all_f_val = jnp.concatenate([p[1] for p in f_parts])
-                f = jax.ops.segment_sum(all_f_val, all_f_idx, num_segments=n_unknowns)
+                # === Reactive Jacobian (capacitances) ===
+                flat_jac_react_vals = batch_jac_react.ravel()
+                flat_jac_react_masked = jnp.where(valid_jac, flat_jac_react_vals, 0.0)
+                flat_jac_react_masked = jnp.where(jnp.isnan(flat_jac_react_masked), 0.0, flat_jac_react_masked)
+                j_react_parts.append((
+                    flat_jac_rows_masked,
+                    flat_jac_cols_masked,
+                    flat_jac_react_masked
+                ))
+
+            # === Build resistive residual vector f_resist ===
+            if f_resist_parts:
+                all_f_resist_idx = jnp.concatenate([p[0] for p in f_resist_parts])
+                all_f_resist_val = jnp.concatenate([p[1] for p in f_resist_parts])
+                f_resist = jax.ops.segment_sum(all_f_resist_val, all_f_resist_idx, num_segments=n_unknowns)
             else:
-                f = jnp.zeros(n_unknowns, dtype=jnp.float64)
+                f_resist = jnp.zeros(n_unknowns, dtype=jnp.float64)
 
-            # === Build Jacobian J ===
-            if j_parts:
-                all_j_rows = jnp.concatenate([p[0] for p in j_parts])
-                all_j_cols = jnp.concatenate([p[1] for p in j_parts])
-                all_j_vals = jnp.concatenate([p[2] for p in j_parts])
-
-                if use_dense:
-                    # Dense: COO -> dense matrix via segment_sum
-                    flat_indices = all_j_rows * n_unknowns + all_j_cols
-                    J_flat = jax.ops.segment_sum(
-                        all_j_vals, flat_indices, num_segments=n_unknowns * n_unknowns
-                    )
-                    J = J_flat.reshape((n_unknowns, n_unknowns))
-                    # Add regularization (1e-9 matches sparse solver)
-                    J = J + 1e-9 * jnp.eye(n_unknowns, dtype=jnp.float64)
-                else:
-                    # Sparse path - build BCOO sparse matrix
-                    from jax.experimental.sparse import BCOO
-
-                    # Add diagonal regularization entries
-                    diag_idx = jnp.arange(n_unknowns, dtype=jnp.int32)
-                    all_j_rows = jnp.concatenate([all_j_rows, diag_idx])
-                    all_j_cols = jnp.concatenate([all_j_cols, diag_idx])
-                    # Large regularization needed for GPU spsolve (stricter than scipy)
-                    all_j_vals = jnp.concatenate([all_j_vals, jnp.full(n_unknowns, 1e-3)])
-
-                    # Build BCOO with duplicates (BCSR.from_bcoo handles them)
-                    indices = jnp.stack([all_j_rows, all_j_cols], axis=1)
-                    J = BCOO((all_j_vals, indices), shape=(n_unknowns, n_unknowns))
+            # === Build reactive residual vector Q (charges) ===
+            if f_react_parts:
+                all_f_react_idx = jnp.concatenate([p[0] for p in f_react_parts])
+                all_f_react_val = jnp.concatenate([p[1] for p in f_react_parts])
+                Q = jax.ops.segment_sum(all_f_react_val, all_f_react_idx, num_segments=n_unknowns)
             else:
-                J = jnp.eye(n_unknowns, dtype=jnp.float64) * 1e-12
+                Q = jnp.zeros(n_unknowns, dtype=jnp.float64)
 
-            return J, f
+            # === Combine for transient: f = f_resist + (Q - Q_prev) / dt ===
+            # For DC (inv_dt=0): f = f_resist
+            # For transient: f = f_resist + inv_dt * (Q - Q_prev)
+            f = f_resist + inv_dt * (Q - Q_prev)
+
+            # === Build resistive Jacobian J_resist ===
+            if j_resist_parts:
+                all_j_resist_rows = jnp.concatenate([p[0] for p in j_resist_parts])
+                all_j_resist_cols = jnp.concatenate([p[1] for p in j_resist_parts])
+                all_j_resist_vals = jnp.concatenate([p[2] for p in j_resist_parts])
+            else:
+                all_j_resist_rows = jnp.zeros(0, dtype=jnp.int32)
+                all_j_resist_cols = jnp.zeros(0, dtype=jnp.int32)
+                all_j_resist_vals = jnp.zeros(0, dtype=jnp.float64)
+
+            # === Build reactive Jacobian C (capacitances) ===
+            if j_react_parts:
+                all_j_react_rows = jnp.concatenate([p[0] for p in j_react_parts])
+                all_j_react_cols = jnp.concatenate([p[1] for p in j_react_parts])
+                all_j_react_vals = jnp.concatenate([p[2] for p in j_react_parts])
+            else:
+                all_j_react_rows = jnp.zeros(0, dtype=jnp.int32)
+                all_j_react_cols = jnp.zeros(0, dtype=jnp.int32)
+                all_j_react_vals = jnp.zeros(0, dtype=jnp.float64)
+
+            # === Combine Jacobians: J = J_resist + C / dt ===
+            # Concatenate COO triplets and scale reactive by inv_dt
+            all_j_rows = jnp.concatenate([all_j_resist_rows, all_j_react_rows])
+            all_j_cols = jnp.concatenate([all_j_resist_cols, all_j_react_cols])
+            all_j_vals = jnp.concatenate([all_j_resist_vals, inv_dt * all_j_react_vals])
+
+            if use_dense:
+                # Dense: COO -> dense matrix via segment_sum
+                flat_indices = all_j_rows * n_unknowns + all_j_cols
+                J_flat = jax.ops.segment_sum(
+                    all_j_vals, flat_indices, num_segments=n_unknowns * n_unknowns
+                )
+                J = J_flat.reshape((n_unknowns, n_unknowns))
+                # Add regularization (1e-9 matches sparse solver)
+                J = J + 1e-9 * jnp.eye(n_unknowns, dtype=jnp.float64)
+            else:
+                # Sparse path - build BCOO sparse matrix
+                from jax.experimental.sparse import BCOO
+
+                # Add diagonal regularization entries
+                diag_idx = jnp.arange(n_unknowns, dtype=jnp.int32)
+                all_j_rows = jnp.concatenate([all_j_rows, diag_idx])
+                all_j_cols = jnp.concatenate([all_j_cols, diag_idx])
+                # Large regularization needed for GPU spsolve (stricter than scipy)
+                all_j_vals = jnp.concatenate([all_j_vals, jnp.full(n_unknowns, 1e-3)])
+
+                # Build BCOO with duplicates (BCSR.from_bcoo handles them)
+                indices = jnp.stack([all_j_rows, all_j_cols], axis=1)
+                J = BCOO((all_j_vals, indices), shape=(n_unknowns, n_unknowns))
+
+            return J, f, Q
 
         return build_system
 
@@ -2802,35 +2911,41 @@ class VACASKBenchmarkRunner:
         - This prevents inlining of all device evaluations into the outer trace
 
         Args:
-            build_system_jit: JIT-wrapped function (V, vsource_vals, isource_vals) -> (J, f)
+            build_system_jit: JIT-wrapped function (V, vsource_vals, isource_vals, Q_prev, inv_dt) -> (J, f, Q)
             n_nodes: Total node count including ground (V.shape[0])
             max_iterations: Maximum NR iterations
             abstol: Absolute tolerance for convergence
             max_step: Maximum voltage step per iteration
 
         Returns:
-            JIT-compiled function: (V, vsource_vals, isource_vals) -> (V, iters, converged, max_f)
+            JIT-compiled function: (V, vsource_vals, isource_vals, Q_prev, inv_dt) -> (V, iters, converged, max_f, Q)
         """
 
-        def nr_solve(V_init: jax.Array, vsource_vals: jax.Array, isource_vals: jax.Array):
-            # State: (V, iteration, converged, max_f, max_delta)
+        def nr_solve(V_init: jax.Array, vsource_vals: jax.Array, isource_vals: jax.Array,
+                    Q_prev: jax.Array, inv_dt: float):
+            # State: (V, iteration, converged, max_f, max_delta, Q)
+            # Q is tracked to return the final charges
+            # Q has shape (n_unknowns,) = (n_nodes - 1,) since ground is excluded
+            init_Q = jnp.zeros(n_nodes - 1, dtype=jnp.float64)
             init_state = (
                 V_init,
                 jnp.array(0, dtype=jnp.int32),
                 jnp.array(False),
                 jnp.array(jnp.inf),
                 jnp.array(jnp.inf),
+                init_Q,
             )
 
             def cond_fn(state):
-                V, iteration, converged, max_f, max_delta = state
+                V, iteration, converged, max_f, max_delta, Q = state
                 return jnp.logical_and(~converged, iteration < max_iterations)
 
             def body_fn(state):
-                V, iteration, _, _, _ = state
+                V, iteration, _, _, _, _ = state
 
-                # Build system (J and f) - calls JIT'd function
-                J, f = build_system_jit(V, vsource_vals, isource_vals)
+                # Build system (J, f, Q) - calls JIT'd function
+                # Q_prev is fixed for all NR iterations within this timestep
+                J, f, Q = build_system_jit(V, vsource_vals, isource_vals, Q_prev, inv_dt)
 
                 # Check residual convergence (exclude ground at index 0)
                 # Ground's residual includes current source stamps but ground is pinned
@@ -2853,14 +2968,14 @@ class VACASKBenchmarkRunner:
 
                 converged = jnp.logical_or(residual_converged, delta_converged)
 
-                return (V_new, iteration + 1, converged, max_f, max_delta)
+                return (V_new, iteration + 1, converged, max_f, max_delta, Q)
 
             # Run NR loop on GPU
-            V_final, iterations, converged, max_f, max_delta = lax.while_loop(
+            V_final, iterations, converged, max_f, max_delta, Q_final = lax.while_loop(
                 cond_fn, body_fn, init_state
             )
 
-            return V_final, iterations, converged, max_f
+            return V_final, iterations, converged, max_f, Q_final
 
         # Return JIT-wrapped function - compilation happens lazily on first call
         logger.info(f"Creating JIT-compiled NR solver: V({n_nodes})")
@@ -2881,7 +2996,7 @@ class VACASKBenchmarkRunner:
         where dense linear algebra would OOM.
 
         Args:
-            build_system_jit: JIT-wrapped function returning (J_bcoo, f)
+            build_system_jit: JIT-wrapped function returning (J_bcoo, f, Q)
             n_nodes: Total node count including ground
             nse: Number of stored elements after summing duplicates
             max_iterations: Maximum NR iterations
@@ -2889,29 +3004,33 @@ class VACASKBenchmarkRunner:
             max_step: Maximum voltage step per iteration
 
         Returns:
-            JIT-compiled sparse solver function
+            JIT-compiled sparse solver function: (V, vsrc, isrc, Q_prev, inv_dt) -> (V, iters, converged, max_f, Q)
         """
         from jax.experimental.sparse import BCSR
         from jax.experimental.sparse.linalg import spsolve
 
-        def nr_solve(V_init: jax.Array, vsource_vals: jax.Array, isource_vals: jax.Array):
+        def nr_solve(V_init: jax.Array, vsource_vals: jax.Array, isource_vals: jax.Array,
+                    Q_prev: jax.Array, inv_dt: float):
+            # Q has shape (n_unknowns,) = (n_nodes - 1,) since ground is excluded
+            init_Q = jnp.zeros(n_nodes - 1, dtype=jnp.float64)
             init_state = (
                 V_init,
                 jnp.array(0, dtype=jnp.int32),
                 jnp.array(False),
                 jnp.array(jnp.inf),
                 jnp.array(jnp.inf),
+                init_Q,
             )
 
             def cond_fn(state):
-                V, iteration, converged, max_f, max_delta = state
+                V, iteration, converged, max_f, max_delta, Q = state
                 return jnp.logical_and(~converged, iteration < max_iterations)
 
             def body_fn(state):
-                V, iteration, _, _, _ = state
+                V, iteration, _, _, _, _ = state
 
-                # Build sparse system (J_bcoo and f)
-                J_bcoo, f = build_system_jit(V, vsource_vals, isource_vals)
+                # Build sparse system (J_bcoo, f, Q)
+                J_bcoo, f, Q = build_system_jit(V, vsource_vals, isource_vals, Q_prev, inv_dt)
 
                 # Check residual convergence (exclude ground)
                 max_f = jnp.max(jnp.abs(f[1:]))
@@ -2941,13 +3060,13 @@ class VACASKBenchmarkRunner:
                 delta_converged = max_delta < 1e-12
                 converged = jnp.logical_or(residual_converged, delta_converged)
 
-                return (V_new, iteration + 1, converged, max_f, max_delta)
+                return (V_new, iteration + 1, converged, max_f, max_delta, Q)
 
-            V_final, iterations, converged, max_f, max_delta = lax.while_loop(
+            V_final, iterations, converged, max_f, max_delta, Q_final = lax.while_loop(
                 cond_fn, body_fn, init_state
             )
 
-            return V_final, iterations, converged, max_f
+            return V_final, iterations, converged, max_f, Q_final
 
         logger.info(f"Creating sparse JIT-compiled NR solver: V({n_nodes})")
         return jax.jit(nr_solve)
