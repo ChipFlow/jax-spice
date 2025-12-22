@@ -664,7 +664,7 @@ BENCHMARK_SPECS = {
         vacask_nodes=['1', 'v(1)'],
         jax_nodes=[1],
         xfail=True,
-        xfail_reason="PSP103 MOSFET not oscillating correctly - ~33% error",
+        xfail_reason="PSP103 ring oscillator: DC operating point differs (JAX=0.546V vs VACASK=0.661V), oscillation doesn't start. Needs investigation of PSP103 model evaluation.",
     ),
     'mul': BenchmarkSpec(
         name='mul',
