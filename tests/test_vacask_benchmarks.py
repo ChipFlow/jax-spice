@@ -670,11 +670,10 @@ BENCHMARK_SPECS = {
         name='mul',
         dt=1e-9,           # 1ns step
         t_stop=1e-7,       # 100ns
-        max_rel_error=0.15,
+        max_rel_error=0.01,  # 1% allowed (actual: ~0.06%)
         vacask_nodes=['1', 'v(1)'],
         jax_nodes=[1],
-        xfail=True,
-        xfail_reason="Multiplier circuit not yet validated",
+        xfail=False,
     ),
 }
 
@@ -733,6 +732,16 @@ def run_vacask_simulation(
     # Read original sim file
     with open(sim_path) as f:
         sim_content = f.read()
+
+    # Check for required OSDI files
+    import re as re_module
+    for osdi_match in re_module.finditer(r'load\s+"([^"]+\.osdi)"', sim_content):
+        osdi_path = sim_dir / osdi_match.group(1)
+        if not osdi_path.exists():
+            raise FileNotFoundError(
+                f"Required OSDI file not found: {osdi_path}. "
+                f"This benchmark may need OSDI files copied from another benchmark."
+            )
 
     # Modify the analysis line to use our t_stop
     modified = re.sub(
@@ -847,6 +856,28 @@ class TestVACASKResultComparison:
             pytest.skip("VACASK binary not found. Set VACASK_BIN env var or build VACASK.")
         return binary
 
+    @staticmethod
+    def _setup_benchmark_osdi(benchmark_name: str):
+        """Copy OSDI files from reference benchmark if missing.
+
+        Some benchmarks (like mul) reference OSDI files that aren't in their directory.
+        This copies them from rc benchmark which has all the basic SPICE OSDI files.
+        """
+        import shutil
+        benchmark_dir = BENCHMARK_DIR / benchmark_name / "vacask"
+        reference_dir = BENCHMARK_DIR / "rc" / "vacask"
+        graetz_dir = BENCHMARK_DIR / "graetz" / "vacask"
+
+        # Check if spice directory needs setup
+        spice_dir = benchmark_dir / "spice"
+        if not spice_dir.exists() and (reference_dir / "spice").exists():
+            shutil.copytree(reference_dir / "spice", spice_dir)
+
+        # Check for sn subdirectory (diode.osdi variant)
+        sn_dir = spice_dir / "sn"
+        if not sn_dir.exists() and (graetz_dir / "spice" / "sn").exists():
+            shutil.copytree(graetz_dir / "spice" / "sn", sn_dir)
+
     @pytest.mark.parametrize("benchmark_name", list(BENCHMARK_SPECS.keys()))
     def test_transient_matches_vacask(self, vacask_bin, benchmark_name):
         """Parametrized test comparing JAX-SPICE to VACASK for each benchmark.
@@ -864,10 +895,16 @@ class TestVACASKResultComparison:
         if not sim_path.exists():
             pytest.skip(f"Benchmark not found at {sim_path}")
 
+        # Set up OSDI files if needed
+        self._setup_benchmark_osdi(spec.name)
+
         num_steps = int(spec.t_stop / spec.dt)
 
         # Run VACASK
-        vacask_results = run_vacask_simulation(vacask_bin, sim_path, spec.t_stop, spec.dt)
+        try:
+            vacask_results = run_vacask_simulation(vacask_bin, sim_path, spec.t_stop, spec.dt)
+        except FileNotFoundError as e:
+            pytest.skip(str(e))
         vacask_time = vacask_results['time']
 
         # Find VACASK output node
