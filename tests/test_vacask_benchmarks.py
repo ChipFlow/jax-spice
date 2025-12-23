@@ -435,14 +435,18 @@ class TestNodeCountComparison:
     @pytest.mark.parametrize("benchmark,xfail_reason", [
         ("rc", None),
         pytest.param("graetz", "Graetz node count mismatch - JAX-SPICE uses named nodes differently", marks=pytest.mark.xfail(reason="Node naming mismatch")),
-        pytest.param("ring", "Ring node count mismatch - internal node handling differs", marks=pytest.mark.xfail(reason="Internal node handling differs")),
+        ("ring", None),  # Ring node count now matches VACASK (47 unknowns)
     ])
     def test_node_count_matches_vacask(self, vacask_bin, benchmark, xfail_reason):
-        """Compare JAX-SPICE node count with VACASK for simple benchmarks.
+        """Compare JAX-SPICE node count with VACASK for benchmarks.
 
-        For simple benchmarks without complex internal nodes, we compare:
-        - JAX-SPICE external nodes (num_nodes) vs VACASK's nodeCount
-        - JAX-SPICE total nodes vs VACASK's unknownCount + 1 (for ground)
+        VACASK reports two node counts:
+        - nodeCount: Total Node objects (before collapse, includes redundant internal nodes)
+        - unknownCount: Actual system matrix size (after collapse)
+
+        JAX-SPICE's total_nodes should match VACASK's unknownCount (+/- 1 for ground handling).
+        Note: VACASK's nodeCount is much higher for PSP103 circuits because it creates
+        Node objects for all internal nodes before collapse.
         """
         sim_path = get_benchmark_sim(benchmark)
         if not sim_path.exists():
@@ -464,15 +468,12 @@ class TestNodeCountComparison:
         print(f"  VACASK: nodes={vacask_nodes}, unknowns={vacask_unknowns}")
         print(f"  JAX-SPICE: external={jax_external}, total={n_total}")
 
-        # For simple benchmarks, external nodes should match VACASK's nodeCount
-        # and total should match unknowns + 1 (VACASK excludes ground)
-        diff_external = abs(jax_external - vacask_nodes)
-        diff_total = abs(n_total - (vacask_unknowns + 1))
+        # The key comparison: JAX-SPICE total should match VACASK unknowns
+        # Allow +/- 1 for different ground handling
+        diff_total = abs(n_total - vacask_unknowns)
 
-        assert diff_external <= 1, \
-            f"{benchmark}: external nodes differ: JAX-SPICE={jax_external}, VACASK={vacask_nodes}"
         assert diff_total <= 1, \
-            f"{benchmark}: total nodes differ: JAX-SPICE={n_total}, VACASK unknowns+1={vacask_unknowns+1}"
+            f"{benchmark}: total nodes differ: JAX-SPICE={n_total}, VACASK unknowns={vacask_unknowns}"
 
     def test_c6288_node_count(self, vacask_bin):
         """Test c6288 node count - this is the main target for node collapse fix.
@@ -530,7 +531,11 @@ class TestNodeCollapseStandalone:
         """Test that node collapse significantly reduces c6288 node count.
 
         Without node collapse: ~86,000 nodes (5123 external + 81k internal)
-        With node collapse: ~15,000 nodes (5123 external + 10k internal)
+        With PSP103-specific collapse: ~15,000-26,000 nodes (matching VACASK)
+
+        PSP103 has 2 internal nodes per device after collapse:
+        - NOI (noise correlation node) - always separate
+        - BI (internal bulk) with BP/BS/BD collapsed to it
         """
         sim_path = get_benchmark_sim("c6288")
         if not sim_path.exists():
@@ -551,23 +556,27 @@ class TestNodeCollapseStandalone:
         print(f"  PSP103 devices: {n_psp103_devices}")
         print(f"  Internal nodes per device: {n_internal / n_psp103_devices:.2f}")
 
-        # With node collapse, each PSP103 should need only 1 internal node
-        # (node 4 in the model is the only non-collapsed internal)
-        expected_internal = n_psp103_devices  # 1 internal per device
+        # With PSP103-specific collapse, each device needs 2 internal nodes
+        # (NOI and BI where BP/BS/BD collapse to BI)
+        expected_internal = n_psp103_devices * 2
         internal_ratio = n_internal / expected_internal
 
         # Allow up to 10% variance
-        assert internal_ratio < 1.1, \
-            f"Too many internal nodes: {n_internal} (expected ~{expected_internal}, ratio={internal_ratio:.2f})"
+        assert 0.9 < internal_ratio < 1.1, \
+            f"Internal node count off: {n_internal} (expected ~{expected_internal}, ratio={internal_ratio:.2f})"
 
-        # Total should be well under 20k (vs ~86k without collapse)
-        assert n_total < 20000, \
-            f"Total nodes too high: {n_total} (expected <20000 with node collapse)"
+        # Total should be well under 30k (vs ~86k without collapse)
+        assert n_total < 30000, \
+            f"Total nodes too high: {n_total} (expected <30000 with node collapse)"
 
     def test_ring_node_collapse(self):
         """Test that node collapse is applied to ring benchmark.
 
-        Ring has 18 PSP103 devices, each with 1 internal node after collapse.
+        Ring has 18 PSP103 devices, each with 2 internal nodes after collapse:
+        - NOI (noise correlation node) - always separate
+        - BI (internal bulk) with BP/BS/BD collapsed to it
+
+        This matches VACASK's behavior: 47 unknowns = 11 external + 36 internal.
         """
         sim_path = get_benchmark_sim("ring")
         if not sim_path.exists():
@@ -587,9 +596,14 @@ class TestNodeCollapseStandalone:
         print(f"  Total nodes: {n_total}")
         print(f"  PSP103 devices: {n_psp103}")
 
-        # With collapse, each PSP103 should have 1 internal node
-        assert n_internal == n_psp103, \
-            f"Expected {n_psp103} internal nodes (1 per device), got {n_internal}"
+        # With PSP103-specific collapse, each device has 2 internal nodes:
+        # NOI (node4) and BI (node9) where BP/BS/BD collapse to BI
+        # This matches VACASK's 47 unknowns for the Ring benchmark
+        expected_internal = n_psp103 * 2
+        assert n_internal == expected_internal, \
+            f"Expected {expected_internal} internal nodes (2 per device), got {n_internal}"
+        assert n_total == 47, \
+            f"Expected 47 total nodes (matching VACASK), got {n_total}"
 
 
 # =============================================================================

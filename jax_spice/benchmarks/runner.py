@@ -1360,6 +1360,60 @@ class VACASKBenchmarkRunner:
     # while JAX-SPICE counts ground as node 0 in the total.
     # =========================================================================
 
+    def _get_psp103_collapse_pairs(self, device_params: Dict[str, float]) -> List[Tuple[int, int]]:
+        """Determine which PSP103 node pairs should collapse based on parameters.
+
+        PSP103 has 7 CollapsableR macro instances that control node collapse:
+        - (1, 5) G-GP: Controlled by RG_i (gate resistance)
+        - (2, 6) S-SI: Controlled by RSE_i (source resistance)
+        - (0, 7) D-DI: Controlled by RDE_i (drain resistance)
+        - (8, 9) BP-BI: Controlled by RBULK_i (bulk resistance)
+        - (10, 9) BS-BI: Controlled by RJUNS_i (source junction resistance)
+        - (11, 9) BD-BI: Controlled by RJUND_i (drain junction resistance)
+        - (3, 9) B-BI: Controlled by RWELL_i (well resistance)
+
+        The CollapsableR macro collapses when R=0: if (R > 0) I<+G*V else V<+0
+
+        Based on VACASK behavior analysis, even when all R=0, the B-BI pair (3,9)
+        doesn't collapse. This keeps BI as a separate internal node where BP/BS/BD
+        collapse to it, giving 2 internal nodes per device (NOI and BI).
+
+        Args:
+            device_params: Device instance parameters
+
+        Returns:
+            List of (node_idx, collapse_to_idx) pairs to apply
+        """
+        # PSP103 resistance parameters and their controlling pairs
+        # Format: (pair, resistance_params) where resistance is computed from params
+        # Using simplified checks - if any contributing param is non-zero, don't collapse
+        collapse_controls = [
+            ((1, 5), ['rgo', 'rint', 'rvpoly', 'rshg']),  # G-GP: RG_i
+            ((2, 6), ['nrs', 'rsh']),                      # S-SI: RSE_i = NRS * RSH_i
+            ((0, 7), ['nrd', 'rsh']),                      # D-DI: RDE_i = NRD * RSHD_i
+            ((8, 9), ['rbulko']),                          # BP-BI: RBULK_i = NF * RBULKO
+            ((10, 9), ['rjunso']),                         # BS-BI: RJUNS_i = NF * RJUNSO
+            ((11, 9), ['rjundo']),                         # BD-BI: RJUND_i = NF * RJUNDO
+            # Note: B-BI (3, 9) controlled by RWELL_i is intentionally excluded
+            # Based on VACASK behavior, this pair doesn't collapse even when RWELLO=0
+            # This keeps BI as a separate internal node
+        ]
+
+        pairs = []
+        for pair, param_names in collapse_controls:
+            # Check if all controlling parameters are effectively zero
+            should_collapse = True
+            for pname in param_names:
+                val = device_params.get(pname, 0.0)
+                if val != 0.0:
+                    should_collapse = False
+                    break
+
+            if should_collapse:
+                pairs.append(pair)
+
+        return pairs
+
     def _get_model_collapse_pairs(self, model_type: str, model_params: Dict[str, float],
                                      model_nodes: List[str]) -> List[Tuple[int, int]]:
         """Get collapse pairs based on model definition and parameters.
@@ -1375,8 +1429,11 @@ class VACASKBenchmarkRunner:
         Returns:
             List of (node_idx, collapse_to_idx) pairs
         """
-        # Use OpenVAF's collapsible_pairs for all models
-        # This matches VACASK behavior which also uses OpenVAF's collapse information
+        # PSP103 uses parameter-dependent collapse logic
+        if model_type == 'psp103':
+            return self._get_psp103_collapse_pairs(model_params)
+
+        # For other models, use OpenVAF's collapsible_pairs
         compiled = self._compiled_models.get(model_type)
         if compiled:
             return compiled.get('collapsible_pairs', [])
@@ -1441,6 +1498,9 @@ class VACASKBenchmarkRunner:
         Node collapse eliminates unnecessary internal nodes when model parameters
         indicate they should be merged (e.g., when resistance parameters are 0).
 
+        For PSP103, collapse decisions are made per-device based on device parameters.
+        For other models, collapse pairs are shared across all devices of that type.
+
         Returns:
             (total_nodes, device_internal_nodes) where device_internal_nodes maps
             device name to dict of internal node name -> global index
@@ -1449,7 +1509,7 @@ class VACASKBenchmarkRunner:
         next_internal = n_external
         device_internal_nodes = {}
 
-        # Cache collapse roots per model type (based on model params)
+        # Cache collapse roots for non-PSP103 models (shared across devices)
         collapse_roots_cache: Dict[str, Dict[int, int]] = {}
 
         for dev in self.devices:
@@ -1464,17 +1524,23 @@ class VACASKBenchmarkRunner:
             model_nodes = compiled['nodes']
             n_model_nodes = len(model_nodes)
 
-            # Get collapse pairs based on model definition and parameters
-            if model_type not in collapse_roots_cache:
-                model_params = self._get_model_params_for_collapse(model_type)
-                collapse_pairs = self._get_model_collapse_pairs(
-                    model_type, model_params, model_nodes
-                )
-                collapse_roots_cache[model_type] = self._compute_collapse_roots(
-                    collapse_pairs, n_model_nodes
-                )
-
-            collapse_roots = collapse_roots_cache[model_type]
+            # Get collapse pairs based on model definition and device parameters
+            # For PSP103, compute per-device to handle parameter variations
+            if model_type == 'psp103':
+                device_params = dev.get('params', {})
+                collapse_pairs = self._get_psp103_collapse_pairs(device_params)
+                collapse_roots = self._compute_collapse_roots(collapse_pairs, n_model_nodes)
+            else:
+                # Other models: cache collapse roots per model type
+                if model_type not in collapse_roots_cache:
+                    model_params = self._get_model_params_for_collapse(model_type)
+                    collapse_pairs = self._get_model_collapse_pairs(
+                        model_type, model_params, model_nodes
+                    )
+                    collapse_roots_cache[model_type] = self._compute_collapse_roots(
+                        collapse_pairs, n_model_nodes
+                    )
+                collapse_roots = collapse_roots_cache[model_type]
 
             # Determine if last node is a branch current node (skip it if so)
             # Branch current nodes have names like 'br[Branch(BranchId(N))]'
