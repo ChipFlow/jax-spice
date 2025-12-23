@@ -1843,9 +1843,10 @@ class VACASKBenchmarkRunner:
                         max_iterations=MAX_NR_ITERATIONS, abstol=DEFAULT_ABSTOL, max_step=1.0
                     )
 
-            # Cache JIT-wrapped solver (JAX handles compilation automatically)
+            # Cache JIT-wrapped solver and build_system (JAX handles compilation automatically)
             self._cached_nr_solve = nr_solve
             self._cached_solver_key = cache_key
+            self._cached_build_system = build_system_jit
             logger.info(f"Cached {'dense' if use_dense else 'sparse'} NR solver")
 
         # Compute initial condition based on icmode
@@ -1857,7 +1858,8 @@ class VACASKBenchmarkRunner:
                 n_isources=n_isources,
                 nr_solve=nr_solve,
                 backend=backend,
-                use_dense=use_dense
+                use_dense=use_dense,
+                device_internal_nodes=device_internal_nodes
             )
         else:
             # icmode='uic' - initialize VDD nodes to supply voltage
@@ -1884,8 +1886,20 @@ class VACASKBenchmarkRunner:
         # Q represents charges at each node, used for backward Euler integration
         # Q has shape (n_unknowns,) = (n_nodes - 1,) since ground is excluded
         n_unknowns = n_nodes - 1
-        Q_prev = jnp.zeros(n_unknowns, dtype=jnp.float64)
         inv_dt = 1.0 / dt  # Precompute for transient (1/timestep)
+
+        # Initialize Q_prev from the DC operating point to avoid discontinuity at t=0
+        if hasattr(self, '_cached_build_system'):
+            vsource_dc = source_device_data.get('vsource', {}).get('dc', jnp.array([]))
+            isource_dc = source_device_data.get('isource', {}).get('dc', jnp.array([]))
+            if vsource_dc.size == 0:
+                vsource_dc = jnp.array([])
+            if isource_dc.size == 0:
+                isource_dc = jnp.array([])
+            _, _, Q_prev = self._cached_build_system(V, vsource_dc, isource_dc, jnp.zeros(n_unknowns), 0.0)
+            logger.debug(f"  Initialized Q_prev from DC operating point (max|Q|={float(jnp.max(jnp.abs(Q_prev))):.2e})")
+        else:
+            Q_prev = jnp.zeros(n_unknowns, dtype=jnp.float64)
 
         # Use integer-based iteration to avoid floating-point comparison issues
         # This ensures Python loop and lax.scan produce the same number of timesteps
@@ -1944,7 +1958,8 @@ class VACASKBenchmarkRunner:
     def _compute_dc_operating_point(self, n_nodes: int, n_vsources: int, n_isources: int,
                                      nr_solve: Callable, backend: str = "cpu",
                                      use_dense: bool = True,
-                                     max_iterations: int = 100) -> jax.Array:
+                                     max_iterations: int = 100,
+                                     device_internal_nodes: Optional[Dict[str, Dict[str, int]]] = None) -> jax.Array:
         """Compute DC operating point as initial condition for transient analysis.
 
         This finds the steady-state solution where all node currents sum to zero,
@@ -1962,6 +1977,7 @@ class VACASKBenchmarkRunner:
             backend: 'gpu' or 'cpu'
             use_dense: Whether using dense solver
             max_iterations: Maximum DC NR iterations
+            device_internal_nodes: Map of device name -> {node_name: circuit_node_idx}
 
         Returns:
             DC operating point voltages (shape: [n_nodes])
@@ -1995,6 +2011,21 @@ class VACASKBenchmarkRunner:
             elif name_lower in ('gnd', 'vss', '0'):
                 V = V.at[idx].set(0.0)
                 logger.debug(f"  Initialized ground node '{name}' (idx {idx}) to 0V")
+
+        # Initialize noise correlation nodes (NOI) to 0V for PSP103 devices
+        # These have extremely high conductance to ground (G = 1/mig = 1e40 S)
+        # and must start at 0V to avoid enormous residuals
+        if device_internal_nodes:
+            noi_nodes_initialized = 0
+            for dev_name, internal_nodes in device_internal_nodes.items():
+                # PSP103's NOI node is 'node4' (index 4 in model nodes)
+                # Check if this device has a node4 internal node
+                if 'node4' in internal_nodes:
+                    noi_idx = internal_nodes['node4']
+                    V = V.at[noi_idx].set(0.0)
+                    noi_nodes_initialized += 1
+            if noi_nodes_initialized > 0:
+                logger.debug(f"  Initialized {noi_nodes_initialized} NOI nodes to 0V")
 
         logger.debug(f"  Initial V: ground=0V, VDD={vdd_value}V, others={mid_rail}V")
 
@@ -2093,6 +2124,7 @@ class VACASKBenchmarkRunner:
         n_total = setup['n_total']
         n_unknowns = setup['n_unknowns']
         source_device_data = setup['source_device_data']
+        device_internal_nodes = setup['device_internal_nodes']
 
         n_external = self.num_nodes
         n_nodes = n_unknowns + 1
@@ -2190,7 +2222,8 @@ class VACASKBenchmarkRunner:
                 n_isources=n_isources,
                 nr_solve=nr_solve,
                 backend=backend,
-                use_dense=use_dense
+                use_dense=use_dense,
+                device_internal_nodes=device_internal_nodes
             )
         else:
             # icmode='uic' - use zeros with VDD nodes initialized
@@ -2248,9 +2281,17 @@ class VACASKBenchmarkRunner:
             self._cached_scan_key = scan_cache_key
             logger.info(f"Created and cached lax.scan simulation function (inv_dt={inv_dt:.2e})")
 
-        # Initialize charge state for reactive terms
+        # Initialize charge state for reactive terms by computing Q at the DC operating point
+        # This avoids a discontinuity at t=0 (Q - Q_prev = 0 when Q_prev = Q(V0))
         # Q has shape (n_unknowns,) = (n_nodes - 1,) since ground is excluded
-        Q0 = jnp.zeros(n_unknowns, dtype=jnp.float64)
+        if hasattr(self, '_cached_build_system'):
+            # Use DC source values (at t=0)
+            vsource_dc = all_vsource_vals[0] if all_vsource_vals.size > 0 else jnp.array([])
+            isource_dc = all_isource_vals[0] if all_isource_vals.size > 0 else jnp.array([])
+            _, _, Q0 = self._cached_build_system(V0, vsource_dc, isource_dc, jnp.zeros(n_unknowns), 0.0)
+            logger.debug(f"  Initialized Q0 from DC operating point (max|Q0|={float(jnp.max(jnp.abs(Q0))):.2e})")
+        else:
+            Q0 = jnp.zeros(n_unknowns, dtype=jnp.float64)
 
         # Run the simulation (with optional profiling of just the core loop)
         logger.info("Running lax.scan simulation...")
@@ -2330,6 +2371,7 @@ class VACASKBenchmarkRunner:
         source_device_data = setup['source_device_data']
         vmapped_fns = setup['vmapped_fns']
         static_inputs_cache = setup['static_inputs_cache']
+        device_internal_nodes = setup['device_internal_nodes']
 
         n_external = self.num_nodes
         n_vsources = len(source_device_data.get('vsource', {}).get('names', []))
@@ -2405,7 +2447,8 @@ class VACASKBenchmarkRunner:
                 n_isources=n_isources,
                 nr_solve=nr_solve,
                 backend=backend,
-                use_dense=use_dense
+                use_dense=use_dense,
+                device_internal_nodes=device_internal_nodes
             )
         else:
             # icmode='uic' - use zeros with VDD nodes initialized
@@ -2423,8 +2466,13 @@ class VACASKBenchmarkRunner:
 
         # Precompute inv_dt for backward Euler integration
         inv_dt = 1.0 / dt
+        # Initialize charge state from the DC operating point to avoid discontinuity at t=0
         # Q has shape (n_unknowns,) = (n_nodes - 1,) since ground is excluded
-        Q0 = jnp.zeros(n_unknowns, dtype=jnp.float64)  # Initial charges
+        if hasattr(self, '_cached_build_system'):
+            _, _, Q0 = self._cached_build_system(V0, vsource_dc, isource_dc, jnp.zeros(n_unknowns), 0.0)
+            logger.debug(f"  Initialized Q0 from DC operating point (max|Q0|={float(jnp.max(jnp.abs(Q0))):.2e})")
+        else:
+            Q0 = jnp.zeros(n_unknowns, dtype=jnp.float64)
 
         # Create the scan function with reactive term tracking
         def step_fn(carry, source_inputs):
@@ -3037,9 +3085,10 @@ class VACASKBenchmarkRunner:
                 # Q_prev is fixed for all NR iterations within this timestep
                 J, f, Q = build_system_jit(V, vsource_vals, isource_vals, Q_prev, inv_dt)
 
-                # Check residual convergence (exclude ground at index 0)
-                # Ground's residual includes current source stamps but ground is pinned
-                max_f = jnp.max(jnp.abs(f[1:]))
+                # Check residual convergence
+                # Note: f already excludes ground (has shape n_unknowns = n_nodes - 1)
+                # f[0] = node 1's residual, f[1] = node 2's residual, etc.
+                max_f = jnp.max(jnp.abs(f))
                 residual_converged = max_f < abstol
 
                 # Solve: J @ delta = -f (only updating non-ground nodes)
@@ -3126,8 +3175,10 @@ class VACASKBenchmarkRunner:
                 # Build sparse system (J_bcoo, f, Q)
                 J_bcoo, f, Q = build_system_jit(V, vsource_vals, isource_vals, Q_prev, inv_dt)
 
-                # Check residual convergence (exclude ground)
-                max_f = jnp.max(jnp.abs(f[1:]))
+                # Check residual convergence
+                # Note: f already excludes ground (has shape n_unknowns = n_nodes - 1)
+                # f[0] = node 1's residual, f[1] = node 2's residual, etc.
+                max_f = jnp.max(jnp.abs(f))
                 residual_converged = max_f < abstol
 
                 # Sum duplicates before converting to BCSR (required for scipy fallback)
@@ -3234,8 +3285,10 @@ class VACASKBenchmarkRunner:
                 # Build sparse system (J_bcoo and f)
                 J_bcoo, f = build_system_jit(V, vsource_vals, isource_vals)
 
-                # Check residual convergence (exclude ground)
-                max_f = jnp.max(jnp.abs(f[1:]))
+                # Check residual convergence
+                # Note: f already excludes ground (has shape n_unknowns = n_nodes - 1)
+                # f[0] = node 1's residual, f[1] = node 2's residual, etc.
+                max_f = jnp.max(jnp.abs(f))
                 residual_converged = max_f < abstol
 
                 # Sum duplicates before converting to BCSR
