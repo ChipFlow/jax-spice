@@ -664,7 +664,11 @@ BENCHMARK_SPECS = {
         vacask_nodes=['1', 'v(1)'],
         jax_nodes=[1],
         xfail=True,
-        xfail_reason="PSP103 ring oscillator: DC operating point differs (JAX=0.546V vs VACASK=0.661V), oscillation doesn't start. Needs investigation of PSP103 model evaluation.",
+        xfail_reason="PSP103 ring oscillator: DC operating point differs (JAX=0.546V vs VACASK=0.661V). "
+                     "Root cause: NOI (noise correlation) internal node has I(NOIR) <+ V(NOI)/mig contribution "
+                     "where mig=1e-40, creating G=1e40 conductance to ground. If V(NOI) is non-zero (~0.6V), "
+                     "residual = 6e39 corrupts NR solve. Fix: ensure NOI node is properly allocated and V(NOI)=0. "
+                     "See PSP103_module.include lines 1834-1836 for the noise branch contributions.",
     ),
     'mul': BenchmarkSpec(
         name='mul',
