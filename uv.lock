@@ -461,6 +461,7 @@ name = "jax-spice"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "beartype" },
     { name = "jax" },
     { name = "jax-metal", marker = "sys_platform == 'darwin'" },
     { name = "jaxtyping" },
@@ -490,6 +491,7 @@ sax = [
 
 [package.metadata]
 requires-dist = [
+    { name = "beartype", specifier = ">=0.22.8" },
     { name = "beartype", marker = "extra == 'dev'", specifier = ">=0.18.0" },
     { name = "jax", specifier = ">=0.8.0" },
     { name = "jax-cuda12-plugin", marker = "sys_platform != 'darwin' and extra == 'cuda12'", specifier = ">=0.8.0" },
