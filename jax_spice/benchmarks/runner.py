@@ -599,6 +599,13 @@ class VACASKBenchmarkRunner:
             params = dev['params']
             internal_nodes = device_internal_nodes.get(dev['name'], {})
 
+            # Debug: Log critical PSP103 parameters
+            if model_type == 'psp103':
+                w_val = params.get('w', params.get('W', 'MISSING'))
+                l_val = params.get('l', params.get('L', 'MISSING'))
+                type_val = params.get('type', params.get('TYPE', 'MISSING'))
+                print(f"DEBUG PSP103 {dev['name']}: W={w_val}, L={l_val}, TYPE={type_val}")
+
             # Build node map: model node name -> global circuit node index
             # Use actual number of external terminals (not hardcoded 4 for MOSFETs)
             node_map = {}
@@ -667,6 +674,252 @@ class VACASKBenchmarkRunner:
                     else:
                         all_inputs[dev_idx, param_idx] = 1.0
                 # hidden_state, current stay 0 from np.zeros
+                # EXCEPT for PSP103 L_i and W_i which must be computed from L and W
+                # The OpenVAF code generator doesn't correctly handle these phi nodes
+                elif kind == 'hidden_state':
+                    if model_type == 'psp103':
+                        name_lower = name.lower()
+                        # PSP103 hidden_state params computed via CLIP_LOW from base params
+                        # Reference: PSP103_module.include lines 551-713
+
+                        # Basic device geometry
+                        if name_lower == 'l_i':
+                            l_val = params.get('l', params.get('L', 1e-6))
+                            all_inputs[dev_idx, param_idx] = max(float(l_val), 1e-9)
+                        elif name_lower == 'w_i':
+                            w_val = params.get('w', params.get('W', 1e-5))
+                            nf_val = params.get('nf', params.get('NF', 1.0))
+                            all_inputs[dev_idx, param_idx] = max(float(w_val) / float(nf_val), 1e-9)
+                        elif name_lower == 'nf_i':
+                            nf_val = params.get('nf', params.get('NF', 1.0))
+                            all_inputs[dev_idx, param_idx] = max(float(nf_val), 1.0)
+                        elif name_lower == 'chnl_type':
+                            type_val = params.get('type', params.get('TYPE', 1))
+                            all_inputs[dev_idx, param_idx] = 1 if float(type_val) > 0 else -1
+
+                        # Switch parameters (pass through)
+                        elif name_lower == 'swgeo_i':
+                            all_inputs[dev_idx, param_idx] = float(params.get('swgeo', params.get('SWGEO', 1)))
+                        elif name_lower == 'swigate_i':
+                            all_inputs[dev_idx, param_idx] = float(params.get('swigate', params.get('SWIGATE', 0)))
+                        elif name_lower == 'swimpact_i':
+                            all_inputs[dev_idx, param_idx] = float(params.get('swimpact', params.get('SWIMPACT', 0)))
+                        elif name_lower == 'swgidl_i':
+                            all_inputs[dev_idx, param_idx] = float(params.get('swgidl', params.get('SWGIDL', 0)))
+                        elif name_lower == 'swjuncap_i':
+                            all_inputs[dev_idx, param_idx] = float(params.get('swjuncap', params.get('SWJUNCAP', 0)))
+                        elif name_lower == 'swjunasym_i':
+                            all_inputs[dev_idx, param_idx] = float(params.get('swjunasym', params.get('SWJUNASYM', 0)))
+                        elif name_lower == 'swnud_i':
+                            all_inputs[dev_idx, param_idx] = float(params.get('swnud', params.get('SWNUD', 0)))
+                        elif name_lower == 'swedge_i':
+                            all_inputs[dev_idx, param_idx] = float(params.get('swedge', params.get('SWEDGE', 0)))
+                        elif name_lower == 'swdelvtac_i':
+                            all_inputs[dev_idx, param_idx] = float(params.get('swdelvtac', params.get('SWDELVTAC', 0)))
+                        elif name_lower == 'swqsat_i':
+                            all_inputs[dev_idx, param_idx] = float(params.get('swqsat', params.get('SWQSAT', 0)))
+                        elif name_lower == 'swqpart_i':
+                            all_inputs[dev_idx, param_idx] = float(params.get('swqpart', params.get('SWQPART', 0)))
+                        elif name_lower == 'swign_i':
+                            all_inputs[dev_idx, param_idx] = float(params.get('swign', params.get('SWIGN', 0)))
+
+                        # Critical oxide/material parameters with CLIP_LOW
+                        elif name_lower == 'qmc_i':
+                            all_inputs[dev_idx, param_idx] = max(float(params.get('qmc', params.get('QMC', 1.0))), 0.0)
+                        elif name_lower == 'toxo_i':
+                            all_inputs[dev_idx, param_idx] = max(float(params.get('toxo', params.get('TOXO', 2e-9))), 1e-10)
+                        elif name_lower == 'epsroxo_i':
+                            all_inputs[dev_idx, param_idx] = max(float(params.get('epsroxo', params.get('EPSROXO', 3.9))), 1.0)
+                        elif name_lower == 'nsubo_i':
+                            all_inputs[dev_idx, param_idx] = max(float(params.get('nsubo', params.get('NSUBO', 3e23))), 1e20)
+
+                        # Geometry parameters
+                        elif name_lower == 'wseg_i':
+                            all_inputs[dev_idx, param_idx] = max(float(params.get('wseg', params.get('WSEG', 1.5e-10))), 1e-10)
+                        elif name_lower == 'npck_i':
+                            all_inputs[dev_idx, param_idx] = max(float(params.get('npck', params.get('NPCK', 1e24))), 0.0)
+                        elif name_lower == 'wsegp_i':
+                            all_inputs[dev_idx, param_idx] = max(float(params.get('wsegp', params.get('WSEGP', 0.9e-8))), 1e-10)
+                        elif name_lower == 'lpck_i':
+                            all_inputs[dev_idx, param_idx] = max(float(params.get('lpck', params.get('LPCK', 5.5e-8))), 1e-10)
+
+                        # Overlap oxide parameters
+                        elif name_lower == 'toxovo_i':
+                            all_inputs[dev_idx, param_idx] = max(float(params.get('toxovo', params.get('TOXOVO', 1.5e-9))), 1e-10)
+                        elif name_lower == 'toxovdo_i':
+                            all_inputs[dev_idx, param_idx] = max(float(params.get('toxovdo', params.get('TOXOVDO', 2e-9))), 1e-10)
+                        elif name_lower == 'lov_i':
+                            all_inputs[dev_idx, param_idx] = max(float(params.get('lov', params.get('LOV', 10e-9))), 0.0)
+                        elif name_lower == 'lovd_i':
+                            all_inputs[dev_idx, param_idx] = max(float(params.get('lovd', params.get('LOVD', 0))), 0.0)
+
+                        # Mobility and beta parameters
+                        elif name_lower == 'lp1_i':
+                            all_inputs[dev_idx, param_idx] = max(float(params.get('lp1', params.get('LP1', 1.5e-7))), 1e-10)
+                        elif name_lower == 'lp2_i':
+                            all_inputs[dev_idx, param_idx] = max(float(params.get('lp2', params.get('LP2', 8.5e-10))), 1e-10)
+                        elif name_lower == 'wbet_i':
+                            all_inputs[dev_idx, param_idx] = max(float(params.get('wbet', params.get('WBET', 5e-10))), 1e-10)
+
+                        # Short channel effect parameters
+                        elif name_lower == 'axl_i':
+                            all_inputs[dev_idx, param_idx] = max(float(params.get('axl', params.get('AXL', 0.2))), 0.0)
+                        elif name_lower == 'alp1l2_i':
+                            all_inputs[dev_idx, param_idx] = max(float(params.get('alp1l2', params.get('ALP1L2', 0.1))), 0.0)
+                        elif name_lower == 'alp2l2_i':
+                            all_inputs[dev_idx, param_idx] = max(float(params.get('alp2l2', params.get('ALP2L2', 0.5))), 0.0)
+
+                        # Reference parameters
+                        elif name_lower == 'saref_i':
+                            all_inputs[dev_idx, param_idx] = max(float(params.get('saref', params.get('SAREF', 1e-9))), 1e-9)
+                        elif name_lower == 'sbref_i':
+                            all_inputs[dev_idx, param_idx] = max(float(params.get('sbref', params.get('SBREF', 1e-9))), 1e-9)
+                        elif name_lower == 'scref_i':
+                            all_inputs[dev_idx, param_idx] = max(float(params.get('scref', params.get('SCREF', 0))), 0.0)
+
+                        # Resistance parameters
+                        elif name_lower == 'rshg_i':
+                            all_inputs[dev_idx, param_idx] = max(float(params.get('rshg', params.get('RSHG', 0))), 0.0)
+                        elif name_lower == 'rsh_i':
+                            all_inputs[dev_idx, param_idx] = max(float(params.get('rsh', params.get('RSH', 0))), 0.0)
+                        elif name_lower == 'rshd_i':
+                            all_inputs[dev_idx, param_idx] = max(float(params.get('rshd', params.get('RSHD', 0))), 0.0)
+                        elif name_lower == 'rint_i':
+                            all_inputs[dev_idx, param_idx] = max(float(params.get('rint', params.get('RINT', 0))), 0.0)
+                        elif name_lower == 'rvpoly_i':
+                            all_inputs[dev_idx, param_idx] = max(float(params.get('rvpoly', params.get('RVPOLY', 0))), 0.0)
+
+                        # Edge parameters
+                        elif name_lower == 'nsubedgeo_i':
+                            all_inputs[dev_idx, param_idx] = max(float(params.get('nsubedgeo', params.get('NSUBEDGEO', 1e20))), 1e20)
+                        elif name_lower == 'lpedge_i':
+                            all_inputs[dev_idx, param_idx] = max(float(params.get('lpedge', params.get('LPEDGE', 1e-10))), 1e-10)
+
+                        # Temperature
+                        elif name_lower == 'tr_i':
+                            all_inputs[dev_idx, param_idx] = max(float(params.get('tr', params.get('TR', 27.0))), -273.0)
+
+                        # LOD parameters
+                        elif name_lower == 'llodkuo_i':
+                            all_inputs[dev_idx, param_idx] = max(float(params.get('llodkuo', params.get('LLODKUO', 0))), 0.0)
+                        elif name_lower == 'wlodkuo_i':
+                            all_inputs[dev_idx, param_idx] = max(float(params.get('wlodkuo', params.get('WLODKUO', 0))), 0.0)
+                        elif name_lower == 'llodvth_i':
+                            all_inputs[dev_idx, param_idx] = max(float(params.get('llodvth', params.get('LLODVTH', 0))), 0.0)
+                        elif name_lower == 'wlodvth_i':
+                            all_inputs[dev_idx, param_idx] = max(float(params.get('wlodvth', params.get('WLODVTH', 0))), 0.0)
+                        elif name_lower == 'lodetao_i':
+                            all_inputs[dev_idx, param_idx] = max(float(params.get('lodetao', params.get('LODETAO', 0))), 0.0)
+
+                        # Stress parameters
+                        elif name_lower == 'sca_i':
+                            all_inputs[dev_idx, param_idx] = max(float(params.get('sca', params.get('SCA', 0))), 0.0)
+                        elif name_lower == 'scb_i':
+                            all_inputs[dev_idx, param_idx] = max(float(params.get('scb', params.get('SCB', 0))), 0.0)
+
+                        # MULT_i = MULT (device multiplier)
+                        elif name_lower == 'mult_i':
+                            all_inputs[dev_idx, param_idx] = float(params.get('mult', params.get('MULT', 1.0)))
+
+                        # EPSSI = 11.7 (silicon dielectric constant - fixed)
+                        elif name_lower == 'epssi':
+                            all_inputs[dev_idx, param_idx] = 11.7
+
+                        # ============================================================
+                        # Temperature-dependent hidden_state params
+                        # Reference: PSP103_macrodefs.include TempInitialize macro
+                        # ============================================================
+                        # Physical constants
+                        elif name_lower == 'kbol_over_qele':
+                            # Boltzmann/charge = kT/q factor
+                            all_inputs[dev_idx, param_idx] = 8.617333262e-5  # eV/K
+
+                        # Temperature variables (assuming T = 27°C = 300.15K)
+                        elif name_lower == 'tkr':
+                            # Reference temp in Kelvin: TR + 273.15
+                            tr_val = float(params.get('tr', params.get('TR', 27.0)))
+                            all_inputs[dev_idx, param_idx] = tr_val + 273.15
+                        elif name_lower == 'tka':
+                            # Ambient temp in Kelvin (no self-heating: TKA = $temperature + DTA)
+                            all_inputs[dev_idx, param_idx] = 300.15
+                        elif name_lower == 'tkd':
+                            # Device temp in Kelvin (no self-heating: TKD = TKA)
+                            all_inputs[dev_idx, param_idx] = 300.15
+                        elif name_lower == 'tkd_sq':
+                            # TKD squared
+                            all_inputs[dev_idx, param_idx] = 300.15 * 300.15
+                        elif name_lower == 'rta':
+                            # TKA / TKR ratio
+                            all_inputs[dev_idx, param_idx] = 1.0
+                        elif name_lower == 'delta':
+                            # TKA - TKR
+                            all_inputs[dev_idx, param_idx] = 0.0
+                        elif name_lower == 'delt':
+                            # TKD - TKR
+                            all_inputs[dev_idx, param_idx] = 0.0
+                        elif name_lower == 'rtn':
+                            # TKR / TKD ratio
+                            all_inputs[dev_idx, param_idx] = 1.0
+                        elif name_lower == 'ln_rtn':
+                            # ln(rTn) = 0 when T = Tref
+                            all_inputs[dev_idx, param_idx] = 0.0
+
+                        # Thermal voltage and related
+                        elif name_lower == 'phita':
+                            # TKA * KBOL / QELE
+                            all_inputs[dev_idx, param_idx] = 300.15 * 8.617333262e-5
+                        elif name_lower == 'inv_phita':
+                            all_inputs[dev_idx, param_idx] = 1.0 / (300.15 * 8.617333262e-5)
+                        elif name_lower == 'phit':
+                            # Thermal voltage = kT/q = TKD * KBOL / QELE
+                            all_inputs[dev_idx, param_idx] = 300.15 * 8.617333262e-5  # ~0.02586V
+                        elif name_lower == 'inv_phit':
+                            all_inputs[dev_idx, param_idx] = 1.0 / (300.15 * 8.617333262e-5)
+
+                        # Bandgap energy: Eg = 1.179 - 9.025e-5 * TKD - 3.05e-7 * TKD^2
+                        elif name_lower == 'eg':
+                            tkd = 300.15
+                            all_inputs[dev_idx, param_idx] = 1.179 - 9.025e-5 * tkd - 3.05e-7 * tkd * tkd
+
+                        # phibFac = (1.045 + 4.5e-4*TKD) * (0.523 + 1.4e-3*TKD - 1.48e-6*TKD^2) * TKD^2 / 9.0e4
+                        elif name_lower == 'phibfac':
+                            tkd = 300.15
+                            tkd_sq = tkd * tkd
+                            phibfac = (1.045 + 4.5e-4 * tkd) * (0.523 + 1.4e-3 * tkd - 1.48e-6 * tkd_sq) * tkd_sq / 9.0e4
+                            all_inputs[dev_idx, param_idx] = max(phibfac, 1.0e-3)
+
+                        # Noise thermal factor: nt0 = 4 * KBOL * TKD
+                        elif name_lower == 'nt0':
+                            all_inputs[dev_idx, param_idx] = 4.0 * 1.38066e-23 * 300.15
+
+                        # JUNCAP temperature params (phitr/phitd are the key ones)
+                        elif name_lower == 'phitr':
+                            all_inputs[dev_idx, param_idx] = 8.617333262e-5 * 300.15
+                        elif name_lower == 'phitrinv':
+                            all_inputs[dev_idx, param_idx] = 1.0 / (8.617333262e-5 * 300.15)
+                        elif name_lower == 'phitd':
+                            all_inputs[dev_idx, param_idx] = 8.617333262e-5 * 300.15
+                        elif name_lower == 'phitdinv':
+                            all_inputs[dev_idx, param_idx] = 1.0 / (8.617333262e-5 * 300.15)
+                        elif name_lower == 'auxt':
+                            # auxillary temp variable = TKD
+                            all_inputs[dev_idx, param_idx] = 300.15
+
+                        # For other hidden_state params, try to find matching base param
+                        else:
+                            handled = False
+                            # Strip _i suffix and look for base param
+                            if name_lower.endswith('_i'):
+                                base_name = name_lower[:-2]
+                                base_val = params.get(base_name, params.get(base_name.upper(), None))
+                                if base_val is not None:
+                                    all_inputs[dev_idx, param_idx] = float(base_val)
+                                    handled = True
+                            # Debug: log unhandled hidden_state params (only for first device)
+                            if not handled and dev_idx == 0:
+                                logger.warning(f"Unhandled PSP103 hidden_state: {name} (idx={param_idx})")
+                    # Other hidden_state stay at 0
+
             device_contexts.append({
                 'name': dev['name'],
                 'node_map': node_map,
@@ -1787,11 +2040,22 @@ class VACASKBenchmarkRunner:
             build_system_jit = jax.jit(build_system_fn)
             logger.info("Created JIT-wrapped build_system function")
 
+            # Collect NOI node indices (node4 in PSP103 devices)
+            # These have 1e40 conductance to ground and must be kept at 0V
+            noi_indices = []
+            if device_internal_nodes:
+                for dev_name, internal_nodes in device_internal_nodes.items():
+                    if 'node4' in internal_nodes:  # NOI is node4 in PSP103
+                        noi_indices.append(internal_nodes['node4'])
+            noi_indices = jnp.array(noi_indices, dtype=jnp.int32) if noi_indices else None
+            if noi_indices is not None:
+                logger.info(f"Found {len(noi_indices)} NOI nodes to constrain")
+
             # Create JIT-compiled NR solver
             if use_dense:
                 # Dense solver for small/medium circuits
                 nr_solve = self._make_jit_compiled_solver(
-                    build_system_jit, n_nodes,
+                    build_system_jit, n_nodes, noi_indices=noi_indices,
                     max_iterations=MAX_NR_ITERATIONS, abstol=DEFAULT_ABSTOL, max_step=1.0
                 )
             else:
@@ -1834,12 +2098,13 @@ class VACASKBenchmarkRunner:
                         build_system_jit, n_nodes, nse,
                         bcsr_indptr=J_bcsr_probe.indptr,
                         bcsr_indices=J_bcsr_probe.indices,
+                        noi_indices=noi_indices,
                         max_iterations=MAX_NR_ITERATIONS, abstol=DEFAULT_ABSTOL, max_step=1.0
                     )
                 else:
                     # Fallback to JAX spsolve (QR factorization, no caching)
                     nr_solve = self._make_sparse_jit_compiled_solver(
-                        build_system_jit, n_nodes, nse,
+                        build_system_jit, n_nodes, nse, noi_indices=noi_indices,
                         max_iterations=MAX_NR_ITERATIONS, abstol=DEFAULT_ABSTOL, max_step=1.0
                     )
 
@@ -2012,20 +2277,45 @@ class VACASKBenchmarkRunner:
                 V = V.at[idx].set(0.0)
                 logger.debug(f"  Initialized ground node '{name}' (idx {idx}) to 0V")
 
-        # Initialize noise correlation nodes (NOI) to 0V for PSP103 devices
-        # These have extremely high conductance to ground (G = 1/mig = 1e40 S)
-        # and must start at 0V to avoid enormous residuals
+        # Initialize PSP103 internal nodes properly:
+        # 1. NOI nodes (node4) to 0V - they have extremely high conductance to ground
+        # 2. Body internal nodes (node8-11 = BP/BI/BS/BD) to match external B terminal
+        #    For PMOS with B=VDD, these must be at VDD for proper body-source voltage
         if device_internal_nodes:
             noi_nodes_initialized = 0
+            body_nodes_initialized = 0
+
+            # Build map from device name to external nodes
+            device_external_nodes = {}
+            for dev in self.devices:
+                device_external_nodes[dev['name']] = dev.get('nodes', [])
+
             for dev_name, internal_nodes in device_internal_nodes.items():
-                # PSP103's NOI node is 'node4' (index 4 in model nodes)
-                # Check if this device has a node4 internal node
+                # NOI node initialization (node4) - must be 0V
                 if 'node4' in internal_nodes:
                     noi_idx = internal_nodes['node4']
                     V = V.at[noi_idx].set(0.0)
                     noi_nodes_initialized += 1
+
+                # Body internal nodes initialization (node8-11 = BP/BI/BS/BD)
+                # These should match the external B terminal voltage
+                ext_nodes = device_external_nodes.get(dev_name, [])
+                if len(ext_nodes) >= 4:  # PSP103 has [D, G, S, B]
+                    b_circuit_node = ext_nodes[3]  # External B terminal
+                    b_voltage = float(V[b_circuit_node])  # Get B voltage (VDD for PMOS)
+
+                    for body_node_name in ['node8', 'node9', 'node10', 'node11']:
+                        if body_node_name in internal_nodes:
+                            body_idx = internal_nodes[body_node_name]
+                            # Only update if not already set (avoid overwriting ground or VDD)
+                            if body_idx > 0 and abs(V[body_idx] - mid_rail) < 0.01:
+                                V = V.at[body_idx].set(b_voltage)
+                                body_nodes_initialized += 1
+
             if noi_nodes_initialized > 0:
                 logger.debug(f"  Initialized {noi_nodes_initialized} NOI nodes to 0V")
+            if body_nodes_initialized > 0:
+                logger.debug(f"  Initialized {body_nodes_initialized} body internal nodes to match B terminal")
 
         logger.debug(f"  Initial V: ground=0V, VDD={vdd_value}V, others={mid_rail}V")
 
@@ -2076,6 +2366,14 @@ class VACASKBenchmarkRunner:
             # Check if we're making progress
             delta = jnp.max(jnp.abs(V_new - V))
             V = V_new
+
+            # Clamp NOI nodes to 0V - they have 1e40 conductance to ground
+            # which causes numerical issues if they drift from 0V
+            if device_internal_nodes:
+                for dev_name, internal_nodes in device_internal_nodes.items():
+                    if 'node4' in internal_nodes:  # NOI is node4 in PSP103
+                        noi_idx = internal_nodes['node4']
+                        V = V.at[noi_idx].set(0.0)
 
             if float(delta) < 1e-9:
                 converged = True
@@ -3037,6 +3335,7 @@ class VACASKBenchmarkRunner:
         self,
         build_system_jit: Callable,
         n_nodes: int,
+        noi_indices: Optional[jax.Array] = None,
         max_iterations: int = MAX_NR_ITERATIONS,
         abstol: float = 1e-6,
         max_step: float = 1.0,
@@ -3051,6 +3350,7 @@ class VACASKBenchmarkRunner:
         Args:
             build_system_jit: JIT-wrapped function (V, vsource_vals, isource_vals, Q_prev, inv_dt) -> (J, f, Q)
             n_nodes: Total node count including ground (V.shape[0])
+            noi_indices: Optional array of NOI node indices to constrain to 0V
             max_iterations: Maximum NR iterations
             abstol: Absolute tolerance for convergence
             max_step: Maximum voltage step per iteration
@@ -3058,6 +3358,19 @@ class VACASKBenchmarkRunner:
         Returns:
             JIT-compiled function: (V, vsource_vals, isource_vals, Q_prev, inv_dt) -> (V, iters, converged, max_f, Q)
         """
+        # Pre-compute residual mask if we have NOI nodes
+        # NOI nodes have indices in the full V vector, but residuals use 0-indexed (ground excluded)
+        # So NOI residual index = NOI node index - 1
+        if noi_indices is not None and len(noi_indices) > 0:
+            # Create mask: True for nodes to include in convergence check, False for NOI
+            n_unknowns = n_nodes - 1
+            residual_mask = jnp.ones(n_unknowns, dtype=jnp.bool_)
+            noi_residual_indices = noi_indices - 1  # Convert to residual indices
+            # Set mask to False for NOI residuals
+            residual_mask = residual_mask.at[noi_residual_indices].set(False)
+            logger.info(f"NOI masking: {len(noi_indices)} nodes masked, {int(jnp.sum(residual_mask))} residuals checked")
+        else:
+            residual_mask = None
 
         def nr_solve(V_init: jax.Array, vsource_vals: jax.Array, isource_vals: jax.Array,
                     Q_prev: jax.Array, inv_dt: float | jax.Array):
@@ -3088,7 +3401,12 @@ class VACASKBenchmarkRunner:
                 # Check residual convergence
                 # Note: f already excludes ground (has shape n_unknowns = n_nodes - 1)
                 # f[0] = node 1's residual, f[1] = node 2's residual, etc.
-                max_f = jnp.max(jnp.abs(f))
+                # Mask out NOI residuals (they have 1e40 conductance and would dominate max_f)
+                if residual_mask is not None:
+                    f_masked = jnp.where(residual_mask, f, 0.0)
+                    max_f = jnp.max(jnp.abs(f_masked))
+                else:
+                    max_f = jnp.max(jnp.abs(f))
                 residual_converged = max_f < abstol
 
                 # Solve: J @ delta = -f (only updating non-ground nodes)
@@ -3101,6 +3419,10 @@ class VACASKBenchmarkRunner:
 
                 # Update V (ground at index 0 stays fixed)
                 V_new = V.at[1:].add(delta)
+
+                # Clamp NOI nodes to 0V (they should always be 0V)
+                if noi_indices is not None and len(noi_indices) > 0:
+                    V_new = V_new.at[noi_indices].set(0.0)
 
                 # Check delta-based convergence
                 delta_converged = max_delta < 1e-12
@@ -3121,7 +3443,7 @@ class VACASKBenchmarkRunner:
             return V_final, iterations, converged, max_f, Q_final
 
         # Return JIT-wrapped function - compilation happens lazily on first call
-        logger.info(f"Creating JIT-compiled NR solver: V({n_nodes})")
+        logger.info(f"Creating JIT-compiled NR solver: V({n_nodes}), NOI constrained: {noi_indices is not None}")
         return jax.jit(nr_solve)
 
     def _make_sparse_jit_compiled_solver(
@@ -3129,6 +3451,7 @@ class VACASKBenchmarkRunner:
         build_system_jit: Callable,
         n_nodes: int,
         nse: int,
+        noi_indices: Optional[jax.Array] = None,
         max_iterations: int = MAX_NR_ITERATIONS,
         abstol: float = 1e-6,
         max_step: float = 1.0,
@@ -3142,6 +3465,7 @@ class VACASKBenchmarkRunner:
             build_system_jit: JIT-wrapped function returning (J_bcoo, f, Q)
             n_nodes: Total node count including ground
             nse: Number of stored elements after summing duplicates
+            noi_indices: Optional array of NOI node indices to constrain to 0V
             max_iterations: Maximum NR iterations
             abstol: Absolute tolerance for convergence
             max_step: Maximum voltage step per iteration
@@ -3151,6 +3475,15 @@ class VACASKBenchmarkRunner:
         """
         from jax.experimental.sparse import BCSR
         from jax.experimental.sparse.linalg import spsolve
+
+        # Pre-compute residual mask if we have NOI nodes
+        if noi_indices is not None and len(noi_indices) > 0:
+            n_unknowns = n_nodes - 1
+            residual_mask = jnp.ones(n_unknowns, dtype=jnp.bool_)
+            noi_residual_indices = noi_indices - 1
+            residual_mask = residual_mask.at[noi_residual_indices].set(False)
+        else:
+            residual_mask = None
 
         def nr_solve(V_init: jax.Array, vsource_vals: jax.Array, isource_vals: jax.Array,
                     Q_prev: jax.Array, inv_dt: float | jax.Array):
@@ -3176,9 +3509,12 @@ class VACASKBenchmarkRunner:
                 J_bcoo, f, Q = build_system_jit(V, vsource_vals, isource_vals, Q_prev, inv_dt)
 
                 # Check residual convergence
-                # Note: f already excludes ground (has shape n_unknowns = n_nodes - 1)
-                # f[0] = node 1's residual, f[1] = node 2's residual, etc.
-                max_f = jnp.max(jnp.abs(f))
+                # Mask out NOI residuals (they have 1e40 conductance and would dominate max_f)
+                if residual_mask is not None:
+                    f_masked = jnp.where(residual_mask, f, 0.0)
+                    max_f = jnp.max(jnp.abs(f_masked))
+                else:
+                    max_f = jnp.max(jnp.abs(f))
                 residual_converged = max_f < abstol
 
                 # Sum duplicates before converting to BCSR (required for scipy fallback)
@@ -3201,6 +3537,10 @@ class VACASKBenchmarkRunner:
                 # Update V (ground at index 0 stays fixed, delta is for nodes 1:n_nodes)
                 V_new = V.at[1:].add(delta)
 
+                # Clamp NOI nodes to 0V
+                if noi_indices is not None and len(noi_indices) > 0:
+                    V_new = V_new.at[noi_indices].set(0.0)
+
                 # Check delta-based convergence
                 delta_converged = max_delta < 1e-12
                 converged = jnp.logical_or(residual_converged, delta_converged)
@@ -3217,7 +3557,7 @@ class VACASKBenchmarkRunner:
 
             return V_final, iterations, converged, max_f, Q_final
 
-        logger.info(f"Creating sparse JIT-compiled NR solver: V({n_nodes})")
+        logger.info(f"Creating sparse JIT-compiled NR solver: V({n_nodes}), NOI constrained: {noi_indices is not None}")
         return jax.jit(nr_solve)
 
     def _make_spineax_jit_compiled_solver(
@@ -3227,6 +3567,7 @@ class VACASKBenchmarkRunner:
         nse: int,
         bcsr_indptr: jax.Array,
         bcsr_indices: jax.Array,
+        noi_indices: Optional[jax.Array] = None,
         max_iterations: int = MAX_NR_ITERATIONS,
         abstol: float = 1e-6,
         max_step: float = 1.0,
@@ -3243,6 +3584,7 @@ class VACASKBenchmarkRunner:
             nse: Number of stored elements after summing duplicates
             bcsr_indptr: Pre-computed BCSR row pointers
             bcsr_indices: Pre-computed BCSR column indices
+            noi_indices: Optional array of NOI node indices to constrain to 0V
             max_iterations: Maximum NR iterations
             abstol: Absolute tolerance for convergence
             max_step: Maximum voltage step per iteration
@@ -3254,6 +3596,14 @@ class VACASKBenchmarkRunner:
         from spineax.cudss.solver import CuDSSSolver
 
         n_unknowns = n_nodes - 1  # Exclude ground
+
+        # Pre-compute residual mask if we have NOI nodes
+        if noi_indices is not None and len(noi_indices) > 0:
+            residual_mask = jnp.ones(n_unknowns, dtype=jnp.bool_)
+            noi_residual_indices = noi_indices - 1
+            residual_mask = residual_mask.at[noi_residual_indices].set(False)
+        else:
+            residual_mask = None
 
         # Create Spineax solver with pre-computed sparsity pattern
         # This does METIS reordering and symbolic analysis ONCE
@@ -3286,9 +3636,12 @@ class VACASKBenchmarkRunner:
                 J_bcoo, f = build_system_jit(V, vsource_vals, isource_vals)
 
                 # Check residual convergence
-                # Note: f already excludes ground (has shape n_unknowns = n_nodes - 1)
-                # f[0] = node 1's residual, f[1] = node 2's residual, etc.
-                max_f = jnp.max(jnp.abs(f))
+                # Mask out NOI residuals (they have 1e40 conductance and would dominate max_f)
+                if residual_mask is not None:
+                    f_masked = jnp.where(residual_mask, f, 0.0)
+                    max_f = jnp.max(jnp.abs(f_masked))
+                else:
+                    max_f = jnp.max(jnp.abs(f))
                 residual_converged = max_f < abstol
 
                 # Sum duplicates before converting to BCSR
@@ -3308,6 +3661,10 @@ class VACASKBenchmarkRunner:
 
                 # Update V (ground at index 0 stays fixed)
                 V_new = V.at[1:].add(delta)
+
+                # Clamp NOI nodes to 0V
+                if noi_indices is not None and len(noi_indices) > 0:
+                    V_new = V_new.at[noi_indices].set(0.0)
 
                 # Check delta-based convergence
                 delta_converged = max_delta < 1e-12

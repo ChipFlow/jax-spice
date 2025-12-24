@@ -315,6 +315,19 @@ class OpenVAFToJAX:
 
         lines.append("")
 
+        # Map hidden_state values from init to eval params
+        # NOTE: Currently DISABLED because the init/eval value numbering doesn't
+        # correspond semantically. Hidden_state params are populated by
+        # _prepare_static_inputs in the benchmark runner instead.
+        # TODO: Implement proper semantic mapping between init computed values
+        # and eval hidden_state params.
+        lines.append("    # Hidden state values from init -> eval (DISABLED)")
+        # hidden_state_assignments = self._build_hidden_state_assignments(init_defined)
+        # for eval_var, init_var in hidden_state_assignments:
+        #     lines.append(f"    {eval_var} = {init_var}")
+
+        lines.append("")
+
         logger.info(f"      _generate_core_code: init done ({len(lines)} lines)")
 
         # Process eval blocks in topological order
@@ -461,6 +474,62 @@ class OpenVAFToJAX:
                         mapping[init_param_val] = eval_idx
 
         return mapping
+
+    def _build_hidden_state_assignments(self, init_defined: Set[str]) -> List[Tuple[str, str]]:
+        """Build assignments from init-computed hidden_state values to eval params.
+
+        Hidden_state params are computed by the init function and need to flow
+        to the eval function. The init function uses two value numbering schemes:
+
+        1. For low eval value numbers (< ~10000): init uses the same value number
+           e.g., eval v18 (CHNL_TYPE) <- init_v18
+
+        2. For high eval value numbers (> ~10000): init uses the parameter index
+           e.g., eval v676559 (phib at idx 1833) <- init_v1833
+
+        This method checks both schemes and uses whichever exists.
+
+        NOTE: For PSP103, we skip hidden_state assignments because the init MIR
+        uses different value numbers than the eval MIR for the same parameters.
+        The Python code in runner.py correctly computes these values and loads
+        them from inputs[], so we don't want to overwrite them with wrong values.
+
+        Args:
+            init_defined: Set of init variables that have been defined
+
+        Returns:
+            List of (eval_var, init_var) tuples for assignments
+        """
+        # Skip hidden_state assignments for PSP103 - values are computed in Python
+        # and loaded from inputs. The init MIR has value numbering mismatches.
+        module_name = getattr(self.module, 'name', '')
+        if module_name and 'psp103' in module_name.lower():
+            logger.debug(f"Skipping hidden_state assignments for PSP103 (computed in Python)")
+            return []
+
+        assignments = []
+
+        # Get param kinds from eval function
+        eval_param_kinds = list(self.module.param_kinds)
+
+        # For each hidden_state param in eval, check if init computed a matching value
+        for idx, eval_kind in enumerate(eval_param_kinds):
+            if eval_kind == 'hidden_state' and idx < len(self.params):
+                eval_var = self.params[idx]  # e.g., v18, v48, v676559
+
+                # Try value-based naming first (e.g., init_v18 for eval v18)
+                init_by_val = f"init_{eval_var}"
+
+                # Try index-based naming second (e.g., init_v1833 for param idx 1833)
+                init_by_idx = f"init_v{idx}"
+
+                # Use whichever exists in init_defined
+                if init_by_val in init_defined:
+                    assignments.append((eval_var, init_by_val))
+                elif init_by_idx in init_defined:
+                    assignments.append((eval_var, init_by_idx))
+
+        return assignments
 
     def _topological_sort(self) -> List[str]:
         """Sort eval blocks in topological order"""
@@ -1320,6 +1389,93 @@ class OpenVAFToJAX:
         # Fallback: couldn't build the expression
         return None
 
+    def _build_init_multi_way_phi(self, phi_block: str, phi_ops: List[dict],
+                                   val_by_block: Dict[str, str],
+                                   get_operand: Callable[[str], str]) -> str:
+        """Build nested jnp.where for PHI nodes with >2 predecessors in init function
+
+        Mirrors _build_multi_way_phi but uses init-specific data.
+        """
+        blocks = self.init_mir_data.get('blocks', {})
+        branch_conds = self._build_init_branch_conditions()
+
+        # Get predecessor blocks from PHI operands
+        pred_blocks = [op['block'] for op in phi_ops]
+        pred_to_val = val_by_block
+
+        # Trace through the condition chain to build the nested where
+        result = self._build_init_nested_where_from_blocks(
+            phi_block, pred_blocks, pred_to_val, blocks, branch_conds
+        )
+
+        return result if result else val_by_block.get(pred_blocks[0], '0.0')
+
+    def _build_init_nested_where_from_blocks(self, phi_block: str, pred_blocks: List[str],
+                                              pred_to_val: Dict[str, str], blocks: Dict,
+                                              branch_conds: Dict) -> Optional[str]:
+        """Recursively build nested jnp.where from CFG structure for init function
+
+        Mirrors _build_nested_where_from_blocks but uses init-specific condition finding.
+        """
+        if len(pred_blocks) == 1:
+            return pred_to_val.get(pred_blocks[0], '0.0')
+
+        if len(pred_blocks) == 2:
+            # Base case: 2 predecessors, find the branching condition
+            cond_info = self._get_init_phi_condition(phi_block, pred_blocks)
+            if cond_info:
+                cond_var, true_block, false_block = cond_info
+                true_val = pred_to_val.get(true_block, '0.0')
+                false_val = pred_to_val.get(false_block, '0.0')
+                return f"jnp.where({cond_var}, {true_val}, {false_val})"
+            else:
+                return pred_to_val.get(pred_blocks[0], '0.0')
+
+        # For >2 predecessors, find a block that branches to one of them
+        # and another block that leads to the rest
+        for block_name in blocks:
+            if block_name not in branch_conds:
+                continue
+
+            succs = blocks[block_name].get('successors', [])
+            if len(succs) != 2:
+                continue
+
+            # Check if one successor is in our pred_blocks
+            direct_pred = None
+            indirect_succ = None
+            for succ in succs:
+                if succ in pred_blocks:
+                    direct_pred = succ
+                else:
+                    indirect_succ = succ
+
+            if direct_pred and indirect_succ:
+                # Found a branch: one path goes directly to a PHI pred
+                cond_var, is_true = branch_conds[block_name][direct_pred]
+                # Prefix the condition variable for init function
+                cond_var = f"init_{cond_var}"
+
+                # Get the value for the direct path
+                direct_val = pred_to_val.get(direct_pred, '0.0')
+
+                # Find remaining preds (those not reached by direct path)
+                remaining_preds = [p for p in pred_blocks if p != direct_pred]
+
+                # Recursively build where for remaining preds
+                remaining_expr = self._build_init_nested_where_from_blocks(
+                    phi_block, remaining_preds, pred_to_val, blocks, branch_conds
+                )
+
+                if remaining_expr:
+                    if is_true:
+                        return f"jnp.where({cond_var}, {direct_val}, {remaining_expr})"
+                    else:
+                        return f"jnp.where({cond_var}, {remaining_expr}, {direct_val})"
+
+        # Fallback: couldn't build the expression
+        return None
+
     def _translate_init_instruction(self, inst: dict, defined_vars: Set[str]) -> Optional[str]:
         """Translate an init function instruction with prefixed variables"""
 
@@ -1345,6 +1501,10 @@ class OpenVAFToJAX:
                 # Get the predecessor blocks from PHI operands
                 pred_blocks = [op['block'] for op in phi_ops]
                 val_by_block = {op['block']: get_operand(op['value']) for op in phi_ops}
+
+                # For PHIs with more than 2 predecessors, use multi-way PHI builder
+                if len(pred_blocks) > 2:
+                    return self._build_init_multi_way_phi(phi_block, phi_ops, val_by_block, get_operand)
 
                 # Try to find the condition that determines the branch (using init version)
                 cond_info = self._get_init_phi_condition(phi_block, pred_blocks)
