@@ -1,4 +1,4 @@
-"""Test VACASK benchmarks using VACASKBenchmarkRunner
+"""Test VACASK benchmarks using JAX-SPICE Simulator API
 
 This file tests the actual VACASK benchmark circuits which use OpenVAF-compiled
 device models (resistor.va, capacitor.va, diode.va from vendor/VACASK/devices/).
@@ -21,7 +21,7 @@ import numpy as np
 # Add jax-spice to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from jax_spice.benchmarks import VACASKBenchmarkRunner
+from jax_spice import Simulator
 
 
 # Benchmark paths
@@ -41,63 +41,59 @@ class TestRCBenchmark:
     """
 
     @pytest.fixture
-    def runner(self):
-        """Create and parse RC benchmark runner"""
-        sim_path = get_benchmark_sim("rc")
-        if not sim_path.exists():
-            pytest.skip(f"RC benchmark not found at {sim_path}")
+    def sim_path(self):
+        """Get RC benchmark sim path"""
+        path = get_benchmark_sim("rc")
+        if not path.exists():
+            pytest.skip(f"RC benchmark not found at {path}")
+        return path
 
-        runner = VACASKBenchmarkRunner(sim_path)
-        runner.parse()
-        return runner
-
-    def test_parse(self, runner):
+    def test_parse(self, sim_path):
         """Test RC benchmark parses correctly"""
-        assert runner.num_nodes > 0
-        assert len(runner.devices) > 0
+        sim = Simulator(sim_path).parse()
+        assert sim.num_nodes > 0
+        assert len(sim.devices) > 0
 
         # Should have resistor, capacitor, vsource
-        device_types = {d['model'] for d in runner.devices}
+        device_types = {d['model'] for d in sim.devices}
         assert 'resistor' in device_types, f"Missing resistor, got {device_types}"
         assert 'capacitor' in device_types, f"Missing capacitor, got {device_types}"
         assert 'vsource' in device_types, f"Missing vsource, got {device_types}"
 
-        print(f"RC benchmark: {runner.num_nodes} nodes, {len(runner.devices)} devices")
+        print(f"RC benchmark: {sim.num_nodes} nodes, {len(sim.devices)} devices")
         print(f"Device types: {device_types}")
 
-    def test_transient_dense(self, runner):
+    def test_transient_dense(self, sim_path):
         """Test RC transient with dense solver"""
-        dt = runner.analysis_params.get('step', 1e-6)
+        sim = Simulator(sim_path).parse()
+        dt = sim.analysis_params.get('step', 1e-6)
 
         # Run short transient (10 steps)
-        times, voltages, stats = runner.run_transient(
-            t_stop=dt * 10, dt=dt, max_steps=10, use_sparse=False
-        )
+        result = sim.transient(t_stop=dt * 10, dt=dt, use_sparse=False)
 
-        assert len(times) > 0, "No timesteps returned"
+        assert result.num_steps > 0, "No timesteps returned"
         # voltages is a dict mapping node index to voltage array
-        assert isinstance(voltages, dict), f"Expected dict, got {type(voltages)}"
+        assert isinstance(result.voltages, dict), f"Expected dict, got {type(result.voltages)}"
 
         # Check convergence
-        converged = stats.get('convergence_rate', 0)
-        print(f"RC dense: {len(times)} steps, {converged*100:.0f}% converged")
+        converged = result.stats.get('convergence_rate', 0)
+        print(f"RC dense: {result.num_steps} steps, {converged*100:.0f}% converged")
         assert converged > 0.5, f"Poor convergence: {converged*100:.0f}%"
 
-    def test_transient_sparse(self, runner):
+    def test_transient_sparse(self, sim_path):
         """Test RC transient with sparse solver"""
-        dt = runner.analysis_params.get('step', 1e-6)
+        sim = Simulator(sim_path).parse()
+        dt = sim.analysis_params.get('step', 1e-6)
 
-        times, voltages, stats = runner.run_transient(
-            t_stop=dt * 10, dt=dt, max_steps=10, use_sparse=True
-        )
+        result = sim.transient(t_stop=dt * 10, dt=dt, use_sparse=True)
 
-        assert len(times) > 0, "No timesteps returned"
+        assert result.num_steps > 0, "No timesteps returned"
 
-        converged = stats.get('convergence_rate', 0)
-        print(f"RC sparse: {len(times)} steps, {converged*100:.0f}% converged")
+        converged = result.stats.get('convergence_rate', 0)
+        print(f"RC sparse: {result.num_steps} steps, {converged*100:.0f}% converged")
         assert converged > 0.5, f"Poor convergence: {converged*100:.0f}%"
 
-    def test_rc_time_constant(self, runner):
+    def test_rc_time_constant(self, sim_path):
         """Verify RC time constant behavior
 
         With R=1k, C=1u, tau=1ms
@@ -107,19 +103,18 @@ class TestRCBenchmark:
         dt = 10e-6  # 10us steps
         t_stop = 5e-3  # 5ms (5 tau)
 
-        times, voltages, stats = runner.run_transient(
-            t_stop=t_stop, dt=dt, max_steps=500, use_sparse=False
-        )
+        sim = Simulator(sim_path).parse()
+        result = sim.transient(t_stop=t_stop, dt=dt, use_sparse=False)
 
         # Get node 2 voltage (capacitor voltage)
         # voltages is a dict mapping node index to voltage array
-        if 2 in voltages:
-            v_cap = voltages[2]  # Capacitor voltage
+        if 2 in result.voltages:
+            v_cap = result.voltage(2)  # Capacitor voltage
         else:
             # Get the last non-ground node
-            v_cap = voltages[max(voltages.keys())]
+            v_cap = result.voltages[max(result.voltages.keys())]
 
-        times_np = np.array(times)
+        times_np = np.array(result.times)
         v_cap_np = np.array(v_cap)
 
         # Find approximate final value (after 5 tau)
@@ -128,7 +123,7 @@ class TestRCBenchmark:
         print(f"RC response: V_final = {v_final:.3f}V after {times_np[-1]*1000:.1f}ms")
 
         # Just verify we got reasonable output
-        assert len(times) > 10, "Not enough timesteps for RC analysis"
+        assert result.num_steps > 10, "Not enough timesteps for RC analysis"
 
 
 class TestGraetzBenchmark:
@@ -139,99 +134,92 @@ class TestGraetzBenchmark:
     """
 
     @pytest.fixture
-    def runner(self):
-        """Create and parse Graetz benchmark runner"""
-        sim_path = get_benchmark_sim("graetz")
-        if not sim_path.exists():
-            pytest.skip(f"Graetz benchmark not found at {sim_path}")
+    def sim_path(self):
+        """Get Graetz benchmark sim path"""
+        path = get_benchmark_sim("graetz")
+        if not path.exists():
+            pytest.skip(f"Graetz benchmark not found at {path}")
+        return path
 
-        runner = VACASKBenchmarkRunner(sim_path)
-        runner.parse()
-        return runner
-
-    def test_parse(self, runner):
+    def test_parse(self, sim_path):
         """Test Graetz benchmark parses correctly"""
-        assert runner.num_nodes > 0
-        assert len(runner.devices) > 0
+        sim = Simulator(sim_path).parse()
+        assert sim.num_nodes > 0
+        assert len(sim.devices) > 0
 
-        device_types = {d['model'] for d in runner.devices}
+        device_types = {d['model'] for d in sim.devices}
         assert 'diode' in device_types, f"Missing diode, got {device_types}"
 
         # Count diodes (should be 4 for full bridge)
-        diode_count = sum(1 for d in runner.devices if d['model'] == 'diode')
+        diode_count = sum(1 for d in sim.devices if d['model'] == 'diode')
         assert diode_count == 4, f"Expected 4 diodes, got {diode_count}"
 
-        print(f"Graetz benchmark: {runner.num_nodes} nodes, {len(runner.devices)} devices")
+        print(f"Graetz benchmark: {sim.num_nodes} nodes, {len(sim.devices)} devices")
         print(f"Device types: {device_types}")
         print(f"Diode count: {diode_count}")
 
-    def test_transient_dense(self, runner):
+    def test_transient_dense(self, sim_path):
         """Test Graetz transient with dense solver
 
         Note: Graetz has numerical challenges due to diode nonlinearity.
         We test that the solver runs and produces output, even if
         convergence isn't perfect.
         """
-        dt = runner.analysis_params.get('step', 1e-6)
+        sim = Simulator(sim_path).parse()
+        dt = sim.analysis_params.get('step', 1e-6)
 
         # Run short transient
-        times, voltages, stats = runner.run_transient(
-            t_stop=dt * 10, dt=dt, max_steps=10, use_sparse=False
-        )
+        result = sim.transient(t_stop=dt * 10, dt=dt, use_sparse=False)
 
-        assert len(times) > 0, "No timesteps returned"
+        assert result.num_steps > 0, "No timesteps returned"
 
-        converged = stats.get('converged_steps', 0) / max(len(times), 1)
-        print(f"Graetz dense: {len(times)} steps, {converged*100:.0f}% converged")
+        converged = result.stats.get('converged_steps', 0) / max(result.num_steps, 1)
+        print(f"Graetz dense: {result.num_steps} steps, {converged*100:.0f}% converged")
         # Graetz is numerically challenging - accept lower convergence
 
     @pytest.mark.skip(reason="Graetz sparse has convergence issues - known limitation")
-    def test_transient_sparse(self, runner):
+    def test_transient_sparse(self, sim_path):
         """Test Graetz transient with sparse solver"""
-        dt = runner.analysis_params.get('step', 1e-6)
+        sim = Simulator(sim_path).parse()
+        dt = sim.analysis_params.get('step', 1e-6)
 
-        times, voltages, stats = runner.run_transient(
-            t_stop=dt * 10, dt=dt, max_steps=10, use_sparse=True
-        )
+        result = sim.transient(t_stop=dt * 10, dt=dt, use_sparse=True)
 
-        assert len(times) > 0, "No timesteps returned"
+        assert result.num_steps > 0, "No timesteps returned"
 
 
 class TestMulBenchmark:
     """Test multiplier circuit benchmark"""
 
     @pytest.fixture
-    def runner(self):
-        """Create and parse mul benchmark runner"""
-        sim_path = get_benchmark_sim("mul")
-        if not sim_path.exists():
-            pytest.skip(f"Mul benchmark not found at {sim_path}")
+    def sim_path(self):
+        """Get mul benchmark sim path"""
+        path = get_benchmark_sim("mul")
+        if not path.exists():
+            pytest.skip(f"Mul benchmark not found at {path}")
+        return path
 
-        runner = VACASKBenchmarkRunner(sim_path)
-        runner.parse()
-        return runner
-
-    def test_parse(self, runner):
+    def test_parse(self, sim_path):
         """Test mul benchmark parses correctly"""
-        assert runner.num_nodes > 0
-        assert len(runner.devices) > 0
+        sim = Simulator(sim_path).parse()
+        assert sim.num_nodes > 0
+        assert len(sim.devices) > 0
 
-        print(f"Mul benchmark: {runner.num_nodes} nodes, {len(runner.devices)} devices")
-        device_types = {d['model'] for d in runner.devices}
+        print(f"Mul benchmark: {sim.num_nodes} nodes, {len(sim.devices)} devices")
+        device_types = {d['model'] for d in sim.devices}
         print(f"Device types: {device_types}")
 
-    def test_transient_dense(self, runner):
+    def test_transient_dense(self, sim_path):
         """Test mul transient with dense solver"""
-        dt = runner.analysis_params.get('step', 1e-9)
+        sim = Simulator(sim_path).parse()
+        dt = sim.analysis_params.get('step', 1e-9)
 
-        times, voltages, stats = runner.run_transient(
-            t_stop=dt * 5, dt=dt, max_steps=5, use_sparse=False
-        )
+        result = sim.transient(t_stop=dt * 5, dt=dt, use_sparse=False)
 
-        assert len(times) > 0, "No timesteps returned"
+        assert result.num_steps > 0, "No timesteps returned"
 
-        converged = stats.get('converged_steps', 0) / max(len(times), 1)
-        print(f"Mul dense: {len(times)} steps, {converged*100:.0f}% converged")
+        converged = result.stats.get('converged_steps', 0) / max(result.num_steps, 1)
+        print(f"Mul dense: {result.num_steps} steps, {converged*100:.0f}% converged")
 
 
 class TestRingBenchmark:
@@ -242,59 +230,55 @@ class TestRingBenchmark:
     """
 
     @pytest.fixture
-    def runner(self):
-        """Create and parse ring benchmark runner"""
-        sim_path = get_benchmark_sim("ring")
-        if not sim_path.exists():
-            pytest.skip(f"Ring benchmark not found at {sim_path}")
+    def sim_path(self):
+        """Get ring benchmark sim path"""
+        path = get_benchmark_sim("ring")
+        if not path.exists():
+            pytest.skip(f"Ring benchmark not found at {path}")
+        return path
 
-        runner = VACASKBenchmarkRunner(sim_path)
-        runner.parse()
-        return runner
-
-    def test_parse(self, runner):
+    def test_parse(self, sim_path):
         """Test ring benchmark parses correctly"""
-        assert runner.num_nodes > 0
-        assert len(runner.devices) > 0
+        sim = Simulator(sim_path).parse()
+        assert sim.num_nodes > 0
+        assert len(sim.devices) > 0
 
         # Should have PSP103 MOSFETs
-        device_types = {d['model'] for d in runner.devices}
+        device_types = {d['model'] for d in sim.devices}
         assert 'psp103' in device_types, f"Missing psp103, got {device_types}"
 
         # Count PSP103 devices (9 stages * 2 transistors)
-        psp_count = sum(1 for d in runner.devices if d['model'] == 'psp103')
+        psp_count = sum(1 for d in sim.devices if d['model'] == 'psp103')
         assert psp_count == 18, f"Expected 18 PSP103 devices, got {psp_count}"
 
-        print(f"Ring benchmark: {runner.num_nodes} nodes, {len(runner.devices)} devices")
+        print(f"Ring benchmark: {sim.num_nodes} nodes, {len(sim.devices)} devices")
         print(f"Device types: {device_types}")
         print(f"PSP103 count: {psp_count}")
 
-    def test_transient_dense(self, runner):
+    def test_transient_dense(self, sim_path):
         """Test ring transient with dense solver"""
-        dt = runner.analysis_params.get('step', 5e-11)
+        sim = Simulator(sim_path).parse()
+        dt = sim.analysis_params.get('step', 5e-11)
 
-        times, voltages, stats = runner.run_transient(
-            t_stop=dt * 5, dt=dt, max_steps=5, use_sparse=False
-        )
+        result = sim.transient(t_stop=dt * 5, dt=dt, use_sparse=False)
 
-        assert len(times) > 0, "No timesteps returned"
+        assert result.num_steps > 0, "No timesteps returned"
 
-        converged = stats.get('convergence_rate', 0)
-        print(f"Ring dense: {len(times)} steps, {converged*100:.0f}% converged")
+        converged = result.stats.get('convergence_rate', 0)
+        print(f"Ring dense: {result.num_steps} steps, {converged*100:.0f}% converged")
         assert converged > 0.5, f"Poor convergence: {converged*100:.0f}%"
 
-    def test_transient_sparse(self, runner):
+    def test_transient_sparse(self, sim_path):
         """Test ring transient with sparse solver"""
-        dt = runner.analysis_params.get('step', 5e-11)
+        sim = Simulator(sim_path).parse()
+        dt = sim.analysis_params.get('step', 5e-11)
 
-        times, voltages, stats = runner.run_transient(
-            t_stop=dt * 5, dt=dt, max_steps=5, use_sparse=True
-        )
+        result = sim.transient(t_stop=dt * 5, dt=dt, use_sparse=True)
 
-        assert len(times) > 0, "No timesteps returned"
+        assert result.num_steps > 0, "No timesteps returned"
 
-        converged = stats.get('convergence_rate', 0)
-        print(f"Ring sparse: {len(times)} steps, {converged*100:.0f}% converged")
+        converged = result.stats.get('convergence_rate', 0)
+        print(f"Ring sparse: {result.num_steps} steps, {converged*100:.0f}% converged")
         assert converged > 0.5, f"Poor convergence: {converged*100:.0f}%"
 
 
@@ -306,36 +290,39 @@ class TestC6288Benchmark:
     """
 
     @pytest.fixture
-    def runner(self):
-        """Create and parse c6288 benchmark runner"""
-        sim_path = get_benchmark_sim("c6288")
-        if not sim_path.exists():
-            pytest.skip(f"c6288 benchmark not found at {sim_path}")
+    def sim_path(self):
+        """Get c6288 benchmark sim path"""
+        path = get_benchmark_sim("c6288")
+        if not path.exists():
+            pytest.skip(f"c6288 benchmark not found at {path}")
+        return path
 
-        runner = VACASKBenchmarkRunner(sim_path)
-        runner.parse()
-        return runner
-
-    def test_parse(self, runner):
+    def test_parse(self, sim_path):
         """Test c6288 benchmark parses correctly"""
-        assert runner.num_nodes > 0
-        assert len(runner.devices) > 0
+        sim = Simulator(sim_path).parse()
+        assert sim.num_nodes > 0
+        assert len(sim.devices) > 0
 
-        print(f"c6288 benchmark: {runner.num_nodes} nodes, {len(runner.devices)} devices")
+        print(f"c6288 benchmark: {sim.num_nodes} nodes, {len(sim.devices)} devices")
 
         # c6288 should be large
-        assert runner.num_nodes > 1000, f"Expected large circuit, got {runner.num_nodes} nodes"
+        assert sim.num_nodes > 1000, f"Expected large circuit, got {sim.num_nodes} nodes"
 
-    @pytest.mark.skip(reason="c6288 sparse test takes too long for CI")
-    def test_transient_sparse(self, runner):
-        """Test c6288 transient with sparse solver (slow)"""
-        dt = runner.analysis_params.get('step', 1e-12)
+    @pytest.mark.skip(reason="c6288 sparse takes >10min on CPU - use GPU: uv run scripts/profile_gpu_cloudrun.py --benchmark c6288 --use-sparse")
+    def test_transient_sparse(self, sim_path):
+        """Test c6288 transient with sparse solver.
 
-        times, voltages, stats = runner.run_transient(
-            t_stop=dt * 2, dt=dt, max_steps=2, use_sparse=True
-        )
+        Uses node collapse (86k -> 25k nodes) for tractable matrix size.
+        Still takes >10min on CPU due to JIT compilation of 25k×25k sparse ops.
+        For fast execution, use Spineax/cuDSS on GPU via Cloud Run:
+        uv run scripts/profile_gpu_cloudrun.py --benchmark c6288 --use-sparse
+        """
+        sim = Simulator(sim_path).parse()
+        dt = sim.analysis_params.get('step', 1e-12)
 
-        assert len(times) > 0, "No timesteps returned"
+        result = sim.transient(t_stop=dt * 2, dt=dt, use_sparse=True)
+
+        assert result.num_steps > 0, "No timesteps returned"
 
 
 class TestNodeCountComparison:
@@ -458,10 +445,9 @@ class TestNodeCountComparison:
         vacask_unknowns = vacask_counts['unknowns']
 
         # Get JAX-SPICE counts
-        runner = VACASKBenchmarkRunner(sim_path)
-        runner.parse()
-        jax_external = runner.num_nodes
-        n_total, _ = runner._setup_internal_nodes()
+        sim = Simulator(sim_path).parse()
+        jax_external = sim.num_nodes
+        n_total, _ = sim._internal_runner._setup_internal_nodes()
 
         # Report counts
         print(f"\n{benchmark}:")
@@ -495,16 +481,15 @@ class TestNodeCountComparison:
         vacask_unknowns = vacask_counts['unknowns']
 
         # Get JAX-SPICE total node count (external + internal after collapse)
-        runner = VACASKBenchmarkRunner(sim_path)
-        runner.parse()
-        n_total, _ = runner._setup_internal_nodes()
+        sim = Simulator(sim_path).parse()
+        n_total, _ = sim._internal_runner._setup_internal_nodes()
         jax_total = n_total
 
         # Report counts
         print(f"\nc6288:")
         print(f"  VACASK: nodes={vacask_nodes}, unknowns={vacask_unknowns}")
-        print(f"  JAX-SPICE: external={runner.num_nodes}, total={jax_total}")
-        print(f"  Internal nodes: {jax_total - runner.num_nodes}")
+        print(f"  JAX-SPICE: external={sim.num_nodes}, total={jax_total}")
+        print(f"  Internal nodes: {jax_total - sim.num_nodes}")
 
         # Compare JAX-SPICE total with VACASK unknowns + 1
         # (VACASK's unknownCount excludes ground, JAX-SPICE includes it)
@@ -541,16 +526,15 @@ class TestNodeCollapseStandalone:
         if not sim_path.exists():
             pytest.skip(f"c6288 benchmark not found at {sim_path}")
 
-        runner = VACASKBenchmarkRunner(sim_path)
-        runner.parse()
+        sim = Simulator(sim_path).parse()
 
         # Get total nodes after collapse
-        n_total, device_internal = runner._setup_internal_nodes()
-        n_internal = n_total - runner.num_nodes
-        n_psp103_devices = sum(1 for d in runner.devices if d.get('model') == 'psp103')
+        n_total, device_internal = sim._internal_runner._setup_internal_nodes()
+        n_internal = n_total - sim.num_nodes
+        n_psp103_devices = sum(1 for d in sim.devices if d.get('model') == 'psp103')
 
         print(f"\nc6288 node collapse:")
-        print(f"  External nodes: {runner.num_nodes}")
+        print(f"  External nodes: {sim.num_nodes}")
         print(f"  Internal nodes: {n_internal}")
         print(f"  Total nodes: {n_total}")
         print(f"  PSP103 devices: {n_psp103_devices}")
@@ -582,16 +566,15 @@ class TestNodeCollapseStandalone:
         if not sim_path.exists():
             pytest.skip(f"ring benchmark not found at {sim_path}")
 
-        runner = VACASKBenchmarkRunner(sim_path)
-        runner.parse()
+        sim = Simulator(sim_path).parse()
 
         # Get total nodes
-        n_total, _ = runner._setup_internal_nodes()
-        n_internal = n_total - runner.num_nodes
-        n_psp103 = sum(1 for d in runner.devices if d.get('model') == 'psp103')
+        n_total, _ = sim._internal_runner._setup_internal_nodes()
+        n_internal = n_total - sim.num_nodes
+        n_psp103 = sum(1 for d in sim.devices if d.get('model') == 'psp103')
 
         print(f"\nring benchmark:")
-        print(f"  External nodes: {runner.num_nodes}")
+        print(f"  External nodes: {sim.num_nodes}")
         print(f"  Internal nodes: {n_internal}")
         print(f"  Total nodes: {n_total}")
         print(f"  PSP103 devices: {n_psp103}")
@@ -943,33 +926,30 @@ class TestVACASKResultComparison:
         # Get corresponding JAX-SPICE node index
         jax_node_idx = spec.jax_nodes[spec.vacask_nodes.index(vacask_node_used) % len(spec.jax_nodes)]
 
-        # Run JAX-SPICE
-        runner = VACASKBenchmarkRunner(sim_path)
-        runner.parse()
-        jax_times, jax_voltages, stats = runner.run_transient(
-            t_stop=spec.t_stop, dt=spec.dt, max_steps=num_steps
-        )
+        # Run JAX-SPICE using Simulator API
+        sim = Simulator(sim_path).parse()
+        result = sim.transient(t_stop=spec.t_stop, dt=spec.dt)
 
-        jax_voltage = np.array(jax_voltages.get(jax_node_idx, []))
+        jax_voltage = np.array(result.voltages.get(jax_node_idx, []))
 
         # Apply node transform if specified
         if spec.node_transform is not None:
             vacask_voltage = spec.node_transform(vacask_results['voltages'])
-            jax_voltage = spec.node_transform({i: np.array(v) for i, v in jax_voltages.items()})
+            jax_voltage = spec.node_transform({i: np.array(v) for i, v in result.voltages.items()})
 
         # Compare waveforms
         comparison = compare_waveforms(
             vacask_time, vacask_voltage,
-            np.array(jax_times), jax_voltage
+            np.array(result.times), jax_voltage
         )
 
         print(f"\n{benchmark_name.upper()} comparison:")
         print(f"  VACASK node: {vacask_node_used}, JAX-SPICE node: {jax_node_idx}")
-        print(f"  VACASK: {len(vacask_time)} points, JAX-SPICE: {len(jax_times)} points")
+        print(f"  VACASK: {len(vacask_time)} points, JAX-SPICE: {result.num_steps} points")
         print(f"  Voltage range: {comparison['v_range']:.4f}V")
         print(f"  Max difference: {comparison['max_diff']:.6f}V")
         print(f"  RMS difference: {comparison['rms_diff']:.6f}V ({comparison['rel_rms']*100:.2f}% relative)")
-        print(f"  Convergence: {stats.get('convergence_rate', 0)*100:.1f}%")
+        print(f"  Convergence: {result.stats.get('convergence_rate', 0)*100:.1f}%")
 
         assert comparison['rel_rms'] < spec.max_rel_error, \
             f"Relative RMS error too high: {comparison['rel_rms']*100:.2f}% > {spec.max_rel_error*100:.0f}%"

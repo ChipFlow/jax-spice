@@ -56,7 +56,7 @@ import jax.numpy as jnp
 # Enable float64
 jax.config.update('jax_enable_x64', True)
 
-from jax_spice.benchmarks.runner import VACASKBenchmarkRunner
+from jax_spice import Simulator
 from jax_spice.profiling import enable_profiling, ProfileConfig
 
 
@@ -255,41 +255,37 @@ def run_jax_spice(config: BenchmarkConfig, num_steps: int, use_scan: bool,
             )
 
     def do_run():
-        runner = VACASKBenchmarkRunner(config.sim_path)
-        runner.parse()
+        # Use the new Simulator API
+        sim = Simulator(config.sim_path).parse()
 
         t_stop = config.dt * num_steps
 
-        # Warmup/startup (includes parsing, JIT compilation, first run)
+        # Warmup (includes JIT compilation)
         startup_start = time.perf_counter()
-        _, _, warmup_stats = runner.run_transient(
-            t_stop=t_stop, dt=config.dt,
-            max_steps=num_steps, use_sparse=use_sparse,
-            use_while_loop=use_scan
-        )
+        sim.warmup(t_stop=t_stop, dt=config.dt, use_sparse=use_sparse, use_scan=use_scan)
         startup_time = time.perf_counter() - startup_start
 
         # Timed run - print perf_counter for correlation with Perfetto traces
         start = time.perf_counter()
         print(f"TIMED_RUN_START: {start:.6f}")
-        times, voltages, stats = runner.run_transient(
+        result = sim.transient(
             t_stop=t_stop, dt=config.dt,
-            max_steps=num_steps, use_sparse=use_sparse,
-            use_while_loop=use_scan,
+            use_sparse=use_sparse, use_scan=use_scan,
             profile_config=scan_profile_config,
         )
         after_transient = time.perf_counter()
         print(f"AFTER_RUN_TRANSIENT: {after_transient:.6f} (elapsed: {after_transient - start:.6f}s)")
         # Force completion of async JAX operations
-        _ = float(voltages[0][0])
+        _ = float(result.voltages[0][0])
         end = time.perf_counter()
         external_elapsed = end - start
         print(f"TIMED_RUN_END: {end:.6f} (elapsed: {external_elapsed:.6f}s, sync took: {end - after_transient:.6f}s)")
 
         # Use wall_time from stats (excludes trace saving overhead)
         # Fall back to external timing if not available
+        stats = result.stats
         elapsed = stats.get('wall_time', external_elapsed)
-        actual_steps = len(times) - 1  # Exclude t=0 initial condition
+        actual_steps = result.num_steps - 1  # Exclude t=0 initial condition
         time_per_step = elapsed / actual_steps * 1000
 
         # Add startup time to stats

@@ -4735,7 +4735,7 @@ class VACASKBenchmarkRunner:
         setup_cache_key = f"{self.num_nodes}_{len(self.devices)}_{use_dense}_{backend}"
         if self._transient_setup_cache is None or self._transient_setup_key != setup_cache_key:
             # Build setup by calling hybrid version with 0 steps
-            self._run_transient_hybrid(t_stop=0, dt=dt, backend=backend, use_dense=use_dense)
+            self._run_transient_hybrid(t_stop=0.0, dt=dt, backend=backend, use_dense=use_dense)
 
         setup = self._transient_setup_cache
         n_total = setup['n_total']
@@ -4979,7 +4979,7 @@ class VACASKBenchmarkRunner:
             self._transient_setup_key != setup_cache_key):
             # Build setup by calling hybrid version with 0 steps
             logger.info("Building transient setup...")
-            self._run_transient_hybrid(t_stop=0, dt=dt, backend=backend, use_dense=use_dense)
+            self._run_transient_hybrid(t_stop=0.0, dt=dt, backend=backend, use_dense=use_dense)
 
         setup = self._transient_setup_cache
         n_total = setup['n_total']
