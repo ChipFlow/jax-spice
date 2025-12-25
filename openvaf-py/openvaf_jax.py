@@ -316,15 +316,15 @@ class OpenVAFToJAX:
         lines.append("")
 
         # Map hidden_state values from init to eval params
-        # NOTE: Currently DISABLED because the init/eval value numbering doesn't
-        # correspond semantically. Hidden_state params are populated by
-        # _prepare_static_inputs in the benchmark runner instead.
-        # TODO: Implement proper semantic mapping between init computed values
-        # and eval hidden_state params.
+        # NOTE: Disabled because the init computation produces wrong values for some params,
+        # causing Jacobian explosion. The Python fallbacks in runner.py work better.
+        # Uses value-number matching: if eval vN has init_vN computed, assign vN = init_vN
         lines.append("    # Hidden state values from init -> eval (DISABLED)")
         # hidden_state_assignments = self._build_hidden_state_assignments(init_defined)
         # for eval_var, init_var in hidden_state_assignments:
         #     lines.append(f"    {eval_var} = {init_var}")
+        # if hidden_state_assignments:
+        #     logger.info(f"      _generate_core_code: {len(hidden_state_assignments)} hidden_state assignments")
 
         lines.append("")
 
@@ -478,21 +478,14 @@ class OpenVAFToJAX:
     def _build_hidden_state_assignments(self, init_defined: Set[str]) -> List[Tuple[str, str]]:
         """Build assignments from init-computed hidden_state values to eval params.
 
-        Hidden_state params are computed by the init function and need to flow
-        to the eval function. The init function uses two value numbering schemes:
+        Hidden_state params are computed by the init function (via CLIP_LOW macros
+        that expand to max(value, min_val) patterns) and need to flow to eval.
 
-        1. For low eval value numbers (< ~10000): init uses the same value number
-           e.g., eval v18 (CHNL_TYPE) <- init_v18
+        We use VALUE NUMBER matching: if eval uses vN for a hidden_state param,
+        and init has computed init_vN, we add the assignment vN = init_vN.
 
-        2. For high eval value numbers (> ~10000): init uses the parameter index
-           e.g., eval v676559 (phib at idx 1833) <- init_v1833
-
-        This method checks both schemes and uses whichever exists.
-
-        NOTE: For PSP103, we skip hidden_state assignments because the init MIR
-        uses different value numbers than the eval MIR for the same parameters.
-        The Python code in runner.py correctly computes these values and loads
-        them from inputs[], so we don't want to overwrite them with wrong values.
+        This works because OpenVAF often uses the same value numbers in init
+        and eval for the same semantic parameter.
 
         Args:
             init_defined: Set of init variables that have been defined
@@ -500,34 +493,25 @@ class OpenVAFToJAX:
         Returns:
             List of (eval_var, init_var) tuples for assignments
         """
-        # Skip hidden_state assignments for PSP103 - values are computed in Python
-        # and loaded from inputs. The init MIR has value numbering mismatches.
-        module_name = getattr(self.module, 'name', '')
-        if module_name and 'psp103' in module_name.lower():
-            logger.debug(f"Skipping hidden_state assignments for PSP103 (computed in Python)")
-            return []
-
         assignments = []
 
-        # Get param kinds from eval function
+        # Get hidden_state params from eval (indices and value names)
         eval_param_kinds = list(self.module.param_kinds)
 
-        # For each hidden_state param in eval, check if init computed a matching value
-        for idx, eval_kind in enumerate(eval_param_kinds):
-            if eval_kind == 'hidden_state' and idx < len(self.params):
-                eval_var = self.params[idx]  # e.g., v18, v48, v676559
+        for idx, kind in enumerate(eval_param_kinds):
+            if kind == 'hidden_state' and idx < len(self.params):
+                eval_var = self.params[idx]  # e.g., 'v177' for TOXO_i
 
-                # Try value-based naming first (e.g., init_v18 for eval v18)
-                init_by_val = f"init_{eval_var}"
+                # Try direct value number match: init_v177 for eval v177
+                init_var = f"init_{eval_var}"
 
-                # Try index-based naming second (e.g., init_v1833 for param idx 1833)
-                init_by_idx = f"init_v{idx}"
+                if init_var in init_defined:
+                    assignments.append((eval_var, init_var))
 
-                # Use whichever exists in init_defined
-                if init_by_val in init_defined:
-                    assignments.append((eval_var, init_by_val))
-                elif init_by_idx in init_defined:
-                    assignments.append((eval_var, init_by_idx))
+        # Log statistics
+        if assignments:
+            logger.debug(f"Built {len(assignments)} hidden_state assignments "
+                        f"(direct value number matching)")
 
         return assignments
 

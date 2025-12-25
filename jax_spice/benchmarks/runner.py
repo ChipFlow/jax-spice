@@ -599,13 +599,6 @@ class VACASKBenchmarkRunner:
             params = dev['params']
             internal_nodes = device_internal_nodes.get(dev['name'], {})
 
-            # Debug: Log critical PSP103 parameters
-            if model_type == 'psp103':
-                w_val = params.get('w', params.get('W', 'MISSING'))
-                l_val = params.get('l', params.get('L', 'MISSING'))
-                type_val = params.get('type', params.get('TYPE', 'MISSING'))
-                print(f"DEBUG PSP103 {dev['name']}: W={w_val}, L={l_val}, TYPE={type_val}")
-
             # Build node map: model node name -> global circuit node index
             # Use actual number of external terminals (not hardcoded 4 for MOSFETs)
             node_map = {}
@@ -721,7 +714,18 @@ class VACASKBenchmarkRunner:
                         elif name_lower == 'swqpart_i':
                             all_inputs[dev_idx, param_idx] = float(params.get('swqpart', params.get('SWQPART', 0)))
                         elif name_lower == 'swign_i':
-                            all_inputs[dev_idx, param_idx] = float(params.get('swign', params.get('SWIGN', 0)))
+                            # SWIGN defaults to 1.0 in param kind (fallback), so hidden_state should too
+                            # If SWIGN_i = 0, mig = 1e-40 which creates 1e40 conductance (breaks NR)
+                            all_inputs[dev_idx, param_idx] = float(params.get('swign', params.get('SWIGN', 1)))
+
+                        # Noise parameters - FNT is thermal noise coefficient, defaults to 1.0
+                        # If FNT_i = 0, nt = 0, and mig = 1e-40 (breaks NR with 1e40 conductance)
+                        elif name_lower == 'fnt_i':
+                            all_inputs[dev_idx, param_idx] = max(float(params.get('fnt', params.get('FNT', 1.0))), 0.0)
+                        elif name_lower == 'fntexc_i':
+                            all_inputs[dev_idx, param_idx] = max(float(params.get('fntexc', params.get('FNTEXC', 0.0))), 0.0)
+                        elif name_lower == 'fntedge_i':
+                            all_inputs[dev_idx, param_idx] = max(float(params.get('fntedge', params.get('FNTEDGE', 1.0))), 0.0)
 
                         # Critical oxide/material parameters with CLIP_LOW
                         elif name_lower == 'qmc_i':
@@ -829,12 +833,16 @@ class VACASKBenchmarkRunner:
                             all_inputs[dev_idx, param_idx] = 1.0 if ngcon < 1.5 else 2.0
 
                         # Resistance parameters
+                        # NOTE: If RSH/RSHD are not in model card, they default to 1.0 in 'param' kind
+                        # (via line 675 fallback). So hidden_state must also use 1.0 default.
                         elif name_lower == 'rshg_i':
                             all_inputs[dev_idx, param_idx] = max(float(params.get('rshg', params.get('RSHG', 0))), 0.0)
                         elif name_lower == 'rsh_i':
-                            all_inputs[dev_idx, param_idx] = max(float(params.get('rsh', params.get('RSH', 0))), 0.0)
+                            # RSH defaults to 1.0 in param kind if not in model card
+                            all_inputs[dev_idx, param_idx] = max(float(params.get('rsh', params.get('RSH', 1.0))), 0.0)
                         elif name_lower == 'rshd_i':
-                            all_inputs[dev_idx, param_idx] = max(float(params.get('rshd', params.get('RSHD', 0))), 0.0)
+                            # RSHD defaults to 1.0 in param kind if not in model card
+                            all_inputs[dev_idx, param_idx] = max(float(params.get('rshd', params.get('RSHD', 1.0))), 0.0)
                         elif name_lower == 'rint_i':
                             all_inputs[dev_idx, param_idx] = max(float(params.get('rint', params.get('RINT', 0))), 0.0)
                         elif name_lower == 'rvpoly_i':
@@ -4348,8 +4356,6 @@ class VACASKBenchmarkRunner:
                     if 'node4' in internal_nodes:  # NOI is node4 in PSP103
                         noi_indices.append(internal_nodes['node4'])
             noi_indices = jnp.array(noi_indices, dtype=jnp.int32) if noi_indices else None
-            if noi_indices is not None:
-                print(f"Found {len(noi_indices)} NOI nodes to constrain")
 
             # Create JIT-compiled NR solver
             if use_dense:
@@ -5511,6 +5517,19 @@ class VACASKBenchmarkRunner:
                 # Batched device evaluation - now returns 4 arrays
                 batch_res_resist, batch_res_react, batch_jac_resist, batch_jac_react = vmapped_fn(batch_inputs)
 
+                # Mask out huge residuals from internal nodes with 1e40 conductance
+                # These arise from numerical noise × 1e40 = 1e20+ residuals
+                # PSP103 NOI and related internal nodes can produce such values
+                huge_res_mask = jnp.abs(batch_res_resist) > 1e20
+                batch_res_resist = jnp.where(huge_res_mask, 0.0, batch_res_resist)
+                batch_res_react = jnp.where(huge_res_mask, 0.0, batch_res_react)
+
+                # Also mask huge Jacobian entries (> 1e20) from NOI and similar internal nodes
+                # These 1e40 conductance values pollute the circuit Jacobian and cause instability
+                huge_jac_mask = jnp.abs(batch_jac_resist) > 1e20
+                batch_jac_resist = jnp.where(huge_jac_mask, 0.0, batch_jac_resist)
+                batch_jac_react = jnp.where(huge_jac_mask, 0.0, batch_jac_react)
+
                 # Collect COO triplets using pre-computed indices
                 res_idx = stamp_indices['res_indices']
                 jac_row_idx = stamp_indices['jac_row_indices']
@@ -5668,12 +5687,8 @@ class VACASKBenchmarkRunner:
             noi_residual_indices = noi_indices - 1  # Convert to residual indices
             # Set mask to False for NOI residuals
             residual_mask = residual_mask.at[noi_residual_indices].set(False)
-            n_masked = len(noi_indices)
-            n_checked = int(jnp.sum(residual_mask))
-            print(f"NOI masking: {n_masked} nodes masked (indices {list(noi_residual_indices)}), {n_checked} residuals checked")
         else:
             residual_mask = None
-            print("No NOI masking - residual_mask is None")
 
         def nr_solve(V_init: jax.Array, vsource_vals: jax.Array, isource_vals: jax.Array,
                     Q_prev: jax.Array, inv_dt: float | jax.Array):
@@ -5711,6 +5726,37 @@ class VACASKBenchmarkRunner:
                 else:
                     max_f = jnp.max(jnp.abs(f))
                 residual_converged = max_f < abstol
+
+                # Enforce NOI node constraints BEFORE linear solve
+                # NOI nodes have 1e40 conductance to ground which causes numerical instability.
+                # We enforce delta[noi] = 0 by modifying J and f:
+                # - Set J[noi, :] = 0 and J[:, noi] = 0 (decouple from other nodes)
+                # - Set J[noi, noi] = 1.0 (make it solvable)
+                # - Set f[noi] = 0.0 (so delta[noi] = 0)
+                if noi_indices is not None and len(noi_indices) > 0:
+                    # Convert NOI node indices to residual indices (ground excluded)
+                    noi_res_idx = noi_indices - 1
+
+                    # Zero out NOI rows and columns in J
+                    n_unknowns = J.shape[0]
+                    row_mask = jnp.ones(n_unknowns, dtype=jnp.bool_)
+                    row_mask = row_mask.at[noi_res_idx].set(False)
+
+                    # Create identity entries for NOI nodes
+                    J_noi_fixed = jnp.where(
+                        row_mask[:, None] & row_mask[None, :],  # Non-NOI entries
+                        J,
+                        jnp.where(
+                            jnp.arange(n_unknowns)[:, None] == jnp.arange(n_unknowns)[None, :],  # Diagonal
+                            jnp.where(~row_mask[:, None], 1.0, 0.0),  # 1.0 on NOI diagonal
+                            0.0  # 0 elsewhere in NOI rows/cols
+                        )
+                    )
+                    # Zero out NOI residuals
+                    f_noi_fixed = jnp.where(row_mask, f, 0.0)
+
+                    J = J_noi_fixed
+                    f = f_noi_fixed
 
                 # Solve: J @ delta = -f (only updating non-ground nodes)
                 delta = jax.scipy.linalg.solve(J, -f)
