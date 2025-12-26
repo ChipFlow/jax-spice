@@ -4276,7 +4276,6 @@ class VACASKBenchmarkRunner:
             n_unknowns = n_total - 1
 
             # Build time-varying source function
-            logger.info("Building source function")
             source_fn = self._build_source_fn()
 
             # Group devices by type
@@ -4299,25 +4298,19 @@ class VACASKBenchmarkRunner:
             static_inputs_cache: Dict[str, Tuple[Any, List[int], List[Dict], Dict]] = {}
 
             for model_type in openvaf_by_type:
-                logger.debug(f"Getting compiled model for {model_type}")
                 compiled = self._compiled_models.get(model_type)
-                logger.debug(f"Got model:\n  module: {compiled['module']}\n  translator: {compiled['translator']}\n  jax_fn_arrary: {compiled['jax_fn_array']}\n  vmapped_fn: {compiled['vmapped_fn']}\n  array_metadata size: {len(compiled['array_metadata'])}")
                 if compiled and 'vmapped_fn' in compiled:
                     vmapped_fns[model_type] = compiled['vmapped_fn']
-                    logger.debug(f"Preparing static inputs: {model_type}")
                     static_inputs, voltage_indices, device_contexts = self._prepare_static_inputs(
                         model_type, openvaf_by_type[model_type], device_internal_nodes, ground
                     )
                     # Pre-compute stamp index mapping (once per model type)
-                    logger.debug(f"building stamp index mapping for {model_type}")
                     stamp_indices = self._build_stamp_index_mapping(
                         model_type, device_contexts, ground
                     )
                     # Pre-compute voltage node arrays for vectorized update
                     n_devices = len(device_contexts)
-                    n_voltages = len(voltage_indices)
                     # Build arrays directly from list comprehension (setup phase only)
-                    logger.debug("building voltage model")
                     voltage_node1 = jnp.array([
                         [n1 for n1, n2 in ctx['voltage_node_pairs']]
                         for ctx in device_contexts
@@ -4327,7 +4320,6 @@ class VACASKBenchmarkRunner:
                         for ctx in device_contexts
                     ], dtype=jnp.int32)
 
-                    logger.debug("fetching static inputs")
                     if backend == "gpu":
                         with jax.default_device(device):
                             static_inputs = jnp.array(static_inputs, dtype=dtype)
@@ -4339,8 +4331,25 @@ class VACASKBenchmarkRunner:
                     n_devs = len(openvaf_by_type[model_type])
                     logger.info(f"Prepared {model_type}: {n_devs} devices, stamp indices cached")
 
+            # === JIT WARMUP: Pre-compile vmapped_fn for each model type ===
+            # The first call to vmapped_fn triggers JIT compilation (25s for psp103).
+            # Do this explicitly here to make the timing predictable.
+            for model_type in static_inputs_cache:
+                static_inputs, voltage_indices, _, voltage_node1, voltage_node2 = \
+                    static_inputs_cache[model_type]
+                vmapped_fn = vmapped_fns[model_type]
+                n_devs = static_inputs.shape[0]
+
+                if n_devs > 0:
+                    # Warmup call with zeros triggers JIT compilation
+                    V_zeros = jnp.zeros(n_total, dtype=jnp.float64)
+                    voltage_updates = V_zeros[voltage_node1] - V_zeros[voltage_node2]
+                    batch_inputs = static_inputs.at[:, jnp.array(voltage_indices)].set(voltage_updates)
+                    result = vmapped_fn(batch_inputs)
+                    result[0].block_until_ready()  # Force sync to complete JIT
+                    logger.info(f"JIT warmup {model_type} ({n_devs} devices) complete")
+
             # Pre-compute source device stamp indices
-            logger.debug("Precomputing source device data")
             source_device_data = self._prepare_source_devices_coo(source_devices, ground, n_unknowns)
 
             # Cache setup data for reuse
@@ -4490,6 +4499,22 @@ class VACASKBenchmarkRunner:
             self._cached_build_system = build_system_jit
             logger.info(f"Cached {'dense' if use_dense else 'sparse'} NR solver")
 
+            # === JIT WARMUP: Compile nr_solve and build_system_jit ===
+            # First run triggers JIT compilation (~90s for c6288). Doing it here
+            # makes timing predictable and keeps all compilation in setup phase.
+            V_init = jnp.zeros(n_nodes, dtype=jnp.float64)
+            vsource_init = jnp.zeros(n_vsources, dtype=jnp.float64)
+            isource_init = jnp.zeros(n_isources, dtype=jnp.float64)
+            Q_init = jnp.zeros(n_unknowns, dtype=jnp.float64)
+            # Warmup nr_solve (includes build_system_jit internally)
+            warmup_result = nr_solve(V_init, vsource_init, isource_init, Q_init, 1.0)
+            warmup_result[0].block_until_ready()
+            logger.info("JIT warmup nr_solve complete")
+            # Also warmup build_system_jit directly (used in Q_prev init)
+            _, _, _q_warmup = build_system_jit(V_init, vsource_init, isource_init, Q_init, 0.0)
+            _q_warmup.block_until_ready()
+            logger.info("JIT warmup build_system_jit complete")
+
         # Compute initial condition based on icmode
         icmode = self.analysis_params.get('icmode', 'op')
         if icmode == 'op':
@@ -4515,10 +4540,8 @@ class VACASKBenchmarkRunner:
                 if 'vdd' in name.lower() or 'vcc' in name.lower():
                     V = V.at[idx].set(vdd_value)
 
-        times = []
-
-        logger.info(f"initialising voltages: {n_external}")
-        voltages = {i: [] for i in range(n_external)}
+        times_list = []
+        voltage_history = []  # Collect V arrays, convert to dict at end
 
         total_nr_iters = 0
         non_converged_steps = []  # Track (time, max_residual) for non-converged steps
@@ -4538,7 +4561,7 @@ class VACASKBenchmarkRunner:
             if isource_dc.size == 0:
                 isource_dc = jnp.array([])
             _, _, Q_prev = self._cached_build_system(V, vsource_dc, isource_dc, jnp.zeros(n_unknowns), 0.0)
-            logger.debug(f"  Initialized Q_prev from DC operating point (max|Q|={float(jnp.max(jnp.abs(Q_prev))):.2e})")
+            Q_prev.block_until_ready()
         else:
             Q_prev = jnp.zeros(n_unknowns, dtype=jnp.float64)
 
@@ -4549,7 +4572,6 @@ class VACASKBenchmarkRunner:
         logger.info(f"Starting NR iteration ({num_timesteps} timesteps, inv_dt={inv_dt:.2e})")
         for step_idx in range(num_timesteps):
             t = step_idx * dt
-            logger.debug(f"Step time:{t}")
             source_values = source_fn(t)
             # Build source value arrays once per timestep (Python loop here, not in NR loop)
             vsource_vals, isource_vals = build_source_arrays(source_values)
@@ -4574,27 +4596,34 @@ class VACASKBenchmarkRunner:
                 else:
                     logger.warning(f"t={t:.2e}s did not converge (max_f={residual:.2e})")
 
-            # Record state
-            times.append(t)
-            for i in range(n_external):
-                voltages[i].append(float(V[i]))
+            # Record state (keep as JAX arrays, convert at end)
+            times_list.append(t)
+            voltage_history.append(V[:n_external])  # Single JAX slice, no float() calls
 
             V_prev = V
 
         # Build stats dict
         stats = {
-            'total_timesteps': len(times),
+            'total_timesteps': len(times_list),
             'total_nr_iterations': total_nr_iters,
             'non_converged_count': len(non_converged_steps),
             'non_converged_steps': non_converged_steps,
-            'convergence_rate': 1.0 - len(non_converged_steps) / max(len(times), 1),
+            'convergence_rate': 1.0 - len(non_converged_steps) / max(len(times_list), 1),
         }
 
-        logger.info(f"Completed: {len(times)} timesteps, {total_nr_iters} total NR iterations")
+        logger.info(f"Completed: {len(times_list)} timesteps, {total_nr_iters} total NR iterations")
         if non_converged_steps:
             logger.info(f"  Non-converged: {len(non_converged_steps)} steps ({100*(1-stats['convergence_rate']):.1f}%)")
 
-        return jnp.array(times), {k: jnp.array(v) for k, v in voltages.items()}, stats
+        # Convert voltage history to dict format (single stack operation)
+        times = jnp.array(times_list)
+        if voltage_history:
+            V_stacked = jnp.stack(voltage_history)  # Shape: (n_timesteps, n_external)
+            voltages = {i: V_stacked[:, i] for i in range(n_external)}
+        else:
+            voltages = {i: jnp.array([]) for i in range(n_external)}
+
+        return times, voltages, stats
 
     def _compute_dc_operating_point(self, n_nodes: int, n_vsources: int, n_isources: int,
                                      nr_solve: Callable, backend: str = "cpu",
@@ -5364,7 +5393,9 @@ class VACASKBenchmarkRunner:
 
             # === OpenVAF devices contribution (unrolled at trace time) ===
             # Devices return 4 arrays: (res_resist, res_react, jac_resist, jac_react)
+            import time as _dbg_t
             for model_type in model_types:
+                _dbg_t0 = _dbg_t.time()
                 static_inputs, voltage_indices, stamp_indices, voltage_node1, voltage_node2 = \
                     static_inputs_cache[model_type]
                 vmapped_fn = vmapped_fns[model_type]
@@ -5372,9 +5403,12 @@ class VACASKBenchmarkRunner:
                 # Vectorized voltage update
                 voltage_updates = V[voltage_node1] - V[voltage_node2]
                 batch_inputs = static_inputs.at[:, jnp.array(voltage_indices)].set(voltage_updates)
+                print(f"    [build_system] {model_type} voltage update: {_dbg_t.time()-_dbg_t0:.2f}s")
 
                 # Batched device evaluation - now returns 4 arrays
+                _dbg_t1 = _dbg_t.time()
                 batch_res_resist, batch_res_react, batch_jac_resist, batch_jac_react = vmapped_fn(batch_inputs)
+                print(f"    [build_system] {model_type} vmapped_fn: {_dbg_t.time()-_dbg_t1:.2f}s")
 
                 # Mask out huge residuals from internal nodes with 1e40 conductance
                 # These arise from numerical noise × 1e40 = 1e20+ residuals
