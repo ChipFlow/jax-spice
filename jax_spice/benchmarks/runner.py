@@ -5775,7 +5775,7 @@ class VACASKBenchmarkRunner:
         when the solver is created, and reused for all subsequent solves.
 
         Args:
-            build_system_jit: JIT-wrapped function returning (J_bcoo, f)
+            build_system_jit: JIT-wrapped function returning (J_bcoo, f, Q)
             n_nodes: Total node count including ground
             nse: Number of stored elements after summing duplicates
             bcsr_indptr: Pre-computed BCSR row pointers
@@ -5786,7 +5786,7 @@ class VACASKBenchmarkRunner:
             max_step: Maximum voltage step per iteration
 
         Returns:
-            JIT-compiled sparse solver function using Spineax
+            JIT-compiled sparse solver function: (V, vsrc, isrc, Q_prev, inv_dt) -> (V, iters, converged, max_f, Q)
         """
         from jax.experimental.sparse import BCSR
         from spineax.cudss.solver import CuDSSSolver
@@ -5812,24 +5812,29 @@ class VACASKBenchmarkRunner:
         )
         logger.info(f"Created Spineax solver with cached symbolic factorization")
 
-        def nr_solve(V_init: jax.Array, vsource_vals: jax.Array, isource_vals: jax.Array):
+        def nr_solve(V_init: jax.Array, vsource_vals: jax.Array, isource_vals: jax.Array,
+                    Q_prev: jax.Array, inv_dt: float | jax.Array):
+            # State: (V, iteration, converged, max_f, max_delta, Q)
+            # Q is tracked to return the final charges
+            init_Q = jnp.zeros(n_unknowns, dtype=jnp.float64)
             init_state = (
                 V_init,
                 jnp.array(0, dtype=jnp.int32),
                 jnp.array(False),
                 jnp.array(jnp.inf),
                 jnp.array(jnp.inf),
+                init_Q,
             )
 
             def cond_fn(state):
-                V, iteration, converged, max_f, max_delta = state
+                V, iteration, converged, max_f, max_delta, Q = state
                 return jnp.logical_and(~converged, iteration < max_iterations)
 
             def body_fn(state):
-                V, iteration, _, _, _ = state
+                V, iteration, _, _, _, _ = state
 
-                # Build sparse system (J_bcoo and f)
-                J_bcoo, f = build_system_jit(V, vsource_vals, isource_vals)
+                # Build sparse system (J_bcoo, f, Q)
+                J_bcoo, f, Q = build_system_jit(V, vsource_vals, isource_vals, Q_prev, inv_dt)
 
                 # Check residual convergence
                 # Mask out NOI residuals (they have 1e40 conductance and would dominate max_f)
@@ -5866,13 +5871,17 @@ class VACASKBenchmarkRunner:
                 delta_converged = max_delta < 1e-12
                 converged = jnp.logical_or(residual_converged, delta_converged)
 
-                return (V_new, iteration + 1, converged, max_f, max_delta)
+                return (V_new, iteration + 1, converged, max_f, max_delta, Q)
 
-            V_final, iterations, converged, max_f, max_delta = lax.while_loop(
+            V_final, iterations, converged, max_f, max_delta, _ = lax.while_loop(
                 cond_fn, body_fn, init_state
             )
 
-            return V_final, iterations, converged, max_f
+            # Recompute Q from the converged voltage
+            # The Q from body_fn was computed from V before the update, not V_new
+            _, _, Q_final = build_system_jit(V_final, vsource_vals, isource_vals, Q_prev, inv_dt)
+
+            return V_final, iterations, converged, max_f, Q_final
 
         logger.info(f"Creating Spineax JIT-compiled NR solver: V({n_nodes})")
         return jax.jit(nr_solve)
