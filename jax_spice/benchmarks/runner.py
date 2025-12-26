@@ -594,6 +594,69 @@ class VACASKBenchmarkRunner:
         all_inputs = np.zeros((n_devices, n_params), dtype=np.float64)
         device_contexts = []
 
+        # === VECTORIZED PARAM FILLING (replaces 26M-iteration inner loop) ===
+        # For c6288: reduces 10k × 2.6k = 26M iterations to ~100 vectorized numpy ops
+        if n_devices > 0:
+            all_dev_params = [dev['params'] for dev in openvaf_devices]
+            model_defaults = self.MODEL_PARAM_DEFAULTS.get(model_type, {})
+
+            # Build param_name -> column index mapping
+            param_to_cols = {}
+            param_given_to_cols = {}
+            for idx, (name, kind) in enumerate(zip(param_names, param_kinds)):
+                name_lower = name.lower()
+                if kind == 'param':
+                    param_to_cols.setdefault(name_lower, []).append(idx)
+                elif kind == 'param_given':
+                    param_given_to_cols.setdefault(name_lower, []).append(idx)
+                elif kind == 'temperature':
+                    all_inputs[:, idx] = 300.15
+                elif kind == 'sysfun' and name_lower == 'mfactor':
+                    all_inputs[:, idx] = 1.0
+
+            # Get unique params from devices and fill columns
+            all_unique = set()
+            for p in all_dev_params:
+                all_unique.update(k.lower() for k in p.keys())
+
+            for pname in all_unique:
+                if pname in param_to_cols:
+                    vals = np.array([float(p.get(pname, p.get(pname.upper(), 0.0))) for p in all_dev_params])
+                    for col in param_to_cols[pname]:
+                        all_inputs[:, col] = vals
+                if pname in param_given_to_cols:
+                    for col in param_given_to_cols[pname]:
+                        all_inputs[:, col] = 1.0
+
+            # Defaults for params not in any device
+            for pname, cols in param_to_cols.items():
+                if pname not in all_unique:
+                    default = model_defaults.get(pname, 27.0 if pname in ('tnom', 'tref', 'tr') else 0.0)
+                    for col in cols:
+                        all_inputs[:, col] = default
+
+            # PSP103 hidden_state (basic geometry)
+            if model_type == 'psp103':
+                hidden_to_col = {param_names[i].lower(): i for i, k in enumerate(param_kinds) if k == 'hidden_state'}
+                l_vals = np.array([float(p.get('l', p.get('L', 1e-6))) for p in all_dev_params])
+                w_vals = np.array([float(p.get('w', p.get('W', 1e-5))) for p in all_dev_params])
+                nf_vals = np.array([float(p.get('nf', p.get('NF', 1.0))) for p in all_dev_params])
+                type_vals = np.array([float(p.get('type', p.get('TYPE', 1))) for p in all_dev_params])
+                if 'l_i' in hidden_to_col:
+                    all_inputs[:, hidden_to_col['l_i']] = np.maximum(l_vals, 1e-9)
+                if 'w_i' in hidden_to_col:
+                    all_inputs[:, hidden_to_col['w_i']] = np.maximum(w_vals / nf_vals, 1e-9)
+                if 'nf_i' in hidden_to_col:
+                    all_inputs[:, hidden_to_col['nf_i']] = np.maximum(nf_vals, 1.0)
+                if 'chnl_type' in hidden_to_col:
+                    all_inputs[:, hidden_to_col['chnl_type']] = np.where(type_vals > 0, 1.0, -1.0)
+                if 'lcinv2' in hidden_to_col:
+                    all_inputs[:, hidden_to_col['lcinv2']] = 1.0 / np.maximum(l_vals, 1e-9)**2
+                # Default other hidden_state to small positive
+                for hname, col in hidden_to_col.items():
+                    if all_inputs[0, col] == 0.0 and hname.endswith('_i'):
+                        all_inputs[:, col] = 1e-10
+
         for dev_idx, dev in enumerate(openvaf_devices):
             ext_nodes = dev['nodes']  # [d, g, s, b]
             params = dev['params']
@@ -629,7 +692,9 @@ class VACASKBenchmarkRunner:
             provided_params = set(k.lower() for k in params.keys())
 
             # Fill input array for this device (static params only, voltages stay 0)
+            # NOTE: Vectorized filling is done above. Skip this 2600-line loop.
             for param_idx, (name, kind) in enumerate(zip(param_names, param_kinds)):
+                continue  # SKIP - vectorized filling handles all params
                 if kind == 'voltage':
                     pass  # Already 0 from np.zeros
                 elif kind == 'temperature':
@@ -4261,7 +4326,6 @@ class VACASKBenchmarkRunner:
                         [n2 for n1, n2 in ctx['voltage_node_pairs']]
                         for ctx in device_contexts
                     ], dtype=jnp.int32)
-
 
                     logger.debug("fetching static inputs")
                     if backend == "gpu":
