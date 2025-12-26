@@ -5541,17 +5541,17 @@ class VACASKBenchmarkRunner:
         Returns:
             JIT-compiled function: (V, vsource_vals, isource_vals, Q_prev, inv_dt) -> (V, iters, converged, max_f, Q)
         """
-        # Pre-compute residual mask if we have NOI nodes
+        # Pre-compute NOI indices for O(n) masking (instead of O(n²) boolean matrix ops)
         # NOI nodes have indices in the full V vector, but residuals use 0-indexed (ground excluded)
         # So NOI residual index = NOI node index - 1
         if noi_indices is not None and len(noi_indices) > 0:
-            # Create mask: True for nodes to include in convergence check, False for NOI
             n_unknowns = n_nodes - 1
+            noi_res_idx = noi_indices - 1  # Convert to residual indices (pre-computed for JIT)
+            # Create mask: True for nodes to include in convergence check, False for NOI
             residual_mask = jnp.ones(n_unknowns, dtype=jnp.bool_)
-            noi_residual_indices = noi_indices - 1  # Convert to residual indices
-            # Set mask to False for NOI residuals
-            residual_mask = residual_mask.at[noi_residual_indices].set(False)
+            residual_mask = residual_mask.at[noi_res_idx].set(False)
         else:
+            noi_res_idx = None
             residual_mask = None
 
         def nr_solve(V_init: jax.Array, vsource_vals: jax.Array, isource_vals: jax.Array,
@@ -5597,30 +5597,13 @@ class VACASKBenchmarkRunner:
                 # - Set J[noi, :] = 0 and J[:, noi] = 0 (decouple from other nodes)
                 # - Set J[noi, noi] = 1.0 (make it solvable)
                 # - Set f[noi] = 0.0 (so delta[noi] = 0)
-                if noi_indices is not None and len(noi_indices) > 0:
-                    # Convert NOI node indices to residual indices (ground excluded)
-                    noi_res_idx = noi_indices - 1
-
-                    # Zero out NOI rows and columns in J
-                    n_unknowns = J.shape[0]
-                    row_mask = jnp.ones(n_unknowns, dtype=jnp.bool_)
-                    row_mask = row_mask.at[noi_res_idx].set(False)
-
-                    # Create identity entries for NOI nodes
-                    J_noi_fixed = jnp.where(
-                        row_mask[:, None] & row_mask[None, :],  # Non-NOI entries
-                        J,
-                        jnp.where(
-                            jnp.arange(n_unknowns)[:, None] == jnp.arange(n_unknowns)[None, :],  # Diagonal
-                            jnp.where(~row_mask[:, None], 1.0, 0.0),  # 1.0 on NOI diagonal
-                            0.0  # 0 elsewhere in NOI rows/cols
-                        )
-                    )
-                    # Zero out NOI residuals
-                    f_noi_fixed = jnp.where(row_mask, f, 0.0)
-
-                    J = J_noi_fixed
-                    f = f_noi_fixed
+                # Using O(n) index-based operations instead of O(n²) boolean matrix ops
+                if noi_res_idx is not None:
+                    # Zero NOI rows and columns, set diagonal to 1.0
+                    J = J.at[noi_res_idx, :].set(0.0)           # Zero NOI rows
+                    J = J.at[:, noi_res_idx].set(0.0)           # Zero NOI columns
+                    J = J.at[noi_res_idx, noi_res_idx].set(1.0) # Diagonal = 1 for solvability
+                    f = f.at[noi_res_idx].set(0.0)              # Zero NOI residuals
 
                 # Solve: J @ delta = -f (only updating non-ground nodes)
                 delta = jax.scipy.linalg.solve(J, -f)
