@@ -734,15 +734,9 @@ def run_vacask_simulation(
     with open(sim_path) as f:
         sim_content = f.read()
 
-    # Check for required OSDI files
-    import re as re_module
-    for osdi_match in re_module.finditer(r'load\s+"([^"]+\.osdi)"', sim_content):
-        osdi_path = sim_dir / osdi_match.group(1)
-        if not osdi_path.exists():
-            raise FileNotFoundError(
-                f"Required OSDI file not found: {osdi_path}. "
-                f"This benchmark may need OSDI files copied from another benchmark."
-            )
+    # NOTE: OSDI file check removed - VACASK finds them via its library path
+    # (vendor/VACASK/build/lib/vacask/). The previous check was failing because
+    # it looked in the sim file's directory instead of the staged library path.
 
     # Modify the analysis line to use our t_stop
     modified = re.sub(
