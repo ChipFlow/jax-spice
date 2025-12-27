@@ -68,6 +68,7 @@ class NodeInfo:
     name: str
     units: str = "V"
     residual_units: str = "A"
+    is_flow: bool = False  # True for flow nodes like flow(br_in)
 
 
 @dataclass
@@ -224,13 +225,18 @@ def parse_snap_file(path: str | Path) -> SnapshotData:
         elif re.match(r"^\d+ terminals?$", line):
             result.num_terminals = int(line.split()[0])
 
-        # Parse node
-        elif line.startswith('node "'):
-            # node "A" units = "V", runits = "A"
-            name_match = re.search(r'node "([^"]*)"', line)
+        # Parse node (regular or flow)
+        elif line.startswith('node "') or line.startswith("node(flow)"):
+            # Regular: node "A" units = "V", runits = "A"
+            # Flow: node(flow) "flow(br_in)" units = "A", runits = "A"
+            is_flow = line.startswith("node(flow)")
+
+            # Extract the quoted name
+            name_match = re.search(r'"([^"]*)"', line)
             if name_match:
                 name = name_match.group(1)
-                units = "V"
+                # Flow nodes default to "A" units (current), regular to "V" (voltage)
+                units = "A" if is_flow else "V"
                 runits = "A"
 
                 units_match = re.search(r'units = "([^"]*)"', line)
@@ -241,22 +247,28 @@ def parse_snap_file(path: str | Path) -> SnapshotData:
                 if runits_match:
                     runits = runits_match.group(1)
 
-                result.nodes.append(NodeInfo(name=name, units=units, residual_units=runits))
+                result.nodes.append(NodeInfo(name=name, units=units, residual_units=runits, is_flow=is_flow))
 
         # Parse jacobian entry
         elif line.startswith("jacobian ("):
             # jacobian (A, A) JacobianFlags(...)
-            nodes_match = re.search(r"jacobian \((\w+), (\w+)\)", line)
-            if nodes_match:
-                row = nodes_match.group(1)
-                col = nodes_match.group(2)
-                flags = 0
+            # jacobian (Inp, flow(br_in)) JacobianFlags(...) - node names can have parens
+            # Extract content between "jacobian (" and ") Jacobian" or end of node section
+            content_match = re.search(r"jacobian \((.+?)\) Jacobian", line)
+            if content_match:
+                content = content_match.group(1)
+                # Split by ", " to get row and col (handles names with parens)
+                parts = content.split(", ")
+                if len(parts) == 2:
+                    row = parts[0].strip()
+                    col = parts[1].strip()
+                    flags = 0
 
-                flags_match = re.search(r"(JacobianFlags\([^)]*\))", line)
-                if flags_match:
-                    flags = parse_flags(flags_match.group(1))
+                    flags_match = re.search(r"(JacobianFlags\([^)]*\))", line)
+                    if flags_match:
+                        flags = parse_flags(flags_match.group(1))
 
-                result.jacobian.append(JacobianEntry(row=row, col=col, flags=flags))
+                    result.jacobian.append(JacobianEntry(row=row, col=col, flags=flags))
 
         # Parse collapsible
         elif line.startswith("collapsible ("):
