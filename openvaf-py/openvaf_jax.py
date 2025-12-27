@@ -174,6 +174,599 @@ class OpenVAFToJAX:
 
         return local_ns['device_eval_array'], metadata
 
+    def translate_init_array(self) -> Tuple[Callable, Dict]:
+        """Generate a standalone vmappable init function.
+
+        Returns a function with signature:
+            init_fn(inputs: Array[N_init]) -> cache: Array[N_cache]
+
+        Also returns metadata dict with:
+            - 'param_names': list of init param names
+            - 'param_kinds': list of init param kinds
+            - 'cache_size': number of cached values
+            - 'cache_mapping': list of {init_value, eval_param} dicts
+
+        This function computes all hidden_state/cached values that eval needs.
+        Call this once per simulation, then pass cache to eval_with_cache().
+        """
+        import time
+
+        t0 = time.perf_counter()
+        logger.info("    translate_init_array: generating code...")
+        code_lines = self._generate_init_code_array()
+        t1 = time.perf_counter()
+        logger.info(f"    translate_init_array: code generated ({len(code_lines)} lines) in {t1-t0:.1f}s")
+
+        code = '\n'.join(code_lines)
+        logger.info(f"    translate_init_array: code size = {len(code)} chars")
+
+        # Compile and return
+        import jax.numpy as jnp
+        from jax import lax
+        local_ns = {'jnp': jnp, 'lax': lax}
+        logger.info("    translate_init_array: exec()...")
+        exec(code, local_ns)
+        t2 = time.perf_counter()
+        logger.info(f"    translate_init_array: exec() done in {t2-t1:.1f}s")
+
+        # Build metadata
+        metadata = {
+            'param_names': list(self.module.init_param_names),
+            'param_kinds': list(self.module.init_param_kinds),
+            'cache_size': len(self.cache_mapping),
+            'cache_mapping': self.cache_mapping,
+        }
+
+        return local_ns['init_fn'], metadata
+
+    def translate_eval_array_with_cache(self) -> Tuple[Callable, Dict]:
+        """Generate a vmappable eval function that takes cache as input.
+
+        Returns a function with signature:
+            eval_fn(inputs: Array[N_eval], cache: Array[N_cache])
+                -> (res_resist, res_react, jac_resist, jac_react)
+
+        Also returns metadata dict with:
+            - 'node_names': list of node names in residual array order
+            - 'jacobian_keys': list of (row, col) tuples in jacobian array order
+            - 'cache_to_param_mapping': list of eval param indices for each cache slot
+
+        The eval function expects cache values computed by translate_init_array().
+        """
+        import time
+
+        t0 = time.perf_counter()
+        logger.info("    translate_eval_array_with_cache: generating code...")
+        code_lines = self._generate_eval_code_with_cache()
+        t1 = time.perf_counter()
+        logger.info(f"    translate_eval_array_with_cache: code generated ({len(code_lines)} lines) in {t1-t0:.1f}s")
+
+        code = '\n'.join(code_lines)
+        logger.info(f"    translate_eval_array_with_cache: code size = {len(code)} chars")
+
+        # Compile and return
+        import jax.numpy as jnp
+        from jax import lax
+        local_ns = {'jnp': jnp, 'lax': lax}
+        logger.info("    translate_eval_array_with_cache: exec()...")
+        exec(code, local_ns)
+        t2 = time.perf_counter()
+        logger.info(f"    translate_eval_array_with_cache: exec() done in {t2-t1:.1f}s")
+
+        # Build metadata
+        node_names = list(self.dae_data['residuals'].keys())
+        jacobian_keys = [(entry['row'], entry['col']) for entry in self.dae_data['jacobian']]
+
+        # Build cache to param mapping
+        cache_to_param = [m['eval_param'] for m in self.cache_mapping]
+
+        metadata = {
+            'node_names': node_names,
+            'jacobian_keys': jacobian_keys,
+            'cache_to_param_mapping': cache_to_param,
+        }
+
+        return local_ns['eval_fn_with_cache'], metadata
+
+    def _generate_init_code_array(self) -> List[str]:
+        """Generate standalone init function code returning cache array.
+
+        The init function computes all cached values from parameters.
+        These values are geometry calculations, temperature adjustments, etc.
+        that don't depend on voltages and can be computed once per simulation.
+        """
+        lines = []
+        lines.append("def init_fn(inputs):")
+        lines.append("    import jax.numpy as jnp")
+        lines.append("    from jax import lax")
+        lines.append("")
+
+        # Initialize init constants
+        lines.append("    # Init constants")
+        for name, value in self.init_constants.items():
+            if value == float('inf'):
+                lines.append(f"    {name} = jnp.inf")
+            elif value == float('-inf'):
+                lines.append(f"    {name} = -jnp.inf")
+            elif value != value:  # NaN check
+                lines.append(f"    {name} = jnp.nan")
+            else:
+                lines.append(f"    {name} = {repr(value)}")
+
+        # Boolean constants
+        lines.append("    # Boolean constants")
+        for name, value in self.init_bool_constants.items():
+            lines.append(f"    {name} = {_jax_bool_repr(value)}")
+
+        # Int constants
+        lines.append("    # Int constants")
+        for name, value in self.init_int_constants.items():
+            lines.append(f"    {name} = {repr(value)}")
+
+        # Ensure v3 exists (commonly used for zero)
+        if 'v3' not in self.init_constants:
+            lines.append("    v3 = 0.0")
+
+        lines.append("")
+
+        # Map init params from inputs
+        lines.append("    # Init parameters from inputs")
+        for i, param in enumerate(self.init_params):
+            lines.append(f"    {param} = inputs[{i}]")
+
+        lines.append("")
+
+        # Track defined variables
+        init_defined: Set[str] = set(self.init_constants.keys())
+        init_defined.update(self.init_bool_constants.keys())
+        init_defined.update(self.init_int_constants.keys())
+        init_defined.update(self.init_params)
+        init_defined.add('v3')
+
+        # Process init blocks in topological order
+        init_block_order = self._topological_sort_init_blocks()
+        init_by_block = self._group_init_instructions_by_block()
+
+        lines.append("    # Init function computation")
+        for item in init_block_order:
+            if isinstance(item, tuple) and item[0] == 'loop':
+                # Handle loop structure - reuse existing loop generation
+                # but without the init_ prefix since we're in standalone init
+                _, header, loop_blocks, exit_blocks = item
+                loop_lines = self._generate_standalone_init_loop(
+                    header, loop_blocks, exit_blocks,
+                    init_by_block, init_defined
+                )
+                lines.extend(loop_lines)
+            else:
+                # Regular block
+                block_name = item
+                lines.append(f"")
+                lines.append(f"    # {block_name}")
+
+                for inst in init_by_block.get(block_name, []):
+                    expr = self._translate_standalone_init_instruction(inst, init_defined)
+                    if expr and 'result' in inst:
+                        result = inst['result']
+                        lines.append(f"    {result} = {expr}")
+                        init_defined.add(result)
+
+        lines.append("")
+
+        # Build cache output array from cache_mapping
+        # cache_mapping contains: {init_value: 'v123', eval_param: 45}
+        # We output values in the order they appear in cache_mapping
+        lines.append("    # Build cache array from computed values")
+        cache_vals = []
+        for mapping in self.cache_mapping:
+            init_val = mapping['init_value']  # e.g., 'v123'
+            if init_val in init_defined:
+                cache_vals.append(init_val)
+            else:
+                # Value not computed - use 0.0 as fallback
+                cache_vals.append('0.0')
+
+        if cache_vals:
+            lines.append(f"    cache = jnp.array([{', '.join(cache_vals)}])")
+        else:
+            lines.append("    cache = jnp.array([])")
+
+        lines.append("    return cache")
+        return lines
+
+    def _generate_eval_code_with_cache(self) -> List[str]:
+        """Generate eval function code that takes cache as second argument.
+
+        The eval function uses pre-computed cache values instead of
+        computing init logic inline. This is cleaner and allows
+        init to be called once with cache reused across NR iterations.
+        """
+        lines = []
+        lines.append("def eval_fn_with_cache(inputs, cache):")
+        lines.append("    import jax.numpy as jnp")
+        lines.append("    from jax import lax")
+        lines.append("")
+
+        # Initialize constants for eval function
+        lines.append("    # Constants (eval function)")
+        for name, value in self.constants.items():
+            if value == float('inf'):
+                lines.append(f"    {name} = jnp.inf")
+            elif value == float('-inf'):
+                lines.append(f"    {name} = -jnp.inf")
+            elif value != value:  # NaN check
+                lines.append(f"    {name} = jnp.nan")
+            else:
+                lines.append(f"    {name} = {repr(value)}")
+
+        # Boolean constants
+        lines.append("    # Boolean constants")
+        for name, value in self.bool_constants.items():
+            lines.append(f"    {name} = {_jax_bool_repr(value)}")
+
+        # Int constants
+        lines.append("    # Int constants")
+        for name, value in self.int_constants.items():
+            if name not in self.constants:
+                lines.append(f"    {name} = {repr(value)}")
+
+        # Ensure v3 exists
+        if 'v3' not in self.constants:
+            lines.append("    v3 = 0.0")
+
+        lines.append("")
+
+        # Map function parameters from inputs (only named params, not hidden_state)
+        lines.append("    # Input parameters (eval function)")
+        num_named_params = len(self.module.param_names)
+        for i, param in enumerate(self.params[:num_named_params]):
+            lines.append(f"    {param} = inputs[{i}]")
+
+        # Derivative selector params default to 0
+        lines.append("    # Derivative selector params (default to 0)")
+        for param in self.params[num_named_params:]:
+            lines.append(f"    {param} = 0")
+
+        lines.append("")
+
+        # Map cache values to eval param slots
+        # Use cache_mapping to assign cache[i] to the correct eval variable
+        lines.append("    # Cache values from init function")
+        all_func_params = self.module.get_all_func_params()
+        param_idx_to_val = {p[0]: f"v{p[1]}" for p in all_func_params}
+
+        for cache_idx, mapping in enumerate(self.cache_mapping):
+            eval_param_idx = mapping['eval_param']
+            eval_val = param_idx_to_val.get(eval_param_idx, f"cached_{eval_param_idx}")
+            lines.append(f"    {eval_val} = cache[{cache_idx}]")
+
+        lines.append("")
+
+        # Track defined variables
+        defined_vars: Set[str] = set(self.constants.keys())
+        defined_vars.update(self.bool_constants.keys())
+        defined_vars.update(self.int_constants.keys())
+        defined_vars.update(self.params)
+        defined_vars.add('v3')
+
+        # Add cache-assigned variables to defined set
+        for mapping in self.cache_mapping:
+            eval_param_idx = mapping['eval_param']
+            eval_val = param_idx_to_val.get(eval_param_idx, f"cached_{eval_param_idx}")
+            defined_vars.add(eval_val)
+
+        # Process eval blocks in topological order (no init blocks)
+        block_order = self._topological_sort()
+        eval_by_block = self._group_eval_instructions_by_block()
+
+        lines.append("    # Eval function computation")
+        for item in block_order:
+            if isinstance(item, tuple) and item[0] == 'loop':
+                # Handle loop structure
+                _, header, loop_blocks, exit_blocks = item
+                loop_lines = self._generate_eval_loop(
+                    header, loop_blocks, exit_blocks,
+                    eval_by_block, defined_vars
+                )
+                lines.extend(loop_lines)
+            else:
+                # Regular block
+                block_name = item
+                lines.append(f"")
+                lines.append(f"    # {block_name}")
+
+                for inst in eval_by_block.get(block_name, []):
+                    expr = self._translate_instruction(inst, defined_vars)
+                    if expr and 'result' in inst:
+                        lines.append(f"    {inst['result']} = {expr}")
+                        defined_vars.add(inst['result'])
+
+        lines.append("")
+
+        # Build array outputs (same as _generate_code_array)
+        lines.append("    # Build output arrays (vmap-compatible)")
+
+        residual_resist_exprs = []
+        residual_react_exprs = []
+        for node, res in self.dae_data['residuals'].items():
+            resist_val = res['resist'] if res['resist'] in defined_vars else '0.0'
+            react_val = res['react'] if res['react'] in defined_vars else '0.0'
+            residual_resist_exprs.append(resist_val)
+            residual_react_exprs.append(react_val)
+        lines.append(f"    residuals_resist = jnp.array([{', '.join(residual_resist_exprs)}])")
+        lines.append(f"    residuals_react = jnp.array([{', '.join(residual_react_exprs)}])")
+
+        jacobian_resist_exprs = []
+        jacobian_react_exprs = []
+        for entry in self.dae_data['jacobian']:
+            resist_val = entry['resist'] if entry['resist'] in defined_vars else '0.0'
+            react_val = entry['react'] if entry['react'] in defined_vars else '0.0'
+            jacobian_resist_exprs.append(resist_val)
+            jacobian_react_exprs.append(react_val)
+        lines.append(f"    jacobian_resist = jnp.array([{', '.join(jacobian_resist_exprs)}])")
+        lines.append(f"    jacobian_react = jnp.array([{', '.join(jacobian_react_exprs)}])")
+
+        lines.append("    return residuals_resist, residuals_react, jacobian_resist, jacobian_react")
+        return lines
+
+    def _translate_standalone_init_instruction(self, inst: dict, defined_vars: Set[str]) -> Optional[str]:
+        """Translate an init instruction without init_ prefix (for standalone init function)"""
+
+        def get_operand(op: str) -> str:
+            if op in defined_vars:
+                return op
+            if op in self.init_constants:
+                return repr(self.init_constants[op])
+            if op in self.init_bool_constants:
+                return _jax_bool_repr(self.init_bool_constants[op])
+            if op in self.init_int_constants:
+                return repr(self.init_int_constants[op])
+            return op
+
+        # Handle PHI nodes for init function
+        opcode = inst.get('opcode', '').lower()
+        if opcode == 'phi':
+            phi_ops = inst.get('phi_operands', [])
+            phi_block = inst.get('block', '')
+            if phi_ops and len(phi_ops) >= 2:
+                pred_blocks = [op['block'] for op in phi_ops]
+                val_by_block = {op['block']: get_operand(op['value']) for op in phi_ops}
+
+                if len(pred_blocks) > 2:
+                    return self._build_standalone_init_multi_way_phi(phi_block, phi_ops, val_by_block, get_operand)
+
+                cond_info = self._get_standalone_init_phi_condition(phi_block, pred_blocks)
+                if cond_info:
+                    cond_var, true_block, false_block = cond_info
+                    true_val = val_by_block.get(true_block, '0.0')
+                    false_val = val_by_block.get(false_block, '0.0')
+                    return f"jnp.where({cond_var}, {true_val}, {false_val})"
+                else:
+                    return get_operand(phi_ops[0]['value'])
+            elif phi_ops:
+                return get_operand(phi_ops[0]['value'])
+            return '0.0'
+
+        return self._translate_instruction_impl(inst, get_operand)
+
+    def _get_standalone_init_phi_condition(self, phi_block: str, pred_blocks: List[str]) -> Optional[Tuple[str, str, str]]:
+        """Get PHI condition for standalone init function (no prefix)"""
+        blocks = self.init_mir_data.get('blocks', {})
+        branch_conds = self._build_init_branch_conditions()
+        return self._get_phi_condition_impl(phi_block, pred_blocks, blocks, branch_conds, prefix='')
+
+    def _build_standalone_init_multi_way_phi(self, phi_block: str, phi_ops: List[dict],
+                                              val_by_block: Dict[str, str],
+                                              get_operand: Callable[[str], str]) -> str:
+        """Build nested jnp.where for multi-way PHI in standalone init (no prefix)"""
+        blocks = self.init_mir_data.get('blocks', {})
+        branch_conds = self._build_init_branch_conditions()
+        pred_blocks = [op['block'] for op in phi_ops]
+
+        result = self._build_standalone_init_nested_where(phi_block, pred_blocks, val_by_block, blocks, branch_conds)
+        return result if result else val_by_block.get(pred_blocks[0], '0.0')
+
+    def _build_standalone_init_nested_where(self, phi_block: str, pred_blocks: List[str],
+                                             pred_to_val: Dict[str, str], blocks: Dict,
+                                             branch_conds: Dict) -> Optional[str]:
+        """Build nested where for standalone init (no prefix on conditions)"""
+        if len(pred_blocks) == 1:
+            return pred_to_val.get(pred_blocks[0], '0.0')
+
+        if len(pred_blocks) == 2:
+            cond_info = self._get_standalone_init_phi_condition(phi_block, pred_blocks)
+            if cond_info:
+                cond_var, true_block, false_block = cond_info
+                true_val = pred_to_val.get(true_block, '0.0')
+                false_val = pred_to_val.get(false_block, '0.0')
+                return f"jnp.where({cond_var}, {true_val}, {false_val})"
+            return pred_to_val.get(pred_blocks[0], '0.0')
+
+        # For >2 predecessors
+        for block_name in blocks:
+            if block_name not in branch_conds:
+                continue
+
+            succs = blocks[block_name].get('successors', [])
+            if len(succs) != 2:
+                continue
+
+            direct_pred = None
+            indirect_succ = None
+            for succ in succs:
+                if succ in pred_blocks:
+                    direct_pred = succ
+                else:
+                    indirect_succ = succ
+
+            if direct_pred and indirect_succ:
+                cond_var, is_true = branch_conds[block_name][direct_pred]
+                direct_val = pred_to_val.get(direct_pred, '0.0')
+                remaining_preds = [p for p in pred_blocks if p != direct_pred]
+
+                remaining_expr = self._build_standalone_init_nested_where(
+                    phi_block, remaining_preds, pred_to_val, blocks, branch_conds
+                )
+
+                if remaining_expr:
+                    if is_true:
+                        return f"jnp.where({cond_var}, {direct_val}, {remaining_expr})"
+                    else:
+                        return f"jnp.where({cond_var}, {remaining_expr}, {direct_val})"
+
+        return None
+
+    def _generate_standalone_init_loop(self, header: str, loop_blocks: Set[str],
+                                        exit_blocks: List[str], init_by_block: Dict[str, List[dict]],
+                                        init_defined: Set[str]) -> List[str]:
+        """Generate loop for standalone init function (no init_ prefix)"""
+        lines = []
+        lines.append("")
+        lines.append(f"    # Loop: {header} with blocks {sorted(loop_blocks)}")
+
+        header_insts = init_by_block.get(header, [])
+        phi_nodes = [inst for inst in header_insts if inst.get('opcode', '').lower() == 'phi']
+
+        loop_carried = []
+        for phi in phi_nodes:
+            result = phi.get('result', '')
+            phi_ops = phi.get('phi_operands', [])
+            init_val = None
+            loop_val = None
+            for op in phi_ops:
+                if op['block'] in loop_blocks:
+                    loop_val = op['value']
+                else:
+                    init_val = op['value']
+            if result and init_val and loop_val:
+                loop_carried.append((result, init_val, loop_val))
+
+        if not loop_carried:
+            lines.append("    # WARNING: No loop-carried values found, skipping loop")
+            return lines
+
+        condition_inst = None
+        body_insts = []
+
+        for inst in header_insts:
+            op = inst.get('opcode', '').lower()
+            if op == 'br' and 'condition' in inst:
+                condition_inst = inst
+            elif op != 'phi':
+                body_insts.append(inst)
+
+        for block in sorted(loop_blocks):
+            if block != header:
+                for inst in init_by_block.get(block, []):
+                    op = inst.get('opcode', '').lower()
+                    if op not in ('br', 'jmp'):
+                        body_insts.append(inst)
+
+        def get_operand(op: str, local_vars: Set[str] = None) -> str:
+            if local_vars is None:
+                local_vars = set()
+            if op in local_vars:
+                return op
+            if op in init_defined:
+                return op
+            if op in self.init_constants:
+                return repr(self.init_constants[op])
+            if op in self.init_bool_constants:
+                return _jax_bool_repr(self.init_bool_constants[op])
+            if op in self.init_int_constants:
+                return repr(self.init_int_constants[op])
+            return op
+
+        # Initial state
+        init_state_parts = [get_operand(init_val) for _, init_val, _ in loop_carried]
+        lines.append(f"    _loop_state_init = ({', '.join(init_state_parts)},)")
+
+        # Condition function
+        lines.append("")
+        lines.append("    def _loop_cond(_loop_state):")
+        state_vars = [lc[0] for lc in loop_carried]
+        lines.append(f"        {', '.join(state_vars)}, = _loop_state")
+
+        local_vars = set(state_vars)
+        for inst in header_insts:
+            op = inst.get('opcode', '').lower()
+            if op == 'phi' or op == 'br':
+                continue
+            result = inst.get('result', '')
+            expr = self._translate_standalone_init_loop_instruction(inst, local_vars, init_defined)
+            if expr and result:
+                lines.append(f"        {result} = {expr}")
+                local_vars.add(result)
+
+        if condition_inst:
+            cond_var = condition_inst.get('condition', '')
+            if cond_var in local_vars:
+                lines.append(f"        return {cond_var}")
+            else:
+                lines.append(f"        return {get_operand(cond_var, local_vars)}")
+        else:
+            lines.append("        return False")
+
+        # Body function
+        lines.append("")
+        lines.append("    def _loop_body(_loop_state):")
+        lines.append(f"        {', '.join(state_vars)}, = _loop_state")
+
+        local_vars = set(state_vars)
+        for inst in header_insts:
+            op = inst.get('opcode', '').lower()
+            if op == 'phi' or op == 'br':
+                continue
+            result = inst.get('result', '')
+            expr = self._translate_standalone_init_loop_instruction(inst, local_vars, init_defined)
+            if expr and result:
+                lines.append(f"        {result} = {expr}")
+                local_vars.add(result)
+
+        for inst in body_insts:
+            result = inst.get('result', '')
+            expr = self._translate_standalone_init_loop_instruction(inst, local_vars, init_defined)
+            if expr and result:
+                lines.append(f"        {result} = {expr}")
+                local_vars.add(result)
+
+        new_state_parts = []
+        for _, _, loop_val in loop_carried:
+            if loop_val in local_vars:
+                new_state_parts.append(loop_val)
+            else:
+                new_state_parts.append(get_operand(loop_val, local_vars))
+
+        lines.append(f"        return ({', '.join(new_state_parts)},)")
+
+        # Call while_loop
+        lines.append("")
+        lines.append("    _loop_result = lax.while_loop(_loop_cond, _loop_body, _loop_state_init)")
+
+        for i, (result, _, _) in enumerate(loop_carried):
+            lines.append(f"    {result} = _loop_result[{i}]")
+            init_defined.add(result)
+
+        return lines
+
+    def _translate_standalone_init_loop_instruction(self, inst: dict, local_vars: Set[str],
+                                                     init_defined: Set[str]) -> Optional[str]:
+        """Translate instruction for standalone init loop (no prefix)"""
+        def get_operand(op: str) -> str:
+            if op in local_vars:
+                return op
+            if op in init_defined:
+                return op
+            if op in self.init_constants:
+                return repr(self.init_constants[op])
+            if op in self.init_bool_constants:
+                return _jax_bool_repr(self.init_bool_constants[op])
+            if op in self.init_int_constants:
+                return repr(self.init_int_constants[op])
+            return op
+
+        return self._translate_instruction_impl(inst, get_operand)
+
     def _generate_core_code(self, func_name: str = "device_eval") -> Tuple[List[str], Set[str]]:
         """Generate core computation code shared by both output formats.
 

@@ -541,6 +541,27 @@ class VACASKBenchmarkRunner:
             t4 = time.perf_counter()
             log(f"  {model_type}: vmap+jit wrapped in {t4-t3:.1f}s")
 
+            # Generate separate init and eval_with_cache functions for cleaner hidden_state handling
+            log(f"  {model_type}: generating init function...")
+            init_fn, init_meta = translator.translate_init_array()
+            vmapped_init = jax.jit(jax.vmap(init_fn))
+            t5 = time.perf_counter()
+            log(f"  {model_type}: init function done in {t5-t4:.1f}s (cache_size={init_meta['cache_size']})")
+
+            log(f"  {model_type}: generating eval_with_cache function...")
+            eval_fn_with_cache, eval_cache_meta = translator.translate_eval_array_with_cache()
+            vmapped_eval_with_cache = jax.jit(jax.vmap(eval_fn_with_cache))
+            t6 = time.perf_counter()
+            log(f"  {model_type}: eval_with_cache function done in {t6-t5:.1f}s")
+
+            # Build init->eval index mapping for extracting init inputs from eval inputs
+            eval_name_to_idx = {n.lower(): i for i, n in enumerate(module.param_names)}
+            init_to_eval_indices = []
+            for name in init_meta['param_names']:
+                eval_idx = eval_name_to_idx.get(name.lower(), -1)
+                init_to_eval_indices.append(eval_idx)
+            init_to_eval_indices = jnp.array(init_to_eval_indices, dtype=jnp.int32)
+
             compiled = {
                 'module': module,
                 'translator': translator,
@@ -552,6 +573,17 @@ class VACASKBenchmarkRunner:
                 'nodes': list(module.nodes),
                 'collapsible_pairs': list(module.collapsible_pairs),
                 'num_collapsible': module.num_collapsible,
+                # New init/eval_with_cache functions
+                'init_fn': init_fn,
+                'vmapped_init': vmapped_init,
+                'init_param_names': list(init_meta['param_names']),
+                'init_param_kinds': list(init_meta['param_kinds']),
+                'cache_size': init_meta['cache_size'],
+                'cache_mapping': init_meta['cache_mapping'],
+                'eval_fn_with_cache': eval_fn_with_cache,
+                'vmapped_eval_with_cache': vmapped_eval_with_cache,
+                'eval_cache_meta': eval_cache_meta,
+                'init_to_eval_indices': init_to_eval_indices,
             }
 
             # Store in both instance and module-level cache
@@ -562,17 +594,18 @@ class VACASKBenchmarkRunner:
 
     def _prepare_static_inputs(self, model_type: str, openvaf_devices: List[Dict],
                                 device_internal_nodes: Dict[str, Dict[str, int]],
-                                ground: int) -> Tuple[jax.Array, List[int], List[Dict]]:
+                                ground: int) -> Tuple[jax.Array, List[int], List[Dict], jax.Array]:
         """Prepare static (non-voltage) inputs for all devices once.
 
         This is called once per simulation and caches the static parameter values.
         Only voltage parameters need to be updated each NR iteration.
 
         Returns:
-            (static_inputs, voltage_indices, device_contexts) where:
-            - static_inputs is shape (num_devices, num_params) numpy array with static params
+            (static_inputs, voltage_indices, device_contexts, cache) where:
+            - static_inputs is shape (num_devices, num_params) JAX array with static params
             - voltage_indices is list of param indices that are voltages
             - device_contexts is list of dicts with node_map, voltage_node_pairs for fast update
+            - cache is shape (num_devices, cache_size) JAX array with init-computed values
         """
         compiled = self._compiled_models.get(model_type)
         if not compiled:
@@ -631,31 +664,18 @@ class VACASKBenchmarkRunner:
             # Defaults for params not in any device
             for pname, cols in param_to_cols.items():
                 if pname not in all_unique:
-                    default = model_defaults.get(pname, 27.0 if pname in ('tnom', 'tref', 'tr') else 0.0)
+                    # Special defaults for commonly needed params
+                    if pname in ('tnom', 'tref', 'tr'):
+                        default = 27.0  # Temperature reference in Celsius
+                    elif pname in ('nf', 'mult', 'ns', 'nd'):
+                        default = 1.0  # Finger count and multipliers default to 1
+                    else:
+                        default = model_defaults.get(pname, 0.0)
                     for col in cols:
                         all_inputs[:, col] = default
 
-            # PSP103 hidden_state (basic geometry)
-            if model_type == 'psp103':
-                hidden_to_col = {param_names[i].lower(): i for i, k in enumerate(param_kinds) if k == 'hidden_state'}
-                l_vals = np.array([float(p.get('l', p.get('L', 1e-6))) for p in all_dev_params])
-                w_vals = np.array([float(p.get('w', p.get('W', 1e-5))) for p in all_dev_params])
-                nf_vals = np.array([float(p.get('nf', p.get('NF', 1.0))) for p in all_dev_params])
-                type_vals = np.array([float(p.get('type', p.get('TYPE', 1))) for p in all_dev_params])
-                if 'l_i' in hidden_to_col:
-                    all_inputs[:, hidden_to_col['l_i']] = np.maximum(l_vals, 1e-9)
-                if 'w_i' in hidden_to_col:
-                    all_inputs[:, hidden_to_col['w_i']] = np.maximum(w_vals / nf_vals, 1e-9)
-                if 'nf_i' in hidden_to_col:
-                    all_inputs[:, hidden_to_col['nf_i']] = np.maximum(nf_vals, 1.0)
-                if 'chnl_type' in hidden_to_col:
-                    all_inputs[:, hidden_to_col['chnl_type']] = np.where(type_vals > 0, 1.0, -1.0)
-                if 'lcinv2' in hidden_to_col:
-                    all_inputs[:, hidden_to_col['lcinv2']] = 1.0 / np.maximum(l_vals, 1e-9)**2
-                # Default other hidden_state to small positive
-                for hname, col in hidden_to_col.items():
-                    if all_inputs[0, col] == 0.0 and hname.endswith('_i'):
-                        all_inputs[:, col] = 1e-10
+            # NOTE: Hidden_state values are now computed by the init function
+            # and passed to eval via cache. No manual computation needed here.
 
         for dev_idx, dev in enumerate(openvaf_devices):
             ext_nodes = dev['nodes']  # [d, g, s, b]
@@ -3313,7 +3333,23 @@ class VACASKBenchmarkRunner:
                 'voltage_node_pairs': voltage_node_pairs,
             })
 
-        return jnp.asarray(all_inputs), voltage_indices, device_contexts
+        # Compute cache by calling init function
+        # Extract init inputs from all_inputs using init_to_eval mapping
+        static_inputs = jnp.asarray(all_inputs)
+        init_to_eval = compiled.get('init_to_eval_indices')
+        vmapped_init = compiled.get('vmapped_init')
+
+        if init_to_eval is not None and vmapped_init is not None:
+            # Extract init inputs: shape (n_devices, n_init_params)
+            init_inputs = static_inputs[:, init_to_eval]
+            # Compute cache: shape (n_devices, cache_size)
+            cache = vmapped_init(init_inputs)
+            logger.debug(f"Computed cache for {model_type}: shape={cache.shape}")
+        else:
+            # Fallback for models without init function (e.g., resistor)
+            cache = jnp.empty((n_devices, 0), dtype=jnp.float64)
+
+        return static_inputs, voltage_indices, device_contexts, cache
 
     def _build_stamp_index_mapping(
         self,
@@ -4301,7 +4337,7 @@ class VACASKBenchmarkRunner:
                 compiled = self._compiled_models.get(model_type)
                 if compiled and 'vmapped_fn' in compiled:
                     vmapped_fns[model_type] = compiled['vmapped_fn']
-                    static_inputs, voltage_indices, device_contexts = self._prepare_static_inputs(
+                    static_inputs, voltage_indices, device_contexts, cache = self._prepare_static_inputs(
                         model_type, openvaf_by_type[model_type], device_internal_nodes, ground
                     )
                     # Pre-compute stamp index mapping (once per model type)
@@ -4323,13 +4359,15 @@ class VACASKBenchmarkRunner:
                     if backend == "gpu":
                         with jax.default_device(device):
                             static_inputs = jnp.array(static_inputs, dtype=dtype)
+                            cache = jnp.array(cache, dtype=dtype)
                     else:
                         static_inputs = jnp.array(static_inputs, dtype=jnp.float64)
+                        cache = jnp.array(cache, dtype=jnp.float64)
                     static_inputs_cache[model_type] = (
-                        static_inputs, voltage_indices, stamp_indices, voltage_node1, voltage_node2
+                        static_inputs, voltage_indices, stamp_indices, voltage_node1, voltage_node2, cache
                     )
                     n_devs = len(openvaf_by_type[model_type])
-                    logger.info(f"Prepared {model_type}: {n_devs} devices, stamp indices cached")
+                    logger.info(f"Prepared {model_type}: {n_devs} devices, cache_size={cache.shape[1]}")
 
             # Pre-compute source device stamp indices
             source_device_data = self._prepare_source_devices_coo(source_devices, ground, n_unknowns)
@@ -5370,7 +5408,7 @@ class VACASKBenchmarkRunner:
             # === OpenVAF devices contribution (unrolled at trace time) ===
             # Devices return 4 arrays: (res_resist, res_react, jac_resist, jac_react)
             for model_type in model_types:
-                static_inputs, voltage_indices, stamp_indices, voltage_node1, voltage_node2 = \
+                static_inputs, voltage_indices, stamp_indices, voltage_node1, voltage_node2, cache = \
                     static_inputs_cache[model_type]
                 vmapped_fn = vmapped_fns[model_type]
 
@@ -5378,8 +5416,14 @@ class VACASKBenchmarkRunner:
                 voltage_updates = V[voltage_node1] - V[voltage_node2]
                 batch_inputs = static_inputs.at[:, jnp.array(voltage_indices)].set(voltage_updates)
 
-                # Batched device evaluation - returns 4 arrays
-                batch_res_resist, batch_res_react, batch_jac_resist, batch_jac_react = vmapped_fn(batch_inputs)
+                # Batched device evaluation with cache - returns 4 arrays
+                # Use vmapped_eval_with_cache if available, otherwise fall back to vmapped_fn
+                vmapped_eval_with_cache = self._compiled_models.get(model_type, {}).get('vmapped_eval_with_cache')
+                if vmapped_eval_with_cache is not None and cache.size > 0:
+                    batch_res_resist, batch_res_react, batch_jac_resist, batch_jac_react = \
+                        vmapped_eval_with_cache(batch_inputs, cache)
+                else:
+                    batch_res_resist, batch_res_react, batch_jac_resist, batch_jac_react = vmapped_fn(batch_inputs)
 
                 # NOTE: Huge value masking removed - NOI constraint enforcement in NR solver
                 # (lines 5601-5606) now handles 1e40 conductance by zeroing NOI rows/cols in J and f.
