@@ -210,11 +210,17 @@ class OpenVAFToJAX:
         logger.info(f"    translate_init_array: exec() done in {t2-t1:.1f}s")
 
         # Build metadata
+        # Get parameter defaults from openvaf-py (extracted from Verilog-A source)
+        param_defaults = {}
+        if hasattr(self.module, 'get_param_defaults'):
+            param_defaults = dict(self.module.get_param_defaults())
+
         metadata = {
             'param_names': list(self.module.init_param_names),
             'param_kinds': list(self.module.init_param_kinds),
             'cache_size': len(self.cache_mapping),
             'cache_mapping': self.cache_mapping,
+            'param_defaults': param_defaults,
         }
 
         return local_ns['init_fn'], metadata

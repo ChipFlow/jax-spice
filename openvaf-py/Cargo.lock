@@ -538,6 +538,7 @@ dependencies = [
  "paths",
  "pyo3",
  "sim_back",
+ "syntax",
  "typed-index-collections",
 ]
 

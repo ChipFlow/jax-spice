@@ -1,10 +1,12 @@
 use std::ffi::c_void;
+use std::collections::HashMap;
 use pyo3::prelude::*;
 use pyo3::exceptions::PyValueError;
 
 use basedb::diagnostics::ConsoleSink;
-use hir::{CompilationDB, CompilationOpts};
+use hir::{CompilationDB, CompilationOpts, Expr, Literal};
 use hir_lower::{CurrentKind, ParamKind};
+use syntax::ast::UnaryOp;
 use lasso::Rodeo;
 use mir::{FuncRef, Function, Param, Value};
 use mir_interpret::{Interpreter, InterpreterState, Data};
@@ -84,6 +86,11 @@ struct VaModule {
     /// Number of collapsible pairs
     #[pyo3(get)]
     num_collapsible: usize,
+
+    // Parameter defaults support
+    /// Default values for parameters (extracted from Verilog-A source)
+    /// Only includes parameters with literal default values
+    param_defaults: HashMap<String, f64>,
 }
 
 #[pymethods]
@@ -135,6 +142,13 @@ impl VaModule {
     /// Get cache mapping as list of (init_value_idx, eval_param_idx)
     fn get_cache_mapping(&self) -> Vec<(u32, u32)> {
         self.cache_mapping.clone()
+    }
+
+    /// Get parameter defaults extracted from Verilog-A source
+    /// Returns a dict mapping parameter name (lowercase) to default value
+    /// Only includes parameters with literal (constant) default values
+    fn get_param_defaults(&self) -> HashMap<String, f64> {
+        self.param_defaults.clone()
     }
 
     /// Export MIR instructions for JAX translation
@@ -967,6 +981,55 @@ fn compile_va(path: &str, allow_analog_in_cond: bool, allow_builtin_primitives: 
             .collect();
         let num_collapsible = collapsible_pairs.len();
 
+        // Extract parameter defaults from HIR
+        // For each parameter, try to get its literal default value
+        let mut param_defaults = HashMap::new();
+        for (kind, _) in compiled.intern.params.iter() {
+            if let ParamKind::Param(param) = kind {
+                let param_name = param.name(&db).to_lowercase();
+                // Get the parameter's init body which contains the default expression
+                let body = param.init(&db);
+                let body_ref = body.borrow();
+                // The body's first entry should be the default value expression
+                // Check if it's a simple literal we can extract
+                if !body_ref.entry().is_empty() {
+                    let expr_id = body_ref.get_entry_expr(0);
+
+                    // Try direct literal first
+                    if let Some(lit) = body_ref.as_literal(expr_id) {
+                        match lit {
+                            Literal::Float(ieee64) => {
+                                param_defaults.insert(param_name.clone(), f64::from(*ieee64));
+                            }
+                            Literal::Int(i) => {
+                                param_defaults.insert(param_name.clone(), *i as f64);
+                            }
+                            Literal::Inf => {
+                                param_defaults.insert(param_name.clone(), f64::INFINITY);
+                            }
+                            _ => {} // Skip string literals
+                        }
+                    } else {
+                        // Check for UnaryOp::Neg wrapping a literal (e.g., -1.0)
+                        let expr = body_ref.get_expr(expr_id);
+                        if let Expr::UnaryOp { expr: inner_expr, op: UnaryOp::Neg } = expr {
+                            if let Some(lit) = body_ref.as_literal(inner_expr) {
+                                match lit {
+                                    Literal::Float(ieee64) => {
+                                        param_defaults.insert(param_name.clone(), -f64::from(*ieee64));
+                                    }
+                                    Literal::Int(i) => {
+                                        param_defaults.insert(param_name.clone(), -(*i as f64));
+                                    }
+                                    _ => {} // Skip other literals
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         result.push(VaModule {
             name: module_info.module.name(&db).to_string(),
             param_names,
@@ -995,6 +1058,8 @@ fn compile_va(path: &str, allow_analog_in_cond: bool, allow_builtin_primitives: 
             // Node collapse support
             collapsible_pairs,
             num_collapsible,
+            // Parameter defaults support
+            param_defaults,
         });
     }
 

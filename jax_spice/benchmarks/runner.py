@@ -85,27 +85,8 @@ class VACASKBenchmarkRunner:
     }
 
     # Default parameter values for OpenVAF models
-    # These match the defaults in the Verilog-A model definitions
-    # Used when circuit doesn't specify a parameter value
-    MODEL_PARAM_DEFAULTS = {
-        'diode': {
-            'is': 1e-14, 'n': 1.0, 'rs': 0.0, 'bv': 1e20, 'ibv': 1e-10,
-            'xti': 3.0, 'eg': 1.12, 'tnom': 27.0, 'cjo': 0.0, 'vj': 1.0,
-            'm': 0.5, 'fc': 0.5, 'tt': 0.0, 'area': 1.0,
-        },
-        'sp_diode': {
-            # Full SPICE diode model defaults from spice/sn/diode.va
-            'is': 1e-14, 'jsw': 0.0, 'tnom': 0.0, 'rs': 0.0,
-            'n': 1.0, 'ns': 1.0, 'tt': 0.0, 'cjo': 0.0, 'vj': 1.0,
-            'm': 0.5, 'bv': 0.0, 'ibv': 1e-3, 'area': 0.0, 'pj': 0.0,
-        },
-        'resistor': {
-            'r': 1000.0, 'zeta': 0.0, 'tnom': 300.0,
-        },
-        'capacitor': {
-            'c': 1e-12,
-        },
-    }
+    # NOTE: Parameter defaults are now extracted from Verilog-A source via openvaf-py's
+    # get_param_defaults() method. No manual MODEL_PARAM_DEFAULTS needed.
 
     # SPICE number suffixes
     SUFFIXES = {
@@ -580,6 +561,7 @@ class VACASKBenchmarkRunner:
                 'init_param_kinds': list(init_meta['param_kinds']),
                 'cache_size': init_meta['cache_size'],
                 'cache_mapping': init_meta['cache_mapping'],
+                'init_param_defaults': init_meta.get('param_defaults', {}),
                 'eval_fn_with_cache': eval_fn_with_cache,
                 'vmapped_eval_with_cache': vmapped_eval_with_cache,
                 'eval_cache_meta': eval_cache_meta,
@@ -631,7 +613,8 @@ class VACASKBenchmarkRunner:
         # For c6288: reduces 10k × 2.6k = 26M iterations to ~100 vectorized numpy ops
         if n_devices > 0:
             all_dev_params = [dev['params'] for dev in openvaf_devices]
-            model_defaults = self.MODEL_PARAM_DEFAULTS.get(model_type, {})
+            # Get defaults from openvaf-py (extracted from Verilog-A source)
+            model_defaults = compiled.get('init_param_defaults', {})
 
             # Build param_name -> column index mapping
             param_to_cols = {}
@@ -677,6 +660,9 @@ class VACASKBenchmarkRunner:
             # NOTE: Hidden_state values are now computed by the init function
             # and passed to eval via cache. No manual computation needed here.
 
+        # NOTE: init_param_defaults from openvaf-py contains Verilog-A source defaults
+        # These are used in vectorized filling above when no device-level value exists
+
         for dev_idx, dev in enumerate(openvaf_devices):
             ext_nodes = dev['nodes']  # [d, g, s, b]
             params = dev['params']
@@ -705,8 +691,10 @@ class VACASKBenchmarkRunner:
                 node_pair = self._parse_voltage_param(name, node_map, model_nodes, ground)
                 voltage_node_pairs.append(node_pair)
 
-            # Get model-specific defaults
-            model_defaults = self.MODEL_PARAM_DEFAULTS.get(model_type, {})
+            # Get model-specific defaults from openvaf-py (extracted from Verilog-A source)
+            # NOTE: This is redundant since vectorized filling above handles all params,
+            # but kept for consistency if the per-device loop is ever re-enabled.
+            model_defaults = compiled.get('init_param_defaults', {})
 
             # Build a set of provided parameter names (lowercase) for param_given lookup
             provided_params = set(k.lower() for k in params.keys())
@@ -3629,6 +3617,9 @@ class VACASKBenchmarkRunner:
         all_inputs = []
         device_contexts = []
 
+        # Get defaults from openvaf-py (extracted from Verilog-A source)
+        model_defaults = compiled.get('init_param_defaults', {})
+
         for dev in openvaf_devices:
             ext_nodes = dev['nodes']  # [d, g, s, b]
             params = dev['params']
@@ -3658,7 +3649,6 @@ class VACASKBenchmarkRunner:
                     inputs.append(voltage_val)
                 elif kind == 'param':
                     param_lower = name.lower()
-                    model_defaults = self.MODEL_PARAM_DEFAULTS.get(model_type, {})
                     if param_lower in params:
                         inputs.append(float(params[param_lower]))
                     elif name in params:

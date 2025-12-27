@@ -19,6 +19,7 @@ hir = { path = "vendor/OpenVAF/openvaf/hir" }
 hir_lower = { path = "vendor/OpenVAF/openvaf/hir_lower" }
 basedb = { path = "vendor/OpenVAF/openvaf/basedb" }
 paths = { path = "vendor/OpenVAF/lib/paths" }
+syntax = { path = "vendor/OpenVAF/openvaf/syntax" }
 
 # Other dependencies
 lasso = "0.7"
