@@ -56,7 +56,7 @@ import jax.numpy as jnp
 # Enable float64
 jax.config.update('jax_enable_x64', True)
 
-from jax_spice import Simulator
+from jax_spice.analysis import CircuitEngine
 from jax_spice.profiling import enable_profiling, ProfileConfig
 
 
@@ -255,22 +255,26 @@ def run_jax_spice(config: BenchmarkConfig, num_steps: int, use_scan: bool,
             )
 
     def do_run():
-        # Use the new Simulator API
-        sim = Simulator(config.sim_path).parse()
+        # Use CircuitEngine API
+        engine = CircuitEngine(config.sim_path)
+        engine.parse()
 
         t_stop = config.dt * num_steps
 
         # Warmup (includes JIT compilation)
         startup_start = time.perf_counter()
-        sim.warmup(t_stop=t_stop, dt=config.dt, use_sparse=use_sparse, use_scan=use_scan)
+        engine.run_transient(
+            t_stop=t_stop, dt=config.dt,
+            use_sparse=use_sparse, use_while_loop=use_scan
+        )
         startup_time = time.perf_counter() - startup_start
 
         # Timed run - print perf_counter for correlation with Perfetto traces
         start = time.perf_counter()
         print(f"TIMED_RUN_START: {start:.6f}")
-        result = sim.transient(
+        result = engine.run_transient(
             t_stop=t_stop, dt=config.dt,
-            use_sparse=use_sparse, use_scan=use_scan,
+            use_sparse=use_sparse, use_while_loop=use_scan,
             profile_config=scan_profile_config,
         )
         after_transient = time.perf_counter()

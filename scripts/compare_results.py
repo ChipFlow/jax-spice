@@ -120,7 +120,7 @@ def run_jaxspice(sim_path: Path, steps: int = 5) -> dict:
     step = engine.analysis_params.get('step', 1e-6)
     stop = step * steps
 
-    times, voltages_dict, stats = engine.run_transient(
+    result = engine.run_transient(
         t_stop=stop,
         dt=step,
         max_steps=steps + 10,  # Extra margin
@@ -131,7 +131,7 @@ def run_jaxspice(sim_path: Path, steps: int = 5) -> dict:
     node_voltages = {}
     index_to_name = {v: k for k, v in engine.node_names.items()}
 
-    for node_idx, voltage_array in voltages_dict.items():
+    for node_idx, voltage_array in result.voltages.items():
         node_name = index_to_name.get(node_idx, str(node_idx))
         final_v = float(voltage_array[-1]) if len(voltage_array) > 0 else 0.0
         node_voltages[node_name] = final_v

@@ -88,9 +88,10 @@ class BenchmarkRunner:
 
         # Timed runs
         run_times = []
+        result = None
         for _ in range(timed_runs):
             start = time.perf_counter()
-            times, voltages, stats = self._engine.run_transient(
+            result = self._engine.run_transient(
                 t_stop=t_stop, dt=dt, max_steps=max_steps,
                 use_sparse=use_sparse, use_while_loop=use_scan,
                 profile_config=profile_config
@@ -99,9 +100,9 @@ class BenchmarkRunner:
             run_times.append(elapsed)
 
         return {
-            'times': times,
-            'voltages': voltages,
-            'stats': stats,
+            'times': result.times,
+            'voltages': result.voltages,
+            'stats': result.stats,
             'run_times': run_times,
             'avg_time': sum(run_times) / len(run_times),
             'num_nodes': self._engine.num_nodes,

@@ -1,4 +1,4 @@
-"""Test VACASK benchmarks using JAX-SPICE Simulator API
+"""Test VACASK benchmarks using JAX-SPICE CircuitEngine API
 
 This file tests the actual VACASK benchmark circuits which use OpenVAF-compiled
 device models (resistor.va, capacitor.va, diode.va from vendor/VACASK/devices/).
@@ -21,7 +21,7 @@ import numpy as np
 # Add jax-spice to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from jax_spice import Simulator
+from jax_spice.analysis import CircuitEngine
 
 
 # Benchmark paths
@@ -50,26 +50,28 @@ class TestRCBenchmark:
 
     def test_parse(self, sim_path):
         """Test RC benchmark parses correctly"""
-        sim = Simulator(sim_path).parse()
-        assert sim.num_nodes > 0
-        assert len(sim.devices) > 0
+        engine = CircuitEngine(sim_path)
+        engine.parse()
+        assert engine.num_nodes > 0
+        assert len(engine.devices) > 0
 
         # Should have resistor, capacitor, vsource
-        device_types = {d['model'] for d in sim.devices}
+        device_types = {d['model'] for d in engine.devices}
         assert 'resistor' in device_types, f"Missing resistor, got {device_types}"
         assert 'capacitor' in device_types, f"Missing capacitor, got {device_types}"
         assert 'vsource' in device_types, f"Missing vsource, got {device_types}"
 
-        print(f"RC benchmark: {sim.num_nodes} nodes, {len(sim.devices)} devices")
+        print(f"RC benchmark: {engine.num_nodes} nodes, {len(engine.devices)} devices")
         print(f"Device types: {device_types}")
 
     def test_transient_dense(self, sim_path):
         """Test RC transient with dense solver"""
-        sim = Simulator(sim_path).parse()
-        dt = sim.analysis_params.get('step', 1e-6)
+        engine = CircuitEngine(sim_path)
+        engine.parse()
+        dt = engine.analysis_params.get('step', 1e-6)
 
         # Run short transient (10 steps)
-        result = sim.transient(t_stop=dt * 10, dt=dt, use_sparse=False)
+        result = engine.run_transient(t_stop=dt * 10, dt=dt, use_sparse=False)
 
         assert result.num_steps > 0, "No timesteps returned"
         # voltages is a dict mapping node index to voltage array
@@ -82,10 +84,11 @@ class TestRCBenchmark:
 
     def test_transient_sparse(self, sim_path):
         """Test RC transient with sparse solver"""
-        sim = Simulator(sim_path).parse()
-        dt = sim.analysis_params.get('step', 1e-6)
+        engine = CircuitEngine(sim_path)
+        engine.parse()
+        dt = engine.analysis_params.get('step', 1e-6)
 
-        result = sim.transient(t_stop=dt * 10, dt=dt, use_sparse=True)
+        result = engine.run_transient(t_stop=dt * 10, dt=dt, use_sparse=True)
 
         assert result.num_steps > 0, "No timesteps returned"
 
@@ -103,8 +106,9 @@ class TestRCBenchmark:
         dt = 10e-6  # 10us steps
         t_stop = 5e-3  # 5ms (5 tau)
 
-        sim = Simulator(sim_path).parse()
-        result = sim.transient(t_stop=t_stop, dt=dt, use_sparse=False)
+        engine = CircuitEngine(sim_path)
+        engine.parse()
+        result = engine.run_transient(t_stop=t_stop, dt=dt, use_sparse=False)
 
         # Get node 2 voltage (capacitor voltage)
         # voltages is a dict mapping node index to voltage array
@@ -143,18 +147,19 @@ class TestGraetzBenchmark:
 
     def test_parse(self, sim_path):
         """Test Graetz benchmark parses correctly"""
-        sim = Simulator(sim_path).parse()
-        assert sim.num_nodes > 0
-        assert len(sim.devices) > 0
+        engine = CircuitEngine(sim_path)
+        engine.parse()
+        assert engine.num_nodes > 0
+        assert len(engine.devices) > 0
 
-        device_types = {d['model'] for d in sim.devices}
+        device_types = {d['model'] for d in engine.devices}
         assert 'diode' in device_types, f"Missing diode, got {device_types}"
 
         # Count diodes (should be 4 for full bridge)
-        diode_count = sum(1 for d in sim.devices if d['model'] == 'diode')
+        diode_count = sum(1 for d in engine.devices if d['model'] == 'diode')
         assert diode_count == 4, f"Expected 4 diodes, got {diode_count}"
 
-        print(f"Graetz benchmark: {sim.num_nodes} nodes, {len(sim.devices)} devices")
+        print(f"Graetz benchmark: {engine.num_nodes} nodes, {len(engine.devices)} devices")
         print(f"Device types: {device_types}")
         print(f"Diode count: {diode_count}")
 
@@ -165,11 +170,12 @@ class TestGraetzBenchmark:
         We test that the solver runs and produces output, even if
         convergence isn't perfect.
         """
-        sim = Simulator(sim_path).parse()
-        dt = sim.analysis_params.get('step', 1e-6)
+        engine = CircuitEngine(sim_path)
+        engine.parse()
+        dt = engine.analysis_params.get('step', 1e-6)
 
         # Run short transient
-        result = sim.transient(t_stop=dt * 10, dt=dt, use_sparse=False)
+        result = engine.run_transient(t_stop=dt * 10, dt=dt, use_sparse=False)
 
         assert result.num_steps > 0, "No timesteps returned"
 
@@ -180,10 +186,11 @@ class TestGraetzBenchmark:
     @pytest.mark.skip(reason="Graetz sparse has convergence issues - known limitation")
     def test_transient_sparse(self, sim_path):
         """Test Graetz transient with sparse solver"""
-        sim = Simulator(sim_path).parse()
-        dt = sim.analysis_params.get('step', 1e-6)
+        engine = CircuitEngine(sim_path)
+        engine.parse()
+        dt = engine.analysis_params.get('step', 1e-6)
 
-        result = sim.transient(t_stop=dt * 10, dt=dt, use_sparse=True)
+        result = engine.run_transient(t_stop=dt * 10, dt=dt, use_sparse=True)
 
         assert result.num_steps > 0, "No timesteps returned"
 
@@ -201,20 +208,22 @@ class TestMulBenchmark:
 
     def test_parse(self, sim_path):
         """Test mul benchmark parses correctly"""
-        sim = Simulator(sim_path).parse()
-        assert sim.num_nodes > 0
-        assert len(sim.devices) > 0
+        engine = CircuitEngine(sim_path)
+        engine.parse()
+        assert engine.num_nodes > 0
+        assert len(engine.devices) > 0
 
-        print(f"Mul benchmark: {sim.num_nodes} nodes, {len(sim.devices)} devices")
-        device_types = {d['model'] for d in sim.devices}
+        print(f"Mul benchmark: {engine.num_nodes} nodes, {len(engine.devices)} devices")
+        device_types = {d['model'] for d in engine.devices}
         print(f"Device types: {device_types}")
 
     def test_transient_dense(self, sim_path):
         """Test mul transient with dense solver"""
-        sim = Simulator(sim_path).parse()
-        dt = sim.analysis_params.get('step', 1e-9)
+        engine = CircuitEngine(sim_path)
+        engine.parse()
+        dt = engine.analysis_params.get('step', 1e-9)
 
-        result = sim.transient(t_stop=dt * 5, dt=dt, use_sparse=False)
+        result = engine.run_transient(t_stop=dt * 5, dt=dt, use_sparse=False)
 
         assert result.num_steps > 0, "No timesteps returned"
 
@@ -239,19 +248,20 @@ class TestRingBenchmark:
 
     def test_parse(self, sim_path):
         """Test ring benchmark parses correctly"""
-        sim = Simulator(sim_path).parse()
-        assert sim.num_nodes > 0
-        assert len(sim.devices) > 0
+        engine = CircuitEngine(sim_path)
+        engine.parse()
+        assert engine.num_nodes > 0
+        assert len(engine.devices) > 0
 
         # Should have PSP103 MOSFETs
-        device_types = {d['model'] for d in sim.devices}
+        device_types = {d['model'] for d in engine.devices}
         assert 'psp103' in device_types, f"Missing psp103, got {device_types}"
 
         # Count PSP103 devices (9 stages * 2 transistors)
-        psp_count = sum(1 for d in sim.devices if d['model'] == 'psp103')
+        psp_count = sum(1 for d in engine.devices if d['model'] == 'psp103')
         assert psp_count == 18, f"Expected 18 PSP103 devices, got {psp_count}"
 
-        print(f"Ring benchmark: {sim.num_nodes} nodes, {len(sim.devices)} devices")
+        print(f"Ring benchmark: {engine.num_nodes} nodes, {len(engine.devices)} devices")
         print(f"Device types: {device_types}")
         print(f"PSP103 count: {psp_count}")
 
@@ -306,10 +316,11 @@ class TestRingBenchmark:
         This test is xfail until the homotopy chain properly handles
         PSP103 circuits without device-level GMIN support.
         """
-        sim = Simulator(sim_path).parse()
-        dt = sim.analysis_params.get('step', 5e-11)
+        engine = CircuitEngine(sim_path)
+        engine.parse()
+        dt = engine.analysis_params.get('step', 5e-11)
 
-        result = sim.transient(t_stop=dt * 5, dt=dt, use_sparse=False)
+        result = engine.run_transient(t_stop=dt * 5, dt=dt, use_sparse=False)
 
         assert result.num_steps > 0, "No timesteps returned"
 
@@ -323,10 +334,11 @@ class TestRingBenchmark:
 
         See test_transient_dense docstring for details on convergence challenges.
         """
-        sim = Simulator(sim_path).parse()
-        dt = sim.analysis_params.get('step', 5e-11)
+        engine = CircuitEngine(sim_path)
+        engine.parse()
+        dt = engine.analysis_params.get('step', 5e-11)
 
-        result = sim.transient(t_stop=dt * 5, dt=dt, use_sparse=True)
+        result = engine.run_transient(t_stop=dt * 5, dt=dt, use_sparse=True)
 
         assert result.num_steps > 0, "No timesteps returned"
 
@@ -352,14 +364,15 @@ class TestC6288Benchmark:
 
     def test_parse(self, sim_path):
         """Test c6288 benchmark parses correctly"""
-        sim = Simulator(sim_path).parse()
-        assert sim.num_nodes > 0
-        assert len(sim.devices) > 0
+        engine = CircuitEngine(sim_path)
+        engine.parse()
+        assert engine.num_nodes > 0
+        assert len(engine.devices) > 0
 
-        print(f"c6288 benchmark: {sim.num_nodes} nodes, {len(sim.devices)} devices")
+        print(f"c6288 benchmark: {engine.num_nodes} nodes, {len(engine.devices)} devices")
 
         # c6288 should be large
-        assert sim.num_nodes > 1000, f"Expected large circuit, got {sim.num_nodes} nodes"
+        assert engine.num_nodes > 1000, f"Expected large circuit, got {engine.num_nodes} nodes"
 
     @pytest.mark.skip(reason="c6288 sparse takes >10min on CPU - use GPU: uv run scripts/profile_gpu_cloudrun.py --benchmark c6288 --use-sparse")
     def test_transient_sparse(self, sim_path):
@@ -370,10 +383,11 @@ class TestC6288Benchmark:
         For fast execution, use Spineax/cuDSS on GPU via Cloud Run:
         uv run scripts/profile_gpu_cloudrun.py --benchmark c6288 --use-sparse
         """
-        sim = Simulator(sim_path).parse()
-        dt = sim.analysis_params.get('step', 1e-12)
+        engine = CircuitEngine(sim_path)
+        engine.parse()
+        dt = engine.analysis_params.get('step', 1e-12)
 
-        result = sim.transient(t_stop=dt * 2, dt=dt, use_sparse=True)
+        result = engine.run_transient(t_stop=dt * 2, dt=dt, use_sparse=True)
 
         assert result.num_steps > 0, "No timesteps returned"
 
@@ -498,9 +512,10 @@ class TestNodeCountComparison:
         vacask_unknowns = vacask_counts['unknowns']
 
         # Get JAX-SPICE counts
-        sim = Simulator(sim_path).parse()
-        jax_external = sim.num_nodes
-        n_total, _ = sim._internal_runner._setup_internal_nodes()
+        engine = CircuitEngine(sim_path)
+        engine.parse()
+        jax_external = engine.num_nodes
+        n_total, _ = engine._setup_internal_nodes()
 
         # Report counts
         print(f"\n{benchmark}:")
@@ -534,15 +549,16 @@ class TestNodeCountComparison:
         vacask_unknowns = vacask_counts['unknowns']
 
         # Get JAX-SPICE total node count (external + internal after collapse)
-        sim = Simulator(sim_path).parse()
-        n_total, _ = sim._internal_runner._setup_internal_nodes()
+        engine = CircuitEngine(sim_path)
+        engine.parse()
+        n_total, _ = engine._setup_internal_nodes()
         jax_total = n_total
 
         # Report counts
         print(f"\nc6288:")
         print(f"  VACASK: nodes={vacask_nodes}, unknowns={vacask_unknowns}")
-        print(f"  JAX-SPICE: external={sim.num_nodes}, total={jax_total}")
-        print(f"  Internal nodes: {jax_total - sim.num_nodes}")
+        print(f"  JAX-SPICE: external={engine.num_nodes}, total={jax_total}")
+        print(f"  Internal nodes: {jax_total - engine.num_nodes}")
 
         # Compare JAX-SPICE total with VACASK unknowns + 1
         # (VACASK's unknownCount excludes ground, JAX-SPICE includes it)
@@ -579,15 +595,16 @@ class TestNodeCollapseStandalone:
         if not sim_path.exists():
             pytest.skip(f"c6288 benchmark not found at {sim_path}")
 
-        sim = Simulator(sim_path).parse()
+        engine = CircuitEngine(sim_path)
+        engine.parse()
 
         # Get total nodes after collapse
-        n_total, device_internal = sim._internal_runner._setup_internal_nodes()
-        n_internal = n_total - sim.num_nodes
-        n_psp103_devices = sum(1 for d in sim.devices if d.get('model') == 'psp103')
+        n_total, device_internal = engine._setup_internal_nodes()
+        n_internal = n_total - engine.num_nodes
+        n_psp103_devices = sum(1 for d in engine.devices if d.get('model') == 'psp103')
 
         print(f"\nc6288 node collapse:")
-        print(f"  External nodes: {sim.num_nodes}")
+        print(f"  External nodes: {engine.num_nodes}")
         print(f"  Internal nodes: {n_internal}")
         print(f"  Total nodes: {n_total}")
         print(f"  PSP103 devices: {n_psp103_devices}")
@@ -619,15 +636,16 @@ class TestNodeCollapseStandalone:
         if not sim_path.exists():
             pytest.skip(f"ring benchmark not found at {sim_path}")
 
-        sim = Simulator(sim_path).parse()
+        engine = CircuitEngine(sim_path)
+        engine.parse()
 
         # Get total nodes
-        n_total, _ = sim._internal_runner._setup_internal_nodes()
-        n_internal = n_total - sim.num_nodes
-        n_psp103 = sum(1 for d in sim.devices if d.get('model') == 'psp103')
+        n_total, _ = engine._setup_internal_nodes()
+        n_internal = n_total - engine.num_nodes
+        n_psp103 = sum(1 for d in engine.devices if d.get('model') == 'psp103')
 
         print(f"\nring benchmark:")
-        print(f"  External nodes: {sim.num_nodes}")
+        print(f"  External nodes: {engine.num_nodes}")
         print(f"  Internal nodes: {n_internal}")
         print(f"  Total nodes: {n_total}")
         print(f"  PSP103 devices: {n_psp103}")
@@ -973,9 +991,10 @@ class TestVACASKResultComparison:
         # Get corresponding JAX-SPICE node index
         jax_node_idx = spec.jax_nodes[spec.vacask_nodes.index(vacask_node_used) % len(spec.jax_nodes)]
 
-        # Run JAX-SPICE using Simulator API
-        sim = Simulator(sim_path).parse()
-        result = sim.transient(t_stop=spec.t_stop, dt=spec.dt)
+        # Run JAX-SPICE using CircuitEngine API
+        engine = CircuitEngine(sim_path)
+        engine.parse()
+        result = engine.run_transient(t_stop=spec.t_stop, dt=spec.dt)
 
         jax_voltage = np.array(result.voltages.get(jax_node_idx, []))
 

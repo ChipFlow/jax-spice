@@ -124,14 +124,14 @@ def run_benchmark(sim_path: Path, name: str, use_sparse: bool,
 
         # Timed run - use same engine with cached JIT functions
         start = time.perf_counter()
-        times, voltages, stats = engine.run_transient(
+        result = engine.run_transient(
             t_stop=dt * num_steps, dt=dt,
             max_steps=num_steps, use_sparse=use_sparse,
             use_while_loop=use_scan
         )
         elapsed = time.perf_counter() - start
 
-        actual_steps = len(times)
+        actual_steps = result.num_steps
         time_per_step = (elapsed / actual_steps * 1000) if actual_steps > 0 else 0
 
         return BenchmarkResult(

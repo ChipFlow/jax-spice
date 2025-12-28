@@ -200,7 +200,7 @@ class GPUProfiler:
             sys.stdout.flush()
             with ctx:
                 start = time.perf_counter()
-                times, voltages, stats = engine.run_transient(
+                result = engine.run_transient(
                     t_stop=t_stop, dt=dt,
                     max_steps=expected_steps * 2,  # Allow some margin
                     use_sparse=use_sparse,
@@ -208,7 +208,7 @@ class GPUProfiler:
                 )
                 elapsed = time.perf_counter() - start
 
-            actual_steps = len(times)
+            actual_steps = result.num_steps
             time_per_step = (elapsed / actual_steps * 1000) if actual_steps > 0 else 0
 
             solver = 'sparse' if use_sparse else 'dense'

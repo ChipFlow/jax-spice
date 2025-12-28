@@ -109,7 +109,7 @@ def main():
 
     # Profiled run - nsys-jax captures this automatically
     print(f"Starting profiled run ({args.timesteps} timesteps)...")
-    times, voltages, stats = engine.run_transient(
+    result = engine.run_transient(
         t_stop=args.timesteps * dt,
         dt=dt,
         max_steps=args.timesteps + 10,
@@ -118,8 +118,8 @@ def main():
     )
 
     print()
-    print(f"Completed: {len(times)} timesteps")
-    print(f"Wall time: {stats.get('wall_time', 0):.3f}s")
+    print(f"Completed: {result.num_steps} timesteps")
+    print(f"Wall time: {result.stats.get('wall_time', 0):.3f}s")
 
 
 if __name__ == "__main__":

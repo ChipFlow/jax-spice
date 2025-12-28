@@ -8,7 +8,7 @@ jax.config.update("jax_enable_x64", True)
 __version__ = "0.1.0"
 
 # Core simulation API
-from jax_spice.simulator import Simulator, TransientResult
+from jax_spice.analysis import CircuitEngine, TransientResult
 
 # Profiling utilities (lazy import to avoid loading unless needed)
 from jax_spice.profiling import (
@@ -22,7 +22,7 @@ from jax_spice.profiling import (
 
 __all__ = [
     # Core API
-    "Simulator",
+    "CircuitEngine",
     "TransientResult",
     # Profiling
     "profile",

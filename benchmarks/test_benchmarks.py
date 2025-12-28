@@ -148,16 +148,16 @@ class TestVACASKBenchmarks:
 
             # Run transient analysis
             start = time.perf_counter()
-            times, voltages, stats = engine.run_transient(
+            result = engine.run_transient(
                 t_stop=t_stop, dt=dt, max_steps=max_steps, use_sparse=use_sparse
             )
             elapsed = time.perf_counter() - start
 
-            timesteps = len(times)
+            timesteps = result.num_steps
             print(f"Completed: {timesteps} timesteps in {elapsed:.2f}s ({elapsed/timesteps*1000:.1f}ms/step)")
 
             # Verify correctness
-            all_voltages = np.concatenate([v for v in voltages.values()])
+            all_voltages = np.concatenate([v for v in result.voltages.values()])
             has_nan = np.any(np.isnan(all_voltages))
             has_inf = np.any(np.isinf(all_voltages))
 

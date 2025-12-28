@@ -14,12 +14,13 @@ components. The key functionality is:
 
 import re
 import sys
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Dict, List, Tuple, Any, Optional
+from typing import Callable, Dict, List, Tuple, Any, Optional, Union
 
 import jax
 import jax.numpy as jnp
-from jax import lax
+from jax import lax, Array
 import numpy as np
 
 from jax_spice.netlist.parser import VACASKParser
@@ -54,6 +55,41 @@ _COMPILED_MODEL_CACHE: Dict[str, Any] = {}
 # Newton-Raphson solver constants
 MAX_NR_ITERATIONS = 100  # Maximum Newton-Raphson iterations per timestep
 DEFAULT_ABSTOL = 1e-3  # Absolute tolerance for NR convergence (matches SPICE reltol)
+
+
+@dataclass
+class TransientResult:
+    """Result of a transient simulation.
+
+    Attributes:
+        times: Array of time points
+        voltages: Dict mapping node index to voltage array
+        stats: Dict with simulation statistics (wall_time, convergence_rate, etc.)
+    """
+    times: Array
+    voltages: Dict[int, Array]
+    stats: Dict[str, Any]
+
+    @property
+    def num_steps(self) -> int:
+        """Number of timesteps in the simulation."""
+        return len(self.times)
+
+    def voltage(self, node: Union[int, str]) -> Array:
+        """Get voltage waveform at a specific node.
+
+        Args:
+            node: Node index (int) or name (str) - names not yet supported
+
+        Returns:
+            Voltage array over time
+        """
+        if isinstance(node, str):
+            raise ValueError(
+                f"Node name lookup not yet supported. Use node index. "
+                f"Available: {list(self.voltages.keys())}"
+            )
+        return self.voltages[node]
 
 
 class CircuitEngine:
@@ -3876,7 +3912,7 @@ class CircuitEngine:
                       backend: Optional[str] = None,
                       use_scan: bool = False,
                       use_while_loop: bool = False,
-                      profile_config: Optional['ProfileConfig'] = None) -> Tuple[jax.Array, Dict[int, jax.Array], Dict]:
+                      profile_config: Optional['ProfileConfig'] = None) -> TransientResult:
         """Run transient analysis.
 
         All computation is JIT-compiled. Automatically uses sparse matrices
@@ -3894,10 +3930,7 @@ class CircuitEngine:
             profile_config: If provided, profile just the core simulation (not setup)
 
         Returns:
-            (times, voltages, stats) tuple where:
-            - times: array of time points
-            - voltages: dict mapping node index to voltage array
-            - stats: dict with convergence info (total_timesteps, non_converged_count, etc.)
+            TransientResult with times, voltages, and stats
         """
         logger.debug("importing gpu backend")
         from jax_spice.analysis.gpu_backend import select_backend, is_gpu_available
@@ -4205,7 +4238,7 @@ class CircuitEngine:
 
     def _run_transient_hybrid(self, t_stop: float, dt: float,
                                backend: str = "cpu",
-                               use_dense: bool = True) -> Tuple[jax.Array, Dict[int, jax.Array], Dict]:
+                               use_dense: bool = True) -> TransientResult:
         """Run transient analysis with OpenVAF devices.
 
         This solver handles a mix of simple devices (resistor, capacitor, etc.)
@@ -4587,7 +4620,7 @@ class CircuitEngine:
         else:
             voltages = {i: jnp.array([]) for i in range(n_external)}
 
-        return times, voltages, stats
+        return TransientResult(times=times, voltages=voltages, stats=stats)
 
     def _compute_dc_operating_point(self, n_nodes: int, n_vsources: int, n_isources: int,
                                      nr_solve: Callable, backend: str = "cpu",
@@ -4795,7 +4828,7 @@ class CircuitEngine:
     def _run_transient_while_loop(self, t_stop: float, dt: float,
                                    backend: str = "cpu",
                                    use_dense: bool = True,
-                                   profile_config: Optional['ProfileConfig'] = None) -> Tuple[jax.Array, Dict[int, jax.Array], Dict]:
+                                   profile_config: Optional['ProfileConfig'] = None) -> TransientResult:
         """Transient analysis using lax.while_loop for the timestep loop.
 
         This version uses lax.while_loop to eliminate Python loop overhead
@@ -5031,7 +5064,7 @@ class CircuitEngine:
         # Convert to dict format
         voltages = {i: all_V[:, i] for i in range(n_external)}
 
-        return times, voltages, stats
+        return TransientResult(times=times, voltages=voltages, stats=stats)
 
     def _get_source_fn_for_device(self, dev: Dict):
         """Get the source function for a device, or None if not a source."""
