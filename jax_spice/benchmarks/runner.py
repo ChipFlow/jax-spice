@@ -27,8 +27,7 @@ import numpy as np
 
 from jax_spice.netlist.parser import VACASKParser
 from jax_spice.netlist.circuit import Instance
-from jax_spice.analysis.mna import MNASystem, DeviceInfo
-from jax_spice.analysis.transient import transient_analysis_jit
+from jax_spice.analysis.mna import DeviceInfo
 from jax_spice.analysis.homotopy import (
     HomotopyConfig, HomotopyResult, run_homotopy_chain, gmin_stepping, source_stepping
 )
@@ -3873,37 +3872,6 @@ class VACASKBenchmarkRunner:
 
         return source_fn
 
-    def to_mna_system(self) -> MNASystem:
-        """Convert parsed devices to MNASystem for production analysis.
-
-        Returns:
-            MNASystem ready for simulation
-        """
-        # Invert node_names to get index->name mapping
-        index_to_name = {v: k for k, v in self.node_names.items()}
-
-        system = MNASystem(
-            num_nodes=self.num_nodes,
-            node_names=self.node_names,
-            ground_node=0
-        )
-
-        for dev in self.devices:
-            # Get terminal names from node indices
-            terminals = [index_to_name.get(n, str(n)) for n in dev['nodes']]
-
-            device_info = DeviceInfo(
-                name=dev['name'],
-                model_name=dev['model'],
-                terminals=terminals,
-                node_indices=dev['nodes'],
-                params=dev['params'],
-                is_openvaf=dev.get('is_openvaf', False),
-            )
-            system.devices.append(device_info)
-
-        return system
-
     @profile
     def run_transient(self, t_stop: Optional[float] = None, dt: Optional[float] = None,
                       max_steps: int = 10000, use_sparse: Optional[bool] = None,
@@ -3955,56 +3923,30 @@ class VACASKBenchmarkRunner:
 
         logger.info(f"Running transient: t_stop={t_stop:.2e}s, dt={dt:.2e}s, backend={backend}")
 
-        # Use hybrid solver if we have OpenVAF devices
-        if self._has_openvaf_devices:
-            # Default to dense solver - sparse must be explicitly requested
-            if use_sparse is None:
-                use_sparse = False
+        # All non-source devices use OpenVAF
+        if not self._has_openvaf_devices:
+            # Only vsource/isource - trivial circuit
+            logger.warning("No OpenVAF devices found - circuit only has sources")
 
-            use_dense = not use_sparse
+        # Default to dense solver - sparse must be explicitly requested
+        if use_sparse is None:
+            use_sparse = False
 
-            if use_while_loop:
-                # lax.while_loop version - computes sources on-the-fly
-                logger.info(f"Using lax.while_loop solver ({self.num_nodes} nodes, "
-                           f"{'sparse' if use_sparse else 'dense'})")
-                return self._run_transient_while_loop(t_stop, dt, backend=backend, use_dense=use_dense,
-                                                       profile_config=profile_config)
+        use_dense = not use_sparse
 
-            if use_sparse:
-                logger.info(f"Using BCOO/BCSR sparse solver ({self.num_nodes} nodes, OpenVAF devices)")
-                # Use BCOO/BCSR + spsolve (direct sparse solver)
-                # This is more robust for circuit simulation than matrix-free GMRES
-                return self._run_transient_hybrid(t_stop, dt, backend=backend, use_dense=False)
-            else:
-                logger.info("Using dense hybrid solver (OpenVAF devices detected)")
-                return self._run_transient_hybrid(t_stop, dt, backend=backend, use_dense=True)
+        if use_while_loop:
+            # lax.while_loop version - computes sources on-the-fly
+            logger.info(f"Using lax.while_loop solver ({self.num_nodes} nodes, "
+                       f"{'sparse' if use_sparse else 'dense'})")
+            return self._run_transient_while_loop(t_stop, dt, backend=backend, use_dense=use_dense,
+                                                   profile_config=profile_config)
 
-        # Convert to MNA system
-        logger.debug("Getting mna system")
-        system = self.to_mna_system()
-
-        # Run production transient analysis with backend selection
-        logger.debug("Running transient analysis")
-        times, voltages_array, stats = transient_analysis_jit(
-            system=system,
-            t_stop=t_stop,
-            t_step=dt,
-            t_start=0.0,
-            backend=backend,
-        )
-
-        logger.debug("Creating voltage dict")
-        # Create voltage dict from JAX arrays
-        voltages = {}
-        for i in range(self.num_nodes):
-            if i < voltages_array.shape[1]:
-                voltages[i] = voltages_array[:, i]
-            else:
-                voltages[i] = jnp.zeros(len(times))
-
-        logger.info(f"Completed: {len(times)} timesteps, {stats.get('iterations', 'N/A')} total NR iterations")
-
-        return times, voltages, stats
+        if use_sparse:
+            logger.info(f"Using BCOO/BCSR sparse solver ({self.num_nodes} nodes)")
+            return self._run_transient_hybrid(t_stop, dt, backend=backend, use_dense=False)
+        else:
+            logger.info(f"Using dense solver ({self.num_nodes} nodes)")
+            return self._run_transient_hybrid(t_stop, dt, backend=backend, use_dense=True)
 
     # =========================================================================
     # Node Collapse Implementation

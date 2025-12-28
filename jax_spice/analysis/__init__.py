@@ -1,18 +1,15 @@
 """Analysis engines for JAX-SPICE
 
-Provides DC operating point and transient analysis.
+Provides DC operating point and transient analysis using OpenVAF-compiled devices.
 """
 
 from jax_spice.analysis.context import AnalysisContext
-from jax_spice.analysis.mna import MNASystem
-from jax_spice.analysis.dc import (
-    dc_operating_point,
-    dc_operating_point_sparse,
-    dc_operating_point_gpu,
-)
+from jax_spice.analysis.mna import DeviceInfo, DeviceType, eval_param_simple
 from jax_spice.analysis.transient import (
-    transient_analysis,
-    transient_analysis_jit,
+    TransientStrategy,
+    TransientSetup,
+    PythonLoopStrategy,
+    ScanStrategy,
 )
 from jax_spice.analysis.sparse import sparse_solve, sparse_solve_csr
 from jax_spice.analysis.gpu_backend import (
@@ -26,17 +23,29 @@ from jax_spice.analysis.solver import (
     newton_solve,
     newton_solve_with_system,
 )
+from jax_spice.analysis.homotopy import (
+    HomotopyConfig,
+    HomotopyResult,
+    run_homotopy_chain,
+    gmin_stepping,
+    source_stepping,
+)
 
 __all__ = [
     "AnalysisContext",
-    "MNASystem",
-    "dc_operating_point",
-    "dc_operating_point_sparse",
-    "dc_operating_point_gpu",
-    "transient_analysis",
-    "transient_analysis_jit",
+    # MNA types
+    "DeviceInfo",
+    "DeviceType",
+    "eval_param_simple",
+    # Transient strategies
+    "TransientStrategy",
+    "TransientSetup",
+    "PythonLoopStrategy",
+    "ScanStrategy",
+    # Sparse solver
     "sparse_solve",
     "sparse_solve_csr",
+    # GPU backend
     "select_backend",
     "is_gpu_available",
     "BackendConfig",
@@ -45,4 +54,10 @@ __all__ = [
     "NRResult",
     "newton_solve",
     "newton_solve_with_system",
+    # Homotopy
+    "HomotopyConfig",
+    "HomotopyResult",
+    "run_homotopy_chain",
+    "gmin_stepping",
+    "source_stepping",
 ]

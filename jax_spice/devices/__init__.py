@@ -1,12 +1,15 @@
-"""Device models for JAX-SPICE"""
+"""Device models for JAX-SPICE
 
-from jax_spice.devices.base import Device, DeviceStamps
-from jax_spice.devices.mosfet_simple import MOSFETSimple
-from jax_spice.devices.resistor import Resistor, resistor
-from jax_spice.devices.capacitor import Capacitor, capacitor, capacitor_companion
+Provides source waveform functions and OpenVAF Verilog-A device support.
+All simulation devices (resistor, capacitor, diode, MOSFET) are compiled
+from Verilog-A sources using OpenVAF.
+"""
+
 from jax_spice.devices.vsource import (
-    VoltageSource, CurrentSource,
-    pulse_voltage, pulse_voltage_jax,
+    pulse_voltage,
+    pulse_voltage_jax,
+    vsource_batch,
+    isource_batch,
 )
 
 # Optional Verilog-A support (requires openvaf_py)
@@ -19,11 +22,12 @@ except ImportError:
     _HAS_VERILOG_A = False
 
 __all__ = [
-    "Device", "DeviceStamps",
-    "MOSFETSimple",
-    "VerilogADevice", "compile_va",
-    "Resistor", "resistor",
-    "Capacitor", "capacitor", "capacitor_companion",
-    "VoltageSource", "CurrentSource",
-    "pulse_voltage", "pulse_voltage_jax",
+    # Source waveforms
+    "pulse_voltage",
+    "pulse_voltage_jax",
+    "vsource_batch",
+    "isource_batch",
+    # Verilog-A support
+    "VerilogADevice",
+    "compile_va",
 ]
