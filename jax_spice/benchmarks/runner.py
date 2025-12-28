@@ -3897,7 +3897,8 @@ class VACASKBenchmarkRunner:
                 model_name=dev['model'],
                 terminals=terminals,
                 node_indices=dev['nodes'],
-                params=dev['params']
+                params=dev['params'],
+                is_openvaf=dev.get('is_openvaf', False),
             )
             system.devices.append(device_info)
 

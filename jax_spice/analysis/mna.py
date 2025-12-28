@@ -145,6 +145,7 @@ class DeviceInfo:
     node_indices: List[int]  # Corresponding node indices
     params: Dict[str, Any]  # Instance parameters
     eval_fn: Optional[Callable] = None  # Device evaluation function
+    is_openvaf: bool = False  # True if device uses OpenVAF-compiled Verilog-A model
 
 
 @dataclass 
@@ -593,23 +594,27 @@ class MNASystem:
         type_to_devices: Dict[DeviceType, List[DeviceInfo]] = defaultdict(list)
 
         for device in self.devices:
-            # Determine device type from model name or eval_fn
-            model_lower = device.model_name.lower()
-
-            if 'vsource' in model_lower or 'vdc' in model_lower or model_lower == 'v':
-                dtype = DeviceType.VSOURCE
-            elif 'isource' in model_lower or 'idc' in model_lower or model_lower == 'i':
-                dtype = DeviceType.ISOURCE
-            elif 'resistor' in model_lower or model_lower.startswith('r'):
-                dtype = DeviceType.RESISTOR
-            elif 'capacitor' in model_lower or model_lower.startswith('c'):
-                dtype = DeviceType.CAPACITOR
-            elif 'nmos' in model_lower or 'pmos' in model_lower or 'mosfet' in model_lower:
-                dtype = DeviceType.MOSFET
-            elif 'psp' in model_lower:  # PSP103 MOSFET model
-                dtype = DeviceType.MOSFET
+            # Check is_openvaf flag first - route to VERILOG_A for OpenVAF-compiled models
+            if device.is_openvaf:
+                dtype = DeviceType.VERILOG_A
             else:
-                dtype = DeviceType.UNKNOWN
+                # Determine device type from model name for built-in models
+                model_lower = device.model_name.lower()
+
+                if 'vsource' in model_lower or 'vdc' in model_lower or model_lower == 'v':
+                    dtype = DeviceType.VSOURCE
+                elif 'isource' in model_lower or 'idc' in model_lower or model_lower == 'i':
+                    dtype = DeviceType.ISOURCE
+                elif 'resistor' in model_lower or model_lower.startswith('r'):
+                    dtype = DeviceType.RESISTOR
+                elif 'capacitor' in model_lower or model_lower.startswith('c'):
+                    dtype = DeviceType.CAPACITOR
+                elif 'nmos' in model_lower or 'pmos' in model_lower or 'mosfet' in model_lower:
+                    dtype = DeviceType.MOSFET
+                elif 'psp' in model_lower:  # PSP103 MOSFET model
+                    dtype = DeviceType.MOSFET
+                else:
+                    dtype = DeviceType.UNKNOWN
 
             type_to_devices[dtype].append(device)
 
@@ -704,6 +709,18 @@ class MNASystem:
         for group in self.device_groups:
             if group.n_devices == 0:
                 continue
+
+            # Check for unsupported VERILOG_A devices
+            if group.device_type == DeviceType.VERILOG_A:
+                device_names = ', '.join(group.device_names[:5])
+                if group.n_devices > 5:
+                    device_names += f', ... ({group.n_devices} total)'
+                raise NotImplementedError(
+                    f"VERILOG_A devices ({device_names}) require OpenVAF compilation. "
+                    f"Use VACASKBenchmarkRunner.run_transient() instead of MNASystem "
+                    f"for circuits with OpenVAF-compiled models (resistor, capacitor, "
+                    f"diode, psp103, etc.)."
+                )
 
             data = {
                 'type': group.device_type,
