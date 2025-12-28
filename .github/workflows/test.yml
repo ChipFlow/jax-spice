@@ -47,6 +47,7 @@ jobs:
 
       - name: Run tests
         working-directory: openvaf-py
+        timeout-minutes: 30
         run: uv run pytest tests/ -v --tb=short
 
   test-jax-spice:
