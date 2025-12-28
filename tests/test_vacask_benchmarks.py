@@ -255,9 +255,57 @@ class TestRingBenchmark:
         print(f"Device types: {device_types}")
         print(f"PSP103 count: {psp_count}")
 
-    @pytest.mark.xfail(reason="PSP103 ring oscillator convergence issue - see issue #XX")
+    def test_vacask_expected_dc_values(self):
+        """Document expected VACASK DC operating point values for ring oscillator.
+
+        VACASK produces the following DC operating point for the 9-stage ring oscillator:
+        - All ring nodes (1-9) settle to approximately VDD/2 (metastable point)
+        - V[1] = V[2] = ... = V[9] ≈ 0.6606V (with VDD=1.2V)
+        - VDD node = 1.2V
+
+        These values were extracted by running VACASK on dc_debug.sim and parsing
+        the tran1.raw binary output.
+
+        This test documents the expected values for validation once JAX-SPICE
+        ring oscillator DC convergence is fixed.
+        """
+        # Expected VACASK DC values (extracted from vendor/VACASK/benchmark/ring/vacask/tran1.raw)
+        expected = {
+            'vdd': 1.2,
+            # Ring oscillator nodes - all at metastable VDD/2
+            'v1': 0.660597,
+            'v2': 0.660597,
+            'v3': 0.660597,
+            'v4': 0.660597,
+            'v5': 0.660597,
+            'v6': 0.660597,
+            'v7': 0.660597,
+            'v8': 0.660597,
+            'v9': 0.660597,
+        }
+
+        print(f"VACASK expected DC operating point:")
+        print(f"  V[vdd] = {expected['vdd']:.6f} V")
+        print(f"  V[1-9] = {expected['v1']:.6f} V (metastable)")
+
+        # Document tolerance for comparison
+        tolerance = 0.01  # 1% tolerance
+        expected_v1 = expected['v1']
+        print(f"  Tolerance: ±{tolerance*100:.0f}% ({expected_v1 - tolerance:.6f} to {expected_v1 + tolerance:.6f} V)")
+
+    @pytest.mark.xfail(reason="Ring oscillator DC convergence - PSP103 metastable point requires specialized homotopy")
     def test_transient_dense(self, sim_path):
-        """Test ring transient with dense solver"""
+        """Test ring transient with dense solver.
+
+        Ring oscillator DC convergence is challenging because:
+        1. PSP103 doesn't use $simparam("gmin") for device-level GMIN
+        2. Only circuit-level GMIN/GSHUNT can help convergence
+        3. The DC operating point is metastable (all nodes at ~VDD/2)
+        4. VACASK converges to V[1]=0.6606V with its homotopy chain
+
+        This test is xfail until the homotopy chain properly handles
+        PSP103 circuits without device-level GMIN support.
+        """
         sim = Simulator(sim_path).parse()
         dt = sim.analysis_params.get('step', 5e-11)
 
@@ -269,9 +317,12 @@ class TestRingBenchmark:
         print(f"Ring dense: {result.num_steps} steps, {converged*100:.0f}% converged")
         assert converged > 0.5, f"Poor convergence: {converged*100:.0f}%"
 
-    @pytest.mark.xfail(reason="PSP103 ring oscillator convergence issue - see issue #XX")
+    @pytest.mark.xfail(reason="Ring oscillator DC convergence - PSP103 metastable point requires specialized homotopy")
     def test_transient_sparse(self, sim_path):
-        """Test ring transient with sparse solver"""
+        """Test ring transient with sparse solver.
+
+        See test_transient_dense docstring for details on convergence challenges.
+        """
         sim = Simulator(sim_path).parse()
         dt = sim.analysis_params.get('step', 5e-11)
 
