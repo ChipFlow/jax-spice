@@ -146,12 +146,15 @@ V, info = dc_operating_point(system, max_iterations=50, abstol=1e-9)
 V, info = dc_operating_point_sparse(system, vdd=1.2)
 ```
 
-For difficult circuits, use source stepping or GMIN stepping:
+For difficult circuits, use homotopy methods:
 
 ```python
-from jax_spice.analysis.dc import dc_operating_point_source_stepping
+from jax_spice.analysis.homotopy import run_homotopy_chain, HomotopyConfig
+from jax_spice.analysis.solver import NRConfig
 
-V, info = dc_operating_point_source_stepping(system, vdd_target=1.2, vdd_steps=10)
+# Build residual/jacobian functions with gmin/gshunt/source_scale parameters
+result = run_homotopy_chain(build_residual_fn, build_jacobian_fn, V_init,
+                            HomotopyConfig(), NRConfig())
 ```
 
 ### Transient Analysis

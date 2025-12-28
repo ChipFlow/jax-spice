@@ -2012,6 +2012,11 @@ class OpenVAFToJAX:
         """Recursively build nested jnp.where from CFG structure for init function
 
         Mirrors _build_nested_where_from_blocks but uses init-specific condition finding.
+
+        IMPORTANT: This uses a greedy approach - once we find a valid branch point,
+        we commit to it. We do NOT backtrack and try other orderings, as that would
+        be O(n!) complexity. For complex PHI nodes where the greedy approach fails,
+        we fall back to using the first predecessor's value.
         """
         MAX_DEPTH = 100  # Safety limit to prevent infinite recursion
 
@@ -2070,17 +2075,22 @@ class OpenVAFToJAX:
                 logger.debug(f"_build_init_nested_where: depth={depth}, removed {direct_pred}, remaining={len(remaining_preds)}")
 
                 # Recursively build where for remaining preds
+                # GREEDY: We commit to this choice and don't backtrack
                 remaining_expr = self._build_init_nested_where_from_blocks(
                     phi_block, remaining_preds, pred_to_val, blocks, branch_conds, depth + 1
                 )
 
-                if remaining_expr:
-                    if is_true:
-                        return f"jnp.where({cond_var}, {direct_val}, {remaining_expr})"
-                    else:
-                        return f"jnp.where({cond_var}, {remaining_expr}, {direct_val})"
+                # Even if remaining_expr is None, we still return here to avoid
+                # O(n!) backtracking. Use the first remaining pred as fallback.
+                if remaining_expr is None:
+                    remaining_expr = pred_to_val.get(remaining_preds[0], '0.0')
 
-        # Fallback: couldn't build the expression
+                if is_true:
+                    return f"jnp.where({cond_var}, {direct_val}, {remaining_expr})"
+                else:
+                    return f"jnp.where({cond_var}, {remaining_expr}, {direct_val})"
+
+        # Fallback: couldn't find any branch point
         logger.debug(f"_build_init_nested_where: fallback at depth={depth}, pred_blocks={pred_blocks}")
         return None
 

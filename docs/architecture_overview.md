@@ -384,8 +384,7 @@ system.add_device("V1", VoltageSource(dc=5.0), ["vdd", "gnd"])
 ```python
 # DC
 V, info = dc_operating_point(system)
-if not info["converged"]:
-    V, info = dc_operating_point_source_stepping(system, vdd)
+# For difficult circuits, use homotopy methods from jax_spice.analysis.homotopy
 
 # Transient
 times, solutions = transient_analysis_jit(

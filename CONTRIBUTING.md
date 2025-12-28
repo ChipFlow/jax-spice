@@ -263,8 +263,9 @@ with jax.disable_jit():
    - Invalid device parameters
 
 3. **Convergence failures**: Try:
-   - Source stepping: `dc_operating_point_source_stepping()`
-   - GMIN stepping: `dc_operating_point_gmin_stepping()`
+   - Homotopy chain: `run_homotopy_chain()` from `jax_spice.analysis.homotopy`
+   - GMIN stepping: `gmin_stepping()` with mode="gdev" or "gshunt"
+   - Source stepping: `source_stepping()`
    - Increased iteration limit
    - Relaxed tolerances
 
