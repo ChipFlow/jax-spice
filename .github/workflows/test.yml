@@ -48,7 +48,7 @@ jobs:
       - name: Run tests
         working-directory: openvaf-py
         timeout-minutes: 30
-        run: uv run pytest tests/ -v --tb=short
+        run: uv run pytest tests/ -v --tb=short --durations=20 --log-cli-level=INFO
 
   test-jax-spice:
     runs-on: ubuntu-latest
