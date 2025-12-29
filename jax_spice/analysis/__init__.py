@@ -63,6 +63,14 @@ from jax_spice.analysis.noise import (
     compute_shot_noise_psd,
     compute_flicker_noise_psd,
 )
+from jax_spice.analysis.hb import (
+    HBConfig,
+    HBResult,
+    build_frequency_grid,
+    build_collocation_points,
+    build_apft_matrices,
+    run_hb_analysis,
+)
 
 __all__ = [
     "AnalysisContext",
@@ -120,4 +128,11 @@ __all__ = [
     "compute_thermal_noise_psd",
     "compute_shot_noise_psd",
     "compute_flicker_noise_psd",
+    # Harmonic Balance analysis
+    "HBConfig",
+    "HBResult",
+    "build_frequency_grid",
+    "build_collocation_points",
+    "build_apft_matrices",
+    "run_hb_analysis",
 ]
