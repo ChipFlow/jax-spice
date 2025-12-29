@@ -120,27 +120,8 @@ VACASK_REFERENCE_TIMES = {
 }
 
 
-def find_vacask_binary() -> Optional[Path]:
-    """Find the VACASK binary (returns absolute path)."""
-    # Check environment variable
-    if 'VACASK_BIN' in os.environ:
-        path = Path(os.environ['VACASK_BIN']).resolve()
-        if path.exists():
-            return path
-
-    # Check common build locations (relative to project root)
-    project_root = Path(__file__).parent.parent
-    candidates = [
-        project_root / 'vendor/VACASK/build/simulator/vacask',
-        project_root / 'vendor/VACASK/build/Release/simulator/vacask',
-        project_root / 'vendor/VACASK/build/Debug/simulator/vacask',
-    ]
-
-    for candidate in candidates:
-        if candidate.exists():
-            return candidate.resolve()
-
-    return None
+# find_vacask_binary is imported from scripts.benchmark_utils
+from scripts.benchmark_utils import find_vacask_binary
 
 
 def run_vacask(config: BenchmarkConfig, num_steps: int) -> Optional[Tuple[float, float]]:

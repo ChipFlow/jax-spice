@@ -26,7 +26,7 @@ import time
 import json
 import subprocess
 from pathlib import Path
-from dataclasses import dataclass, field, asdict
+from dataclasses import asdict
 from typing import Dict, List, Optional, Tuple
 from contextlib import nullcontext
 
@@ -49,33 +49,10 @@ jax.config.update('jax_enable_x64', True)
 
 from jax_spice.analysis import CircuitEngine
 from jax_spice.logging import enable_performance_logging, logger
+from scripts.benchmark_utils import BenchmarkResult, get_vacask_benchmarks
 
 # Enable verbose logging with flush and memory stats for profiling visibility
 enable_performance_logging()
-
-
-@dataclass
-class BenchmarkResult:
-    """Results from a single benchmark run.
-
-    Metrics are designed to be directly comparable with VACASK benchmark.py output:
-    - total_time_s: Total wall-clock time for the simulation (comparable to VACASK "Runtime")
-    - time_per_step_ms: Derived metric for per-step performance analysis
-    """
-    name: str
-    nodes: int
-    devices: int
-    openvaf_devices: int
-    timesteps: int
-    total_time_s: float
-    time_per_step_ms: float
-    solver: str  # 'dense' or 'sparse'
-    backend: str  # 'cpu' or 'gpu'
-    # Analysis parameters (for VACASK comparison)
-    t_stop: float = 0.0  # Simulation stop time (seconds)
-    dt: float = 0.0  # Time step (seconds)
-    converged: bool = True
-    error: Optional[str] = None
 
 
 class GPUProfiler:
@@ -330,21 +307,7 @@ class GPUProfiler:
         return "\n".join(lines)
 
 
-def get_vacask_benchmarks(names: Optional[List[str]] = None) -> List[Tuple[str, Path]]:
-    """Get list of VACASK benchmark .sim files"""
-    base = Path(__file__).parent.parent / "vendor" / "VACASK" / "benchmark"
-    all_benchmarks = ['rc', 'graetz', 'mul', 'ring', 'c6288']
-
-    if names:
-        all_benchmarks = [n for n in names if n in all_benchmarks]
-
-    benchmarks = []
-    for name in all_benchmarks:
-        sim_path = base / name / "vacask" / "runme.sim"
-        if sim_path.exists():
-            benchmarks.append((name, sim_path))
-
-    return benchmarks
+# get_vacask_benchmarks is imported from scripts.benchmark_utils
 
 
 def run_single_benchmark(args):

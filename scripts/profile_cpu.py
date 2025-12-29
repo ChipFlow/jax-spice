@@ -19,10 +19,8 @@ import argparse
 import os
 import sys
 import time
-import json
 from pathlib import Path
-from dataclasses import dataclass
-from typing import Dict, List, Optional, Tuple
+from typing import List
 
 # Ensure jax-spice is importable
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -31,51 +29,12 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 os.environ['JAX_PLATFORMS'] = 'cpu'
 
 import jax
-import jax.numpy as jnp
 
 # Enable float64
 jax.config.update('jax_enable_x64', True)
 
 from jax_spice.analysis import CircuitEngine
-
-
-@dataclass
-class BenchmarkResult:
-    """Results from a single benchmark run"""
-    name: str
-    nodes: int
-    devices: int
-    openvaf_devices: int
-    timesteps: int
-    total_time_s: float
-    time_per_step_ms: float
-    solver: str  # 'dense' or 'sparse'
-    converged: bool = True
-    error: Optional[str] = None
-
-
-def log(msg="", end="\n"):
-    """Print with flush for real-time output"""
-    print(msg, end=end, flush=True)
-    sys.stdout.flush()
-    sys.stderr.flush()
-
-
-def get_vacask_benchmarks(names: Optional[List[str]] = None) -> List[Tuple[str, Path]]:
-    """Get list of VACASK benchmark .sim files"""
-    base = Path(__file__).parent.parent / "vendor" / "VACASK" / "benchmark"
-    all_benchmarks = ['rc', 'graetz', 'mul', 'ring', 'c6288']
-
-    if names:
-        all_benchmarks = [n for n in names if n in all_benchmarks]
-
-    benchmarks = []
-    for name in all_benchmarks:
-        sim_path = base / name / "vacask" / "runme.sim"
-        if sim_path.exists():
-            benchmarks.append((name, sim_path))
-
-    return benchmarks
+from scripts.benchmark_utils import BenchmarkResult, get_vacask_benchmarks, log
 
 
 def run_benchmark(sim_path: Path, name: str, use_sparse: bool,

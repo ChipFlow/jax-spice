@@ -46,3 +46,10 @@ profile_report.md
 
 # PDKs (may contain proprietary files)
 pdks/
+
+# Simulation output files
+*.raw
+
+# Temporary test scripts
+runme.py
+runme.py.origin
