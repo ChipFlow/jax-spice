@@ -53,3 +53,6 @@ pdks/
 # Temporary test scripts
 runme.py
 runme.py.origin
+
+# Claude Code local config
+.claude/
