@@ -792,7 +792,160 @@ jobs:
 
 ## 12. Appendices
 
-### A. Glossary
+### A. OpenVAF Source Span Infrastructure (Investigation Notes)
+
+This section documents the existing source span infrastructure in OpenVAF based on codebase investigation (December 2025).
+
+#### A.1 Current Architecture
+
+OpenVAF already tracks source locations through the compilation pipeline:
+
+```
+Verilog-A → Parser → AST (with Spans) → HIR → MIR (with SourceLocs) → LLVM → .osdi
+                      ↓                  ↓           ↓
+                   TextRange          ExprId      SourceLoc(i32)
+                   FileSpan       BodySourceMap   (opaque HIR ref)
+```
+
+**Key Types:**
+
+1. **`SourceLoc`** (`openvaf/mir/src/lib.rs:222`)
+   - Opaque 32-bit integer attached to each MIR instruction
+   - Default value (`!0` = -1) means "no source location"
+   - Stored in `Function.srclocs: TiVec<Inst, SourceLoc>`
+
+2. **`BodySourceMap`** (`openvaf/hir_def/src/body.rs:32-43`)
+   - Maps HIR expressions back to AST pointers
+   - `expr_map_back: ArenaMap<Expr, Option<AstPtr<ast::Expr>>>` - reverse mapping
+   - `stmt_map_back: ArenaMap<Stmt, Option<AstPtr<ast::Stmt>>>` - statement mapping
+
+3. **`FileSpan`** (`openvaf/preprocessor/src/sourcemap.rs`)
+   - Contains `FileId` + `TextRange` for actual source location
+   - Handles macro expansions via `CtxSpan`
+
+4. **`SourceMap`** (preprocessor level)
+   - Tracks file table and macro expansion contexts
+   - `lookup_expansion()` resolves spans through macro stack
+
+#### A.2 How SourceLoc Connects to Source
+
+The mapping chain is:
+
+```python
+# MIR instruction has SourceLoc(i32)
+inst_srcloc: SourceLoc = function.srclocs[inst_id]
+
+# SourceLoc stores ExprId + 1 (see hir_lower)
+# SourceLoc(bits) where bits = u32::from(expr_id) + 1
+expr_id: ExprId = ExprId::from(inst_srcloc.bits() - 1)
+
+# BodySourceMap maps ExprId → AstPtr
+ast_ptr: Option<AstPtr<Expr>> = body_source_map.expr_map_back[expr_id]
+
+# AstPtr can be resolved to syntax node, which has TextRange
+# TextRange + FileId = FileSpan → actual line/column
+```
+
+**Key insight from `hir_lower/src/lib.rs`:**
+```rust
+// SourceLoc is set as: SourceLoc::new(u32::from(expr) as i32 + 1)
+// This stores the HIR ExprId in the MIR instruction's source location
+```
+
+#### A.3 What verilogae Currently Exposes
+
+Looking at `verilogae/verilogae_py/src/model.rs` and `verilogae_ffi/src/ffi/generated.rs`:
+
+**Currently Exposed:**
+- `verilogae_real_params()` - parameter names
+- `verilogae_real_param_descriptions()` - param descriptions
+- `verilogae_nodes()` - port names
+- `verilogae_functions()` - function names
+- `verilogae_opvars()` - operating point variables
+- `verilogae_module_name()` - module name
+
+**NOT Currently Exposed:**
+- Source spans for parameters
+- Source spans for instructions
+- The `BodySourceMap` or any span information
+- File table (FileId → path mapping)
+
+#### A.4 Required Changes for Source Coverage
+
+**Layer 1: OpenVAF Core Changes**
+
+1. **Export BodySourceMap** - Currently internal to HIR lowering
+   - Add query: `fn instruction_source_map(db, module) -> InstructionSourceMap`
+   - Returns mapping: `instruction_id → (file_id, line, col)`
+
+2. **Export File Table** - Map FileId to file path
+   - Add query: `fn file_table(db, root_file) -> Vec<(FileId, PathBuf)>`
+
+3. **New API in `verilogae/verilogae/src/api.rs`**:
+   ```rust
+   expose_ptrs! {
+       const verilogae_source_spans: SourceSpanEntry = "source.spans";
+       const verilogae_source_files: *const c_char = "source.files";
+   }
+   expose_consts! {
+       verilogae_source_span_cnt: usize = "source.spans.cnt";
+       verilogae_source_file_cnt: usize = "source.files.cnt";
+   }
+   ```
+
+**Layer 2: openvaf-py Changes**
+
+1. **Add `SourceSpan` type** in new `spans.py`:
+   ```python
+   @dataclass
+   class SourceSpan:
+       file_id: int
+       start_line: int
+       start_col: int
+       end_line: int
+       end_col: int
+   ```
+
+2. **Extend `VaeModel`** to include:
+   - `source_files: List[str]` - file table
+   - `source_spans: Dict[int, SourceSpan]` - instruction → span mapping
+
+**Layer 3: verilogae Backend Changes**
+
+1. **In `back.rs`** - Export source spans as global arrays
+   - Similar pattern to how `export_param_info()` exports parameter metadata
+   - Add `export_source_map()` function
+
+2. **In `compiler_db.rs`** - Collect source spans during compilation
+   - Query the `BodySourceMap` for each instruction
+   - Resolve to line/column via preprocessor `SourceMap`
+
+#### A.5 Simplified Implementation Path
+
+Given the complexity, a phased approach:
+
+**Phase 1A (Minimal Viable):**
+- Export parameter source locations only (not all instructions)
+- Parameters have clear source in the AST
+- Sufficient for "what parameters are used" coverage
+
+**Phase 1B (Full Instruction Coverage):**
+- Export all MIR instruction source locations
+- Requires walking `function.srclocs` during code generation
+- More complex but enables line-level coverage
+
+#### A.6 Key Files to Modify
+
+| File | Purpose | Changes |
+|------|---------|---------|
+| `openvaf/osdi/src/compilation.rs` | OSDI compilation | Add span collection during MIR→LLVM |
+| `openvaf/osdi/src/metadata.rs` | (new) | Source span export structures |
+| `verilogae/verilogae/src/back.rs` | Code generation | Export source maps as globals |
+| `verilogae/verilogae/src/api.rs` | C API | Add span access functions |
+| `verilogae/verilogae_ffi/src/ffi.rs` | FFI types | Add SourceSpan structures |
+| `verilogae/verilogae_py/src/model.rs` | Python bindings | Expose spans to Python |
+
+### B. Glossary
 
 | Term | Definition |
 |------|------------|
@@ -801,8 +954,12 @@ jobs:
 | MIR | Mid-level Intermediate Representation (OpenVAF) |
 | HLO | High-Level Operations (XLA) |
 | Cobertura | XML coverage format, originally for Java |
+| SourceLoc | Opaque i32 in MIR storing HIR ExprId reference |
+| BodySourceMap | HIR mapping from ExprId/StmtId back to AST pointers |
+| FileSpan | File ID + text range for source locations |
+| CtxSpan | Context-aware span handling macro expansions |
 
-### B. References
+### C. References
 
 1. [OpenVAF Compiler](https://openvaf.semimod.de/)
 2. [JAX Profiler Documentation](https://jax.readthedocs.io/en/latest/profiling.html)
