@@ -70,6 +70,18 @@ class OpenVAFToJAX:
         # Track if this model uses $simparam("gmin")
         self.uses_simparam_gmin = False
 
+        # Track if this model uses analysis() function
+        self.uses_analysis = False
+        # Analysis types mapped to integers:
+        # 0: dc/static, 1: ac, 2: tran, 3: noise
+        self.analysis_type_map = {
+            'dc': 0, 'static': 0,
+            'ac': 1,
+            'tran': 2, 'transient': 2,
+            'noise': 3,
+            'nodeset': 4,
+        }
+
         # Init function data
         self.init_constants = dict(self.init_mir_data['constants'])
         self.init_bool_constants = dict(self.init_mir_data.get('bool_constants', {}))
@@ -178,6 +190,8 @@ class OpenVAFToJAX:
             'node_names': node_names,
             'jacobian_keys': jacobian_keys,
             'uses_simparam_gmin': self.uses_simparam_gmin,
+            'uses_analysis': self.uses_analysis,
+            'analysis_type_map': self.analysis_type_map,
         }
 
         return local_ns['device_eval_array'], metadata
@@ -279,6 +293,8 @@ class OpenVAFToJAX:
             'jacobian_keys': jacobian_keys,
             'cache_to_param_mapping': cache_to_param,
             'uses_simparam_gmin': self.uses_simparam_gmin,
+            'uses_analysis': self.uses_analysis,
+            'analysis_type_map': self.analysis_type_map,
         }
 
         return local_ns['eval_fn_with_cache'], metadata
@@ -2301,6 +2317,23 @@ class OpenVAFToJAX:
                         if len(operands) >= 2:
                             return get_operand(operands[1])
                         return '0.0'  # Default for unknown simparams
+
+                elif fn_name == 'Analysis':
+                    # analysis("type") - returns 1 if current analysis matches
+                    # Analysis type is passed as inputs[-2] (before gmin at inputs[-1])
+                    # Encoding: 0=dc/static, 1=ac, 2=tran, 3=noise, 4=nodeset
+                    self.uses_analysis = True
+                    if len(operands) >= 1:
+                        first_operand = operands[0]
+                        analysis_type_str = self.str_constants.get(first_operand, '')
+                        if analysis_type_str:
+                            # Get the integer code for this analysis type
+                            type_code = self.analysis_type_map.get(analysis_type_str.lower(), -1)
+                            if type_code >= 0:
+                                # Compare against inputs[-2] (analysis_type parameter)
+                                return f'(inputs[-2] == {type_code})'
+                    # Unknown analysis type - return False
+                    return _jax_bool_repr(False)
 
                 elif 'ddt' in fn_name.lower() or 'TimeDerivative' in fn_name:
                     # Time derivative - for DC analysis, return 0

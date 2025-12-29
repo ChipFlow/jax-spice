@@ -53,6 +53,16 @@ from jax_spice.analysis.xfer import (
     ACXFResult,
     solve_acxf,
 )
+from jax_spice.analysis.noise import (
+    NoiseConfig,
+    NoiseResult,
+    NoiseSource,
+    run_noise_analysis,
+    extract_noise_sources,
+    compute_thermal_noise_psd,
+    compute_shot_noise_psd,
+    compute_flicker_noise_psd,
+)
 
 __all__ = [
     "AnalysisContext",
@@ -101,4 +111,13 @@ __all__ = [
     "ACXFConfig",
     "ACXFResult",
     "solve_acxf",
+    # Noise analysis
+    "NoiseConfig",
+    "NoiseResult",
+    "NoiseSource",
+    "run_noise_analysis",
+    "extract_noise_sources",
+    "compute_thermal_noise_psd",
+    "compute_shot_noise_psd",
+    "compute_flicker_noise_psd",
 ]

@@ -605,6 +605,9 @@ class CircuitEngine:
                 'init_to_eval_indices': init_to_eval_indices,
                 # Device-level GMIN via $simparam("gmin")
                 'uses_simparam_gmin': eval_cache_meta.get('uses_simparam_gmin', False),
+                # Device-level analysis() function
+                'uses_analysis': eval_cache_meta.get('uses_analysis', False),
+                'analysis_type_map': eval_cache_meta.get('analysis_type_map', {}),
             }
 
             # Store in both instance and module-level cache
@@ -3360,11 +3363,29 @@ class CircuitEngine:
                 'voltage_node_pairs': voltage_node_pairs,
             })
 
-        # Append gmin column if this model uses $simparam("gmin")
-        # The gmin column is accessed as inputs[-1] in the generated JAX code
+        # Append analysis_type and gmin columns if needed
+        # Order: [..., analysis_type (inputs[-2]), gmin (inputs[-1])]
+        # When uses_analysis is True, we always append both columns to ensure
+        # analysis_type is at inputs[-2] and gmin at inputs[-1]
+        uses_analysis = compiled.get('uses_analysis', False)
         uses_simparam_gmin = compiled.get('uses_simparam_gmin', False)
-        if uses_simparam_gmin and n_devices > 0:
-            # Default gmin value - will be updated during homotopy
+
+        if uses_analysis and n_devices > 0:
+            # Analysis type encoding: 0=dc/static, 1=ac, 2=tran, 3=noise
+            # Default to DC analysis (type=0)
+            analysis_type_column = np.full((n_devices, 1), 0.0, dtype=np.float64)
+            all_inputs = np.concatenate([all_inputs, analysis_type_column], axis=1)
+            logger.debug(f"{model_type}: appended analysis_type column (uses_analysis=True)")
+
+            # When uses_analysis is True, we must also append gmin column to maintain
+            # the fixed offsets: analysis_type at [-2], gmin at [-1]
+            default_gmin = 1e-12
+            gmin_column = np.full((n_devices, 1), default_gmin, dtype=np.float64)
+            all_inputs = np.concatenate([all_inputs, gmin_column], axis=1)
+            logger.debug(f"{model_type}: appended gmin column (for uses_analysis layout)")
+
+        elif uses_simparam_gmin and n_devices > 0:
+            # Only gmin, at inputs[-1]
             default_gmin = 1e-12
             gmin_column = np.full((n_devices, 1), default_gmin, dtype=np.float64)
             all_inputs = np.concatenate([all_inputs, gmin_column], axis=1)
@@ -5433,6 +5454,19 @@ class CircuitEngine:
                 voltage_updates = V[voltage_node1] - V[voltage_node2]
                 batch_inputs = static_inputs.at[:, jnp.array(voltage_indices)].set(voltage_updates)
 
+                # Update analysis_type and gmin columns if this model uses them
+                # inv_dt > 0 means transient, inv_dt = 0 means DC
+                # Analysis type encoding: 0=dc/static, 1=ac, 2=tran, 3=noise
+                uses_analysis = self._compiled_models.get(model_type, {}).get('uses_analysis', False)
+                uses_simparam_gmin = self._compiled_models.get(model_type, {}).get('uses_simparam_gmin', False)
+                if uses_analysis:
+                    # Determine analysis type: DC (0) vs transient (2)
+                    analysis_type_val = jnp.where(inv_dt > 0, 2.0, 0.0)  # tran=2, dc=0
+                    batch_inputs = batch_inputs.at[:, -2].set(analysis_type_val)
+                    batch_inputs = batch_inputs.at[:, -1].set(gmin)
+                elif uses_simparam_gmin:
+                    batch_inputs = batch_inputs.at[:, -1].set(gmin)
+
                 # Batched device evaluation with cache - returns 4 arrays
                 # Use vmapped_eval_with_cache if available, otherwise fall back to vmapped_fn
                 vmapped_eval_with_cache = self._compiled_models.get(model_type, {}).get('vmapped_eval_with_cache')
@@ -5643,11 +5677,17 @@ class CircuitEngine:
                     voltage_updates = V[voltage_node1] - V[voltage_node2]
                     batch_inputs = static_inputs.at[:, jnp.array(voltage_indices)].set(voltage_updates)
 
-                    # Update device-level gmin if this model uses $simparam("gmin")
+                    # Update analysis_type and gmin columns if this model uses them
+                    # When uses_analysis is True: analysis_type at [-2], gmin at [-1]
+                    # When only uses_simparam_gmin: gmin at [-1]
+                    uses_analysis = self._compiled_models.get(model_type, {}).get('uses_analysis', False)
                     uses_simparam_gmin = self._compiled_models.get(model_type, {}).get('uses_simparam_gmin', False)
-                    if uses_simparam_gmin:
-                        # gmin is passed as the LAST element in inputs array
-                        # Update all devices' gmin with the current homotopy gmin value
+                    if uses_analysis:
+                        # Set analysis_type=0 (DC) at inputs[-2], gmin at inputs[-1]
+                        batch_inputs = batch_inputs.at[:, -2].set(0.0)  # DC analysis
+                        batch_inputs = batch_inputs.at[:, -1].set(gmin)
+                    elif uses_simparam_gmin:
+                        # Only gmin at inputs[-1]
                         batch_inputs = batch_inputs.at[:, -1].set(gmin)
 
                     vmapped_eval_with_cache = self._compiled_models.get(model_type, {}).get('vmapped_eval_with_cache')
@@ -6392,6 +6432,16 @@ class CircuitEngine:
             voltage_updates = V[voltage_node1] - V[voltage_node2]
             batch_inputs = static_inputs.at[:, jnp.array(voltage_indices)].set(voltage_updates)
 
+            # Update analysis_type and gmin columns if this model uses them
+            # For AC analysis: analysis_type = 1
+            uses_analysis = self._compiled_models.get(model_type, {}).get('uses_analysis', False)
+            uses_simparam_gmin = self._compiled_models.get(model_type, {}).get('uses_simparam_gmin', False)
+            if uses_analysis:
+                batch_inputs = batch_inputs.at[:, -2].set(1.0)  # AC analysis
+                batch_inputs = batch_inputs.at[:, -1].set(1e-12)  # Default gmin
+            elif uses_simparam_gmin:
+                batch_inputs = batch_inputs.at[:, -1].set(1e-12)  # Default gmin
+
             # Evaluate devices
             vmapped_eval_with_cache = self._compiled_models.get(model_type, {}).get('vmapped_eval_with_cache')
             if vmapped_eval_with_cache is not None and cache.size > 0:
@@ -6655,4 +6705,138 @@ class CircuitEngine:
                 })
 
         return sources
+
+    # =========================================================================
+    # Noise Analysis
+    # =========================================================================
+
+    def run_noise(
+        self,
+        out: Union[str, int] = 1,
+        input_source: str = '',
+        freq_start: float = 1.0,
+        freq_stop: float = 1e6,
+        mode: str = 'dec',
+        points: int = 10,
+        step: Optional[float] = None,
+        values: Optional[List[float]] = None,
+        temperature: float = 300.15,
+    ) -> 'NoiseResult':
+        """Run noise analysis.
+
+        Computes output noise power spectral density over frequency sweep.
+        For each frequency, sums noise contributions from all devices
+        (resistor thermal, diode shot/flicker, etc.) propagated through
+        the circuit's small-signal transfer function.
+
+        Args:
+            out: Output node (name or index)
+            input_source: Name of input source for power gain calculation
+            freq_start: Starting frequency in Hz
+            freq_stop: Ending frequency in Hz
+            mode: Sweep mode - 'lin', 'dec', 'oct', or 'list'
+            points: Points per decade/octave
+            step: Frequency step for 'lin' mode
+            values: Explicit frequency list for 'list' mode
+            temperature: Circuit temperature in Kelvin (default 27°C)
+
+        Returns:
+            NoiseResult with output noise, power gain, and per-device contributions
+        """
+        from jax_spice.analysis.noise import (
+            NoiseConfig, NoiseResult, run_noise_analysis,
+            extract_noise_sources,
+        )
+
+        logger.info(f"Running noise analysis: {freq_start:.2e} to {freq_stop:.2e} Hz, out={out}")
+
+        # Configure noise analysis
+        config = NoiseConfig(
+            out=out,
+            input_source=input_source,
+            freq_start=freq_start,
+            freq_stop=freq_stop,
+            mode=mode,
+            points=points,
+            step=step,
+            values=values,
+            temperature=temperature,
+        )
+
+        # Compute DC operating point and extract Jacobians
+        Jr, Jc, V_dc, _ = self._compute_ac_operating_point()
+
+        # Extract DC currents for noise calculation
+        dc_currents = self._extract_dc_currents(V_dc)
+
+        # Extract noise sources from devices
+        noise_sources = extract_noise_sources(
+            self.devices, dc_currents, temperature
+        )
+
+        logger.info(f"Found {len(noise_sources)} noise sources")
+
+        # Get input source specification
+        input_src = None
+        if input_source:
+            for src in self._extract_all_sources():
+                if src['name'] == input_source:
+                    input_src = src
+                    break
+
+        # Run noise analysis
+        result = run_noise_analysis(
+            Jr=Jr,
+            Jc=Jc,
+            noise_sources=noise_sources,
+            input_source=input_src,
+            config=config,
+            node_names=self.node_names,
+            dc_voltages=V_dc,
+        )
+
+        logger.info(f"Noise analysis complete: {len(result.frequencies)} frequencies")
+        return result
+
+    def _extract_dc_currents(self, V_dc: Array) -> Dict[str, float]:
+        """Extract DC currents through devices from operating point.
+
+        Args:
+            V_dc: DC operating point voltages
+
+        Returns:
+            Dict mapping device name to DC current
+        """
+        dc_currents = {}
+
+        for dev in self.devices:
+            name = dev.get('name', '')
+            model = dev.get('model', '')
+            params = dev.get('params', {})
+            nodes = dev.get('nodes', [0, 0])
+
+            pos_node = nodes[0] if len(nodes) > 0 else 0
+            neg_node = nodes[1] if len(nodes) > 1 else 0
+
+            # Get node voltages
+            v_pos = float(V_dc[pos_node - 1]) if pos_node > 0 and pos_node <= len(V_dc) else 0.0
+            v_neg = float(V_dc[neg_node - 1]) if neg_node > 0 and neg_node <= len(V_dc) else 0.0
+            v_diff = v_pos - v_neg
+
+            if model == 'resistor':
+                r = float(params.get('r', 1000.0))
+                if r > 0:
+                    dc_currents[name] = v_diff / r
+
+            elif model in ('diode', 'd'):
+                # Diode current: I = Is * (exp(V/nVT) - 1)
+                Is = float(params.get('is', 1e-14))
+                n = float(params.get('n', 1.0))
+                vt = 0.0259  # Thermal voltage at 300K
+                if v_diff > -5 * n * vt:  # Avoid overflow
+                    dc_currents[name] = Is * (jnp.exp(v_diff / (n * vt)) - 1)
+                else:
+                    dc_currents[name] = -Is
+
+        return dc_currents
 
