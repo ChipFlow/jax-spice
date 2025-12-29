@@ -34,6 +34,8 @@ from jax_spice.analysis.debug import (
     trace_all_params,
     check_param_coverage,
     format_param_trace,
+    format_coverage_chart,
+    get_coverage_breakdown,
     format_stats,
     format_devices,
     format_models,
@@ -82,6 +84,11 @@ def main():
         "--models",
         action="store_true",
         help="List all models",
+    )
+    parser.add_argument(
+        "--visualize",
+        action="store_true",
+        help="Show visual ASCII chart of parameter coverage",
     )
     parser.add_argument(
         "--sim-file",
@@ -134,11 +141,7 @@ def main():
         return
 
     # Parameter coverage mode
-    if args.coverage:
-        print("Parameter Coverage Summary")
-        print("-" * 70)
-        print()
-
+    if args.coverage or args.visualize:
         # Group devices by model type
         by_model = {}
         for dev in engine.devices:
@@ -151,22 +154,28 @@ def main():
             if model in ('vsource', 'isource'):
                 continue  # Skip sources
 
-            print(f"Model: {model} ({len(devices)} instances)")
-
-            # Check first instance as representative
+            # Use first instance as representative
             dev = devices[0]
             name = dev.get('name')
-            coverage = check_param_coverage(engine, name)
 
-            print(f"  Coverage: {coverage['coverage_pct']}")
-            print(f"  Mapped: {len(coverage['mapped'])}")
-            print(f"  Unmapped: {len(coverage['unmapped'])}")
+            if args.visualize:
+                # Visual ASCII chart
+                print(format_coverage_chart(engine, name))
+                print()
+            else:
+                # Simple summary
+                print(f"Model: {model} ({len(devices)} instances)")
+                coverage = check_param_coverage(engine, name)
 
-            if coverage['unmapped']:
-                print(f"  Unmapped params: {', '.join(coverage['unmapped'][:10])}")
-                if len(coverage['unmapped']) > 10:
-                    print(f"    ... and {len(coverage['unmapped']) - 10} more")
-            print()
+                print(f"  Coverage: {coverage['coverage_pct']}")
+                print(f"  Mapped: {len(coverage['mapped'])}")
+                print(f"  Unmapped: {len(coverage['unmapped'])}")
+
+                if coverage['unmapped']:
+                    print(f"  Unmapped params: {', '.join(coverage['unmapped'][:10])}")
+                    if len(coverage['unmapped']) > 10:
+                        print(f"    ... and {len(coverage['unmapped']) - 10} more")
+                print()
 
         return
 

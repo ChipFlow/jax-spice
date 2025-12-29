@@ -453,6 +453,7 @@ class CircuitEngine:
                 'model': device_type,
                 'nodes': nodes,
                 'params': params,
+                'original_params': parsed_params,  # Instance params before merge
                 'is_openvaf': is_openvaf,
             })
 

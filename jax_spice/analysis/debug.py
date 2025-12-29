@@ -117,25 +117,47 @@ def trace_param(
     if not device:
         return trace
 
-    # Layer 1: Instance params
-    instance_params = device.get('params', {})
-    for k, v in instance_params.items():
+    # Layer 1: Instance params - check original netlist instance
+    # The device dict 'original_params' contains the actual netlist params
+    original_params = device.get('original_params', {})
+    for k, v in original_params.items():
         if k.lower() == param_lower:
             trace.in_instance = True
             trace.instance_value = v
             break
 
-    # Layer 2: Model params
+    # Layer 2: Model params from model card
+    # Try to find the model card - may be model name or variant (e.g., psp103n/psp103p)
     model_name = device.get('model')
-    trace.model_name = model_name
-    if model_name and engine.circuit:
+    model_card_name = device.get('model_card')  # May be stored explicitly
+    trace.model_name = model_card_name or model_name
+
+    if engine.circuit:
+        # Try direct lookup first
         model = engine.circuit.models.get(model_name)
+
+        # If not found, try to find a variant (e.g., psp103 -> psp103n, psp103p)
+        if not model and model_name:
+            for candidate in engine.circuit.models.keys():
+                if candidate.startswith(model_name):
+                    model = engine.circuit.models.get(candidate)
+                    trace.model_name = candidate
+                    break
+
         if model and model.params:
             for k, v in model.params.items():
                 if k.lower() == param_lower:
                     trace.in_model = True
                     trace.model_value = v
                     break
+
+    # If not found in original_params or model, get value from merged params
+    if not trace.in_instance and not trace.in_model:
+        merged_params = device.get('params', {})
+        for k, v in merged_params.items():
+            if k.lower() == param_lower:
+                trace.instance_value = v  # Store the value but mark as default
+                break
 
     # Layer 3 & 4: OpenVAF mapping
     # Get the model type (e.g., 'psp103' from 'psp103n')
@@ -254,7 +276,114 @@ def check_param_coverage(
         'total': total,
         'coverage': coverage,
         'coverage_pct': f"{coverage * 100:.1f}%",
+        'traces': traces,
     }
+
+
+def get_coverage_breakdown(
+    engine: "CircuitEngine",
+    instance_name: str,
+) -> Dict[str, Any]:
+    """Get detailed coverage breakdown by param_kind and source.
+
+    Args:
+        engine: CircuitEngine with parsed circuit and compiled models
+        instance_name: Device instance name
+
+    Returns:
+        Dict with breakdowns by param_kind and source
+    """
+    coverage = check_param_coverage(engine, instance_name)
+    traces = coverage['traces']
+
+    # Count by param_kind
+    by_kind: Dict[str, int] = {}
+    for trace in traces:
+        kind = trace.param_kind or 'unmapped'
+        by_kind[kind] = by_kind.get(kind, 0) + 1
+
+    # Count by source (instance, model, default, unmapped)
+    by_source: Dict[str, int] = {}
+    for trace in traces:
+        if trace.param_kind is None:
+            source = 'unmapped'
+        elif trace.in_instance:
+            source = 'instance'
+        elif trace.in_model:
+            source = 'model'
+        else:
+            source = 'default'
+        by_source[source] = by_source.get(source, 0) + 1
+
+    return {
+        **coverage,
+        'by_kind': by_kind,
+        'by_source': by_source,
+    }
+
+
+def format_coverage_chart(
+    engine: "CircuitEngine",
+    instance_name: str,
+    width: int = 40,
+) -> str:
+    """Format coverage breakdown as ASCII bar charts.
+
+    Args:
+        engine: CircuitEngine
+        instance_name: Device instance name
+        width: Chart width in characters
+
+    Returns:
+        Formatted ASCII chart string
+    """
+    breakdown = get_coverage_breakdown(engine, instance_name)
+    total = breakdown['total']
+    if total == 0:
+        return f"No parameters found for {instance_name}"
+
+    lines = []
+    lines.append(f"Parameter Coverage: {instance_name}")
+    lines.append("=" * 60)
+    lines.append(f"Total: {total} parameters, {breakdown['coverage_pct']} mapped")
+    lines.append("")
+
+    # By param_kind chart
+    lines.append("By OpenVAF param_kind:")
+    lines.append("-" * 60)
+    by_kind = breakdown['by_kind']
+    max_count = max(by_kind.values()) if by_kind else 1
+    for kind in sorted(by_kind.keys()):
+        count = by_kind[kind]
+        pct = count / total * 100
+        bar_len = int(count / max_count * width)
+        bar = "█" * bar_len
+        lines.append(f"  {kind:15} {bar:40} {count:4} ({pct:5.1f}%)")
+
+    lines.append("")
+
+    # By source chart
+    lines.append("By value source:")
+    lines.append("-" * 60)
+    by_source = breakdown['by_source']
+    source_order = ['instance', 'model', 'default', 'unmapped']
+    source_labels = {
+        'instance': 'Instance params',
+        'model': 'Model card',
+        'default': 'OpenVAF default',
+        'unmapped': 'Not mapped',
+    }
+    max_count = max(by_source.values()) if by_source else 1
+    for source in source_order:
+        if source in by_source:
+            count = by_source[source]
+            pct = count / total * 100
+            bar_len = int(count / max_count * width)
+            bar = "█" * bar_len
+            label = source_labels.get(source, source)
+            lines.append(f"  {label:15} {bar:40} {count:4} ({pct:5.1f}%)")
+
+    return "\n".join(lines)
 
 
 def format_param_trace(
