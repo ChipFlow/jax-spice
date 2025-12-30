@@ -2128,6 +2128,46 @@ class CircuitEngine:
 
         return TransientResult(times=times, voltages=voltages, stats=stats)
 
+    def _get_dc_source_values(
+        self, n_vsources: int, n_isources: int
+    ) -> Tuple[jax.Array, jax.Array]:
+        """Extract DC values from voltage and current sources.
+
+        Args:
+            n_vsources: Number of voltage sources
+            n_isources: Number of current sources
+
+        Returns:
+            Tuple of (vsource_dc_vals, isource_dc_vals) as JAX arrays
+        """
+        vsource_dc_vals = jnp.zeros(n_vsources, dtype=jnp.float64)
+        isource_dc_vals = jnp.zeros(n_isources, dtype=jnp.float64)
+
+        vsource_idx = 0
+        isource_idx = 0
+        for dev in self.devices:
+            if dev['model'] == 'vsource':
+                dc_val = dev['params'].get('dc', 0.0)
+                vsource_dc_vals = vsource_dc_vals.at[vsource_idx].set(float(dc_val))
+                vsource_idx += 1
+            elif dev['model'] == 'isource':
+                source_type = str(dev['params'].get('type', 'dc')).lower()
+                dc_val = dev['params'].get('val0' if source_type == 'pulse' else 'dc', 0.0)
+                isource_dc_vals = isource_dc_vals.at[isource_idx].set(float(dc_val))
+                isource_idx += 1
+
+        return vsource_dc_vals, isource_dc_vals
+
+    def _get_vdd_value(self) -> float:
+        """Find the maximum DC voltage from voltage sources (VDD)."""
+        vdd_value = 0.0
+        for dev in self.devices:
+            if dev['model'] == 'vsource':
+                dc_val = dev['params'].get('dc', 0.0)
+                if dc_val > vdd_value:
+                    vdd_value = dc_val
+        return vdd_value
+
     def _compute_dc_operating_point(self, n_nodes: int, n_vsources: int, n_isources: int,
                                      nr_solve: Callable, backend: str = "cpu",
                                      use_dense: bool = True,
@@ -2161,13 +2201,7 @@ class CircuitEngine:
         logger.info("Computing DC operating point with homotopy chain...")
 
         # Find VDD value from voltage sources
-        vdd_value = 0.0
-        for dev in self.devices:
-            if dev['model'] == 'vsource':
-                params = dev['params']
-                dc_val = params.get('dc', 0.0)
-                if dc_val > vdd_value:
-                    vdd_value = dc_val
+        vdd_value = self._get_vdd_value()
 
         # Initialize V with a good starting point for convergence
         mid_rail = vdd_value / 2.0
@@ -2218,21 +2252,7 @@ class CircuitEngine:
         logger.debug(f"  Initial V: ground=0V, VDD={vdd_value}V, others={mid_rail}V")
 
         # Get DC source values
-        vsource_dc_vals = jnp.zeros(n_vsources, dtype=jnp.float64)
-        isource_dc_vals = jnp.zeros(n_isources, dtype=jnp.float64)
-
-        vsource_idx = 0
-        isource_idx = 0
-        for dev in self.devices:
-            if dev['model'] == 'vsource':
-                dc_val = dev['params'].get('dc', 0.0)
-                vsource_dc_vals = vsource_dc_vals.at[vsource_idx].set(float(dc_val))
-                vsource_idx += 1
-            elif dev['model'] == 'isource':
-                source_type = str(dev['params'].get('type', 'dc')).lower()
-                dc_val = dev['params'].get('val0' if source_type == 'pulse' else 'dc', 0.0)
-                isource_dc_vals = isource_dc_vals.at[isource_idx].set(float(dc_val))
-                isource_idx += 1
+        vsource_dc_vals, isource_dc_vals = self._get_dc_source_values(n_vsources, n_isources)
 
         n_unknowns = n_nodes - 1
 
@@ -3788,21 +3808,7 @@ class CircuitEngine:
         source_device_data = self._prepare_source_devices_coo(source_devices, ground, n_unknowns)
 
         # Get DC source values
-        vsource_dc_vals = jnp.zeros(n_vsources, dtype=jnp.float64)
-        isource_dc_vals = jnp.zeros(n_isources, dtype=jnp.float64)
-
-        vsource_idx = 0
-        isource_idx = 0
-        for dev in self.devices:
-            if dev['model'] == 'vsource':
-                dc_val = dev['params'].get('dc', 0.0)
-                vsource_dc_vals = vsource_dc_vals.at[vsource_idx].set(float(dc_val))
-                vsource_idx += 1
-            elif dev['model'] == 'isource':
-                source_type = str(dev['params'].get('type', 'dc')).lower()
-                dc_val = dev['params'].get('val0' if source_type == 'pulse' else 'dc', 0.0)
-                isource_dc_vals = isource_dc_vals.at[isource_idx].set(float(dc_val))
-                isource_idx += 1
+        vsource_dc_vals, isource_dc_vals = self._get_dc_source_values(n_vsources, n_isources)
 
         # Build DC system builder
         build_residual_fn, build_jacobian_fn = self._make_dc_homotopy_builders(
@@ -3836,8 +3842,7 @@ class CircuitEngine:
         )
 
         # Initialize V (including internal nodes)
-        vdd_value = max((dev['params'].get('dc', 0.0) for dev in self.devices
-                        if dev['model'] == 'vsource'), default=1.0)
+        vdd_value = self._get_vdd_value() or 1.0  # Default to 1.0 if no vsources
         mid_rail = vdd_value / 2.0
         V_dc = jnp.full(n_total, mid_rail, dtype=jnp.float64)
         V_dc = V_dc.at[0].set(0.0)
