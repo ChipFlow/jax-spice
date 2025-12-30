@@ -7,8 +7,10 @@ profile_gpu.py, compare_vacask.py, and test files.
 from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Optional, Tuple
-import os
 import sys
+
+# Re-export find_vacask_binary from jax_spice.utils to avoid duplication
+from jax_spice.utils import find_vacask_binary
 
 
 @dataclass
@@ -61,46 +63,6 @@ def get_vacask_benchmarks(names: Optional[List[str]] = None) -> List[Tuple[str, 
             benchmarks.append((name, sim_path))
 
     return benchmarks
-
-
-def find_vacask_binary() -> Optional[Path]:
-    """Find the VACASK binary for comparison benchmarks.
-
-    Checks in order:
-    1. VACASK_BIN environment variable
-    2. vendor/VACASK/build/simulator/vacask (relative to project root)
-    3. Common build locations
-
-    Returns:
-        Path to vacask binary if found, None otherwise.
-    """
-    # Check environment variable first
-    if env_path := os.environ.get('VACASK_BIN'):
-        path = Path(env_path)
-        if path.exists() and path.is_file():
-            return path
-
-    # Find project root
-    script_dir = Path(__file__).parent
-    project_root = script_dir.parent
-
-    # Check vendor build directory
-    vendor_path = project_root / "vendor" / "VACASK" / "build" / "simulator" / "vacask"
-    if vendor_path.exists():
-        return vendor_path
-
-    # Check common build locations
-    common_paths = [
-        project_root / "build" / "vacask",
-        Path.home() / "bin" / "vacask",
-        Path("/usr/local/bin/vacask"),
-    ]
-
-    for path in common_paths:
-        if path.exists() and path.is_file():
-            return path
-
-    return None
 
 
 def log(msg: str = "", end: str = "\n") -> None:
