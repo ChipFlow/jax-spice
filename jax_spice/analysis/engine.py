@@ -2261,8 +2261,9 @@ class CircuitEngine:
 
         # Check if we have the data needed for homotopy
         if source_device_data is not None and vmapped_fns is not None and static_inputs_cache is not None:
-            # Use homotopy chain
-            build_residual_fn, build_jacobian_fn = self._make_dc_homotopy_builders(
+            # Use homotopy chain with parameterized residual function
+            # This avoids creating new closures per parameter combo (reduces recompilation)
+            residual_fn = self._make_dc_homotopy_fns(
                 source_device_data, vmapped_fns, static_inputs_cache,
                 n_unknowns, vsource_dc_vals, isource_dc_vals, noi_indices
             )
@@ -2295,9 +2296,11 @@ class CircuitEngine:
 
             # First try direct NR without homotopy (works for well-initialized circuits)
             logger.info("  Trying direct NR solver first...")
-            residual_fn = build_residual_fn(1.0, 1e-12, 0.0)  # source_scale=1, gmin=base, no gshunt
-            jacobian_fn = build_jacobian_fn(1.0, 1e-12, 0.0)
-            direct_result = newton_solve(residual_fn, jacobian_fn, V, nr_config)
+            # Create wrapper with fixed parameters for direct solve
+            def direct_res_fn(v):
+                return residual_fn(v, 1.0, 1e-12, 0.0)  # source_scale=1, gmin=base, no gshunt
+            direct_jac_fn = jax.jacfwd(direct_res_fn)
+            direct_result = newton_solve(direct_res_fn, direct_jac_fn, V, nr_config)
 
             if direct_result.converged:
                 V = direct_result.V
@@ -2307,7 +2310,7 @@ class CircuitEngine:
                 # Fall back to homotopy chain
                 logger.info("  Direct NR failed, trying homotopy chain...")
                 result = run_homotopy_chain(
-                    build_residual_fn, build_jacobian_fn, V, homotopy_config, nr_config
+                    residual_fn, V, homotopy_config, nr_config
                 )
 
                 if result.converged:
@@ -3111,7 +3114,7 @@ class CircuitEngine:
 
         return build_system
 
-    def _make_dc_homotopy_builders(
+    def _make_dc_homotopy_fns(
         self,
         source_device_data: Dict[str, Any],
         vmapped_fns: Dict[str, Callable],
@@ -3120,12 +3123,11 @@ class CircuitEngine:
         vsource_dc_vals: jax.Array,
         isource_dc_vals: jax.Array,
         noi_indices: Optional[jax.Array] = None,
-    ) -> Tuple[Callable, Callable]:
-        """Create residual and jacobian builder functions for DC homotopy.
+    ) -> Callable:
+        """Create parameterized residual function for DC homotopy.
 
-        Returns functions compatible with the homotopy module interface:
-        - build_residual_fn(source_scale, gmin, gshunt) -> residual_fn(V)
-        - build_jacobian_fn(source_scale, gmin, gshunt) -> jacobian_fn(V)
+        Returns a single function that takes homotopy parameters as explicit
+        arguments, avoiding closure-per-parameter-combo recompilation.
 
         Args:
             source_device_data: Pre-computed source device stamp templates
@@ -3137,7 +3139,7 @@ class CircuitEngine:
             noi_indices: Optional array of NOI node indices
 
         Returns:
-            Tuple of (build_residual_fn, build_jacobian_fn)
+            residual_fn(V, source_scale, gmin, gshunt) -> residual
         """
         model_types = list(static_inputs_cache.keys())
 
@@ -3147,109 +3149,99 @@ class CircuitEngine:
         else:
             noi_res_idx = None
 
-        def build_residual_fn(source_scale: float, gmin: float, gshunt: float):
-            """Build residual function with homotopy parameters."""
+        def residual_fn(V: jax.Array, source_scale: float, gmin: float, gshunt: float) -> jax.Array:
+            """Compute residual f(V) for DC analysis with homotopy aids."""
+            f_parts = []
 
-            def residual_fn(V: jax.Array) -> jax.Array:
-                """Compute residual f(V) for DC analysis with homotopy aids."""
-                f_parts = []
+            # === Source devices contribution ===
+            # Scale voltage source values by source_scale
+            if 'vsource' in source_device_data and vsource_dc_vals.size > 0:
+                d = source_device_data['vsource']
+                G = 1e12
+                Vp, Vn = V[d['node_p']], V[d['node_n']]
+                scaled_vsource = vsource_dc_vals * source_scale
+                I = G * (Vp - Vn - scaled_vsource)
 
-                # === Source devices contribution ===
-                # Scale voltage source values by source_scale
-                if 'vsource' in source_device_data and vsource_dc_vals.size > 0:
-                    d = source_device_data['vsource']
-                    G = 1e12
-                    Vp, Vn = V[d['node_p']], V[d['node_n']]
-                    scaled_vsource = vsource_dc_vals * source_scale
-                    I = G * (Vp - Vn - scaled_vsource)
+                f_vals = I[:, None] * d['f_signs'][None, :]
+                f_idx = d['f_indices'].ravel()
+                f_val = f_vals.ravel()
+                f_valid = f_idx >= 0
+                f_parts.append((jnp.where(f_valid, f_idx, 0), jnp.where(f_valid, f_val, 0.0)))
 
-                    f_vals = I[:, None] * d['f_signs'][None, :]
-                    f_idx = d['f_indices'].ravel()
-                    f_val = f_vals.ravel()
-                    f_valid = f_idx >= 0
-                    f_parts.append((jnp.where(f_valid, f_idx, 0), jnp.where(f_valid, f_val, 0.0)))
+            # Current sources (also scaled)
+            if 'isource' in source_device_data and isource_dc_vals.size > 0:
+                d = source_device_data['isource']
+                scaled_isource = isource_dc_vals * source_scale
+                f_vals = scaled_isource[:, None] * jnp.array([1.0, -1.0])[None, :]
+                f_idx = d['f_indices'].ravel()
+                f_val = f_vals.ravel()
+                f_valid = f_idx >= 0
+                f_parts.append((jnp.where(f_valid, f_idx, 0), jnp.where(f_valid, f_val, 0.0)))
 
-                # Current sources (also scaled)
-                if 'isource' in source_device_data and isource_dc_vals.size > 0:
-                    d = source_device_data['isource']
-                    scaled_isource = isource_dc_vals * source_scale
-                    f_vals = scaled_isource[:, None] * jnp.array([1.0, -1.0])[None, :]
-                    f_idx = d['f_indices'].ravel()
-                    f_val = f_vals.ravel()
-                    f_valid = f_idx >= 0
-                    f_parts.append((jnp.where(f_valid, f_idx, 0), jnp.where(f_valid, f_val, 0.0)))
+            # === OpenVAF devices contribution ===
+            for model_type in model_types:
+                static_inputs, voltage_indices, stamp_indices, voltage_node1, voltage_node2, cache, _ = \
+                    static_inputs_cache[model_type]
+                vmapped_fn = vmapped_fns[model_type]
 
-                # === OpenVAF devices contribution ===
-                for model_type in model_types:
-                    static_inputs, voltage_indices, stamp_indices, voltage_node1, voltage_node2, cache, _ = \
-                        static_inputs_cache[model_type]
-                    vmapped_fn = vmapped_fns[model_type]
+                voltage_updates = V[voltage_node1] - V[voltage_node2]
+                batch_inputs = static_inputs.at[:, jnp.array(voltage_indices)].set(voltage_updates)
 
-                    voltage_updates = V[voltage_node1] - V[voltage_node2]
-                    batch_inputs = static_inputs.at[:, jnp.array(voltage_indices)].set(voltage_updates)
+                # Update analysis_type and gmin columns if this model uses them
+                # When uses_analysis is True: analysis_type at [-2], gmin at [-1]
+                # When only uses_simparam_gmin: gmin at [-1]
+                uses_analysis = self._compiled_models.get(model_type, {}).get('uses_analysis', False)
+                uses_simparam_gmin = self._compiled_models.get(model_type, {}).get('uses_simparam_gmin', False)
+                if uses_analysis:
+                    # Set analysis_type=0 (DC) at inputs[-2], gmin at inputs[-1]
+                    batch_inputs = batch_inputs.at[:, -2].set(0.0)  # DC analysis
+                    batch_inputs = batch_inputs.at[:, -1].set(gmin)
+                elif uses_simparam_gmin:
+                    # Only gmin at inputs[-1]
+                    batch_inputs = batch_inputs.at[:, -1].set(gmin)
 
-                    # Update analysis_type and gmin columns if this model uses them
-                    # When uses_analysis is True: analysis_type at [-2], gmin at [-1]
-                    # When only uses_simparam_gmin: gmin at [-1]
-                    uses_analysis = self._compiled_models.get(model_type, {}).get('uses_analysis', False)
-                    uses_simparam_gmin = self._compiled_models.get(model_type, {}).get('uses_simparam_gmin', False)
-                    if uses_analysis:
-                        # Set analysis_type=0 (DC) at inputs[-2], gmin at inputs[-1]
-                        batch_inputs = batch_inputs.at[:, -2].set(0.0)  # DC analysis
-                        batch_inputs = batch_inputs.at[:, -1].set(gmin)
-                    elif uses_simparam_gmin:
-                        # Only gmin at inputs[-1]
-                        batch_inputs = batch_inputs.at[:, -1].set(gmin)
-
-                    vmapped_eval_with_cache = vmapped_fns.get(model_type + '_with_cache')
-                    if vmapped_eval_with_cache is not None and cache.size > 0:
-                        batch_res_resist, batch_res_react, _, _ = vmapped_eval_with_cache(batch_inputs, cache)
-                    else:
-                        batch_res_resist, batch_res_react, _, _ = vmapped_fn(batch_inputs)
-
-                    # Resistive residuals only (DC analysis)
-                    res_idx = stamp_indices['res_indices']
-                    flat_res_idx = res_idx.ravel()
-                    flat_res_val = batch_res_resist.ravel()
-                    valid_res = flat_res_idx >= 0
-                    flat_res_idx_masked = jnp.where(valid_res, flat_res_idx, 0)
-                    flat_res_masked = jnp.where(valid_res, flat_res_val, 0.0)
-                    flat_res_masked = jnp.where(jnp.isnan(flat_res_masked), 0.0, flat_res_masked)
-                    f_parts.append((flat_res_idx_masked, flat_res_masked))
-
-                # === Assemble residual vector ===
-                if f_parts:
-                    all_f_idx = jnp.concatenate([p[0] for p in f_parts])
-                    all_f_val = jnp.concatenate([p[1] for p in f_parts])
-                    f = jax.ops.segment_sum(all_f_val, all_f_idx, num_segments=n_unknowns)
+                vmapped_eval_with_cache = vmapped_fns.get(model_type + '_with_cache')
+                if vmapped_eval_with_cache is not None and cache.size > 0:
+                    batch_res_resist, batch_res_react, _, _ = vmapped_eval_with_cache(batch_inputs, cache)
                 else:
-                    f = jnp.zeros(n_unknowns, dtype=jnp.float64)
+                    batch_res_resist, batch_res_react, _, _ = vmapped_fn(batch_inputs)
 
-                # === Add GMIN contribution (to all nodes) ===
-                # GMIN adds current gmin * V[i] to each non-ground node
-                # V[1:] are the non-ground node voltages
-                V_nonground = V[1:]
-                f = f + gmin * V_nonground
+                # Resistive residuals only (DC analysis)
+                res_idx = stamp_indices['res_indices']
+                flat_res_idx = res_idx.ravel()
+                flat_res_val = batch_res_resist.ravel()
+                valid_res = flat_res_idx >= 0
+                flat_res_idx_masked = jnp.where(valid_res, flat_res_idx, 0)
+                flat_res_masked = jnp.where(valid_res, flat_res_val, 0.0)
+                flat_res_masked = jnp.where(jnp.isnan(flat_res_masked), 0.0, flat_res_masked)
+                f_parts.append((flat_res_idx_masked, flat_res_masked))
 
-                # === Add GSHUNT contribution ===
-                # GSHUNT is a shunt conductance to ground: I = gshunt * V
-                if gshunt > 0:
-                    f = f + gshunt * V_nonground
+            # === Assemble residual vector ===
+            if f_parts:
+                all_f_idx = jnp.concatenate([p[0] for p in f_parts])
+                all_f_val = jnp.concatenate([p[1] for p in f_parts])
+                f = jax.ops.segment_sum(all_f_val, all_f_idx, num_segments=n_unknowns)
+            else:
+                f = jnp.zeros(n_unknowns, dtype=jnp.float64)
 
-                # Mask NOI residuals (they have 1e40 conductance)
-                if noi_res_idx is not None:
-                    f = f.at[noi_res_idx].set(0.0)
+            # === Add GMIN contribution (to all nodes) ===
+            # GMIN adds current gmin * V[i] to each non-ground node
+            # V[1:] are the non-ground node voltages
+            V_nonground = V[1:]
+            f = f + gmin * V_nonground
 
-                return f
+            # === Add GSHUNT contribution ===
+            # GSHUNT is a shunt conductance to ground: I = gshunt * V
+            if gshunt > 0:
+                f = f + gshunt * V_nonground
 
-            return residual_fn
+            # Mask NOI residuals (they have 1e40 conductance)
+            if noi_res_idx is not None:
+                f = f.at[noi_res_idx].set(0.0)
 
-        def build_jacobian_fn(source_scale: float, gmin: float, gshunt: float):
-            """Build jacobian function using autodiff."""
-            residual_fn = build_residual_fn(source_scale, gmin, gshunt)
-            return jax.jacfwd(residual_fn)
+            return f
 
-        return build_residual_fn, build_jacobian_fn
+        return residual_fn
 
     def _make_jit_compiled_solver(
         self,
@@ -3816,8 +3808,8 @@ class CircuitEngine:
         # Get DC source values
         vsource_dc_vals, isource_dc_vals = self._get_dc_source_values(n_vsources, n_isources)
 
-        # Build DC system builder
-        build_residual_fn, build_jacobian_fn = self._make_dc_homotopy_builders(
+        # Build DC system with parameterized residual function
+        residual_fn = self._make_dc_homotopy_fns(
             source_device_data, vmapped_fns, static_inputs_cache,
             n_unknowns, vsource_dc_vals, isource_dc_vals, None
         )
@@ -3855,8 +3847,7 @@ class CircuitEngine:
 
         # Run homotopy to find DC operating point
         result = run_homotopy_chain(
-            build_residual_fn=build_residual_fn,
-            build_jacobian_fn=build_jacobian_fn,
+            residual_fn=residual_fn,
             V_init=V_dc,
             config=homotopy_config,
             nr_config=nr_config,

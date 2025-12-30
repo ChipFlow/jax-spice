@@ -10,6 +10,12 @@ The default homotopy chain is: gdev -> gshunt -> src
 - src: Source stepping from 0->100% (with GMIN fallback at factor=0)
 
 Reference: VACASK lib/hmtpgmin.cpp and lib/hmtpsrc.cpp
+
+Note on interface design:
+The residual function uses explicit parameters (V, source_scale, gmin, gshunt)
+rather than closure factories (build_residual_fn(params) -> residual_fn(V)).
+This avoids creating a new closure for each parameter combination, which
+would cause JAX to retrace/recompile for each unique closure.
 """
 
 from __future__ import annotations
@@ -17,6 +23,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Callable, Tuple, Optional
 
+import jax
 import jax.numpy as jnp
 from jax import Array
 
@@ -75,9 +82,9 @@ def _debug_print(config: HomotopyConfig, level: int, msg: str) -> None:
 
 
 def gmin_stepping(
-    build_residual_fn: Callable[[float, float], Callable],
-    build_jacobian_fn: Callable[[float, float], Callable],
+    residual_fn: Callable[[Array, float, float, float], Array],
     V_init: Array,
+    source_scale: float,
     config: HomotopyConfig,
     nr_config: NRConfig,
     mode: str = "gdev",
@@ -89,9 +96,9 @@ def gmin_stepping(
     convergence behavior.
 
     Args:
-        build_residual_fn: Function (gmin, gshunt) -> residual_fn
-        build_jacobian_fn: Function (gmin, gshunt) -> jacobian_fn
+        residual_fn: Function (V, source_scale, gmin, gshunt) -> residual
         V_init: Initial voltage guess
+        source_scale: Fixed source scaling factor for this stepping
         config: Homotopy configuration
         nr_config: Newton-Raphson configuration
         mode: "gdev" (device GMIN) or "gshunt" (shunt to ground)
@@ -124,14 +131,17 @@ def gmin_stepping(
             effective_gmin = float(config.gmin)
             gshunt = float(at_gmin)
 
-        _debug_print(config, 2, f"  [step {step}] Building residual fn (gmin={effective_gmin:.2e}, gshunt={gshunt:.2e})")
-        residual_fn = build_residual_fn(effective_gmin, gshunt)
-        _debug_print(config, 2, f"  [step {step}] Building jacobian fn")
-        jacobian_fn = build_jacobian_fn(effective_gmin, gshunt)
+        _debug_print(config, 2, f"  [step {step}] gmin={effective_gmin:.2e}, gshunt={gshunt:.2e}")
+
+        # Create wrapper with fixed parameters for this step
+        # Use default arg capture to avoid late binding issues
+        def res_fn(v, ss=source_scale, gm=effective_gmin, gs=gshunt):
+            return residual_fn(v, ss, gm, gs)
+        jac_fn = jax.jacfwd(res_fn)
 
         # Run NR solver
         _debug_print(config, 2, f"  [step {step}] Running NR solver...")
-        result = newton_solve(residual_fn, jacobian_fn, V, nr_config)
+        result = newton_solve(res_fn, jac_fn, V, nr_config)
         _debug_print(config, 2, f"  [step {step}] NR solver returned")
         total_iterations += result.iterations
 
@@ -208,9 +218,10 @@ def gmin_stepping(
 
     # Final solve at original gmin (VACASK hmtpgmin.cpp lines 157-172)
     if continuation:
-        residual_fn = build_residual_fn(float(config.gmin), 0.0)
-        jacobian_fn = build_jacobian_fn(float(config.gmin), 0.0)
-        result = newton_solve(residual_fn, jacobian_fn, V_good, nr_config)
+        def final_res_fn(v, ss=source_scale, gm=float(config.gmin), gs=0.0):
+            return residual_fn(v, ss, gm, gs)
+        final_jac_fn = jax.jacfwd(final_res_fn)
+        result = newton_solve(final_res_fn, final_jac_fn, V_good, nr_config)
         total_iterations += result.iterations
         homotopy_steps += 1
 
@@ -241,8 +252,7 @@ def gmin_stepping(
 
 
 def source_stepping(
-    build_residual_fn: Callable[[float, float, float], Callable],
-    build_jacobian_fn: Callable[[float, float, float], Callable],
+    residual_fn: Callable[[Array, float, float, float], Array],
     V_init: Array,
     config: HomotopyConfig,
     nr_config: NRConfig,
@@ -254,8 +264,7 @@ def source_stepping(
     GMIN stepping first.
 
     Args:
-        build_residual_fn: Function (source_scale, gmin, gshunt) -> residual_fn
-        build_jacobian_fn: Function (source_scale, gmin, gshunt) -> jacobian_fn
+        residual_fn: Function (V, source_scale, gmin, gshunt) -> residual
         V_init: Initial voltage guess
         config: Homotopy configuration
         nr_config: Newton-Raphson configuration
@@ -273,9 +282,10 @@ def source_stepping(
     _debug_print(config, 1, "Homotopy: Starting source stepping")
 
     # Initial solve at source_factor=0 (VACASK hmtpsrc.cpp lines 64-69)
-    residual_fn = build_residual_fn(0.0, float(config.gmin), 0.0)
-    jacobian_fn = build_jacobian_fn(0.0, float(config.gmin), 0.0)
-    result = newton_solve(residual_fn, jacobian_fn, V, nr_config)
+    def init_res_fn(v, ss=0.0, gm=float(config.gmin), gs=0.0):
+        return residual_fn(v, ss, gm, gs)
+    init_jac_fn = jax.jacfwd(init_res_fn)
+    result = newton_solve(init_res_fn, init_jac_fn, V, nr_config)
     total_iterations += result.iterations
     homotopy_steps += 1
 
@@ -290,19 +300,12 @@ def source_stepping(
         # Fallback to GMIN stepping at source_factor=0 (VACASK hmtpsrc.cpp lines 71-88)
         _debug_print(config, 1, "Homotopy: Trying gdev stepping at source_factor=0")
 
-        # Build gmin-parameterized functions for source_scale=0
-        def build_residual_with_gmin(gmin: float, gshunt: float) -> Callable:
-            return build_residual_fn(0.0, gmin, gshunt)
-
-        def build_jacobian_with_gmin(gmin: float, gshunt: float) -> Callable:
-            return build_jacobian_fn(0.0, gmin, gshunt)
-
         gmin_result = gmin_stepping(
-            build_residual_with_gmin,
-            build_jacobian_with_gmin,
+            residual_fn,
             V,
-            config,
-            nr_config,
+            source_scale=0.0,  # Fixed at 0 for GMIN stepping fallback
+            config=config,
+            nr_config=nr_config,
             mode="gdev",
         )
         total_iterations += gmin_result.iterations
@@ -311,11 +314,11 @@ def source_stepping(
         if not gmin_result.converged:
             _debug_print(config, 1, "Homotopy: Trying gshunt stepping at source_factor=0")
             gmin_result = gmin_stepping(
-                build_residual_with_gmin,
-                build_jacobian_with_gmin,
+                residual_fn,
                 V,
-                config,
-                nr_config,
+                source_scale=0.0,
+                config=config,
+                nr_config=nr_config,
                 mode="gshunt",
             )
             total_iterations += gmin_result.iterations
@@ -342,9 +345,11 @@ def source_stepping(
     for step in range(config.source_max_steps):
         new_factor = min(good_factor + raise_step, 1.0)
 
-        residual_fn = build_residual_fn(float(new_factor), float(config.gmin), 0.0)
-        jacobian_fn = build_jacobian_fn(float(new_factor), float(config.gmin), 0.0)
-        result = newton_solve(residual_fn, jacobian_fn, V_good, nr_config)
+        # Create wrapper with fixed parameters for this step
+        def step_res_fn(v, ss=float(new_factor), gm=float(config.gmin), gs=0.0):
+            return residual_fn(v, ss, gm, gs)
+        step_jac_fn = jax.jacfwd(step_res_fn)
+        result = newton_solve(step_res_fn, step_jac_fn, V_good, nr_config)
         total_iterations += result.iterations
         homotopy_steps += 1
 
@@ -401,8 +406,7 @@ def source_stepping(
 
 
 def run_homotopy_chain(
-    build_residual_fn: Callable,
-    build_jacobian_fn: Callable,
+    residual_fn: Callable[[Array, float, float, float], Array],
     V_init: Array,
     config: HomotopyConfig,
     nr_config: NRConfig,
@@ -412,8 +416,7 @@ def run_homotopy_chain(
     Tries each algorithm in sequence until one succeeds.
 
     Args:
-        build_residual_fn: Function (source_scale, gmin, gshunt) -> residual_fn
-        build_jacobian_fn: Function (source_scale, gmin, gshunt) -> jacobian_fn
+        residual_fn: Function (V, source_scale, gmin, gshunt) -> residual
         V_init: Initial voltage guess
         config: Homotopy configuration
         nr_config: Newton-Raphson configuration
@@ -431,41 +434,26 @@ def run_homotopy_chain(
         _debug_print(config, 1, f"Homotopy: Trying {algorithm}")
 
         if algorithm == "gdev":
-            # Build gmin-only parameterized functions (source_scale=1.0)
-            def build_residual_gmin(gmin: float, gshunt: float) -> Callable:
-                return build_residual_fn(1.0, gmin, gshunt)
-
-            def build_jacobian_gmin(gmin: float, gshunt: float) -> Callable:
-                return build_jacobian_fn(1.0, gmin, gshunt)
-
             result = gmin_stepping(
-                build_residual_gmin,
-                build_jacobian_gmin,
+                residual_fn,
                 V,
-                config,
-                nr_config,
+                source_scale=1.0,  # Full sources for GMIN-only stepping
+                config=config,
+                nr_config=nr_config,
                 mode="gdev",
             )
         elif algorithm == "gshunt":
-            # Build gshunt-only parameterized functions (source_scale=1.0)
-            def build_residual_gshunt(gmin: float, gshunt: float) -> Callable:
-                return build_residual_fn(1.0, gmin, gshunt)
-
-            def build_jacobian_gshunt(gmin: float, gshunt: float) -> Callable:
-                return build_jacobian_fn(1.0, gmin, gshunt)
-
             result = gmin_stepping(
-                build_residual_gshunt,
-                build_jacobian_gshunt,
+                residual_fn,
                 V,
-                config,
-                nr_config,
+                source_scale=1.0,  # Full sources for GSHUNT-only stepping
+                config=config,
+                nr_config=nr_config,
                 mode="gshunt",
             )
         elif algorithm == "src":
             result = source_stepping(
-                build_residual_fn,
-                build_jacobian_fn,
+                residual_fn,
                 V,
                 config,
                 nr_config,
