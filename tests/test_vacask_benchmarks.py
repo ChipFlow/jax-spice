@@ -22,6 +22,7 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from jax_spice.analysis import CircuitEngine
+from jax_spice.utils import find_vacask_binary, rawread
 
 
 # Benchmark paths
@@ -404,36 +405,6 @@ class TestNodeCountComparison:
     """
 
     @staticmethod
-    def find_vacask_binary() -> Path | None:
-        """Find VACASK simulator binary."""
-        import shutil
-        import os
-
-        # Check environment variable
-        env_path = os.environ.get("VACASK_BIN")
-        if env_path and Path(env_path).exists():
-            return Path(env_path)
-
-        # Check common build locations relative to jax-spice
-        project_root = Path(__file__).parent.parent
-        candidates = [
-            project_root / "vendor" / "VACASK" / "build" / "simulator" / "vacask",
-            project_root / "vendor" / "VACASK" / "build.VACASK" / "Release" / "simulator" / "vacask",
-            project_root / "vendor" / "VACASK" / "build.VACASK" / "Debug" / "simulator" / "vacask",
-        ]
-
-        for candidate in candidates:
-            if candidate.exists():
-                return candidate
-
-        # Check system PATH
-        found = shutil.which("vacask")
-        if found:
-            return Path(found)
-
-        return None
-
-    @staticmethod
     def get_vacask_node_count(vacask_bin: Path, benchmark: str, timeout: int = 600) -> int:
         """Run VACASK on benchmark and extract node count from 'print stats'.
 
@@ -481,7 +452,7 @@ class TestNodeCountComparison:
     @pytest.fixture
     def vacask_bin(self):
         """Get VACASK binary path, skip if not available."""
-        binary = self.find_vacask_binary()
+        binary = find_vacask_binary()
         if binary is None:
             pytest.skip("VACASK binary not found. Set VACASK_BIN env var or build VACASK.")
         return binary
@@ -750,36 +721,6 @@ BENCHMARK_SPECS = {
 }
 
 
-def find_vacask_binary() -> Path | None:
-    """Find VACASK simulator binary."""
-    import shutil
-    import os
-
-    # Check environment variable
-    env_path = os.environ.get("VACASK_BIN")
-    if env_path and Path(env_path).exists():
-        return Path(env_path)
-
-    # Check common build locations relative to jax-spice
-    project_root = Path(__file__).parent.parent
-    candidates = [
-        project_root / "vendor" / "VACASK" / "build" / "simulator" / "vacask",
-        project_root / "vendor" / "VACASK" / "build.VACASK" / "Release" / "simulator" / "vacask",
-        project_root / "vendor" / "VACASK" / "build.VACASK" / "Debug" / "simulator" / "vacask",
-    ]
-
-    for candidate in candidates:
-        if candidate.exists():
-            return candidate
-
-    # Check system PATH
-    found = shutil.which("vacask")
-    if found:
-        return Path(found)
-
-    return None
-
-
 def run_vacask_simulation(
     vacask_bin: Path, sim_path: Path, t_stop: float, dt: float
 ) -> dict:
@@ -791,13 +732,6 @@ def run_vacask_simulation(
     """
     import subprocess
     import re
-
-    # Add rawfile parser to path
-    rawfile_path = Path(__file__).parent.parent / "vendor" / "VACASK" / "python"
-    if str(rawfile_path) not in sys.path:
-        sys.path.insert(0, str(rawfile_path))
-
-    from rawfile import rawread
 
     sim_dir = sim_path.parent
 
