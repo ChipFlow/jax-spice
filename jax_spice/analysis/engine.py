@@ -471,6 +471,8 @@ class CircuitEngine:
         # Compile OpenVAF models if needed
         if self._has_openvaf_devices:
             self._compile_openvaf_models()
+            # Compute collapse decisions early using init_fn
+            self._compute_early_collapse_decisions()
 
     def _compile_openvaf_models(self, log_fn=None):
         """Compile OpenVAF models needed by the circuit.
@@ -616,6 +618,96 @@ class CircuitEngine:
             _COMPILED_MODEL_CACHE[model_type] = compiled
 
             log(f"  {model_type}: done ({len(module.param_names)} params, {len(module.nodes)} nodes)")
+
+    def _compute_early_collapse_decisions(self):
+        """Compute collapse decisions for all devices using OpenVAF init_fn.
+
+        This is called early (before _setup_internal_nodes) to determine which
+        node pairs should collapse for each device. Uses OpenVAF's generic
+        collapse mechanism instead of model-specific code.
+
+        Stores results in self._device_collapse_decisions: Dict[device_name, List[Tuple[int, int]]]
+        where each tuple is (node1_idx, node2_idx) that should be collapsed.
+        """
+        import jax.numpy as jnp
+
+        self._device_collapse_decisions: Dict[str, List[Tuple[int, int]]] = {}
+
+        # Group devices by model type
+        devices_by_type: Dict[str, List[Dict]] = {}
+        for dev in self.devices:
+            if dev.get('is_openvaf'):
+                model_type = dev['model']
+                devices_by_type.setdefault(model_type, []).append(dev)
+
+        for model_type, devs in devices_by_type.items():
+            compiled = self._compiled_models.get(model_type)
+            if not compiled:
+                continue
+
+            init_fn = compiled.get('init_fn')
+            if init_fn is None:
+                # No init function - use all collapsible pairs
+                collapsible_pairs = compiled.get('collapsible_pairs', [])
+                for dev in devs:
+                    self._device_collapse_decisions[dev['name']] = list(collapsible_pairs)
+                continue
+
+            # Get init parameters info
+            init_param_names = compiled.get('init_param_names', [])
+            init_param_defaults = compiled.get('init_param_defaults', {})
+            n_init_params = len(init_param_names)
+            collapsible_pairs = compiled.get('collapsible_pairs', [])
+
+            if n_init_params == 0:
+                # No init params - collapse decisions are constant
+                # Call init_fn once to get the decisions
+                try:
+                    _, collapse_decisions = init_fn(jnp.array([]))
+                    # Convert collapse decisions to pairs
+                    for dev in devs:
+                        pairs = []
+                        for i, (n1, n2) in enumerate(collapsible_pairs):
+                            if i < len(collapse_decisions) and float(collapse_decisions[i]) > 0.5:
+                                pairs.append((n1, n2))
+                        self._device_collapse_decisions[dev['name']] = pairs
+                except Exception as e:
+                    logger.warning(f"Error computing collapse decisions for {model_type}: {e}")
+                    for dev in devs:
+                        self._device_collapse_decisions[dev['name']] = list(collapsible_pairs)
+                continue
+
+            # Process each device individually
+            for dev in devs:
+                device_params = dev.get('params', {})
+
+                # Build init input array
+                init_inputs = []
+                for pname in init_param_names:
+                    pname_lower = pname.lower()
+                    if pname_lower in device_params:
+                        init_inputs.append(float(device_params[pname_lower]))
+                    elif pname_lower in init_param_defaults:
+                        init_inputs.append(float(init_param_defaults[pname_lower]))
+                    else:
+                        init_inputs.append(0.0)
+
+                try:
+                    # Call init_fn to get collapse decisions
+                    _, collapse_decisions = init_fn(jnp.array(init_inputs))
+
+                    # Convert collapse decisions to pairs
+                    pairs = []
+                    for i, (n1, n2) in enumerate(collapsible_pairs):
+                        if i < len(collapse_decisions) and float(collapse_decisions[i]) > 0.5:
+                            pairs.append((n1, n2))
+                    self._device_collapse_decisions[dev['name']] = pairs
+                except Exception as e:
+                    logger.warning(f"Error computing collapse for device {dev['name']}: {e}")
+                    # Fallback: use all collapsible pairs
+                    self._device_collapse_decisions[dev['name']] = list(collapsible_pairs)
+
+        logger.debug(f"Computed collapse decisions for {len(self._device_collapse_decisions)} devices")
 
     def _prepare_static_inputs(self, model_type: str, openvaf_devices: List[Dict],
                                 device_internal_nodes: Dict[str, Dict[str, int]],
@@ -1517,96 +1609,6 @@ class CircuitEngine:
     # while JAX-SPICE counts ground as node 0 in the total.
     # =========================================================================
 
-    def _get_psp103_collapse_pairs(self, device_params: Dict[str, float]) -> List[Tuple[int, int]]:
-        """Determine which PSP103 node pairs should collapse based on parameters.
-
-        PSP103 has 7 CollapsableR macro instances that control node collapse:
-        - (1, 5) G-GP: Controlled by RG_i (gate resistance)
-        - (2, 6) S-SI: Controlled by RSE_i (source resistance)
-        - (0, 7) D-DI: Controlled by RDE_i (drain resistance)
-        - (8, 9) BP-BI: Controlled by RBULK_i (bulk resistance)
-        - (10, 9) BS-BI: Controlled by RJUNS_i (source junction resistance)
-        - (11, 9) BD-BI: Controlled by RJUND_i (drain junction resistance)
-        - (3, 9) B-BI: Controlled by RWELL_i (well resistance)
-
-        The CollapsableR macro collapses when R=0: if (R > 0) I<+G*V else V<+0
-
-        Based on VACASK behavior analysis, even when all R=0, the B-BI pair (3,9)
-        doesn't collapse. This keeps BI as a separate internal node where BP/BS/BD
-        collapse to it, giving 2 internal nodes per device (NOI and BI).
-
-        Args:
-            device_params: Device instance parameters
-
-        Returns:
-            List of (node_idx, collapse_to_idx) pairs to apply
-        """
-        # PSP103 resistance parameters and their controlling pairs
-        # Format: (pair, resistance_params) where resistance is computed from params
-        # Using simplified checks - if any contributing param is non-zero, don't collapse
-        collapse_controls = [
-            ((1, 5), ['rgo', 'rint', 'rvpoly', 'rshg']),  # G-GP: RG_i
-            ((2, 6), ['nrs', 'rsh']),                      # S-SI: RSE_i = NRS * RSH_i
-            ((0, 7), ['nrd', 'rsh']),                      # D-DI: RDE_i = NRD * RSHD_i
-            ((8, 9), ['rbulko']),                          # BP-BI: RBULK_i = NF * RBULKO
-            ((10, 9), ['rjunso']),                         # BS-BI: RJUNS_i = NF * RJUNSO
-            ((11, 9), ['rjundo']),                         # BD-BI: RJUND_i = NF * RJUNDO
-            # Note: B-BI (3, 9) controlled by RWELL_i is intentionally excluded
-            # Based on VACASK behavior, this pair doesn't collapse even when RWELLO=0
-            # This keeps BI as a separate internal node
-        ]
-
-        pairs = []
-        for pair, param_names in collapse_controls:
-            # Check if all controlling parameters are effectively zero
-            should_collapse = True
-            for pname in param_names:
-                val = device_params.get(pname, 0.0)
-                if val != 0.0:
-                    should_collapse = False
-                    break
-
-            if should_collapse:
-                pairs.append(pair)
-
-        return pairs
-
-    def _get_model_collapse_pairs(self, model_type: str, model_params: Dict[str, float],
-                                     model_nodes: List[str]) -> List[Tuple[int, int]]:
-        """Get collapse pairs based on model definition and parameters.
-
-        Instead of blindly trusting OpenVAF's collapsible_pairs, we determine
-        which nodes should collapse based on our understanding of the model.
-
-        Args:
-            model_type: The model type (e.g., 'psp103', 'diode')
-            model_params: Model parameters dictionary
-            model_nodes: List of node names from the compiled model
-
-        Returns:
-            List of (node_idx, collapse_to_idx) pairs
-        """
-        # PSP103 uses parameter-dependent collapse logic
-        if model_type == 'psp103':
-            return self._get_psp103_collapse_pairs(model_params)
-
-        # For other models, use OpenVAF's collapsible_pairs
-        compiled = self._compiled_models.get(model_type)
-        if compiled:
-            return compiled.get('collapsible_pairs', [])
-
-        return []
-
-    def _get_model_params_for_collapse(self, model_type: str) -> Dict[str, float]:
-        """Get model parameters relevant for collapse decision.
-
-        Searches through devices to find model parameters.
-        """
-        for dev in self.devices:
-            if dev.get('model') == model_type and dev.get('is_openvaf'):
-                return dev.get('params', {})
-        return {}
-
     def _compute_collapse_roots(self, collapsible_pairs: List[Tuple[int, int]], n_nodes: int) -> Dict[int, int]:
         """Compute the collapse root for each node using union-find.
 
@@ -1655,8 +1657,8 @@ class CircuitEngine:
         Node collapse eliminates unnecessary internal nodes when model parameters
         indicate they should be merged (e.g., when resistance parameters are 0).
 
-        For PSP103, collapse decisions are made per-device based on device parameters.
-        For other models, collapse pairs are shared across all devices of that type.
+        Uses precomputed collapse decisions from _compute_early_collapse_decisions()
+        which calls OpenVAF's init_fn for each device to determine collapse behavior.
 
         Returns:
             (total_nodes, device_internal_nodes) where device_internal_nodes maps
@@ -1666,8 +1668,8 @@ class CircuitEngine:
         next_internal = n_external
         device_internal_nodes = {}
 
-        # Cache collapse roots for non-PSP103 models (shared across devices)
-        collapse_roots_cache: Dict[str, Dict[int, int]] = {}
+        # Cache collapse roots for devices with identical collapse patterns
+        collapse_roots_cache: Dict[Tuple[Tuple[int, int], ...], Dict[int, int]] = {}
 
         for dev in self.devices:
             if not dev.get('is_openvaf'):
@@ -1681,23 +1683,18 @@ class CircuitEngine:
             model_nodes = compiled['nodes']
             n_model_nodes = len(model_nodes)
 
-            # Get collapse pairs based on model definition and device parameters
-            # For PSP103, compute per-device to handle parameter variations
-            if model_type == 'psp103':
-                device_params = dev.get('params', {})
-                collapse_pairs = self._get_psp103_collapse_pairs(device_params)
-                collapse_roots = self._compute_collapse_roots(collapse_pairs, n_model_nodes)
-            else:
-                # Other models: cache collapse roots per model type
-                if model_type not in collapse_roots_cache:
-                    model_params = self._get_model_params_for_collapse(model_type)
-                    collapse_pairs = self._get_model_collapse_pairs(
-                        model_type, model_params, model_nodes
-                    )
-                    collapse_roots_cache[model_type] = self._compute_collapse_roots(
-                        collapse_pairs, n_model_nodes
-                    )
-                collapse_roots = collapse_roots_cache[model_type]
+            # Get precomputed collapse pairs from _compute_early_collapse_decisions()
+            # This uses OpenVAF's generic collapse mechanism
+            device_name = dev['name']
+            collapse_pairs = self._device_collapse_decisions.get(device_name, [])
+
+            # Cache collapse roots by pattern (most devices of same type will share)
+            pairs_key = tuple(sorted(collapse_pairs))
+            if pairs_key not in collapse_roots_cache:
+                collapse_roots_cache[pairs_key] = self._compute_collapse_roots(
+                    collapse_pairs, n_model_nodes
+                )
+            collapse_roots = collapse_roots_cache[pairs_key]
 
             # Determine if last node is a branch current node (skip it if so)
             # Branch current nodes have names like 'br[Branch(BranchId(N))]'
