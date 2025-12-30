@@ -10,7 +10,9 @@ on:
 env:
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: 0
-  SCCACHE_GHA_ENABLED: "true"
+  # Disabled sccache due to GitHub artifact cache outage (Dec 2025)
+  # Re-enable when service is restored
+  SCCACHE_GHA_ENABLED: "false"
   RUSTC_WRAPPER: "sccache"
 
 jobs:
