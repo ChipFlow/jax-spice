@@ -751,19 +751,25 @@ class CircuitEngine:
 
     def _prepare_static_inputs(self, model_type: str, openvaf_devices: List[Dict],
                                 device_internal_nodes: Dict[str, Dict[str, int]],
-                                ground: int) -> Tuple[jax.Array, List[int], List[Dict], jax.Array, jax.Array]:
-        """Prepare static (non-voltage) inputs for all devices once.
+                                ground: int) -> Tuple[List[int], List[Dict], jax.Array, jax.Array]:
+        """Prepare device inputs and generate split eval function.
 
-        This is called once per simulation and caches the static parameter values.
-        Only voltage parameters need to be updated each NR iteration.
+        This is called once per simulation. It analyzes parameter constancy across
+        devices and generates optimized split eval functions that separate constant
+        (shared) params from varying (per-device) params.
+
+        The full parameter array is built in numpy, analyzed, then only the needed
+        parts (shared_params, device_params, init_inputs) are converted to JAX.
 
         Returns:
-            (static_inputs, voltage_indices, device_contexts, cache, collapse_decisions) where:
-            - static_inputs is shape (num_devices, num_params) JAX array with static params
+            (voltage_indices, device_contexts, cache, collapse_decisions) where:
             - voltage_indices is list of param indices that are voltages
             - device_contexts is list of dicts with node_map, voltage_node_pairs for fast update
             - cache is shape (num_devices, cache_size) JAX array with init-computed values
             - collapse_decisions is shape (num_devices, num_collapsible) JAX array with collapse booleans
+
+        Side effects:
+            Stores in compiled dict: shared_params, device_params, vmapped_split_eval, etc.
         """
         logger.debug(f"Preparing static inputs for {model_type}")
 
@@ -775,7 +781,7 @@ class CircuitEngine:
         param_kinds = compiled['param_kinds']
         model_nodes = compiled['nodes']
 
-        logger.debug(f"  param_names = {param_names}")
+        logger.debug(f"  {len(param_names)} param_names")
         logger.debug(f"  {len(param_kinds)} param_kinds")
         logger.debug(f"  {len(model_nodes)} model_nodes")
 
@@ -913,62 +919,72 @@ class CircuitEngine:
             all_inputs = np.concatenate([all_inputs, gmin_column], axis=1)
             logger.debug(f"{model_type}: appended gmin column (uses_simparam_gmin=True)")
 
-        # Compute cache by calling init function
-        # Extract init inputs from all_inputs using init_to_eval mapping
-        static_inputs = jnp.asarray(all_inputs)
-        # Free the numpy array now that we have JAX copy - saves ~200MB for large circuits
-        del all_inputs
-        init_to_eval = compiled.get('init_to_eval_indices')
-        vmapped_init = compiled.get('vmapped_init')
-
-        if init_to_eval is not None and vmapped_init is not None:
-            logger.debug("Extracting init inputs")
-            # Extract init inputs: shape (n_devices, n_init_params)
-            init_inputs = static_inputs[:, init_to_eval]
-            # Compute cache and collapse decisions
-            # init_fn returns (cache, collapse_decisions) tuple
-            # Force CPU execution to avoid GPU JIT overhead - this is a one-time setup cost
-            # and the computation itself is small compared to the JIT compilation overhead on GPU
-            logger.info(f"Computing init cache for {model_type} ({n_devices} devices)...")
-            cpu_device = jax.devices('cpu')[0]
-            with jax.default_device(cpu_device):
-                cache, collapse_decisions = vmapped_init(init_inputs)
-            logger.info(f"Init cache computed for {model_type}: shape={cache.shape}")
-            logger.debug(f"Collapse decisions for {model_type}: shape={collapse_decisions.shape}")
-        else:
-            # Fallback for models without init function (e.g., resistor)
-            logger.debug("Model has no init function, inputs zeroed")
-            cache = jnp.empty((n_devices, 0), dtype=jnp.float64)
-            collapse_decisions = jnp.empty((n_devices, 0), dtype=jnp.float32)
-
-        # Analyze parameter constancy across devices and generate split function
-        # This optimization reduces HLO slice operations by separating constant from varying params
-        # Generate for any number of devices (for single device, all params are "constant")
-        if n_devices >= 1 and static_inputs.shape[1] > 0:
-            # Check which columns have identical values across all devices
-            first_row = static_inputs[0]
-            const_mask = jnp.all(static_inputs == first_row[None, :], axis=0)
+        # === Analyze parameter constancy in numpy (before any JAX conversion) ===
+        # This avoids creating a large JAX array just to analyze it
+        n_params_total = all_inputs.shape[1]
+        if n_devices >= 1 and n_params_total > 0:
+            # Check which columns have identical values across all devices (numpy)
+            first_row = all_inputs[0]
+            const_mask = np.all(all_inputs == first_row[None, :], axis=0)
 
             # Voltage columns vary per NR iteration, so mark them as varying
-            voltage_set = set(voltage_indices)
             for v_idx in voltage_indices:
                 if v_idx < len(const_mask):
-                    const_mask = const_mask.at[v_idx].set(False)
+                    const_mask[v_idx] = False
 
-            n_const = int(jnp.sum(const_mask))
-            n_varying = static_inputs.shape[1] - n_const
-            logger.info(f"{model_type} parameter analysis: {n_const}/{static_inputs.shape[1]} constant columns, "
+            n_const = int(np.sum(const_mask))
+            n_varying = n_params_total - n_const
+            logger.info(f"{model_type} parameter analysis: {n_const}/{n_params_total} constant columns, "
                        f"{n_varying} varying across {n_devices} devices")
 
             # Compute shared (constant) and varying indices
-            shared_indices = [int(i) for i in jnp.where(const_mask)[0]]
-            varying_indices_list = [int(i) for i in jnp.where(~const_mask)[0]]
+            shared_indices = list(np.where(const_mask)[0])
+            varying_indices_list = list(np.where(~const_mask)[0])
 
             # Log which parameters vary (for debugging)
             if n_varying > 0 and n_varying <= 30:
                 varying_names = [param_names[int(i)] if i < len(param_names) else f"col_{i}"
                                 for i in varying_indices_list]
                 logger.debug(f"{model_type} varying params: {varying_names}")
+
+            # === Extract only the needed arrays and convert to JAX ===
+            # This avoids creating a full (n_devices, n_params) JAX array
+
+            # Extract shared_params (constant) - just first row, shared columns
+            shared_params_np = all_inputs[0, shared_indices]
+            shared_params = jnp.asarray(shared_params_np)
+
+            # Extract device_params (varying) - all devices, varying columns only
+            device_params_np = all_inputs[:, varying_indices_list]
+            device_params = jnp.asarray(device_params_np)
+
+            # Compute init cache - extract init inputs from numpy, convert to JAX
+            init_to_eval = compiled.get('init_to_eval_indices')
+            vmapped_init = compiled.get('vmapped_init')
+
+            if init_to_eval is not None and vmapped_init is not None:
+                logger.debug("Extracting init inputs")
+                # Extract init inputs from numpy array
+                init_indices = np.asarray(init_to_eval)
+                init_inputs_np = all_inputs[:, init_indices]
+                init_inputs = jnp.asarray(init_inputs_np)
+
+                # Force CPU execution to avoid GPU JIT overhead
+                logger.info(f"Computing init cache for {model_type} ({n_devices} devices)...")
+                cpu_device = jax.devices('cpu')[0]
+                with jax.default_device(cpu_device):
+                    cache, collapse_decisions = vmapped_init(init_inputs)
+                logger.info(f"Init cache computed for {model_type}: shape={cache.shape}")
+                logger.debug(f"Collapse decisions for {model_type}: shape={collapse_decisions.shape}")
+            else:
+                # Fallback for models without init function
+                logger.debug("Model has no init function, inputs zeroed")
+                cache = jnp.empty((n_devices, 0), dtype=jnp.float64)
+                collapse_decisions = jnp.empty((n_devices, 0), dtype=jnp.float32)
+
+            # Free the numpy array - we've extracted everything we need
+            old_size_mb = all_inputs.nbytes / 1024 / 1024
+            del all_inputs
 
             # Generate split function - translator must be available
             translator = compiled.get('translator')
@@ -986,12 +1002,7 @@ class CircuitEngine:
             # shared_params broadcasts, device_params and cache are mapped
             vmapped_split_fn = jax.jit(jax.vmap(split_fn, in_axes=(None, 0, 0)))
 
-            # Extract shared_params (constant) and device_params (varying)
-            shared_params = static_inputs[0, shared_indices]  # shape: (n_const,)
-            device_params = static_inputs[:, varying_indices_list]  # shape: (n_devices, n_varying)
-
             # Compute voltage positions within device_params (varying indices)
-            # This maps original voltage indices to their positions in device_params
             varying_idx_to_pos = {orig_idx: pos for pos, orig_idx in enumerate(varying_indices_list)}
             voltage_positions = [varying_idx_to_pos[v] for v in voltage_indices
                                 if v in varying_idx_to_pos]
@@ -1007,22 +1018,20 @@ class CircuitEngine:
             compiled['voltage_positions_in_varying'] = voltage_positions
             compiled['use_split_eval'] = True
 
-            # Free the full static_inputs array - we only need shared_params and device_params
-            # This saves ~200MB for large circuits like c6288
-            old_size_mb = static_inputs.nbytes / 1024 / 1024
             new_size_mb = shared_params.nbytes / 1024 / 1024 + device_params.nbytes / 1024 / 1024
             logger.info(f"{model_type}: split eval function ready "
                        f"(shared={len(shared_indices)}, varying={len(varying_indices_list)}, "
                        f"memory: {old_size_mb:.1f}MB -> {new_size_mb:.1f}MB)")
-            # Replace with empty array to free memory (shared_params/device_params have the data)
-            static_inputs = jnp.zeros((0,), dtype=jnp.float64)
 
-            # Release MIR data now that all code generation is complete
-            translator.release_mir_data()
+            # NOTE: Do NOT release MIR data here - different circuits may have different
+            # shared/varying splits and need to regenerate split functions. MIR data is
+            # small (~MB) compared to circuit data.
         else:
             compiled['use_split_eval'] = False
+            cache = jnp.empty((n_devices, 0), dtype=jnp.float64)
+            collapse_decisions = jnp.empty((n_devices, 0), dtype=jnp.float32)
 
-        return static_inputs, voltage_indices, device_contexts, cache, collapse_decisions
+        return voltage_indices, device_contexts, cache, collapse_decisions
 
     def _build_stamp_index_mapping(
         self,
@@ -1906,7 +1915,7 @@ class CircuitEngine:
                     if 'vmapped_eval_with_cache' in compiled:
                         logger.debug(f"{model_type} has vmapped_eval_with_cache")
                         vmapped_fns[model_type + '_with_cache'] = compiled['vmapped_eval_with_cache']
-                    static_inputs, voltage_indices, device_contexts, cache, collapse_decisions = self._prepare_static_inputs(
+                    voltage_indices, device_contexts, cache, collapse_decisions = self._prepare_static_inputs(
                         model_type, openvaf_by_type[model_type], device_internal_nodes, ground
                     )
                     # Pre-compute stamp index mapping (once per model type)
@@ -2264,7 +2273,7 @@ class CircuitEngine:
 
     def _compute_dc_operating_point(self, n_nodes: int, n_vsources: int, n_isources: int,
                                      nr_solve: Callable,
-                                     device_arrays: Dict[str, Tuple[jax.Array, jax.Array]],
+                                     device_arrays: Dict[str, jax.Array],
                                      backend: str = "cpu",
                                      use_dense: bool = True,
                                      max_iterations: int = 100,
@@ -3219,7 +3228,7 @@ class CircuitEngine:
         self,
         build_system_jit: Callable,
         n_nodes: int,
-        device_arrays: Dict[str, Tuple[jax.Array, jax.Array]],
+        device_arrays: Dict[str, jax.Array],
         noi_indices: Optional[jax.Array] = None,
         max_iterations: int = MAX_NR_ITERATIONS,
         abstol: float = 1e-6,
@@ -3355,7 +3364,7 @@ class CircuitEngine:
         build_system_jit: Callable,
         n_nodes: int,
         nse: int,
-        device_arrays: Dict[str, Tuple[jax.Array, jax.Array]],
+        device_arrays: Dict[str, jax.Array],
         noi_indices: Optional[jax.Array] = None,
         max_iterations: int = MAX_NR_ITERATIONS,
         abstol: float = 1e-6,
@@ -3475,7 +3484,7 @@ class CircuitEngine:
         nse: int,
         bcsr_indptr: jax.Array,
         bcsr_indices: jax.Array,
-        device_arrays: Dict[str, Tuple[jax.Array, jax.Array]],
+        device_arrays: Dict[str, jax.Array],
         noi_indices: Optional[jax.Array] = None,
         max_iterations: int = MAX_NR_ITERATIONS,
         abstol: float = 1e-6,
@@ -3764,7 +3773,7 @@ class CircuitEngine:
                 # Also store vmapped_eval_with_cache if available (captured at setup, not looked up in traced fn)
                 if 'vmapped_eval_with_cache' in compiled:
                     vmapped_fns[model_type + '_with_cache'] = compiled['vmapped_eval_with_cache']
-                static_inputs, voltage_indices, device_contexts, cache, collapse_decisions = self._prepare_static_inputs(
+                voltage_indices, device_contexts, cache, collapse_decisions = self._prepare_static_inputs(
                     model_type, openvaf_by_type[model_type], device_internal_nodes, ground
                 )
                 stamp_indices = self._build_stamp_index_mapping(
