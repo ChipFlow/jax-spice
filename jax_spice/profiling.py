@@ -174,8 +174,8 @@ def profile_section(name: str, config: Optional[ProfileConfig] = None):
             result.block_until_ready()
 
     Note:
-        JAX profiling works best with GPU. On CPU, JAX tracing may be skipped
-        to avoid issues with the CPU profiler backend.
+        JAX profiling works on both CPU and GPU. CUDA profiling is only
+        available when running on GPU with CUDA.
     """
     cfg = config or _global_config
 
@@ -183,10 +183,8 @@ def profile_section(name: str, config: Optional[ProfileConfig] = None):
         yield
         return
 
-    # JAX profiling works best on GPU - skip on CPU to avoid issues
-    should_jax_profile = cfg.jax and _has_gpu()
-    if cfg.jax and not should_jax_profile:
-        logger.debug("Skipping JAX profiling on CPU (GPU not available)")
+    # JAX profiling works on both CPU and GPU
+    should_jax_profile = cfg.jax
 
     trace_path = Path(cfg.trace_dir) / name if should_jax_profile else None
     jax_trace = None

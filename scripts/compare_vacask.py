@@ -569,20 +569,20 @@ def main():
 
     if profile_mode in ("jax", "both") or use_cuda_markers:
         has_gpu = any(d.platform != 'cpu' for d in jax.devices())
-        if has_gpu:
-            # JAX profiling for jax/both modes, CUDA markers for nsys mode
-            enable_jax = profile_mode in ("jax", "both")
-            profile_config = ProfileConfig(
-                jax=enable_jax,
-                cuda=use_cuda_markers or running_under_nsys,
-                trace_dir=args.profile_dir
-            )
-            if enable_jax:
-                print(f"JAX Profiling: ENABLED (traces -> {args.profile_dir})")
-            if use_cuda_markers or running_under_nsys:
-                print("CUDA Profiler Markers: ENABLED (for nsys-jax)")
-        else:
-            print("Profiling: SKIPPED (no GPU available)")
+        # JAX profiling works on both CPU and GPU
+        enable_jax = profile_mode in ("jax", "both")
+        # CUDA markers only make sense with GPU
+        enable_cuda = has_gpu and (use_cuda_markers or running_under_nsys)
+
+        profile_config = ProfileConfig(
+            jax=enable_jax,
+            cuda=enable_cuda,
+            trace_dir=args.profile_dir
+        )
+        if enable_jax:
+            print(f"JAX Profiling: ENABLED (traces -> {args.profile_dir})")
+        if enable_cuda:
+            print("CUDA Profiler Markers: ENABLED (for nsys-jax)")
     print()
 
     # Select benchmarks
