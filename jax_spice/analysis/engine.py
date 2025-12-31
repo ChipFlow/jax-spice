@@ -964,16 +964,17 @@ class CircuitEngine:
 
             if init_to_eval is not None and vmapped_init is not None:
                 logger.debug("Extracting init inputs")
-                # Extract init inputs from numpy array
+                # Extract init inputs from numpy array and convert to JAX
                 init_indices = np.asarray(init_to_eval)
-                init_inputs_np = all_inputs[:, init_indices]
-                init_inputs = jnp.asarray(init_inputs_np)
+                init_inputs = jnp.asarray(all_inputs[:, init_indices])
 
                 # Force CPU execution to avoid GPU JIT overhead
                 logger.info(f"Computing init cache for {model_type} ({n_devices} devices)...")
                 cpu_device = jax.devices('cpu')[0]
                 with jax.default_device(cpu_device):
                     cache, collapse_decisions = vmapped_init(init_inputs)
+                # Free init_inputs immediately - no longer needed
+                del init_inputs
                 logger.info(f"Init cache computed for {model_type}: shape={cache.shape}")
                 logger.debug(f"Collapse decisions for {model_type}: shape={collapse_decisions.shape}")
             else:
