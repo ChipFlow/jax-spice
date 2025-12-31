@@ -442,28 +442,12 @@ with-cuda = [
 ]
 
 [[package]]
-name = "jax-metal"
-version = "0.1.1"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "jax" },
-    { name = "jaxlib" },
-    { name = "six" },
-    { name = "wheel" },
-]
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/87/ec/9bb7f7f0ffd06c3fb89813126b2f698636ac7a4263ed7bdd1ff7d7c94f8f/jax_metal-0.1.1-py3-none-macosx_10_14_x86_64.whl", hash = "sha256:d918a78443cb808c9491a24a5c2a94cc4eabfd0461d5bcda29a8f332dfbe9b7e", size = 54662235, upload-time = "2024-10-08T16:57:30.128Z" },
-    { url = "https://files.pythonhosted.org/packages/09/dc/6d8fbfc29d902251cf333414cf7dcfaf4b252a9920c881354584ed36270d/jax_metal-0.1.1-py3-none-macosx_13_0_arm64.whl", hash = "sha256:f1dbfecb298cdd3ba6da3ad6dc9a2adb63d71741f8b8ece28c296b32d608b6c8", size = 41179678, upload-time = "2024-10-08T16:56:31.563Z" },
-]
-
-[[package]]
 name = "jax-spice"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "beartype" },
     { name = "jax" },
-    { name = "jax-metal", marker = "sys_platform == 'darwin'" },
     { name = "jaxtyping" },
     { name = "lark" },
     { name = "matplotlib" },
@@ -500,7 +484,6 @@ requires-dist = [
     { name = "beartype", marker = "extra == 'dev'", specifier = ">=0.18.0" },
     { name = "jax", specifier = ">=0.8.0" },
     { name = "jax-cuda12-plugin", marker = "sys_platform != 'darwin' and extra == 'cuda12'", specifier = ">=0.8.0" },
-    { name = "jax-metal", marker = "sys_platform == 'darwin'", specifier = ">=0.1.1" },
     { name = "jaxtyping", specifier = ">=0.2.0" },
     { name = "lark", specifier = ">=1.3.1" },
     { name = "matplotlib", specifier = ">=3.7.0" },
@@ -1953,15 +1936,6 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/1e/67/cbae4bf7683a64755c2c1778c418fea96d00e34395bb91743f08bd951571/wadler_lindig-0.1.7.tar.gz", hash = "sha256:81d14d3fe77d441acf3ebd7f4aefac20c74128bf460e84b512806dccf7b2cd55", size = 15842, upload-time = "2025-06-18T07:00:42.843Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/8d/96/04e7b441807b26b794da5b11e59ed7f83b2cf8af202bd7eba8ad2fa6046e/wadler_lindig-0.1.7-py3-none-any.whl", hash = "sha256:e3ec83835570fd0a9509f969162aeb9c65618f998b1f42918cfc8d45122fe953", size = 20516, upload-time = "2025-06-18T07:00:41.684Z" },
-]
-
-[[package]]
-name = "wheel"
-version = "0.45.1"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/8a/98/2d9906746cdc6a6ef809ae6338005b3f21bb568bea3165cfc6a243fdc25c/wheel-0.45.1.tar.gz", hash = "sha256:661e1abd9198507b1409a20c02106d9670b2576e916d58f520316666abca6729", size = 107545, upload-time = "2024-11-23T00:18:23.513Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/0b/2c/87f3254fd8ffd29e4c02732eee68a83a1d3c346ae39bc6822dcbcb697f2b/wheel-0.45.1-py3-none-any.whl", hash = "sha256:708e7481cc80179af0e556bbf0cc00b8444c7321e2700b8d8580231d13017248", size = 72494, upload-time = "2024-11-23T00:18:21.207Z" },
 ]
 
 [[package]]
