@@ -177,13 +177,11 @@ jobs:
         run: |
           echo "Running JAX-SPICE vs VACASK comparison..."
           # Run comparison script - it handles VACASK availability gracefully
-          # NOTE: c6288 excluded from CPU CI because scipy spsolve has O(n²-n³)
-          # scaling that makes it impractically slow (~100s/solve for 25k nodes).
-          # c6288 benchmarks are meaningful on GPU with Spineax/cuDSS.
           uv run python scripts/compare_vacask.py \
-            --benchmark rc,graetz,ring \
+            --benchmark rc,graetz,ring,c6288 \
             --max-steps 200 \
-            --use-scan 2>&1 | tee /tmp/benchmark-comparison.log || true
+            --use-scan \
+            --use-sparse 2>&1 | tee /tmp/benchmark-comparison.log || true
 
       # Generate comparison summary for GitHub step output
       - name: Generate comparison summary
@@ -275,8 +273,6 @@ jobs:
               echo "- **Ratio < 1.0**: JAX-SPICE is faster"
               echo "- **Ratio > 1.0**: JAX-SPICE is slower (overhead-dominated for small circuits)"
               echo "- **N/A**: VACASK comparison not available"
-              echo ""
-              echo "_Note: JAX-SPICE scales better than VACASK for large circuits (e.g., c6288 is 41% faster on local macOS tests)._"
             else
               echo "**Error**: Benchmark comparison log not found"
             fi

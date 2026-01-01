@@ -304,19 +304,8 @@ class TestRingBenchmark:
         expected_v1 = expected['v1']
         print(f"  Tolerance: ±{tolerance*100:.0f}% ({expected_v1 - tolerance:.6f} to {expected_v1 + tolerance:.6f} V)")
 
-    @pytest.mark.xfail(reason="Ring oscillator DC convergence - PSP103 metastable point requires specialized homotopy")
     def test_transient_dense(self, sim_path):
-        """Test ring transient with dense solver.
-
-        Ring oscillator DC convergence is challenging because:
-        1. PSP103 doesn't use $simparam("gmin") for device-level GMIN
-        2. Only circuit-level GMIN/GSHUNT can help convergence
-        3. The DC operating point is metastable (all nodes at ~VDD/2)
-        4. VACASK converges to V[1]=0.6606V with its homotopy chain
-
-        This test is xfail until the homotopy chain properly handles
-        PSP103 circuits without device-level GMIN support.
-        """
+        """Test ring transient with dense solver."""
         engine = CircuitEngine(sim_path)
         engine.parse()
         dt = engine.analysis_params.get('step', 5e-11)
@@ -329,12 +318,8 @@ class TestRingBenchmark:
         print(f"Ring dense: {result.num_steps} steps, {converged*100:.0f}% converged")
         assert converged > 0.5, f"Poor convergence: {converged*100:.0f}%"
 
-    @pytest.mark.xfail(reason="Ring oscillator DC convergence - PSP103 metastable point requires specialized homotopy")
     def test_transient_sparse(self, sim_path):
-        """Test ring transient with sparse solver.
-
-        See test_transient_dense docstring for details on convergence challenges.
-        """
+        """Test ring transient with sparse solver."""
         engine = CircuitEngine(sim_path)
         engine.parse()
         dt = engine.analysis_params.get('step', 5e-11)
@@ -726,7 +711,7 @@ BENCHMARK_SPECS = {
         vacask_nodes=['v(p0)', 'p0'],  # Product bit 0
         jax_nodes=[1],  # TODO: find correct JAX-SPICE node index for p0
         xfail=True,
-        xfail_reason="PSP103 hidden_state params not initialized - 0% convergence (~3 min runtime)",
+        xfail_reason="Node mapping between JAX-SPICE and VACASK not yet implemented for c6288",
     ),
 }
 
