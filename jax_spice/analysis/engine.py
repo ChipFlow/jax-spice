@@ -3618,6 +3618,50 @@ class CircuitEngine:
         else:
             residual_mask = None
 
+        # Pre-compute CSR masks for NOI constraint enforcement
+        # This enables zeroing NOI rows/cols and setting diagonal to 1.0 before spsolve
+        noi_row_mask = None
+        noi_col_mask = None
+        noi_diag_indices = None
+        noi_res_indices_arr = None
+
+        if noi_indices is not None and len(noi_indices) > 0 and bcsr_indptr is not None:
+            import numpy as np
+            noi_res_indices = noi_indices - 1  # Convert to residual indices
+            n_unknowns = n_nodes - 1
+
+            # Build masks for CSR data modification
+            row_mask_list = []
+            col_mask_list = []
+            diag_list = []
+            noi_set = set(int(x) for x in np.asarray(noi_res_indices))
+
+            indptr_np = np.asarray(bcsr_indptr)
+            indices_np = np.asarray(bcsr_indices)
+
+            # Find NOI row entries and diagonals
+            for noi_idx in noi_set:
+                row_start, row_end = int(indptr_np[noi_idx]), int(indptr_np[noi_idx + 1])
+                row_mask_list.extend(range(row_start, row_end))
+                for j in range(row_start, row_end):
+                    if indices_np[j] == noi_idx:
+                        diag_list.append(j)
+
+            # Find NOI column entries (scan all rows)
+            for row in range(n_unknowns):
+                row_start, row_end = int(indptr_np[row]), int(indptr_np[row + 1])
+                for j in range(row_start, row_end):
+                    if int(indices_np[j]) in noi_set:
+                        col_mask_list.append(j)
+
+            noi_row_mask = jnp.array(row_mask_list, dtype=jnp.int32)
+            noi_col_mask = jnp.array(col_mask_list, dtype=jnp.int32)
+            noi_diag_indices = jnp.array(diag_list, dtype=jnp.int32)
+            noi_res_indices_arr = jnp.array(sorted(noi_set), dtype=jnp.int32)
+
+            logger.info(f"NOI CSR masks: {len(row_mask_list)} row entries, "
+                        f"{len(col_mask_list)} col entries, {len(diag_list)} diagonals")
+
         def nr_solve(V_init: jax.Array, vsource_vals: jax.Array, isource_vals: jax.Array,
                     Q_prev: jax.Array, inv_dt: float | jax.Array,
                     device_arrays_arg: Dict[str, jax.Array],
@@ -3663,8 +3707,18 @@ class CircuitEngine:
                     # 3. Sum duplicates into CSR data array using segment_sum
                     csr_data = jax.ops.segment_sum(sorted_vals, csr_segment_ids, num_segments=nse)
 
-                    # 4. Solve with pre-computed CSR structure
-                    delta = spsolve(csr_data, bcsr_indices, bcsr_indptr, -f, tol=1e-6)
+                    # 4. Apply NOI constraints to CSR data BEFORE solving
+                    # NOI nodes have 1e40 conductance which causes ill-conditioning.
+                    # We enforce delta[noi] = 0 by zeroing rows/cols and setting diagonal to 1.0
+                    f_solve = f
+                    if noi_row_mask is not None:
+                        csr_data = csr_data.at[noi_row_mask].set(0.0)
+                        csr_data = csr_data.at[noi_col_mask].set(0.0)
+                        csr_data = csr_data.at[noi_diag_indices].set(1.0)
+                        f_solve = f.at[noi_res_indices_arr].set(0.0)
+
+                    # 5. Solve with pre-computed CSR structure
+                    delta = spsolve(csr_data, bcsr_indices, bcsr_indptr, -f_solve, tol=1e-6)
                 else:
                     # Fallback: original path with sorting (slower but always works)
                     # Sum duplicates before converting to BCSR (required for scipy fallback)
@@ -3673,10 +3727,19 @@ class CircuitEngine:
                     # Convert BCOO to BCSR for spsolve
                     J_bcsr = BCSR.from_bcoo(J_bcoo_dedup)
 
+                    # Apply NOI constraints to BCSR data BEFORE solving
+                    data = J_bcsr.data
+                    f_solve = f
+                    if noi_row_mask is not None:
+                        data = data.at[noi_row_mask].set(0.0)
+                        data = data.at[noi_col_mask].set(0.0)
+                        data = data.at[noi_diag_indices].set(1.0)
+                        f_solve = f.at[noi_res_indices_arr].set(0.0)
+
                     # Sparse solve: J @ delta = -f using QR factorization
                     # J and f are n_unknowns sized (ground already excluded)
                     delta = spsolve(
-                        J_bcsr.data, J_bcsr.indices, J_bcsr.indptr, -f, tol=1e-6
+                        data, J_bcsr.indices, J_bcsr.indptr, -f_solve, tol=1e-6
                     )
 
                 # Step limiting
@@ -3766,6 +3829,49 @@ class CircuitEngine:
         else:
             residual_mask = None
 
+        # Pre-compute CSR masks for NOI constraint enforcement
+        # This enables zeroing NOI rows/cols and setting diagonal to 1.0 before solve
+        noi_row_mask = None
+        noi_col_mask = None
+        noi_diag_indices = None
+        noi_res_indices_arr = None
+
+        if noi_indices is not None and len(noi_indices) > 0 and bcsr_indptr is not None:
+            import numpy as np
+            noi_res_indices = noi_indices - 1  # Convert to residual indices
+
+            # Build masks for CSR data modification
+            row_mask_list = []
+            col_mask_list = []
+            diag_list = []
+            noi_set = set(int(x) for x in np.asarray(noi_res_indices))
+
+            indptr_np = np.asarray(bcsr_indptr)
+            indices_np = np.asarray(bcsr_indices)
+
+            # Find NOI row entries and diagonals
+            for noi_idx in noi_set:
+                row_start, row_end = int(indptr_np[noi_idx]), int(indptr_np[noi_idx + 1])
+                row_mask_list.extend(range(row_start, row_end))
+                for j in range(row_start, row_end):
+                    if indices_np[j] == noi_idx:
+                        diag_list.append(j)
+
+            # Find NOI column entries (scan all rows)
+            for row in range(n_unknowns):
+                row_start, row_end = int(indptr_np[row]), int(indptr_np[row + 1])
+                for j in range(row_start, row_end):
+                    if int(indices_np[j]) in noi_set:
+                        col_mask_list.append(j)
+
+            noi_row_mask = jnp.array(row_mask_list, dtype=jnp.int32)
+            noi_col_mask = jnp.array(col_mask_list, dtype=jnp.int32)
+            noi_diag_indices = jnp.array(diag_list, dtype=jnp.int32)
+            noi_res_indices_arr = jnp.array(sorted(noi_set), dtype=jnp.int32)
+
+            logger.info(f"Spineax NOI CSR masks: {len(row_mask_list)} row entries, "
+                        f"{len(col_mask_list)} col entries, {len(diag_list)} diagonals")
+
         # Create Spineax solver with pre-computed sparsity pattern
         # This does METIS reordering and symbolic analysis ONCE
         spineax_solver = CuDSSSolver(
@@ -3823,9 +3929,19 @@ class CircuitEngine:
                     J_bcsr = BCSR.from_bcoo(J_bcoo_dedup)
                     csr_data = J_bcsr.data
 
+                # Apply NOI constraints to CSR data BEFORE solving
+                # NOI nodes have 1e40 conductance which causes ill-conditioning.
+                # We enforce delta[noi] = 0 by zeroing rows/cols and setting diagonal to 1.0
+                f_solve = f
+                if noi_row_mask is not None:
+                    csr_data = csr_data.at[noi_row_mask].set(0.0)
+                    csr_data = csr_data.at[noi_col_mask].set(0.0)
+                    csr_data = csr_data.at[noi_diag_indices].set(1.0)
+                    f_solve = f.at[noi_res_indices_arr].set(0.0)
+
                 # Solve using Spineax (cached symbolic factorization)
                 # Only numeric refactorization + triangular solve happens here
-                delta, _info = spineax_solver(-f, csr_data)
+                delta, _info = spineax_solver(-f_solve, csr_data)
 
                 # Step limiting
                 max_delta = jnp.max(jnp.abs(delta))
