@@ -140,7 +140,7 @@ class UMFPACKSolver:
 
         return csc_indptr, csc_indices, csr_to_csc_map
 
-    def _solve_impl(self, b: np.ndarray, csr_data: np.ndarray) -> np.ndarray:
+    def _solve_impl(self, b, csr_data) -> np.ndarray:
         """Internal solve implementation (called via pure_callback).
 
         Args:

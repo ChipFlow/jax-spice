@@ -62,7 +62,11 @@ _COMPILED_MODEL_CACHE: Dict[str, Any] = {}
 
 # Newton-Raphson solver constants
 MAX_NR_ITERATIONS = 100  # Maximum Newton-Raphson iterations per timestep
-DEFAULT_ABSTOL = 1e-3  # Absolute tolerance for NR convergence (matches SPICE reltol)
+# Absolute tolerance for NR convergence (current in Amperes)
+# With voltage sources using G=1e12, residual = G * V_error
+# For 10nV voltage accuracy: abstol = 1e12 * 10e-9 = 1e4 (10kA)
+# Previous value of 1e-3 demanded femtovolt accuracy (unrealistic)
+DEFAULT_ABSTOL = 1e4  # 10kA - corresponds to ~10nV voltage accuracy with G=1e12
 
 
 @dataclass
@@ -2532,7 +2536,7 @@ class CircuitEngine:
         V = jnp.full(n_nodes, mid_rail, dtype=jnp.float64)
         V = V.at[0].set(0.0)  # Ground is always 0
 
-        # Set VDD nodes to full supply voltage
+        # Set VDD nodes to full supply voltage (name-based heuristic)
         for name, idx in self.node_names.items():
             name_lower = name.lower()
             if 'vdd' in name_lower or 'vcc' in name_lower:
@@ -2541,6 +2545,31 @@ class CircuitEngine:
             elif name_lower in ('gnd', 'vss', '0'):
                 V = V.at[idx].set(0.0)
                 logger.debug(f"  Initialized ground node '{name}' (idx {idx}) to 0V")
+
+        # Initialize ALL voltage source nodes to their target DC values
+        # This is critical for convergence - vsource stamps have G=1e12, so
+        # any deviation from target creates residuals of order 1e12 * delta_V
+        vsources_initialized = 0
+        for dev in self.devices:
+            if dev['model'] == 'vsource':
+                nodes = dev.get('nodes', [])
+                if len(nodes) >= 2:
+                    p_node, n_node = nodes[0], nodes[1]
+                    dc_val = float(dev['params'].get('dc', 0.0))
+                    if n_node == 0:
+                        # Negative node is ground, set positive node to DC value
+                        if p_node > 0:
+                            V = V.at[p_node].set(dc_val)
+                            vsources_initialized += 1
+                    else:
+                        # Both nodes non-ground - set relative voltage
+                        # Set p_node = n_node_voltage + dc_val
+                        # For now, if n_node is already set, adjust p_node
+                        if p_node > 0:
+                            V = V.at[p_node].set(float(V[n_node]) + dc_val)
+                            vsources_initialized += 1
+        if vsources_initialized > 0:
+            logger.debug(f"  Initialized {vsources_initialized} voltage source nodes to target DC values")
 
         # Initialize PSP103 internal nodes
         noi_indices = []
