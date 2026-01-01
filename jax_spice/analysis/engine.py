@@ -2189,7 +2189,6 @@ class CircuitEngine:
 
                 if use_spineax:
                     # Pre-compute BCSR pattern and COO→CSR mapping for Spineax
-                    from jax.experimental.sparse import BCSR
                     logger.info("Pre-computing COO→CSR mapping for Spineax...")
 
                     # Get COO indices from probe
@@ -2207,27 +2206,29 @@ class CircuitEngine:
                     # Find unique entries and inverse mapping for segment_sum
                     unique_linear, coo_to_unique = np.unique(sorted_linear, return_inverse=True)
 
-                    # Get row indices for unique entries (for CSR row ordering)
+                    # Get row/col indices for unique entries
                     unique_rows = unique_linear // n_unknowns
+                    unique_cols = unique_linear % n_unknowns
 
-                    # Sort unique entries by row to get CSR order
-                    unique_to_csr = np.argsort(unique_rows)
-                    csr_to_unique = np.argsort(unique_to_csr)  # Inverse permutation
+                    # Build CSR structure from unique entries (row-major order = CSR order)
+                    csr_indices = unique_cols.astype(np.int32)
 
-                    # Final segment IDs: maps sorted COO values to CSR data positions
-                    csr_segment_ids = csr_to_unique[coo_to_unique]
+                    # Build indptr: count entries per row
+                    csr_indptr = np.zeros(n_unknowns + 1, dtype=np.int32)
+                    for row in unique_rows:
+                        csr_indptr[row + 1] += 1
+                    csr_indptr = np.cumsum(csr_indptr)
 
-                    # Get BCSR structure
-                    J_bcoo_dedup = J_bcoo_probe.sum_duplicates(nse=nse)
-                    J_bcsr_probe = BCSR.from_bcoo(J_bcoo_dedup)
+                    # Segment IDs: coo_to_unique directly gives CSR position
+                    csr_segment_ids = coo_to_unique.astype(np.int32)
 
                     logger.info(f"Spineax COO→CSR mapping: {n_coo} COO -> {nse} CSR, "
-                               f"indptr={J_bcsr_probe.indptr.shape}, indices={J_bcsr_probe.indices.shape}")
+                               f"indptr={csr_indptr.shape}, indices={csr_indices.shape}")
 
                     nr_solve = self._make_spineax_jit_compiled_solver(
                         build_system_jit, n_nodes, nse,
-                        bcsr_indptr=J_bcsr_probe.indptr,
-                        bcsr_indices=J_bcsr_probe.indices,
+                        bcsr_indptr=jnp.array(csr_indptr, dtype=jnp.int32),
+                        bcsr_indices=jnp.array(csr_indices, dtype=jnp.int32),
                         device_arrays=device_arrays,
                         noi_indices=noi_indices,
                         max_iterations=MAX_NR_ITERATIONS, abstol=DEFAULT_ABSTOL, max_step=1.0,
@@ -2237,7 +2238,6 @@ class CircuitEngine:
                 else:
                     # Fallback to JAX spsolve (QR factorization, no caching)
                     # Pre-compute COO→CSR mapping to avoid sorting on every NR iteration
-                    from jax.experimental.sparse import BCSR
                     logger.info("Pre-computing COO→CSR mapping for fast sparse assembly...")
 
                     # Get COO indices from probe
@@ -2253,21 +2253,26 @@ class CircuitEngine:
                     sorted_linear = linear_idx[coo_sort_perm]
 
                     # Find unique entries and inverse mapping for segment_sum
+                    # coo_to_unique maps each sorted COO entry to its unique position
                     unique_linear, coo_to_unique = np.unique(sorted_linear, return_inverse=True)
 
-                    # Get row indices for unique entries (for CSR row ordering)
+                    # Get row/col indices for unique entries
                     unique_rows = unique_linear // n_unknowns
+                    unique_cols = unique_linear % n_unknowns
 
-                    # Sort unique entries by row to get CSR order
-                    unique_to_csr = np.argsort(unique_rows)
-                    csr_to_unique = np.argsort(unique_to_csr)  # Inverse permutation
+                    # Build CSR structure from unique entries (row-major order = CSR order)
+                    # Since unique_linear is sorted by row*n+col, this is already CSR order
+                    csr_indices = unique_cols.astype(np.int32)
 
-                    # Final segment IDs: maps sorted COO values to CSR data positions
-                    csr_segment_ids = csr_to_unique[coo_to_unique]
+                    # Build indptr: count entries per row
+                    csr_indptr = np.zeros(n_unknowns + 1, dtype=np.int32)
+                    for row in unique_rows:
+                        csr_indptr[row + 1] += 1
+                    csr_indptr = np.cumsum(csr_indptr)
 
-                    # Get BCSR structure
-                    J_bcoo_dedup = J_bcoo_probe.sum_duplicates(nse=nse)
-                    J_bcsr_probe = BCSR.from_bcoo(J_bcoo_dedup)
+                    # Segment IDs: coo_to_unique directly gives CSR position since
+                    # unique_linear is sorted in row-major order which equals CSR order
+                    csr_segment_ids = coo_to_unique.astype(np.int32)
 
                     logger.info(f"COO→CSR mapping: {n_coo} COO entries -> {nse} CSR entries")
 
@@ -2277,8 +2282,8 @@ class CircuitEngine:
                         max_iterations=MAX_NR_ITERATIONS, abstol=DEFAULT_ABSTOL, max_step=1.0,
                         coo_sort_perm=jnp.array(coo_sort_perm, dtype=jnp.int32),
                         csr_segment_ids=jnp.array(csr_segment_ids, dtype=jnp.int32),
-                        bcsr_indices=J_bcsr_probe.indices,
-                        bcsr_indptr=J_bcsr_probe.indptr,
+                        bcsr_indices=jnp.array(csr_indices, dtype=jnp.int32),
+                        bcsr_indptr=jnp.array(csr_indptr, dtype=jnp.int32),
                     )
 
             # Cache JIT-wrapped solver and build_system (JAX handles compilation automatically)
@@ -3407,18 +3412,23 @@ class CircuitEngine:
                     all_j_vals, flat_indices, num_segments=n_unknowns * n_unknowns
                 )
                 J = J_flat.reshape((n_unknowns, n_unknowns))
-                # Add regularization (1e-9) + gshunt to diagonal
-                J = J + (1e-9 + gshunt) * jnp.eye(n_unknowns, dtype=jnp.float64)
+                # Add regularization (1e-6) + gshunt to diagonal
+                # NOTE: 1e-6 is needed (not 1e-9) to prevent near-singular matrices for
+                # circuits with floating capacitors (like Graetz bridge at off-state).
+                # Smaller values (1e-9) leave the matrix rank-deficient, causing
+                # scipy spsolve and numpy solve to find different solutions.
+                J = J + (1e-6 + gshunt) * jnp.eye(n_unknowns, dtype=jnp.float64)
             else:
                 # Sparse path - build BCOO sparse matrix
                 from jax.experimental.sparse import BCOO
 
-                # Add diagonal entries: regularization (1e-3) + gshunt
+                # Add diagonal entries: regularization (1e-6) + gshunt
+                # NOTE: 1e-6 is needed (not 1e-9) to prevent near-singular matrices for
+                # circuits with floating capacitors. Must match dense solver's regularization.
                 diag_idx = jnp.arange(n_unknowns, dtype=jnp.int32)
                 all_j_rows = jnp.concatenate([all_j_rows, diag_idx])
                 all_j_cols = jnp.concatenate([all_j_cols, diag_idx])
-                # Large regularization needed for GPU spsolve (stricter than scipy)
-                all_j_vals = jnp.concatenate([all_j_vals, jnp.full(n_unknowns, 1e-3 + gshunt)])
+                all_j_vals = jnp.concatenate([all_j_vals, jnp.full(n_unknowns, 1e-6 + gshunt)])
 
                 # Build BCOO with duplicates (BCSR.from_bcoo handles them)
                 indices = jnp.stack([all_j_rows, all_j_cols], axis=1)
