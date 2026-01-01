@@ -2236,8 +2236,11 @@ class CircuitEngine:
                         csr_segment_ids=jnp.array(csr_segment_ids, dtype=jnp.int32),
                     )
                 else:
-                    # Fallback to JAX spsolve (QR factorization, no caching)
-                    # Pre-compute COO→CSR mapping to avoid sorting on every NR iteration
+                    # CPU path: Try UMFPACK (cached symbolic factorization) first,
+                    # fall back to JAX spsolve if not available
+                    from jax_spice.analysis.umfpack_solver import is_umfpack_available, UMFPACKSolver
+
+                    # Pre-compute COO→CSR mapping (needed for both UMFPACK and JAX spsolve)
                     logger.info("Pre-computing COO→CSR mapping for fast sparse assembly...")
 
                     # Get COO indices from probe
@@ -2276,15 +2279,31 @@ class CircuitEngine:
 
                     logger.info(f"COO→CSR mapping: {n_coo} COO entries -> {nse} CSR entries")
 
-                    nr_solve = self._make_sparse_jit_compiled_solver(
-                        build_system_jit, n_nodes, nse, device_arrays,
-                        noi_indices=noi_indices,
-                        max_iterations=MAX_NR_ITERATIONS, abstol=DEFAULT_ABSTOL, max_step=1.0,
-                        coo_sort_perm=jnp.array(coo_sort_perm, dtype=jnp.int32),
-                        csr_segment_ids=jnp.array(csr_segment_ids, dtype=jnp.int32),
-                        bcsr_indices=jnp.array(csr_indices, dtype=jnp.int32),
-                        bcsr_indptr=jnp.array(csr_indptr, dtype=jnp.int32),
-                    )
+                    if is_umfpack_available():
+                        # Use UMFPACK with cached symbolic factorization (10-100x faster)
+                        logger.info("UMFPACK available - using cached symbolic factorization")
+                        nr_solve = self._make_umfpack_jit_compiled_solver(
+                            build_system_jit, n_nodes, nse,
+                            bcsr_indptr=jnp.array(csr_indptr, dtype=jnp.int32),
+                            bcsr_indices=jnp.array(csr_indices, dtype=jnp.int32),
+                            device_arrays=device_arrays,
+                            noi_indices=noi_indices,
+                            max_iterations=MAX_NR_ITERATIONS, abstol=DEFAULT_ABSTOL, max_step=1.0,
+                            coo_sort_perm=jnp.array(coo_sort_perm, dtype=jnp.int32),
+                            csr_segment_ids=jnp.array(csr_segment_ids, dtype=jnp.int32),
+                        )
+                    else:
+                        # Fallback to JAX spsolve (no caching, slower for large circuits)
+                        logger.info("UMFPACK not available - using JAX spsolve")
+                        nr_solve = self._make_sparse_jit_compiled_solver(
+                            build_system_jit, n_nodes, nse, device_arrays,
+                            noi_indices=noi_indices,
+                            max_iterations=MAX_NR_ITERATIONS, abstol=DEFAULT_ABSTOL, max_step=1.0,
+                            coo_sort_perm=jnp.array(coo_sort_perm, dtype=jnp.int32),
+                            csr_segment_ids=jnp.array(csr_segment_ids, dtype=jnp.int32),
+                            bcsr_indices=jnp.array(csr_indices, dtype=jnp.int32),
+                            bcsr_indptr=jnp.array(csr_indptr, dtype=jnp.int32),
+                        )
 
             # Cache JIT-wrapped solver and build_system (JAX handles compilation automatically)
             self._cached_nr_solve = nr_solve
@@ -4016,6 +4035,196 @@ class CircuitEngine:
             return V_final, iterations, converged, max_f, Q_final
 
         logger.info(f"Creating Spineax JIT-compiled NR solver: V({n_nodes})")
+        return jax.jit(nr_solve)
+
+    def _make_umfpack_jit_compiled_solver(
+        self,
+        build_system_jit: Callable,
+        n_nodes: int,
+        nse: int,
+        bcsr_indptr: jax.Array,
+        bcsr_indices: jax.Array,
+        device_arrays: Dict[str, jax.Array],
+        noi_indices: Optional[jax.Array] = None,
+        max_iterations: int = MAX_NR_ITERATIONS,
+        abstol: float = 1e-6,
+        max_step: float = 1.0,
+        coo_sort_perm: Optional[jax.Array] = None,
+        csr_segment_ids: Optional[jax.Array] = None,
+    ) -> Callable:
+        """Create a JIT-compiled sparse NR solver using UMFPACK.
+
+        Uses UMFPACK with cached symbolic factorization for fast CPU solving.
+        The symbolic analysis (AMD reordering, fill-in pattern) is done once
+        when the solver is created, and reused for all subsequent solves.
+
+        Args:
+            build_system_jit: JIT-wrapped function returning (J_bcoo, f, Q)
+            n_nodes: Total node count including ground
+            nse: Number of stored elements after summing duplicates
+            bcsr_indptr: Pre-computed BCSR row pointers
+            bcsr_indices: Pre-computed BCSR column indices
+            device_arrays: Dict[model_type, cache] - passed as traced arg
+            noi_indices: Optional array of NOI node indices to constrain to 0V
+            max_iterations: Maximum NR iterations
+            abstol: Absolute tolerance for convergence
+            max_step: Maximum voltage step per iteration
+            coo_sort_perm: Pre-computed permutation for COO→CSR (avoids sorting)
+            csr_segment_ids: Pre-computed segment IDs for summing duplicates
+
+        Returns:
+            JIT-compiled sparse solver function: (V, vsrc, isrc, Q_prev, inv_dt, device_arrays) -> (V, iters, converged, max_f, Q)
+        """
+        from jax.experimental.sparse import BCSR
+        from jax_spice.analysis.umfpack_solver import UMFPACKSolver
+
+        n_unknowns = n_nodes - 1  # Exclude ground
+
+        # Check if we have pre-computed COO→CSR mapping
+        use_precomputed = coo_sort_perm is not None and csr_segment_ids is not None
+        if use_precomputed:
+            logger.info("UMFPACK: Using pre-computed COO→CSR mapping (avoiding per-iteration sort)")
+
+        # Pre-compute residual mask if we have NOI nodes
+        if noi_indices is not None and len(noi_indices) > 0:
+            residual_mask = jnp.ones(n_unknowns, dtype=jnp.bool_)
+            noi_residual_indices = noi_indices - 1
+            residual_mask = residual_mask.at[noi_residual_indices].set(False)
+        else:
+            residual_mask = None
+
+        # Pre-compute CSR masks for NOI constraint enforcement
+        noi_row_mask = None
+        noi_col_mask = None
+        noi_diag_indices = None
+        noi_res_indices_arr = None
+
+        if noi_indices is not None and len(noi_indices) > 0 and bcsr_indptr is not None:
+            noi_res_indices = noi_indices - 1  # Convert to residual indices
+
+            # Build masks for CSR data modification
+            row_mask_list = []
+            col_mask_list = []
+            diag_list = []
+            noi_set = set(int(x) for x in np.asarray(noi_res_indices))
+
+            indptr_np = np.asarray(bcsr_indptr)
+            indices_np = np.asarray(bcsr_indices)
+
+            # Find NOI row entries and diagonals
+            for noi_idx in noi_set:
+                row_start, row_end = int(indptr_np[noi_idx]), int(indptr_np[noi_idx + 1])
+                row_mask_list.extend(range(row_start, row_end))
+                for j in range(row_start, row_end):
+                    if indices_np[j] == noi_idx:
+                        diag_list.append(j)
+
+            # Find NOI column entries (scan all rows)
+            for row in range(n_unknowns):
+                row_start, row_end = int(indptr_np[row]), int(indptr_np[row + 1])
+                for j in range(row_start, row_end):
+                    if int(indices_np[j]) in noi_set:
+                        col_mask_list.append(j)
+
+            noi_row_mask = jnp.array(row_mask_list, dtype=jnp.int32)
+            noi_col_mask = jnp.array(col_mask_list, dtype=jnp.int32)
+            noi_diag_indices = jnp.array(diag_list, dtype=jnp.int32)
+            noi_res_indices_arr = jnp.array(sorted(noi_set), dtype=jnp.int32)
+
+            logger.info(f"UMFPACK NOI CSR masks: {len(row_mask_list)} row entries, "
+                        f"{len(col_mask_list)} col entries, {len(diag_list)} diagonals")
+
+        # Create UMFPACK solver with pre-computed sparsity pattern
+        # This will do symbolic analysis on first solve and reuse it
+        umfpack_solver = UMFPACKSolver(
+            bcsr_indptr,
+            bcsr_indices,
+        )
+        logger.info(f"Created UMFPACK solver with cached symbolic factorization")
+
+        def nr_solve(V_init: jax.Array, vsource_vals: jax.Array, isource_vals: jax.Array,
+                    Q_prev: jax.Array, inv_dt: float | jax.Array,
+                    device_arrays_arg: Dict[str, jax.Array],
+                    gmin: float | jax.Array = 1e-12, gshunt: float | jax.Array = 0.0):
+            # State: (V, iteration, converged, max_f, max_delta, Q)
+            init_Q = jnp.zeros(n_unknowns, dtype=jnp.float64)
+            init_state = (
+                V_init,
+                jnp.array(0, dtype=jnp.int32),
+                jnp.array(False),
+                jnp.array(jnp.inf),
+                jnp.array(jnp.inf),
+                init_Q,
+            )
+
+            def cond_fn(state):
+                V, iteration, converged, max_f, max_delta, Q = state
+                return jnp.logical_and(~converged, iteration < max_iterations)
+
+            def body_fn(state):
+                V, iteration, _, _, _, _ = state
+
+                # Build sparse system (J_bcoo, f, Q)
+                J_bcoo, f, Q = build_system_jit(V, vsource_vals, isource_vals, Q_prev, inv_dt, device_arrays_arg, gmin, gshunt)
+
+                # Check residual convergence
+                if residual_mask is not None:
+                    f_masked = jnp.where(residual_mask, f, 0.0)
+                    max_f = jnp.max(jnp.abs(f_masked))
+                else:
+                    max_f = jnp.max(jnp.abs(f))
+                residual_converged = max_f < abstol
+
+                if use_precomputed:
+                    # Fast path: use pre-computed COO→CSR mapping (no sorting!)
+                    coo_vals = J_bcoo.data
+                    sorted_vals = coo_vals[coo_sort_perm]
+                    csr_data = jax.ops.segment_sum(sorted_vals, csr_segment_ids, num_segments=nse)
+                else:
+                    # Fallback: sort on every iteration (slower)
+                    J_bcoo_dedup = J_bcoo.sum_duplicates(nse=nse)
+                    J_bcsr = BCSR.from_bcoo(J_bcoo_dedup)
+                    csr_data = J_bcsr.data
+
+                # Apply NOI constraints to CSR data BEFORE solving
+                f_solve = f
+                if noi_row_mask is not None:
+                    csr_data = csr_data.at[noi_row_mask].set(0.0)
+                    csr_data = csr_data.at[noi_col_mask].set(0.0)
+                    csr_data = csr_data.at[noi_diag_indices].set(1.0)
+                    f_solve = f.at[noi_res_indices_arr].set(0.0)
+
+                # Solve using UMFPACK (cached symbolic factorization)
+                delta, _info = umfpack_solver(-f_solve, csr_data)
+
+                # Step limiting
+                max_delta = jnp.max(jnp.abs(delta))
+                scale = jnp.where(max_delta > max_step, max_step / max_delta, 1.0)
+                delta = delta * scale
+
+                # Update V (ground at index 0 stays fixed)
+                V_new = V.at[1:].add(delta)
+
+                # Clamp NOI nodes to 0V
+                if noi_indices is not None and len(noi_indices) > 0:
+                    V_new = V_new.at[noi_indices].set(0.0)
+
+                # Check delta-based convergence
+                delta_converged = max_delta < 1e-12
+                converged = jnp.logical_or(residual_converged, delta_converged)
+
+                return (V_new, iteration + 1, converged, max_f, max_delta, Q)
+
+            V_final, iterations, converged, max_f, max_delta, _ = lax.while_loop(
+                cond_fn, body_fn, init_state
+            )
+
+            # Recompute Q from the converged voltage
+            _, _, Q_final = build_system_jit(V_final, vsource_vals, isource_vals, Q_prev, inv_dt, device_arrays_arg, gmin, gshunt)
+
+            return V_final, iterations, converged, max_f, Q_final
+
+        logger.info(f"Creating UMFPACK JIT-compiled NR solver: V({n_nodes})")
         return jax.jit(nr_solve)
 
     def _compute_voltage_param(self, name: str, V: jax.Array,
