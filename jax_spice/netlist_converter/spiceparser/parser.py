@@ -10,7 +10,7 @@ manages the overall parsing flow.
 """
 
 from pathlib import Path
-from typing import TextIO
+from typing import Any, TextIO
 
 from .dialect import SpiceDialect, get_dialect
 from .netlist import (
@@ -410,7 +410,7 @@ class NetlistParser:
 
         return tokens
 
-    def _parse_params(self, tokens: list[str]) -> dict[str, any]:
+    def _parse_params(self, tokens: list[str]) -> dict[str, Any]:
         """Parse parameter tokens into a dictionary.
 
         Handles both formats:
