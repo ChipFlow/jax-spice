@@ -121,6 +121,39 @@ class CircuitEngine:
     Parses .sim circuit files and runs transient/DC analysis using JAX-compiled
     solvers. All devices (resistors, capacitors, diodes, MOSFETs) are compiled
     from Verilog-A sources using OpenVAF.
+
+    NODE INDEXING CONVENTIONS
+    -------------------------
+    The `node_names` dict maps node name strings to integer indices:
+        node_names = {'0': 0, '1': 1, '2': 2, 'vdd': 3, 'out': 4, ...}
+
+    - Ground is always '0' -> 0
+    - Other nodes get indices 1, 2, 3, ... in sorted order
+
+    Two different array layouts are used internally:
+
+    1. TRANSIENT voltage arrays (includes ground):
+       - Shape: (n_timesteps, n_external) where n_external = num_nodes
+       - V[:, 0] = ground (always 0V)
+       - V[:, idx] = voltage for node with index `idx`
+       - Access: `V[:, idx]` directly (no offset needed)
+
+    2. AC/XFER/NOISE solution arrays (excludes ground):
+       - Shape: (n_freqs, n_unknowns) where n_unknowns = num_nodes - 1
+       - Ground is not stored (it's the reference, always 0)
+       - X[:, 0] = node with idx=1, X[:, 1] = node with idx=2, etc.
+       - Access: `X[:, idx - 1]` (subtract 1 to account for missing ground)
+
+    When building result dicts, use the appropriate indexing:
+        # Transient (ground included):
+        for name, idx in self.node_names.items():
+            if idx > 0:  # skip ground
+                voltages[name] = V[:, idx]
+
+        # AC/xfer (ground excluded):
+        for name, idx in node_names.items():
+            if idx > 0 and idx <= n_unknowns:
+                voltages[name] = X[:, idx - 1]
     """
 
     # Map OSDI module names to device types
@@ -158,7 +191,8 @@ class CircuitEngine:
         self.sim_path = Path(sim_path)
         self.circuit = None
         self.devices = []
-        self.node_names = {}
+        # Node name to index mapping. See NODE INDEXING CONVENTIONS below.
+        self.node_names: Dict[str, int] = {}
         self.num_nodes = 0
         self.analysis_params = {}
         self.flat_instances = []
@@ -274,7 +308,9 @@ class CircuitEngine:
         if len(self.flat_instances) > 10:
             logger.debug(f"  ... and {len(self.flat_instances) - 10} more")
 
-        # Build node mapping from flattened instances
+        # Build node mapping from flattened instances.
+        # See NODE INDEXING CONVENTIONS in class docstring for usage.
+        # Ground ('0') is always index 0; other nodes get indices 1, 2, 3, ...
         node_set = {'0'}
         for name, terminals, model, params in self.flat_instances:
             for t in terminals:
