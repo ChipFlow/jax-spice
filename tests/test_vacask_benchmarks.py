@@ -378,6 +378,65 @@ class TestC6288Benchmark:
         assert result.num_steps > 0, "No timesteps returned"
 
 
+class TestTbDpBenchmark:
+    """Test IHP SG13G2 dual-port SRAM benchmark (tb_dp512x8)
+
+    Circuit: 512x8 dual-port SRAM using PSP103.6 models from IHP PDK
+    This is a large circuit (~9k lines) for stress-testing the simulator.
+
+    Test added from: https://github.com/robtaylor/VACASK/pull/2
+
+    Analysis params:
+    - step: 100ps (1e-10)
+    - stop: 30ns (3e-8)
+    """
+
+    @pytest.fixture
+    def sim_path(self):
+        """Get tb_dp benchmark sim path"""
+        # tb_dp is in test/ not benchmark/ in VACASK
+        test_dir = Path(__file__).parent.parent / "vendor" / "VACASK" / "test" / "tb_dp"
+        path = test_dir / "tb_dp512x8_klu.sim"
+        if not path.exists():
+            pytest.skip(f"tb_dp benchmark not found at {path} - requires VACASK PR #2")
+        return path
+
+    def test_parse(self, sim_path):
+        """Test that tb_dp512x8 parses correctly"""
+        engine = CircuitEngine(sim_path)
+        engine.parse()
+
+        # Should have many devices (large SRAM)
+        assert len(engine.devices) > 100, f"Expected many devices, got {len(engine.devices)}"
+
+        print(f"\ntb_dp512x8:")
+        print(f"  Devices: {len(engine.devices)}")
+        print(f"  Nodes: {engine.num_nodes}")
+
+    @pytest.mark.xfail(reason="tb_dp512x8 requires VACASK PR #2 to be merged")
+    def test_transient_sparse(self, sim_path):
+        """Test tb_dp512x8 transient with sparse solver.
+
+        This is a large circuit that requires sparse solver.
+        Analysis: step=100ps, stop=30ns (but we run just a few steps for testing)
+        """
+        engine = CircuitEngine(sim_path)
+        engine.parse()
+
+        # Run just 5 steps for testing (full sim would be 300 steps)
+        dt = 1e-10  # 100ps
+        t_stop = 5e-10  # 5 steps
+
+        result = engine.run_transient(t_stop=t_stop, dt=dt, use_sparse=True)
+
+        print(f"\ntb_dp512x8 sparse:")
+        print(f"  Steps: {result.num_steps}")
+        print(f"  Convergence: {result.stats.get('convergence_rate', 0)*100:.1f}%")
+
+        converged = result.stats.get('convergence_rate', 0)
+        assert converged > 0.5, f"Poor convergence: {converged*100:.0f}%"
+
+
 class TestNodeCountComparison:
     """Test that JAX-SPICE node counts match VACASK.
 
