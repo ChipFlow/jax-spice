@@ -107,7 +107,7 @@ jobs:
       - name: Run jax-spice tests (with jaxtyping runtime checks)
         env:
           JAX_PLATFORMS: cpu
-        run: uv run pytest tests/test_vacask_suite.py tests/test_vacask_jax.py -v --tb=short
+        run: uv run pytest tests/test_vacask_suite.py tests/test_vacask_jax.py tests/test_vacask_benchmarks.py -v --tb=short
 
       - name: Run benchmark tests
         env:
