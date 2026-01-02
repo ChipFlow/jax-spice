@@ -182,10 +182,17 @@ class CircuitEngine:
     # NOTE: Parameter defaults are now extracted from Verilog-A source via openvaf-py's
     # get_param_defaults() method. No manual MODEL_PARAM_DEFAULTS needed.
 
-    # SPICE number suffixes
+    # SPICE number suffixes (longer suffixes first for correct matching)
     SUFFIXES = {
+        # Standard SPICE
         't': 1e12, 'g': 1e9, 'meg': 1e6, 'k': 1e3,
-        'm': 1e-3, 'u': 1e-6, 'n': 1e-9, 'p': 1e-12, 'f': 1e-15
+        'm': 1e-3, 'u': 1e-6, 'n': 1e-9, 'p': 1e-12, 'f': 1e-15,
+        # Time units (common in PULSE/PWL sources)
+        'ms': 1e-3, 'us': 1e-6, 'ns': 1e-9, 'ps': 1e-12, 'fs': 1e-15,
+        # Voltage units
+        'mv': 1e-3, 'uv': 1e-6, 'nv': 1e-9,
+        # Current units (100fa = 100 femtoamps = 1e-13)
+        'ma': 1e-3, 'ua': 1e-6, 'na': 1e-9, 'pa': 1e-12, 'fa': 1e-15,
     }
 
     def __init__(self, sim_path: Path):

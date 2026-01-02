@@ -350,16 +350,19 @@ class FileLoaderMixin:
         lines = []
         for lnum, lws, line, eolc, data in nlines:
             if data.get("isnl", False):
+                # Store raw line before any preprocessing (for PULSE/PWL parsing)
+                data["rawline"] = line
+
                 # Netlist lines are converted to lowercase and preprocessed
                 # Preprocess first
                 line = self.preprocess_line(line)
-                
-                # Store original case 
+
+                # Store original case (after preprocessing)
                 data["origline"] = line
-                
+
                 # To lowercase
                 line = line.lower()
-                
+
             lines.append((lnum, lws, line, eolc, data))
         
         # Lines is now a list of tuples of the form 

@@ -58,6 +58,30 @@ class InstanceVMixin:
                 pwl_data = self.parse_pwl(pwl_content)
                 params.append(("type", '"pwl"'))
                 params.append(("wave", pwl_data))
+            elif rest_str.lower().startswith("pulse(") or rest_str.lower().startswith("pulse ") or "pulse" in rest_str.lower():
+                # PULSE source: PULSE(v1 v2 td tr tf pw per)
+                # VACASK format: type="pulse" val0=v1 val1=v2 delay=td rise=tr fall=tf width=pw period=per
+                #
+                # Use raw line (before preprocessing) since preprocess removes spaces inside parens
+                raw_line = annot.get("rawline", annot.get("origline", ""))
+                pulse_match = re.search(r'pulse\s*\(\s*([^)]+)\s*\)', raw_line, re.IGNORECASE)
+                if pulse_match:
+                    pulse_content = pulse_match.group(1).strip()
+                else:
+                    # Fallback to preprocessed content
+                    pulse_content = rest_str
+                    if pulse_content.lower().startswith("pulse("):
+                        pulse_content = pulse_content[6:]
+                    elif pulse_content.lower().startswith("pulse"):
+                        pulse_content = pulse_content[5:].strip()
+                        if pulse_content.startswith("("):
+                            pulse_content = pulse_content[1:]
+                    if pulse_content.endswith(")"):
+                        pulse_content = pulse_content[:-1]
+
+                pulse_params = self.parse_pulse(pulse_content)
+                params.append(("type", '"pulse"'))
+                params.extend(pulse_params)
             elif rest_str.lower().startswith("dc="):
                 params.append(("dc", self.format_value(rest_str[3:])))
             elif rest_str.lower().startswith("dc "):
@@ -118,3 +142,96 @@ class InstanceVMixin:
             values.extend([t, v])
 
         return "[" + ", ".join(values) + "]"
+
+    def parse_pulse(self, pulse_str):
+        """Parse PULSE data string and return VACASK format parameters.
+
+        SPICE format: PULSE(v1 v2 [td [tr [tf [pw [per]]]]])
+        - v1: Initial value
+        - v2: Pulsed value
+        - td: Delay time (default 0)
+        - tr: Rise time (default 0)
+        - tf: Fall time (default 0)
+        - pw: Pulse width (default infinity)
+        - per: Period (default infinity)
+
+        VACASK format: type="pulse" val0=v1 val1=v2 delay=td rise=tr fall=tf width=pw period=per
+
+        Note: Preprocessing may remove spaces inside parentheses, so we need to
+        handle both "5 -1 0.05ms" and "5-10.05ms100ns" formats.
+        """
+        # First try splitting by whitespace
+        tokens = pulse_str.split()
+
+        if len(tokens) > 1:
+            # Spaces preserved - use simple split
+            pass
+        else:
+            # Spaces removed - need to parse by unit suffixes and sign changes
+            # Pattern: number (with optional SI suffix) repeated
+            # Examples of numbers: 5, -1, 0.05ms, 100ns, 1e-9, 1.5e-6s
+            tokens = self._parse_concatenated_values(pulse_str)
+
+        params = []
+
+        # Map SPICE pulse params to VACASK names
+        param_names = ['val0', 'val1', 'delay', 'rise', 'fall', 'width', 'period']
+
+        for i, token in enumerate(tokens):
+            if i < len(param_names):
+                params.append((param_names[i], self.format_value(token)))
+
+        return params
+
+    def _parse_concatenated_values(self, s):
+        """Parse a string of concatenated numeric values.
+
+        Input: "5-10.05ms100ns100ns0.1ms0.2ms"
+        Output: ["5", "-1", "0.05ms", "100ns", "100ns", "0.1ms", "0.2ms"]
+
+        Strategy: Since preprocessing removes spaces, we need to find boundaries.
+        Key insight for PULSE: first two values are voltages (no units required),
+        remaining values are times (usually have units like ms, ns, us, s).
+
+        We look for unit suffixes as boundaries. When a unit is found, it marks
+        the end of one value. A new value starts at a digit or sign after a unit.
+        """
+        # SI unit suffixes (longer first for correct matching)
+        units = ['meg', 'mil', 'ms', 'us', 'ns', 'ps', 'fs', 'f', 'p', 'n', 'u', 'm', 'k', 'g', 't', 's', 'v']
+
+        # First pass: find all positions where units appear
+        # Then work backwards to identify number boundaries
+        tokens = []
+        remaining = s
+
+        while remaining:
+            # Find a number at the start
+            # A number is: optional sign, digits, optional decimal, optional exponent
+            num_match = re.match(r'^([-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?)', remaining)
+            if not num_match:
+                break
+
+            num = num_match.group(1)
+            remaining = remaining[len(num):]
+
+            # Check if followed by a unit suffix
+            unit = ''
+            for u in units:
+                if remaining.lower().startswith(u):
+                    # Make sure unit is not followed by another letter (to avoid partial matches)
+                    if len(remaining) == len(u) or not remaining[len(u)].isalpha():
+                        unit = remaining[:len(u)]
+                        remaining = remaining[len(u):]
+                        break
+
+            tokens.append(num + unit)
+
+            # If there's still content but no more matches, something went wrong
+            if remaining and not remaining[0].lstrip('+-').replace('.','',1).isdigit():
+                # Skip any non-numeric characters
+                idx = 0
+                while idx < len(remaining) and not (remaining[idx].isdigit() or remaining[idx] in '+-'):
+                    idx += 1
+                remaining = remaining[idx:]
+
+        return tokens
