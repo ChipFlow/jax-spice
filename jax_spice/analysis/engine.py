@@ -168,6 +168,10 @@ class CircuitEngine:
         self._compiled_models: Dict[str, Any] = {}
         self._has_openvaf_devices = False
 
+        # Parsing caches for _build_devices optimization
+        self._model_params_cache: Dict[str, Dict[str, float]] = {}
+        self._device_type_cache: Dict[str, str] = {}
+
         # Transient setup cache (reused across multiple run_transient calls)
         self._transient_setup_cache: Dict[str, Any] | None = None
         self._transient_setup_key: str | None = None
@@ -184,6 +188,8 @@ class CircuitEngine:
 
         # Clear instance caches
         self._compiled_models.clear()
+        self._model_params_cache.clear()
+        self._device_type_cache.clear()
         if hasattr(self, '_cached_nr_solve'):
             del self._cached_nr_solve
         if hasattr(self, '_cached_solver_key'):
@@ -225,9 +231,11 @@ class CircuitEngine:
         import time
         import sys
 
-        # Clear transient setup cache when re-parsing (circuit may have changed)
+        # Clear caches when re-parsing (circuit may have changed)
         self._transient_setup_cache = None
         self._transient_setup_key = None
+        self._model_params_cache.clear()
+        self._device_type_cache.clear()
 
         logger.info("parse(): starting...")
 
@@ -287,11 +295,18 @@ class CircuitEngine:
         return self.MODULE_TO_DEVICE.get(model_name.lower(), model_name.lower())
 
     def _get_model_params(self, model_name: str) -> Dict[str, float]:
-        """Get parsed parameters from a model definition."""
+        """Get parsed parameters from a model definition (cached)."""
+        if model_name in self._model_params_cache:
+            return self._model_params_cache[model_name]
+
         model = self.circuit.models.get(model_name)
         if not model:
-            return {}
-        return {k: self.parse_spice_number(v) for k, v in model.params.items()}
+            result = {}
+        else:
+            result = {k: self.parse_spice_number(v) for k, v in model.params.items()}
+
+        self._model_params_cache[model_name] = result
+        return result
 
     def _parse_elaborate_directive(self) -> Optional[str]:
         """Parse 'elaborate circuit("subckt_name")' directive from control block.
