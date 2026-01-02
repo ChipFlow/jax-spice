@@ -75,12 +75,12 @@ class TransientResult:
 
     Attributes:
         times: Array of time points
-        voltages: Dict mapping node name or index to voltage array.
-                  Each node is accessible by both its string name and integer index.
+        voltages: Dict mapping node name (str) to voltage array.
+                  Node names come from the netlist (e.g., 'vdd', 'out', 'inp').
         stats: Dict with simulation statistics (wall_time, convergence_rate, etc.)
     """
     times: Array
-    voltages: Dict[Union[str, int], Array]
+    voltages: Dict[str, Array]
     stats: Dict[str, Any]
 
     @property
@@ -88,11 +88,11 @@ class TransientResult:
         """Number of timesteps in the simulation."""
         return len(self.times)
 
-    def voltage(self, node: Union[int, str]) -> Array:
+    def voltage(self, node: str) -> Array:
         """Get voltage waveform at a specific node.
 
         Args:
-            node: Node index (int) or name (str)
+            node: Node name from the netlist (e.g., 'vdd', 'out')
 
         Returns:
             Voltage array over time
@@ -102,18 +102,17 @@ class TransientResult:
         """
         if node in self.voltages:
             return self.voltages[node]
-        # Try case-insensitive lookup for string names
-        if isinstance(node, str):
-            node_lower = node.lower()
-            for key in self.voltages:
-                if isinstance(key, str) and key.lower() == node_lower:
-                    return self.voltages[key]
+        # Try case-insensitive lookup
+        node_lower = node.lower()
+        for key in self.voltages:
+            if key.lower() == node_lower:
+                return self.voltages[key]
         raise KeyError(f"Node '{node}' not found. Available: {self.node_names}")
 
     @property
     def node_names(self) -> List[str]:
-        """List of node names (string keys only)."""
-        return [k for k in self.voltages.keys() if isinstance(k, str)]
+        """List of node names."""
+        return list(self.voltages.keys())
 
 
 class CircuitEngine:
@@ -2588,17 +2587,18 @@ class CircuitEngine:
             logger.info(f"  Non-converged: {len(non_converged_steps)} steps ({100*(1-stats['convergence_rate']):.1f}%)")
 
         # Convert voltage history to dict format (single stack operation)
-        # Index by both integer and name for easy lookup
+        # Use string names only for clean API
         times = jnp.array(times_list)
+        voltages: Dict[str, Array] = {}
         if voltage_history:
             V_stacked = jnp.stack(voltage_history)  # Shape: (n_timesteps, n_external)
-            voltages: Dict[Union[str, int], Array] = {i: V_stacked[:, i] for i in range(n_external)}
+            for name, idx in self.node_names.items():
+                if idx > 0 and idx < n_external:  # Skip ground (0), only external nodes
+                    voltages[name] = V_stacked[:, idx]
         else:
-            voltages: Dict[Union[str, int], Array] = {i: jnp.array([]) for i in range(n_external)}
-        # Add name keys (node_names maps name -> index, we want external nodes only)
-        for name, idx in self.node_names.items():
-            if idx > 0 and idx < n_external:  # Skip ground (0), only external nodes
-                voltages[name] = voltages[idx]  # idx matches voltage dict key directly
+            for name, idx in self.node_names.items():
+                if idx > 0 and idx < n_external:
+                    voltages[name] = jnp.array([])
 
         return TransientResult(times=times, voltages=voltages, stats=stats)
 
@@ -3094,12 +3094,11 @@ class CircuitEngine:
         logger.info(f"Completed: {num_timesteps} steps in {total_time:.3f}s "
                    f"({stats['time_per_step_ms']:.2f}ms/step, {total_iters} NR iters)")
 
-        # Convert to dict format - index by both integer and name
-        voltages: Dict[Union[str, int], Array] = {i: all_V[:, i] for i in range(n_external)}
-        # Add name keys (node_names maps name -> index, we want external nodes only)
+        # Convert to dict format - use string names only
+        voltages: Dict[str, Array] = {}
         for name, idx in self.node_names.items():
             if idx > 0 and idx < n_external:  # Skip ground (0), only external nodes
-                voltages[name] = voltages[idx]  # idx matches voltage dict key directly
+                voltages[name] = all_V[:, idx]
 
         return TransientResult(times=times, voltages=voltages, stats=stats)
 

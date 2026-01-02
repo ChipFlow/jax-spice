@@ -129,13 +129,15 @@ class PythonLoopStrategy(TransientStrategy):
 
         wall_time = time_module.perf_counter() - t_start
 
-        # Build results - index by both integer and name
+        # Build results - use string names only
         times = jnp.array(times_list)
-        voltages: Dict[Any, jax.Array] = {i: jnp.array(v) for i, v in voltages_dict.items()}
-        # Add name keys (node_names maps name -> index, we want external nodes only)
+        # Build index-to-voltage arrays first
+        idx_to_voltage = {i: jnp.array(v) for i, v in voltages_dict.items()}
+        # Create final dict with string names only
+        voltages: Dict[str, jax.Array] = {}
         for name, idx in self.runner.node_names.items():
-            if idx > 0 and idx <= n_external:  # Skip ground (0), only external nodes
-                voltages[name] = voltages[idx - 1]  # idx is 1-based, dict key is 0-based
+            if idx > 0 and idx < n_external:  # Skip ground (0), only external nodes
+                voltages[name] = idx_to_voltage[idx]
 
         stats = {
             'total_timesteps': len(times_list),

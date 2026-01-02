@@ -130,7 +130,7 @@ endc
         )
 
         # At very low frequency, Vout ~= Vin
-        v_out = result.voltages.get(2, result.voltages.get('2'))
+        v_out = result.voltages.get('2')
         assert v_out is not None
         mag = float(jnp.abs(v_out[0]))
         assert mag == pytest.approx(1.0, rel=0.1)
@@ -150,7 +150,7 @@ endc
             values=[fc],
         )
 
-        v_out = result.voltages.get(2, result.voltages.get('2'))
+        v_out = result.voltages.get('2')
         assert v_out is not None
         mag = float(jnp.abs(v_out[0]))
 
@@ -172,7 +172,7 @@ endc
             values=[fc],
         )
 
-        v_out = result.voltages.get(2, result.voltages.get('2'))
+        v_out = result.voltages.get('2')
         assert v_out is not None
         phase_deg = float(jnp.angle(v_out[0]) * 180 / jnp.pi)
 
@@ -195,7 +195,7 @@ endc
         assert float(result.frequencies[0]) == pytest.approx(1.0)
         assert float(result.frequencies[-1]) == pytest.approx(10000.0)
 
-        v_out = result.voltages.get(2, result.voltages.get('2'))
+        v_out = result.voltages.get('2')
         assert v_out is not None
 
         # Magnitude should decrease with frequency
@@ -278,7 +278,7 @@ class TestACResult:
         """ACResult should have frequency array."""
         result = ACResult(
             frequencies=jnp.array([1.0, 10.0, 100.0]),
-            voltages={1: jnp.array([1+0j, 0.9+0.1j, 0.5+0.5j])},
+            voltages={'1': jnp.array([1+0j, 0.9+0.1j, 0.5+0.5j])},
             currents={},
             dc_voltages=jnp.array([0.0, 1.0]),
         )
@@ -288,8 +288,8 @@ class TestACResult:
         """Voltages should be complex arrays."""
         result = ACResult(
             frequencies=jnp.array([100.0]),
-            voltages={1: jnp.array([0.707+0.707j])},
+            voltages={'1': jnp.array([0.707+0.707j])},
             currents={},
             dc_voltages=jnp.array([0.0]),
         )
-        assert jnp.iscomplexobj(result.voltages[1])
+        assert jnp.iscomplexobj(result.voltages['1'])

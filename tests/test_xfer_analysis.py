@@ -60,7 +60,7 @@ endc
         result = engine.run_dcinc()
 
         # Incremental voltage at node 2 should be 0.5 (half of mag=1)
-        v2_inc = result.incremental_voltages.get(2)
+        v2_inc = result.incremental_voltages.get('2')
         assert v2_inc is not None
         assert v2_inc == pytest.approx(0.5, rel=0.01)
 
@@ -102,8 +102,8 @@ endc
         result = engine.run_dcinc()
 
         # Should have incremental voltage at node 2
-        assert 2 in result.incremental_voltages
-        v2_inc = result.incremental_voltages[2]
+        assert '2' in result.incremental_voltages
+        v2_inc = result.incremental_voltages['2']
 
         # Value should be between 0 and 1 (voltage divider with diode)
         assert 0 < v2_inc < 1
@@ -389,11 +389,11 @@ class TestXferResultStructures:
     def test_dcinc_result_has_voltages(self):
         """DCIncResult should have incremental voltages dict."""
         result = DCIncResult(
-            incremental_voltages={1: 0.5, 2: 0.3},
+            incremental_voltages={'1': 0.5, '2': 0.3},
             dc_voltages=None,
         )
-        assert 1 in result.incremental_voltages
-        assert result.incremental_voltages[1] == 0.5
+        assert '1' in result.incremental_voltages
+        assert result.incremental_voltages['1'] == 0.5
 
     def test_dcxf_result_has_metrics(self):
         """DCXFResult should have tf, zin, yin dicts."""

@@ -46,10 +46,11 @@ class DCIncResult:
     """DCINC analysis results.
 
     Attributes:
-        incremental_voltages: Dict mapping node name/index to incremental voltage
+        incremental_voltages: Dict mapping node name (str) to incremental voltage.
+                              Node names come from the netlist.
         dc_voltages: DC operating point voltages (if writeop=True)
     """
-    incremental_voltages: Dict[Union[str, int], float]
+    incremental_voltages: Dict[str, float]
     dc_voltages: Optional[Array] = None
 
 
@@ -80,14 +81,11 @@ def solve_dcinc(
     # Solve Jr·dx = du
     dx = jax.scipy.linalg.solve(Jr_reg, excitation)
 
-    # Build result dictionary
-    voltages: Dict[Union[str, int], float] = {}
+    # Build result dictionary - use string names only
+    voltages: Dict[str, float] = {}
 
-    # Index by node number (1-indexed, ground is 0)
-    for i in range(n):
-        voltages[i + 1] = float(dx[i])
-
-    # Also index by name if available
+    # Index by name from node_names mapping
+    # Note: Solution array excludes ground, so node idx maps to array position idx-1
     if node_names:
         for name, idx in node_names.items():
             if idx > 0 and idx <= n:

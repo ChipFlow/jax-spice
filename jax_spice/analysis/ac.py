@@ -58,12 +58,13 @@ class ACResult:
 
     Attributes:
         frequencies: Array of frequencies (Hz), shape (n_freqs,)
-        voltages: Dict mapping node name/index to complex phasor array, shape (n_freqs,)
+        voltages: Dict mapping node name (str) to complex phasor array, shape (n_freqs,).
+                  Node names come from the netlist (e.g., 'vdd', 'out', 'inp').
         currents: Dict mapping branch name to complex current array, shape (n_freqs,)
         dc_voltages: DC operating point voltages
     """
     frequencies: Array
-    voltages: Dict[Union[str, int], Array]
+    voltages: Dict[str, Array]
     currents: Dict[str, Array]
     dc_voltages: Array
 
@@ -268,14 +269,11 @@ def run_ac_analysis(
     # Solve for all frequencies
     X_all = solve_ac_sweep(Jr, Jc, U, frequencies)
 
-    # Build result dictionaries
-    voltages: Dict[Union[str, int], Array] = {}
+    # Build result dictionaries - use string names only
+    voltages: Dict[str, Array] = {}
 
-    # Index by node number
-    for i in range(n_unknowns):
-        voltages[i + 1] = X_all[:, i]  # 1-indexed nodes (0 is ground)
-
-    # Also index by name if available
+    # Index by name from node_names mapping
+    # Note: AC solution array excludes ground, so node idx maps to array position idx-1
     if node_names:
         for name, idx in node_names.items():
             if idx > 0 and idx <= n_unknowns:

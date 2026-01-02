@@ -112,12 +112,12 @@ class TestRCBenchmark:
         result = engine.run_transient(t_stop=t_stop, dt=dt, use_sparse=False)
 
         # Get node 2 voltage (capacitor voltage)
-        # voltages is a dict mapping node index to voltage array
-        if 2 in result.voltages:
-            v_cap = result.voltage(2)  # Capacitor voltage
+        # voltages is a dict mapping node name to voltage array
+        if '2' in result.voltages:
+            v_cap = result.voltage('2')  # Capacitor voltage (node '2')
         else:
-            # Get the last non-ground node
-            v_cap = result.voltages[max(result.voltages.keys())]
+            # Get the last node alphabetically
+            v_cap = result.voltages[sorted(result.voltages.keys())[-1]]
 
         times_np = np.array(result.times)
         v_cap_np = np.array(v_cap)
@@ -711,7 +711,7 @@ class BenchmarkSpec:
     t_stop: float
     max_rel_error: float
     vacask_nodes: list[str]
-    jax_nodes: list[int | str]  # Can be node index (int) or name (str)
+    jax_nodes: list[str]  # Node names from the netlist
     xfail: bool = False
     xfail_reason: str = ""
     node_transform: Callable | None = None
@@ -725,7 +725,7 @@ BENCHMARK_SPECS = {
         t_stop=1e-3,       # 1ms (one time constant)
         max_rel_error=0.05,  # 5% allowed
         vacask_nodes=['2', 'v(2)'],
-        jax_nodes=[2, 1],
+        jax_nodes=['2', '1'],
         xfail=False,
     ),
     'graetz': BenchmarkSpec(
@@ -734,9 +734,9 @@ BENCHMARK_SPECS = {
         t_stop=5e-3,       # 5ms (1/4 of 50Hz period, allows capacitor charging)
         max_rel_error=0.05,  # 5% allowed
         vacask_nodes=['outp'],  # Compare differential voltage via transform
-        jax_nodes=[4],
+        jax_nodes=['outp'],
         xfail=False,
-        node_transform=lambda v: v.get('outp', v.get(4, np.zeros(1))) - v.get('outn', v.get(3, np.zeros(1))),
+        node_transform=lambda v: v.get('outp', np.zeros(1)) - v.get('outn', np.zeros(1)),
     ),
     'ring': BenchmarkSpec(
         name='ring',
@@ -744,7 +744,7 @@ BENCHMARK_SPECS = {
         t_stop=5e-9,       # 5ns
         max_rel_error=0.15,  # 15% allowed (PSP103 complexity)
         vacask_nodes=['1', 'v(1)'],
-        jax_nodes=[1],
+        jax_nodes=['1'],
         xfail=True,
         xfail_reason="PSP103 ring oscillator: DC operating point differs (JAX=0.546V vs VACASK=0.661V). "
                      "Root cause: NOI (noise correlation) internal node has I(NOIR) <+ V(NOI)/mig contribution "
@@ -758,7 +758,7 @@ BENCHMARK_SPECS = {
         t_stop=1e-7,       # 100ns
         max_rel_error=0.01,  # 1% allowed (actual: ~0.06%)
         vacask_nodes=['1', 'v(1)'],
-        jax_nodes=[1],
+        jax_nodes=['1'],
         xfail=False,
     ),
     'c6288': BenchmarkSpec(
