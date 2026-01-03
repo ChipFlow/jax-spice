@@ -9,12 +9,14 @@ Tests include:
 - Waveform comparison with VACASK (when available)
 """
 
+import gc
 import subprocess
 import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Optional
 
+import jax
 import numpy as np
 import pytest
 
@@ -64,6 +66,18 @@ class TestBenchmarkParsing:
 
 class TestBenchmarkTransient:
     """Test transient simulation for all benchmarks."""
+
+    @pytest.fixture(autouse=True)
+    def cleanup_gpu_state(self):
+        """Clear JAX caches and run GC after each test.
+
+        This helps prevent GPU memory corruption when running multiple
+        sparse solves with different sparsity patterns in sequence.
+        """
+        yield  # Run the test
+        # Cleanup after test
+        jax.clear_caches()
+        gc.collect()
 
     @pytest.mark.parametrize("benchmark_name", get_runnable_benchmarks())
     def test_transient_dense(self, benchmark_name: str):
