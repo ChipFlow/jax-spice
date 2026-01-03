@@ -9,3 +9,7 @@
 [submodule "vendor/Xyce_Regression"]
 	path = vendor/Xyce_Regression
 	url = https://github.com/Xyce/Xyce_Regression.git
+[submodule "vendor/ngspice"]
+	path = vendor/ngspice
+	url = git://git.code.sf.net/p/ngspice/ngspice
+	branch = pre-master-46

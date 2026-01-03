@@ -218,6 +218,9 @@ class CircuitEngine:
         self._transient_setup_cache: Dict[str, Any] | None = None
         self._transient_setup_key: str | None = None
 
+        # Simulation temperature in Kelvin (default room temperature)
+        self._simulation_temperature: float = 300.15
+
     def clear_cache(self):
         """Clear all cached data to free memory.
 
@@ -930,7 +933,7 @@ class CircuitEngine:
                 elif kind == 'param_given':
                     param_given_to_cols.setdefault(name_lower, []).append(idx)
                 elif kind == 'temperature':
-                    col_values[idx] = 300.15  # Scalar - same for all devices
+                    col_values[idx] = self._simulation_temperature  # Scalar - same for all devices
                 elif kind == 'sysfun' and name_lower == 'mfactor':
                     col_values[idx] = 1.0  # Scalar
 
@@ -1559,7 +1562,7 @@ class CircuitEngine:
                     elif name in params:
                         inputs.append(float(params[name]))
                     elif 'temperature' in param_lower or name == '$temperature':
-                        inputs.append(300.15)
+                        inputs.append(self._simulation_temperature)
                     elif param_lower == 'mfactor':
                         inputs.append(params.get('mfactor', 1.0))
                     elif param_lower in model_defaults:
@@ -1580,7 +1583,7 @@ class CircuitEngine:
                     else:
                         inputs.append(0.0)
                 elif kind == 'temperature':
-                    inputs.append(300.15)
+                    inputs.append(self._simulation_temperature)
                 else:
                     inputs.append(0.0)
 
@@ -1908,7 +1911,8 @@ class CircuitEngine:
                       backend: Optional[str] = None,
                       use_scan: bool = False,
                       use_while_loop: bool = False,
-                      profile_config: Optional['ProfileConfig'] = None) -> TransientResult:
+                      profile_config: Optional['ProfileConfig'] = None,
+                      temperature: float = 300.15) -> TransientResult:
         """Run transient analysis.
 
         All computation is JIT-compiled. Automatically uses sparse matrices
@@ -1924,10 +1928,17 @@ class CircuitEngine:
             use_scan: If True, use lax.scan (pre-computes all source values)
             use_while_loop: If True, use lax.while_loop (computes sources on-the-fly)
             profile_config: If provided, profile just the core simulation (not setup)
+            temperature: Simulation temperature in Kelvin (default: 300.15K = 27°C)
 
         Returns:
             TransientResult with times, voltages, and stats
         """
+        # Update simulation temperature if changed (invalidates cached static inputs)
+        if temperature != self._simulation_temperature:
+            self._simulation_temperature = temperature
+            self._transient_setup_cache = None
+            self._transient_setup_key = None
+            logger.info(f"Temperature changed to {temperature}K ({temperature - 273.15:.1f}°C)")
         from jax_spice.analysis.gpu_backend import select_backend, is_gpu_available
 
         if t_stop is None:
@@ -5110,6 +5121,12 @@ class CircuitEngine:
         Returns:
             NoiseResult with output noise, power gain, and per-device contributions
         """
+        # Update simulation temperature if changed
+        if temperature != self._simulation_temperature:
+            self._simulation_temperature = temperature
+            self._transient_setup_cache = None
+            self._transient_setup_key = None
+
         from jax_spice.analysis.noise import (
             NoiseConfig, NoiseResult, run_noise_analysis,
             extract_noise_sources,
@@ -5206,4 +5223,193 @@ class CircuitEngine:
                     dc_currents[name] = -Is
 
         return dc_currents
+
+    # =========================================================================
+    # Corner Analysis
+    # =========================================================================
+
+    def run_corners(
+        self,
+        corners: List['CornerConfig'],
+        analysis: str = 'transient',
+        **analysis_kwargs
+    ) -> 'CornerSweepResult':
+        """Run simulation across multiple PVT corners.
+
+        Runs the same analysis with different process, voltage, and temperature
+        settings. Each corner modifies device parameters before simulation.
+
+        Args:
+            corners: List of CornerConfig specifying PVT conditions
+            analysis: Analysis type ('transient', 'dc', 'ac')
+            **analysis_kwargs: Arguments passed to the analysis method
+                (e.g., t_stop, dt for transient)
+
+        Returns:
+            CornerSweepResult containing results for all corners
+
+        Example:
+            from jax_spice.analysis.corners import create_pvt_corners
+
+            corners = create_pvt_corners(
+                processes=['FF', 'TT', 'SS'],
+                temperatures=['cold', 'room', 'hot']
+            )
+            results = engine.run_corners(corners, t_stop=1e-3, dt=1e-6)
+
+            for r in results.converged_results():
+                print(f"{r.corner.name}: max voltage = {r.result.voltages['out'].max()}")
+        """
+        from jax_spice.analysis.corners import (
+            CornerConfig, CornerResult, CornerSweepResult
+        )
+
+        results = []
+
+        for corner in corners:
+            # Save original device params
+            original_params = self._save_device_params()
+
+            try:
+                # Apply corner modifications
+                self._apply_process_corner(corner.process)
+                self._apply_voltage_corner(corner.voltage)
+
+                # Set temperature (this invalidates cache)
+                if corner.temperature != self._simulation_temperature:
+                    self._simulation_temperature = corner.temperature
+                    self._transient_setup_cache = None
+                    self._transient_setup_key = None
+
+                logger.info(f"Running corner: {corner.name} "
+                           f"(T={corner.temperature - 273.15:.1f}°C)")
+
+                # Run analysis
+                if analysis == 'transient':
+                    result = self.run_transient(
+                        temperature=corner.temperature,
+                        **analysis_kwargs
+                    )
+                elif analysis == 'ac':
+                    result = self.run_ac(
+                        temperature=corner.temperature,
+                        **analysis_kwargs
+                    )
+                elif analysis == 'noise':
+                    result = self.run_noise(
+                        temperature=corner.temperature,
+                        **analysis_kwargs
+                    )
+                else:
+                    raise ValueError(f"Unsupported analysis type: {analysis}")
+
+                results.append(CornerResult(
+                    corner=corner,
+                    result=result,
+                    converged=True,
+                    stats=getattr(result, 'stats', {})
+                ))
+
+            except Exception as e:
+                logger.warning(f"Corner {corner.name} failed: {e}")
+                results.append(CornerResult(
+                    corner=corner,
+                    result=None,
+                    converged=False,
+                    stats={'error': str(e)}
+                ))
+
+            finally:
+                # Restore original params
+                self._restore_device_params(original_params)
+
+        return CornerSweepResult(corners=corners, results=results)
+
+    def _save_device_params(self) -> List[Dict[str, Any]]:
+        """Save copy of device parameters for restoration.
+
+        Returns:
+            List of device parameter dicts (deep copy)
+        """
+        return [dict(dev.get('params', {})) for dev in self.devices]
+
+    def _restore_device_params(self, saved: List[Dict[str, Any]]) -> None:
+        """Restore device parameters from saved state.
+
+        Args:
+            saved: Previously saved parameter dicts
+        """
+        for dev, params in zip(self.devices, saved):
+            dev['params'] = params
+
+    def _apply_process_corner(self, corner: Optional['ProcessCorner']) -> None:
+        """Apply process corner scaling to device parameters.
+
+        Modifies device parameters in place based on corner specification.
+
+        Args:
+            corner: Process corner to apply (or None for nominal)
+        """
+        if corner is None:
+            return
+
+        for dev in self.devices:
+            if not dev.get('is_openvaf', False):
+                continue
+
+            params = dev.get('params', {})
+            model = dev.get('model', '')
+
+            # Apply mobility scaling
+            mobility_params = ('uo', 'mu0', 'u0', 'betn', 'betp', 'mue')
+            for param in mobility_params:
+                if param in params:
+                    params[param] = float(params[param]) * corner.mobility_scale
+
+            # Apply Vth shift
+            vth_params = ('vth0', 'vfb', 'delvto', 'dvt0')
+            for param in vth_params:
+                if param in params:
+                    params[param] = float(params[param]) + corner.vth_shift
+
+            # Apply Tox scaling
+            tox_params = ('tox', 'toxe', 'toxo', 'toxp')
+            for param in tox_params:
+                if param in params:
+                    params[param] = float(params[param]) * corner.tox_scale
+
+            # Apply length delta
+            if corner.length_delta != 0:
+                if 'l' in params:
+                    params['l'] = float(params['l']) + corner.length_delta
+
+            # Apply model-specific overrides
+            if model in corner.model_params:
+                for param, value in corner.model_params[model].items():
+                    params[param] = value
+
+    def _apply_voltage_corner(self, corner: Optional['VoltageCorner']) -> None:
+        """Apply voltage corner scaling to source devices.
+
+        Modifies voltage source DC values based on corner specification.
+
+        Args:
+            corner: Voltage corner to apply (or None for nominal)
+        """
+        if corner is None:
+            return
+
+        for dev in self.devices:
+            if dev.get('model') != 'vsource':
+                continue
+
+            name = dev.get('name', '')
+            params = dev.get('params', {})
+
+            # Check for explicit source value
+            if name in corner.source_values:
+                params['dc'] = corner.source_values[name]
+            elif 'dc' in params:
+                # Apply general VDD scaling
+                params['dc'] = float(params['dc']) * corner.vdd_scale
 

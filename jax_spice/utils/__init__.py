@@ -10,6 +10,12 @@ from jax_spice.utils.waveform_compare import (
     run_vacask,
     find_vacask_binary,
 )
+from jax_spice.utils.ngspice import (
+    find_ngspice_binary,
+    parse_control_section,
+    run_ngspice,
+    NgspiceError,
+)
 
 __all__ = [
     # Raw file parsing
@@ -24,4 +30,9 @@ __all__ = [
     'run_comparison',
     'run_vacask',
     'find_vacask_binary',
+    # ngspice utilities
+    'find_ngspice_binary',
+    'parse_control_section',
+    'run_ngspice',
+    'NgspiceError',
 ]

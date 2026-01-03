@@ -117,3 +117,54 @@ jobs:
       - name: Run type checker
         continue-on-error: true
         run: uv run pyright jax_spice/
+
+  test-ngspice-regression:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout with submodules
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install LLVM 18
+        run: |
+          wget https://apt.llvm.org/llvm.sh
+          chmod +x llvm.sh
+          sudo ./llvm.sh 18
+          echo "LLVM_SYS_181_PREFIX=/usr/lib/llvm-18" >> $GITHUB_ENV
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Set up sccache
+        uses: mozilla-actions/sccache-action@v0.0.7
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: openvaf-py
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libsuitesparse-dev swig ngspice
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+
+      - name: Set up Python
+        run: uv python install 3.11
+
+      - name: Build openvaf-py
+        working-directory: openvaf-py
+        run: |
+          uv sync
+          uv run maturin develop --release
+
+      - name: Install jax-spice with dev dependencies
+        run: uv sync --extra dev
+
+      - name: Run ngspice regression tests
+        env:
+          JAX_PLATFORMS: cpu
+        run: uv run pytest tests/test_ngspice_regression.py -v --tb=short
