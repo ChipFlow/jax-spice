@@ -176,9 +176,9 @@ jobs:
         timeout-minutes: 30
         run: |
           echo "Running JAX-SPICE vs VACASK comparison..."
-          # Run comparison script - it handles VACASK availability gracefully
+          # Benchmarks are auto-discovered from jax_spice.benchmarks.registry
+          # Includes: rc, graetz, mul, ring, c6288, tb_dp (if available)
           uv run python scripts/compare_vacask.py \
-            --benchmark rc,graetz,ring,c6288 \
             --max-steps 200 \
             --use-scan \
             --use-sparse 2>&1 | tee /tmp/benchmark-comparison.log || true
@@ -203,8 +203,8 @@ jobs:
               echo "| Benchmark | Status | Details |"
               echo "|-----------|--------|---------|"
 
-              # Extract test results for each benchmark
-              for bench in rc graetz ring mul; do
+              # Extract test results for all benchmarks found in the log
+              grep -oP 'test_transient_matches_vacask\[\K[^\]]+' /tmp/vacask-result-tests.log | sort -u | while read -r bench; do
                 if grep -q "test_transient_matches_vacask\[${bench}\].*PASSED" /tmp/vacask-result-tests.log; then
                   echo "| ${bench} | ✅ PASSED | Waveform matches VACASK |"
                 elif grep -q "test_transient_matches_vacask\[${bench}\].*XFAIL" /tmp/vacask-result-tests.log; then

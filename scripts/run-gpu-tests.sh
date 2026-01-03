@@ -82,12 +82,14 @@ echo "Running JAX-SPICE vs VACASK benchmark comparison..."
 # Use --force-gpu to ensure GPU is used even for small circuits (ring has only 47 nodes)
 # Use --analyze to dump HLO/cost analysis for understanding XLA compilation
 #
+# Benchmarks are auto-discovered from jax_spice.benchmarks.registry
+# Includes: rc, graetz, mul, ring, c6288, tb_dp (if available)
+#
 # Note: CUDA cleanup errors (CUDA_ERROR_ILLEGAL_ADDRESS during event destruction)
 # can occur during Python exit even when benchmarks complete successfully.
 # We capture output to check for success markers and tolerate cleanup errors.
 set +e
 uv run python scripts/compare_vacask.py \
-  --benchmark rc,graetz,ring,c6288 \
   --max-steps 50 \
   --use-scan \
   --force-gpu \
