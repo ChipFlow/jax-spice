@@ -57,6 +57,12 @@ import jax.numpy as jnp
 # Metal/TPU use f32, CPU/CUDA use f64
 
 from jax_spice.analysis import CircuitEngine
+from jax_spice.benchmarks.registry import (
+    BENCHMARKS as BENCHMARK_REGISTRY,
+    BenchmarkInfo,
+    get_benchmark,
+    list_benchmarks,
+)
 from jax_spice.profiling import enable_profiling, ProfileConfig
 
 
@@ -156,50 +162,9 @@ def analyze_compiled_function(fn, args, name: str, output_dir: Optional[Path] = 
         traceback.print_exc()
 
 
-@dataclass
-class BenchmarkConfig:
-    """Configuration for a benchmark."""
-    name: str
-    sim_path: Path
-    dt: float  # timestep
-    t_stop: float  # stop time from VACASK
-    max_steps: int  # limit for practical testing
-
-
-# Project root for relative paths
-PROJECT_ROOT = Path(__file__).parent.parent
-
-# Benchmark configurations matching VACASK parameters
-BENCHMARKS = {
-    'rc': BenchmarkConfig(
-        name='rc',
-        sim_path=PROJECT_ROOT / 'vendor/VACASK/benchmark/rc/vacask/runme.sim',
-        dt=1e-6,  # 1µs
-        t_stop=1.0,  # 1s (1M steps)
-        max_steps=1000,  # limit for testing
-    ),
-    'graetz': BenchmarkConfig(
-        name='graetz',
-        sim_path=PROJECT_ROOT / 'vendor/VACASK/benchmark/graetz/vacask/runme.sim',
-        dt=1e-6,  # 1µs
-        t_stop=1.0,  # 1s (1M steps)
-        max_steps=1000,
-    ),
-    'ring': BenchmarkConfig(
-        name='ring',
-        sim_path=PROJECT_ROOT / 'vendor/VACASK/benchmark/ring/vacask/runme.sim',
-        dt=5e-11,  # 0.05ns
-        t_stop=1e-6,  # 1µs (20k steps)
-        max_steps=1000,
-    ),
-    'c6288': BenchmarkConfig(
-        name='c6288',
-        sim_path=PROJECT_ROOT / 'vendor/VACASK/benchmark/c6288/vacask/runme.sim',
-        dt=2e-12,  # 2ps
-        t_stop=2e-9,  # 2ns (1k steps)
-        max_steps=1000,
-    ),
-}
+# Note: Benchmark configurations are now auto-discovered from
+# jax_spice.benchmarks.registry. The registry parses .sim files
+# to extract dt, t_stop, and device types automatically.
 
 # Published VACASK benchmark times (ms/step) from vendor/VACASK/benchmark/README.md
 # Run on AMD Threadripper 7970, single-threaded, KLU solver
@@ -220,7 +185,7 @@ VACASK_REFERENCE_TIMES = {
 from scripts.benchmark_utils import find_vacask_binary
 
 
-def run_vacask(config: BenchmarkConfig, num_steps: int) -> Optional[Tuple[float, float]]:
+def run_vacask(config: BenchmarkInfo, num_steps: int) -> Optional[Tuple[float, float]]:
     """Run VACASK and return (time_per_step_ms, wall_time_s).
 
     Returns None if VACASK is not available or fails.
@@ -293,7 +258,7 @@ def run_vacask(config: BenchmarkConfig, num_steps: int) -> Optional[Tuple[float,
             temp_sim.unlink()
 
 
-def run_jax_spice(config: BenchmarkConfig, num_steps: int, use_scan: bool,
+def run_jax_spice(config: BenchmarkInfo, num_steps: int, use_scan: bool,
                   use_sparse: bool = False, force_gpu: bool = False,
                   profile_config: Optional[ProfileConfig] = None,
                   profile_full: bool = False, analyze: bool = False,
@@ -593,8 +558,8 @@ def main():
     if args.benchmark:
         benchmark_names = [b.strip() for b in args.benchmark.split(',')]
     else:
-        # Default: all benchmarks including c6288 (uses sparse solver automatically)
-        benchmark_names = ['rc', 'graetz', 'ring', 'c6288']
+        # Default: all discovered benchmarks
+        benchmark_names = list_benchmarks()
 
     # Run benchmarks
     results = []
@@ -607,18 +572,22 @@ def main():
     prev_snapshot = tracemalloc.take_snapshot()
 
     for name in benchmark_names:
-        if name not in BENCHMARKS:
+        config = get_benchmark(name)
+        if config is None:
             print(f"Unknown benchmark: {name}")
             continue
 
-        config = BENCHMARKS[name]
+        if config.skip:
+            print(f"Skipping {name}: {config.skip_reason}")
+            continue
+
         num_steps = min(args.max_steps, int(config.t_stop / config.dt))
 
         print(f"--- {name} ({num_steps} steps, dt={config.dt:.2e}) ---")
 
         # Run JAX-SPICE
-        # Auto-enable sparse for c6288 unless --force-dense is specified
-        use_sparse = args.use_sparse or (name == 'c6288' and not args.force_dense)
+        # Auto-enable sparse for large circuits unless --force-dense is specified
+        use_sparse = args.use_sparse or (config.is_large and not args.force_dense)
         print("  JAX-SPICE warmup...", end=" ", flush=True)
         analyze_dir = Path(args.profile_dir) / "analysis" if args.analyze else None
         jax_ms, jax_wall, stats = run_jax_spice(
