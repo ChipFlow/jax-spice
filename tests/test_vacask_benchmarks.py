@@ -769,7 +769,7 @@ BENCHMARK_SPECS = {
         vacask_nodes=['v(p0)', 'p0'],  # Product bit 0 (VACASK uses flat names)
         jax_nodes=['top.p0'],  # Use named node lookup (JAX-SPICE uses hierarchical names)
         xfail=True,
-        xfail_reason="VACASK OSDI compilation fails on Linux CI (openvaf-r crash)",
+        xfail_reason="PSP103 DC operating point differs - same root cause as ring benchmark (hidden_state params)",
     ),
 }
 

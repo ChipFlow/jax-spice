@@ -76,7 +76,7 @@ def find_vacask_binary() -> Optional[Path]:
 
     # Check environment variable first
     if env_path := os.environ.get('VACASK_BIN'):
-        path = Path(env_path)
+        path = Path(env_path).resolve()
         if path.exists() and path.is_file():
             return path
 
