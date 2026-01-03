@@ -63,6 +63,10 @@ except ImportError:
 # Keyed by (model_type, va_file_mtime) to detect changes
 _COMPILED_MODEL_CACHE: Dict[str, Any] = {}
 
+# Module-level cache for SPICE number parsing (e.g., "1k" -> 1000, "1u" -> 1e-6)
+# These are circuit-independent and can be shared across all CircuitEngine instances
+_SPICE_NUMBER_CACHE: Dict[str, float] = {}
+
 # Newton-Raphson solver constants
 MAX_NR_ITERATIONS = 100  # Maximum Newton-Raphson iterations per timestep
 # Absolute tolerance for NR convergence (current in Amperes)
@@ -215,7 +219,7 @@ class CircuitEngine:
         # Parsing caches for _build_devices optimization
         self._model_params_cache: Dict[str, Dict[str, float]] = {}
         self._device_type_cache: Dict[str, str] = {}
-        self._spice_number_cache: Dict[str, float] = {}
+        # Note: SPICE number parsing uses module-level _SPICE_NUMBER_CACHE
 
         # Transient setup cache (reused across multiple run_transient calls)
         self._transient_setup_cache: Dict[str, Any] | None = None
@@ -238,7 +242,7 @@ class CircuitEngine:
         self._compiled_models.clear()
         self._model_params_cache.clear()
         self._device_type_cache.clear()
-        self._spice_number_cache.clear()
+        # Note: _SPICE_NUMBER_CACHE is module-level and not cleared here
         if hasattr(self, '_cached_nr_solve'):
             del self._cached_nr_solve
         if hasattr(self, '_cached_solver_key'):
@@ -276,15 +280,19 @@ class CircuitEngine:
             return 0.0
 
     def _parse_spice_number_cached(self, s: str | float | int) -> float:
-        """Parse SPICE number with caching for repeated values."""
+        """Parse SPICE number with caching for repeated values.
+
+        Uses module-level _SPICE_NUMBER_CACHE to share parsed values
+        across all CircuitEngine instances.
+        """
         if not isinstance(s, str):
             return float(s)
 
-        if s in self._spice_number_cache:
-            return self._spice_number_cache[s]
+        if s in _SPICE_NUMBER_CACHE:
+            return _SPICE_NUMBER_CACHE[s]
 
         result = self.parse_spice_number(s)
-        self._spice_number_cache[s] = result
+        _SPICE_NUMBER_CACHE[s] = result
         return result
 
     def parse(self):
@@ -292,12 +300,12 @@ class CircuitEngine:
         import time
         import sys
 
-        # Clear caches when re-parsing (circuit may have changed)
+        # Clear instance-specific caches when re-parsing (circuit may have changed)
         self._transient_setup_cache = None
         self._transient_setup_key = None
         self._model_params_cache.clear()
         self._device_type_cache.clear()
-        self._spice_number_cache.clear()
+        # Note: _SPICE_NUMBER_CACHE is module-level and not cleared on re-parse
 
         logger.info("parse(): starting...")
 
