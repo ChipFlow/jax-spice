@@ -346,7 +346,7 @@ COMPARISON_SPECS = {
         vacask_nodes=['1', 'v(1)'],
         jax_nodes=['1'],
         xfail=True,
-        xfail_reason="PSP103 DC operating point differs - NOI node handling issue",
+        xfail_reason="PSP103 transient behavior differs - ring oscillator not oscillating",
     ),
     'mul': ComparisonSpec(
         benchmark_name='mul',
@@ -362,7 +362,7 @@ COMPARISON_SPECS = {
         vacask_nodes=['v(p0)', 'p0'],
         jax_nodes=['top.p0'],
         xfail=True,
-        xfail_reason="PSP103 DC operating point differs - same as ring benchmark",
+        xfail_reason="PSP103 transient behavior differs - same issue as ring benchmark",
     ),
 }
 
