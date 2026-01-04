@@ -147,12 +147,13 @@ class OpenVAFToJAX:
     }
 
     # Unary jnp functions: opcode -> jnp method name (same name)
-    _UNARY_JNP_SAME = {'exp', 'sqrt', 'floor', 'ceil', 'sin', 'cos', 'tan',
+    # Note: 'sqrt' is handled specially with safe_sqrt to clamp negative inputs
+    _UNARY_JNP_SAME = {'exp', 'floor', 'ceil', 'sin', 'cos', 'tan',
                        'sinh', 'cosh', 'tanh', 'hypot'}
 
     # Unary jnp functions: opcode -> jnp method name (different name)
+    # Note: 'ln' is handled specially with safe_log to clamp non-positive inputs
     _UNARY_JNP_MAP = {
-        'ln': 'log',
         'asin': 'arcsin', 'acos': 'arccos', 'atan': 'arctan',
         'asinh': 'arcsinh', 'acosh': 'arccosh', 'atanh': 'arctanh',
     }
@@ -2958,7 +2959,17 @@ class OpenVAFToJAX:
             ops = [get_operand(op) for op in operands]
             return f"({ops[0]} {self._COMPARE_OPS[opcode]} {ops[1]})"
 
-        # Fast path: unary jnp functions with same name (exp, sqrt, sin, cos, etc.)
+        # Safe sqrt: clamp negative inputs to zero to avoid NaN
+        if opcode == 'sqrt':
+            ops = [get_operand(op) for op in operands]
+            return f"jnp.sqrt(jnp.maximum({ops[0]}, _ZERO))"
+
+        # Safe ln (log): clamp non-positive inputs to small positive value to avoid NaN/inf
+        if opcode == 'ln':
+            ops = [get_operand(op) for op in operands]
+            return f"jnp.log(jnp.maximum({ops[0]}, jnp.float64(1e-300)))"
+
+        # Fast path: unary jnp functions with same name (exp, sin, cos, etc.)
         if opcode in self._UNARY_JNP_SAME:
             ops = [get_operand(op) for op in operands]
             return f"jnp.{opcode}({ops[0]})"
@@ -3067,7 +3078,10 @@ class OpenVAFToJAX:
                     return _jax_bool_repr(False)
 
                 elif 'ddt' in fn_name.lower() or 'TimeDerivative' in fn_name:
-                    # Time derivative - for DC analysis, return 0
+                    # Time derivative - return the charge expression Q
+                    # The transient solver computes dQ/dt = (Q - Q_prev) / dt
+                    if operands:
+                        return get_operand(operands[0])
                     return '_ZERO'
 
                 elif 'ddx' in fn_name.lower() or 'NodeDerivative' in fn_name:
@@ -3278,6 +3292,10 @@ class OpenVAFToJAX:
                     return expr_builder.jax_bool(False)
 
                 elif 'ddt' in fn_name.lower() or 'TimeDerivative' in fn_name:
+                    # Time derivative - return the charge expression Q
+                    # The transient solver computes dQ/dt = (Q - Q_prev) / dt
+                    if operands:
+                        return get_operand_ast(operands[0])
                     return expr_builder.zero()
 
                 elif 'ddx' in fn_name.lower() or 'NodeDerivative' in fn_name:

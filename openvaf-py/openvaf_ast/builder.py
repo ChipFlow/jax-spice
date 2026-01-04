@@ -287,10 +287,9 @@ class ExpressionBuilder:
     }
 
     # Map MIR opcodes to jnp function names
+    # Note: 'sqrt' and 'ln' are handled specially to avoid NaN for invalid inputs
     TRANSCENDENTAL_OPS = {
         'exp': 'exp',
-        'ln': 'log',
-        'sqrt': 'sqrt',
         'sin': 'sin',
         'cos': 'cos',
         'tan': 'tan',
@@ -375,6 +374,16 @@ class ExpressionBuilder:
         if opcode == 'fdiv':
             return safe_divide(operands[0], operands[1],
                                self.zero(), self.one())
+
+        # Safe sqrt: clamp negative inputs to zero to avoid NaN
+        if opcode == 'sqrt':
+            return jnp_call('sqrt', jnp_call('maximum', operands[0], self.zero()))
+
+        # Safe ln (log): clamp non-positive inputs to small positive value to avoid NaN/inf
+        if opcode == 'ln':
+            # Use a small epsilon (1e-300) to avoid log(0) = -inf
+            small_eps = const(1e-300)
+            return jnp_call('log', jnp_call('maximum', operands[0], small_eps))
 
         # Transcendental functions
         if opcode in self.TRANSCENDENTAL_OPS:

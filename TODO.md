@@ -4,6 +4,11 @@ Central tracking for development tasks and known issues.
 
 ## High Priority
 
+### Make jitted function to *not* change with number of steps
+
+When used as an API, we should expect that a user would ask for different lengths of simuation of the same model.
+This issue is likely caused by the array sizes for the while loop (scan mode)
+
 ### External Simulator Regression Suites
 
 **Goal**: Compare JAX-SPICE against ngspice and Xyce reference implementations to validate correctness.
@@ -40,8 +45,8 @@ Central tracking for development tasks and known issues.
 **Current Status (2025-01)**:
 - 267+ test directories covering all device types and analysis modes
 - Infrastructure: `tests/test_xyce_regression.py`, `jax_spice/io/prn_reader.py`
-- Passing: 0 tests
-- xfail: 1 test (DIODE/diode.cir - model parameter differences)
+- Passing: 0 tests (DC analysis tests not yet supported)
+- xfail: 1 test (DIODE/diode.cir - model parameter differences, was skipped until SI suffix fix)
 
 **Simple tests to add (using supported devices)**:
 - [ ] RESISTOR/resistor.cir - basic resistor DC/transient
@@ -87,71 +92,26 @@ Central tracking for development tasks and known issues.
 - [ ] Remove duplicated Python loop code in `_run_transient_hybrid`
 - [ ] Keep `PythonLoopStrategy` as opt-in debugging mode only
 
-## Low Priority
+## Needed for release
 
 ### Documentation
 - [ ] **Update README** with current project status
 - [ ] **Add architecture overview** diagram
 - [ ] **Document openvaf_jax API** for external users
 
+## Nice to have
+
 ### Code Cleanup
 - [x] ~~**Remove xfail markers** from PSP/JUNCAP/diode_cmc tests~~ (all pass)
 - [ ] **Consolidate test files** in `openvaf-py/tests/` (some at root level)
 
-### Technical Debt: Code Duplication
-
-**Status (2025-12):** Unified solver and system builder infrastructure complete.
-
-**Completed:**
-- [x] Created `jax_spice/analysis/solver.py` with unified NR iteration loop
-- [x] Created `jax_spice/analysis/system.py` with SystemBuilder for unified J,f construction
-- [x] Added `CompiledModelBatch` to `jax_spice/devices/openvaf_device.py` for batched OpenVAF evaluation
-- [x] Added `dc_operating_point_analytical()` using analytical Jacobians
-- [x] Added `transient_analysis_analytical()` using analytical Jacobians
-- [x] Both functions use SystemBuilder with OpenVAF analytical Jacobians (no autodiff)
-
-**Current architecture:**
-```
-jax_spice/analysis/
-├── solver.py          # Core NR loop with lax.while_loop
-│   ├── NRConfig       # Solver configuration
-│   ├── NRResult       # Result with convergence info
-│   ├── newton_solve() # Residual+Jacobian functions
-│   └── solve_dc_with_builder()  # SystemBuilder wrapper
-│
-├── system.py          # Unified system building
-│   ├── SystemBuilder  # Manages simple + OpenVAF devices
-│   ├── SimpleDevice   # Simple device info
-│   └── build_system() # Returns (J, f) with analytical Jacobians
-│
-├── dc.py              # DC analysis
-│   ├── dc_operating_point()           # Original (autodiff)
-│   └── dc_operating_point_analytical() # NEW: Uses SystemBuilder
-│
-├── transient.py       # Transient analysis
-│   ├── transient_analysis_jit()         # Original (hardcoded devices)
-│   └── transient_analysis_analytical()  # NEW: Uses SystemBuilder
-│
-jax_spice/devices/
-├── openvaf_device.py  # OpenVAF device support
-│   ├── VADevice           # Single device evaluation
-│   ├── CompiledModelBatch # Batched vmapped evaluation
-│   └── compile_model()    # Model compilation with caching
-
-jax_spice/benchmarks/
-└── runner.py          # VACASK benchmark runner (separate for now)
-```
-
-**Remaining work:**
-- [ ] Migrate runner.py to use SystemBuilder (non-blocking, works as-is)
-- [ ] Add sparse solver support to SystemBuilder
-
-### Build System
-- [ ] **Upstream VACASK macOS fixes** to original repo
-  - Current workaround: `robtaylor/VACASK` fork with `macos-fixes` branch
-  - Fixes: C++20, PTBlockSequence, VLA→vector, KLU destructor, <numbers> header, CMake var escaping
-
 ## Completed
+
+- [x] ~~Fixed SI suffix parsing in safe_eval.py~~ (2025-01)
+  - Added time units (ms, us, ns, ps, fs) to `jax_spice/utils/safe_eval.py`
+  - Added voltage/current units (mv, uv, nv, ma, ua, na, pa, fa)
+  - Fixes PULSE source parameter parsing (delay, rise, fall, width, period)
+  - Required for Xyce DIODE test and any netlists using time units
 
 - [x] ~~ngspice regression suite infrastructure~~ (2025-01)
   - Added `test_ngspice_regression.py` with curated test list

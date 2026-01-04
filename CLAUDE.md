@@ -93,7 +93,6 @@ jax_spice.configure_precision()                  # Auto-detect again
 ```
 jax_spice/analysis/
 ├── solver.py          # Newton-Raphson with lax.while_loop
-├── system.py          # SystemBuilder for J,f construction
 ├── dc.py              # DC operating point analysis
 ├── transient.py       # Transient analysis (vectorized GPU path)
 ├── mna.py             # MNA system representation

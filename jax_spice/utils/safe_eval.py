@@ -20,6 +20,22 @@ from simpleeval import EvalWithCompoundTypes, InvalidExpression
 SI_SUFFIXES = [
     ("meg", 1e6),
     ("mil", 25.4e-6),
+    # Time units (must come before single-letter suffixes)
+    ("ms", 1e-3),
+    ("us", 1e-6),
+    ("ns", 1e-9),
+    ("ps", 1e-12),
+    ("fs", 1e-15),
+    # Voltage/current units
+    ("mv", 1e-3),
+    ("uv", 1e-6),
+    ("nv", 1e-9),
+    ("ma", 1e-3),
+    ("ua", 1e-6),
+    ("na", 1e-9),
+    ("pa", 1e-12),
+    ("fa", 1e-15),
+    # Standard SI prefixes
     ("g", 1e9),
     ("t", 1e12),
     ("k", 1e3),
