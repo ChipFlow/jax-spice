@@ -35,6 +35,8 @@ jobs:
 
       - name: Set up sccache
         uses: mozilla-actions/sccache-action@v0.0.7
+        with:
+          disable_annotations: true
 
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
@@ -78,6 +80,8 @@ jobs:
 
       - name: Set up sccache
         uses: mozilla-actions/sccache-action@v0.0.7
+        with:
+          disable_annotations: true
 
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
@@ -138,6 +142,8 @@ jobs:
 
       - name: Set up sccache
         uses: mozilla-actions/sccache-action@v0.0.7
+        with:
+          disable_annotations: true
 
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
@@ -165,6 +171,109 @@ jobs:
         run: uv sync --extra dev
 
       - name: Run ngspice regression tests
+        id: ngspice-tests
         env:
           JAX_PLATFORMS: cpu
-        run: uv run pytest tests/test_ngspice_regression.py -v --tb=short
+        run: |
+          uv run pytest tests/test_ngspice_regression.py -v --tb=short --junitxml=ngspice-results.xml 2>&1 | tee ngspice-output.txt
+          echo "exit_code=${PIPESTATUS[0]}" >> $GITHUB_OUTPUT
+
+      - name: Report ngspice regression results
+        if: always()
+        run: |
+          echo "## ngspice Regression Suite Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          if [ -f ngspice-results.xml ]; then
+            TESTS=$(grep -oP 'tests="\K[0-9]+' ngspice-results.xml | head -1 || echo "0")
+            FAILURES=$(grep -oP 'failures="\K[0-9]+' ngspice-results.xml | head -1 || echo "0")
+            ERRORS=$(grep -oP 'errors="\K[0-9]+' ngspice-results.xml | head -1 || echo "0")
+            SKIPPED=$(grep -oP 'skipped="\K[0-9]+' ngspice-results.xml | head -1 || echo "0")
+            PASSED=$((TESTS - FAILURES - ERRORS - SKIPPED))
+            echo "| Metric | Count |" >> $GITHUB_STEP_SUMMARY
+            echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
+            echo "| ✅ Passed | $PASSED |" >> $GITHUB_STEP_SUMMARY
+            echo "| ❌ Failed | $FAILURES |" >> $GITHUB_STEP_SUMMARY
+            echo "| ⚠️ Errors | $ERRORS |" >> $GITHUB_STEP_SUMMARY
+            echo "| ⏭️ Skipped | $SKIPPED |" >> $GITHUB_STEP_SUMMARY
+            echo "| **Total** | $TESTS |" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "⚠️ No test results file found" >> $GITHUB_STEP_SUMMARY
+          fi
+
+  test-xyce-regression:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout with submodules
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install LLVM 18
+        run: |
+          wget https://apt.llvm.org/llvm.sh
+          chmod +x llvm.sh
+          sudo ./llvm.sh 18
+          echo "LLVM_SYS_181_PREFIX=/usr/lib/llvm-18" >> $GITHUB_ENV
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Set up sccache
+        uses: mozilla-actions/sccache-action@v0.0.7
+        with:
+          disable_annotations: true
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: openvaf-py
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libsuitesparse-dev swig
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+
+      - name: Set up Python
+        run: uv python install 3.11
+
+      - name: Build openvaf-py
+        working-directory: openvaf-py
+        run: |
+          uv sync
+          uv run maturin develop --release
+
+      - name: Install jax-spice with dev dependencies
+        run: uv sync --extra dev
+
+      - name: Run Xyce regression tests
+        id: xyce-tests
+        env:
+          JAX_PLATFORMS: cpu
+        run: |
+          uv run pytest tests/test_xyce_regression.py -v --tb=short --junitxml=xyce-results.xml 2>&1 | tee xyce-output.txt
+          echo "exit_code=${PIPESTATUS[0]}" >> $GITHUB_OUTPUT
+
+      - name: Report Xyce regression results
+        if: always()
+        run: |
+          echo "## Xyce Regression Suite Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          if [ -f xyce-results.xml ]; then
+            TESTS=$(grep -oP 'tests="\K[0-9]+' xyce-results.xml | head -1 || echo "0")
+            FAILURES=$(grep -oP 'failures="\K[0-9]+' xyce-results.xml | head -1 || echo "0")
+            ERRORS=$(grep -oP 'errors="\K[0-9]+' xyce-results.xml | head -1 || echo "0")
+            SKIPPED=$(grep -oP 'skipped="\K[0-9]+' xyce-results.xml | head -1 || echo "0")
+            PASSED=$((TESTS - FAILURES - ERRORS - SKIPPED))
+            echo "| Metric | Count |" >> $GITHUB_STEP_SUMMARY
+            echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
+            echo "| ✅ Passed | $PASSED |" >> $GITHUB_STEP_SUMMARY
+            echo "| ❌ Failed | $FAILURES |" >> $GITHUB_STEP_SUMMARY
+            echo "| ⚠️ Errors | $ERRORS |" >> $GITHUB_STEP_SUMMARY
+            echo "| ⏭️ Skipped | $SKIPPED |" >> $GITHUB_STEP_SUMMARY
+            echo "| **Total** | $TESTS |" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "⚠️ No test results file found" >> $GITHUB_STEP_SUMMARY
+          fi
