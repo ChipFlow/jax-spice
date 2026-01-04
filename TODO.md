@@ -65,6 +65,13 @@ JAX-SPICE's `TransientResult` only contains `voltages` dict, not branch currents
 - [ ] **Behavioral sources** - 'b' devices not supported by converter
 - [ ] **ASCII plot format** - Some `.out` files use plot format, not tabular
 
+**CMC QA Framework** (`tests/bin/runQaTests.pl`):
+- 13 qaSpec test suites: BSIM3, BSIM4, BSIMSOI, HiSIM, HiSIM-HV1/2, HICUM2
+- 541 `.standard` reference files in `reference/` subdirectories
+- Defines DC sweeps, AC, noise tests with bias conditions
+- Generates netlists via Perl scripts (`modelQaTestRoutines.pm`)
+- Future: Parse qaSpec format to generate JAX-SPICE tests directly
+
 **Device Support Gaps**:
 - [ ] BJT (`q` devices) - rtlinv.cir, analog tests
 - [ ] JFET (`j` devices) - jfet tests
