@@ -386,11 +386,16 @@ class OpenVAFToJAX:
         if hasattr(self.module, 'get_param_defaults'):
             param_defaults = dict(self.module.get_param_defaults())
 
+        # Cache size includes both cache_mapping values AND hidden_state values
+        hidden_state_count = len(getattr(self, '_hidden_state_cache_mapping', []))
+        total_cache_size = len(self.cache_mapping) + hidden_state_count
+
         metadata = {
             'param_names': list(self.module.init_param_names),
             'param_kinds': list(self.module.init_param_kinds),
-            'cache_size': len(self.cache_mapping),
+            'cache_size': total_cache_size,  # Extended to include hidden_state
             'cache_mapping': self.cache_mapping,
+            'hidden_state_cache_mapping': getattr(self, '_hidden_state_cache_mapping', []),
             'param_defaults': param_defaults,
             # Node collapse support
             'collapsible_pairs': self.collapsible_pairs,
@@ -448,11 +453,16 @@ class OpenVAFToJAX:
         if hasattr(self.module, 'get_param_defaults'):
             param_defaults = dict(self.module.get_param_defaults())
 
+        # Cache size includes both cache_mapping values AND hidden_state values
+        hidden_state_count = len(getattr(self, '_hidden_state_cache_mapping', []))
+        total_cache_size = len(self.cache_mapping) + hidden_state_count
+
         metadata = {
             'param_names': list(self.module.init_param_names),
             'param_kinds': list(self.module.init_param_kinds),
-            'cache_size': len(self.cache_mapping),
+            'cache_size': total_cache_size,  # Extended to include hidden_state
             'cache_mapping': self.cache_mapping,
+            'hidden_state_cache_mapping': getattr(self, '_hidden_state_cache_mapping', []),
             'param_defaults': param_defaults,
             'collapsible_pairs': self.collapsible_pairs,
             'collapse_decision_outputs': self.collapse_decision_outputs,
@@ -462,55 +472,6 @@ class OpenVAFToJAX:
         }
 
         return init_fn, metadata
-
-    def translate_eval_array_with_cache(self) -> Tuple[Callable, Dict]:
-        """Generate a vmappable eval function that takes cache as input.
-
-        Returns a function with signature:
-            eval_fn(inputs: Array[N_eval], cache: Array[N_cache])
-                -> (res_resist, res_react, jac_resist, jac_react)
-
-        Also returns metadata dict with:
-            - 'node_names': list of node names in residual array order
-            - 'jacobian_keys': list of (row, col) tuples in jacobian array order
-            - 'cache_to_param_mapping': list of eval param indices for each cache slot
-
-        The eval function expects cache values computed by translate_init_array().
-        """
-        import time
-
-        t0 = time.perf_counter()
-        logger.info("    translate_eval_array_with_cache: generating code...")
-        code_lines = self._generate_eval_code_with_cache()
-        t1 = time.perf_counter()
-        logger.info(f"    translate_eval_array_with_cache: code generated ({len(code_lines)} lines) in {t1-t0:.1f}s")
-
-        code = '\n'.join(code_lines)
-        logger.info(f"    translate_eval_array_with_cache: code size = {len(code)} chars")
-
-        # Compile with caching
-        logger.info("    translate_eval_array_with_cache: exec()...")
-        eval_fn = _exec_with_cache(code, 'eval_fn_with_cache')
-        t2 = time.perf_counter()
-        logger.info(f"    translate_eval_array_with_cache: exec() done in {t2-t1:.1f}s")
-
-        # Build metadata
-        node_names = list(self.dae_data['residuals'].keys())
-        jacobian_keys = [(entry['row'], entry['col']) for entry in self.dae_data['jacobian']]
-
-        # Build cache to param mapping
-        cache_to_param = [m['eval_param'] for m in self.cache_mapping]
-
-        metadata = {
-            'node_names': node_names,
-            'jacobian_keys': jacobian_keys,
-            'cache_to_param_mapping': cache_to_param,
-            'uses_simparam_gmin': self.uses_simparam_gmin,
-            'uses_analysis': self.uses_analysis,
-            'analysis_type_map': self.analysis_type_map,
-        }
-
-        return eval_fn, metadata
 
     def translate_eval_array_with_cache_split(
         self,
@@ -692,6 +653,25 @@ class OpenVAFToJAX:
                 # Value not computed - use _ZERO as fallback
                 cache_vals.append('_ZERO')
 
+        # Also include hidden_state values that init computes
+        # These are values where init computes vN that eval expects as hidden_state
+        lines.append("    # Add hidden_state values (computed by init, expected by eval)")
+        hidden_state_vals = []
+        param_kinds = list(self.module.param_kinds)
+        for idx, kind in enumerate(param_kinds):
+            if kind == 'hidden_state' and idx < len(self.params):
+                eval_var = self.params[idx]  # e.g., 'v177' for TOXO_i
+                # Init computes same var ID directly (no prefix)
+                if eval_var in init_defined:
+                    hidden_state_vals.append((eval_var, idx))
+
+        # Store hidden_state mapping for eval to use
+        self._hidden_state_cache_mapping = hidden_state_vals
+
+        # Append hidden_state values to cache
+        for eval_var, idx in hidden_state_vals:
+            cache_vals.append(eval_var)
+
         if cache_vals:
             lines.append(f"    cache = jnp.array([{', '.join(cache_vals)}])")
         else:
@@ -853,6 +833,25 @@ class OpenVAFToJAX:
             else:
                 cache_vals.append('_ZERO')
 
+        # Also include hidden_state values that init computes
+        # These are values where init computes vN that eval expects as hidden_state
+        lines.append("    # Add hidden_state values (computed by init, expected by eval)")
+        hidden_state_vals = []
+        param_kinds = list(self.module.param_kinds)
+        for idx, kind in enumerate(param_kinds):
+            if kind == 'hidden_state' and idx < len(self.params):
+                eval_var = self.params[idx]  # e.g., 'v177' for TOXO_i
+                # Init computes same var ID directly (no prefix)
+                if eval_var in init_defined:
+                    hidden_state_vals.append((eval_var, idx))
+
+        # Store hidden_state mapping for eval to use
+        self._hidden_state_cache_mapping = hidden_state_vals
+
+        # Append hidden_state values to cache
+        for eval_var, idx in hidden_state_vals:
+            cache_vals.append(eval_var)
+
         if cache_vals:
             lines.append(f"    cache = jnp.array([{', '.join(cache_vals)}])")
         else:
@@ -884,145 +883,6 @@ class OpenVAFToJAX:
             lines.append("    collapse_decisions = jnp.array([])")
 
         lines.append("    return cache, collapse_decisions")
-        return lines
-
-    def _generate_eval_code_with_cache(self) -> List[str]:
-        """Generate eval function code that takes cache as second argument.
-
-        The eval function uses pre-computed cache values instead of
-        computing init logic inline. This is cleaner and allows
-        init to be called once with cache reused across NR iterations.
-        """
-        lines = []
-        lines.append("def eval_fn_with_cache(inputs, cache):")
-        lines.append("    import jax.numpy as jnp")
-        lines.append("    from jax import lax")
-        lines.append("")
-        lines.append("    # Shared constants (defined once to reduce HLO size)")
-        lines.append("    _ZERO = jnp.float64(0.0)")
-        lines.append("    _ONE = jnp.float64(1.0)")
-        lines.append("")
-
-        # Initialize constants for eval function
-        lines.append("    # Constants (eval function)")
-        for name, value in self.constants.items():
-            if value == float('inf'):
-                lines.append(f"    {name} = jnp.inf")
-            elif value == float('-inf'):
-                lines.append(f"    {name} = -jnp.inf")
-            elif value != value:  # NaN check
-                lines.append(f"    {name} = jnp.nan")
-            else:
-                lines.append(f"    {name} = {repr(value)}")
-
-        # Boolean constants
-        lines.append("    # Boolean constants")
-        for name, value in self.bool_constants.items():
-            lines.append(f"    {name} = {_jax_bool_repr(value)}")
-
-        # Int constants
-        lines.append("    # Int constants")
-        for name, value in self.int_constants.items():
-            if name not in self.constants:
-                lines.append(f"    {name} = {repr(value)}")
-
-        # Ensure v3 exists
-        if 'v3' not in self.constants:
-            lines.append("    v3 = _ZERO")
-
-        lines.append("")
-
-        # Map function parameters from inputs (only named params, not hidden_state)
-        lines.append("    # Input parameters (eval function)")
-        num_named_params = len(self.module.param_names)
-        for i, param in enumerate(self.params[:num_named_params]):
-            lines.append(f"    {param} = inputs[{i}]")
-
-        # Derivative selector params default to 0
-        lines.append("    # Derivative selector params (default to 0)")
-        for param in self.params[num_named_params:]:
-            lines.append(f"    {param} = 0")
-
-        lines.append("")
-
-        # Map cache values to eval param slots
-        # Use cache_mapping to assign cache[i] to the correct eval variable
-        lines.append("    # Cache values from init function")
-        all_func_params = self.module.get_all_func_params()
-        param_idx_to_val = {p[0]: f"v{p[1]}" for p in all_func_params}
-
-        for cache_idx, mapping in enumerate(self.cache_mapping):
-            eval_param_idx = mapping['eval_param']
-            eval_val = param_idx_to_val.get(eval_param_idx, f"cached_{eval_param_idx}")
-            lines.append(f"    {eval_val} = cache[{cache_idx}]")
-
-        lines.append("")
-
-        # Track defined variables
-        defined_vars: Set[str] = set(self.constants.keys())
-        defined_vars.update(self.bool_constants.keys())
-        defined_vars.update(self.int_constants.keys())
-        defined_vars.update(self.params)
-        defined_vars.add('v3')
-
-        # Add cache-assigned variables to defined set
-        for mapping in self.cache_mapping:
-            eval_param_idx = mapping['eval_param']
-            eval_val = param_idx_to_val.get(eval_param_idx, f"cached_{eval_param_idx}")
-            defined_vars.add(eval_val)
-
-        # Process eval blocks in topological order (no init blocks)
-        block_order = self._topological_sort()
-        eval_by_block = self._group_eval_instructions_by_block()
-
-        lines.append("    # Eval function computation")
-        for item in block_order:
-            if isinstance(item, tuple) and item[0] == 'loop':
-                # Handle loop structure
-                _, header, loop_blocks, exit_blocks = item
-                loop_lines = self._generate_eval_loop(
-                    header, loop_blocks, exit_blocks,
-                    eval_by_block, defined_vars
-                )
-                lines.extend(loop_lines)
-            else:
-                # Regular block
-                block_name = item
-                lines.append(f"")
-                lines.append(f"    # {block_name}")
-
-                for inst in eval_by_block.get(block_name, []):
-                    expr = self._translate_instruction(inst, defined_vars)
-                    if expr and 'result' in inst:
-                        lines.append(f"    {inst['result']} = {expr}")
-                        defined_vars.add(inst['result'])
-
-        lines.append("")
-
-        # Build array outputs (same as _generate_code_array)
-        lines.append("    # Build output arrays (vmap-compatible)")
-
-        residual_resist_exprs = []
-        residual_react_exprs = []
-        for node, res in self.dae_data['residuals'].items():
-            resist_val = res['resist'] if res['resist'] in defined_vars else '_ZERO'
-            react_val = res['react'] if res['react'] in defined_vars else '_ZERO'
-            residual_resist_exprs.append(resist_val)
-            residual_react_exprs.append(react_val)
-        lines.append(f"    residuals_resist = jnp.array([{', '.join(residual_resist_exprs)}])")
-        lines.append(f"    residuals_react = jnp.array([{', '.join(residual_react_exprs)}])")
-
-        jacobian_resist_exprs = []
-        jacobian_react_exprs = []
-        for entry in self.dae_data['jacobian']:
-            resist_val = entry['resist'] if entry['resist'] in defined_vars else '_ZERO'
-            react_val = entry['react'] if entry['react'] in defined_vars else '_ZERO'
-            jacobian_resist_exprs.append(resist_val)
-            jacobian_react_exprs.append(react_val)
-        lines.append(f"    jacobian_resist = jnp.array([{', '.join(jacobian_resist_exprs)}])")
-        lines.append(f"    jacobian_react = jnp.array([{', '.join(jacobian_react_exprs)}])")
-
-        lines.append("    return residuals_resist, residuals_react, jacobian_resist, jacobian_react")
         return lines
 
     def _generate_eval_code_with_cache_split(
@@ -1151,6 +1011,78 @@ class OpenVAFToJAX:
                 eval_val = param_idx_to_val.get(eval_param_idx, f"cached_{eval_param_idx}")
                 lines.append(f"    {eval_val} = cache[{cache_idx}]")
 
+        # === COMPUTE HIDDEN_STATE VALUES DIRECTLY ===
+        # Instead of reading from cache (which has wrong values due to MIR mismatch),
+        # we compute hidden_state values directly in eval using init blocks.
+        # This duplicates work but ensures correctness.
+        lines.append("")
+        lines.append("    # Init function computation for hidden_state values")
+        init_defined = set()
+
+        # Add prefixed init constants
+        lines.append("    # Init constants (prefixed)")
+        for name, value in self.init_constants.items():
+            prefixed = f"init_{name}"
+            if value == float('inf'):
+                lines.append(f"    {prefixed} = jnp.inf")
+            elif value == float('-inf'):
+                lines.append(f"    {prefixed} = -jnp.inf")
+            elif value != value:  # NaN check
+                lines.append(f"    {prefixed} = jnp.nan")
+            else:
+                lines.append(f"    {prefixed} = {repr(value)}")
+            init_defined.add(prefixed)
+
+        # Map init params from eval inputs (using idx_mapping for split params)
+        # IMPORTANT: Use the actual input arrays, not eval param variables
+        # This ensures init params get actual input values, not potentially uninitialized eval vars
+        init_param_mapping = self._build_init_param_mapping()
+        for init_param, eval_idx in init_param_mapping.items():
+            if eval_idx is not None and eval_idx in idx_mapping:
+                prefixed = f"init_{init_param}"
+                source, new_idx = idx_mapping[eval_idx]
+                if source == 'shared':
+                    lines.append(f"    {prefixed} = shared_params[{new_idx}]")
+                else:
+                    lines.append(f"    {prefixed} = device_params[{new_idx}]")
+                init_defined.add(prefixed)
+
+        # Process init instructions in block order
+        init_block_order = self._topological_sort_init_blocks()
+        init_by_block = self._group_init_instructions_by_block()
+
+        for item in init_block_order:
+            if isinstance(item, tuple) and item[0] == 'loop':
+                # Handle loop structure
+                _, header, loop_blocks, exit_blocks = item
+                loop_lines = self._generate_init_loop(
+                    header, loop_blocks, exit_blocks,
+                    init_by_block, init_defined
+                )
+                lines.extend(loop_lines)
+            else:
+                # Regular block
+                block_name = item
+                lines.append(f"")
+                lines.append(f"    # init {block_name}")
+
+                for inst in init_by_block.get(block_name, []):
+                    expr = self._translate_init_instruction(inst, init_defined)
+                    if expr and 'result' in inst:
+                        prefixed_result = f"init_{inst['result']}"
+                        lines.append(f"    {prefixed_result} = {expr}")
+                        init_defined.add(prefixed_result)
+
+        lines.append("")
+
+        # Map hidden_state values from init to eval params using value-number matching
+        lines.append("    # Hidden state values from init -> eval")
+        hidden_state_assignments = self._build_hidden_state_assignments(init_defined)
+        for eval_var, init_var in hidden_state_assignments:
+            lines.append(f"    {eval_var} = {init_var}")
+        if hidden_state_assignments:
+            logger.info(f"    Generated {len(hidden_state_assignments)} hidden_state assignments from init blocks")
+
         lines.append("")
 
         # Track defined variables
@@ -1165,6 +1097,13 @@ class OpenVAFToJAX:
             eval_param_idx = mapping['eval_param']
             eval_val = param_idx_to_val.get(eval_param_idx, f"cached_{eval_param_idx}")
             defined_vars.add(eval_val)
+
+        # Add init-defined variables (prefixed) to defined set
+        defined_vars.update(init_defined)
+
+        # Add hidden_state assigned variables to defined set
+        for eval_var, init_var in hidden_state_assignments:
+            defined_vars.add(eval_var)
 
         # Process eval blocks in topological order (no init blocks) - same as original
         block_order = self._topological_sort()

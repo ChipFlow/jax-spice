@@ -680,12 +680,6 @@ class CircuitEngine:
             t5 = time.perf_counter()
             log(f"  {model_type}: init function done in {t5-t4:.1f}s (cache_size={init_meta['cache_size']})")
 
-            log(f"  {model_type}: generating eval_with_cache function...")
-            eval_fn_with_cache, eval_cache_meta = translator.translate_eval_array_with_cache()
-            vmapped_eval_with_cache = jax.jit(jax.vmap(eval_fn_with_cache))
-            t6 = time.perf_counter()
-            log(f"  {model_type}: eval_with_cache function done in {t6-t5:.1f}s")
-
             # Build init->eval index mapping for extracting init inputs from eval inputs
             eval_name_to_idx = {n.lower(): i for i, n in enumerate(module.param_names)}
             init_to_eval_indices = []
@@ -709,7 +703,7 @@ class CircuitEngine:
                 'nodes': list(module.nodes),
                 'collapsible_pairs': list(module.collapsible_pairs),
                 'num_collapsible': module.num_collapsible,
-                # New init/eval_with_cache functions
+                # Init function
                 'init_fn': init_fn,
                 'vmapped_init': vmapped_init,
                 'init_param_names': list(init_meta['param_names']),
@@ -717,15 +711,11 @@ class CircuitEngine:
                 'cache_size': init_meta['cache_size'],
                 'cache_mapping': init_meta['cache_mapping'],
                 'init_param_defaults': init_meta.get('param_defaults', {}),
-                'eval_fn_with_cache': eval_fn_with_cache,
-                'vmapped_eval_with_cache': vmapped_eval_with_cache,
-                'eval_cache_meta': eval_cache_meta,
                 'init_to_eval_indices': init_to_eval_indices,
-                # Device-level GMIN via $simparam("gmin")
-                'uses_simparam_gmin': eval_cache_meta.get('uses_simparam_gmin', False),
-                # Device-level analysis() function
-                'uses_analysis': eval_cache_meta.get('uses_analysis', False),
-                'analysis_type_map': eval_cache_meta.get('analysis_type_map', {}),
+                # Device-level features (set during init code generation)
+                'uses_simparam_gmin': translator.uses_simparam_gmin,
+                'uses_analysis': translator.uses_analysis,
+                'analysis_type_map': translator.analysis_type_map,
             }
 
             # Store in both instance and module-level cache
@@ -2232,10 +2222,6 @@ class CircuitEngine:
                 if compiled and 'vmapped_fn' in compiled:
                     logger.debug(f"{model_type} already compiled")
                     vmapped_fns[model_type] = compiled['vmapped_fn']
-                    # Also store vmapped_eval_with_cache if available (captured at setup, not looked up in traced fn)
-                    if 'vmapped_eval_with_cache' in compiled:
-                        logger.debug(f"{model_type} has vmapped_eval_with_cache")
-                        vmapped_fns[model_type + '_with_cache'] = compiled['vmapped_eval_with_cache']
                     voltage_indices, device_contexts, cache, collapse_decisions = self._prepare_static_inputs(
                         model_type, openvaf_by_type[model_type], device_internal_nodes, ground
                     )
@@ -3888,9 +3874,6 @@ class CircuitEngine:
             compiled = self._compiled_models.get(model_type)
             if compiled and 'vmapped_fn' in compiled:
                 vmapped_fns[model_type] = compiled['vmapped_fn']
-                # Also store vmapped_eval_with_cache if available (captured at setup, not looked up in traced fn)
-                if 'vmapped_eval_with_cache' in compiled:
-                    vmapped_fns[model_type + '_with_cache'] = compiled['vmapped_eval_with_cache']
                 voltage_indices, device_contexts, cache, collapse_decisions = self._prepare_static_inputs(
                     model_type, openvaf_by_type[model_type], device_internal_nodes, ground
                 )
