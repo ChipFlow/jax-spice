@@ -2366,15 +2366,29 @@ class CircuitEngine:
                 J_bcoo_probe, _, _ = build_system_fn(V_init, vsource_init, isource_init, Q_init, 0.0, device_arrays)
                 n_coo_raw = J_bcoo_probe.nse
 
-                # Try Spineax (cuDSS with cached symbolic factorization) on GPU
+                # Try Spineax sparse solver on GPU/Metal
+                # - CUDA: uses cuDSS with cached symbolic factorization
+                # - iree_metal: uses BaSpaCho with Metal acceleration
                 use_spineax = False
-                if jax.default_backend() == 'gpu':
+                backend_name = jax.default_backend()
+                if backend_name == 'gpu':
                     try:
                         from spineax.cudss.solver import CuDSSSolver
                         use_spineax = True
                         logger.info("Spineax available - will use cuDSS with cached symbolic factorization")
                     except Exception as e:
                         logger.info(f"Spineax not available ({type(e).__name__}: {e}) - using JAX spsolve")
+                elif backend_name == 'iree_metal':
+                    # Try baspacho solver for Metal backend
+                    try:
+                        from spineax import baspacho_solve
+                        if baspacho_solve.is_metal_available():
+                            use_spineax = True
+                            logger.info("Spineax/BaSpaCho available - will use Metal sparse solver")
+                        else:
+                            logger.info("BaSpaCho Metal backend not available - using JAX spsolve")
+                    except Exception as e:
+                        logger.info(f"Spineax/BaSpaCho not available ({type(e).__name__}: {e}) - using JAX spsolve")
 
                 if use_spineax:
                     # Pre-compute BCSR pattern and COO→CSR mapping for Spineax
