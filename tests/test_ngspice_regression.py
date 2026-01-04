@@ -32,6 +32,7 @@ from jax_spice.utils.ngspice import (
 )
 from jax_spice.utils.waveform_compare import compare_waveforms, WaveformComparison
 from jax_spice.netlist_converter import Converter
+from jax_spice.io.ngspice_out_reader import read_reference_file, get_time_and_signals
 from tests.ngspice_test_registry import (
     NgspiceTestCase,
     get_compatible_tests,
@@ -97,6 +98,32 @@ def convert_ngspice_to_vacask(netlist_path: Path, output_path: Path) -> None:
 
     converter = Converter(cfg, dialect="ngspice")
     converter.convert(str(netlist_path), str(output_path))
+
+
+def load_reference_data(
+    test_case: NgspiceTestCase,
+) -> Tuple[Optional[Dict[str, np.ndarray]], Optional[str]]:
+    """Load reference data from .out or .standard file.
+
+    Args:
+        test_case: Test case specification
+
+    Returns:
+        (results_dict, error) where results_dict maps signal name to array
+    """
+    if test_case.reference_path is None:
+        return None, "No reference file available"
+
+    if not test_case.reference_path.exists():
+        return None, f"Reference file not found: {test_case.reference_path}"
+
+    try:
+        columns, data = read_reference_file(test_case.reference_path)
+        if not data:
+            return None, "Empty reference file"
+        return data, None
+    except Exception as e:
+        return None, f"Failed to parse reference file: {e}"
 
 
 def run_ngspice_reference(
@@ -180,18 +207,18 @@ def run_jaxspice(
 
 
 def compare_results(
-    ngspice_results: Dict[str, np.ndarray],
+    ref_results: Dict[str, np.ndarray],
     jaxspice_results: Dict[str, Array],
-    nodes: List[str],
+    signals: List[str],
     rtol: float = 0.05,
     atol: float = 1e-9,
 ) -> List[WaveformComparison]:
-    """Compare ngspice and JAX-SPICE results.
+    """Compare reference and JAX-SPICE results.
 
     Args:
-        ngspice_results: ngspice simulation results
+        ref_results: Reference simulation results (from .out file or ngspice)
         jaxspice_results: JAX-SPICE simulation results
-        nodes: Node names to compare
+        signals: Signal names to compare (e.g., 'v(1)', 'v1#branch')
         rtol: Relative tolerance
         atol: Absolute tolerance
 
@@ -201,59 +228,64 @@ def compare_results(
     comparisons = []
 
     # Get time vectors
-    ng_time = None
+    ref_time = None
     for key in ['time', 'TIME', 'Time']:
-        if key in ngspice_results:
-            ng_time = ngspice_results[key]
+        if key in ref_results:
+            ref_time = ref_results[key]
             break
 
     jax_time = np.array(jaxspice_results.get('time', []))
 
-    if ng_time is None or len(jax_time) == 0:
+    if ref_time is None or len(jax_time) == 0:
         return comparisons
 
-    for node in nodes:
-        # Find matching signals in both results
-        ng_signal = None
+    for sig in signals:
+        sig_lower = sig.lower()
+
+        # Find matching signal in reference results
+        ref_signal = None
+        for key in ref_results:
+            if key.lower() == sig_lower:
+                ref_signal = ref_results[key]
+                break
+
+        if ref_signal is None:
+            continue
+
+        # Find matching signal in JAX-SPICE results
         jax_signal = None
 
-        # Try various naming conventions for ngspice
-        for key in ngspice_results:
-            key_lower = key.lower()
-            node_lower = node.lower()
-            if (node_lower in key_lower or
-                f'v({node_lower})' == key_lower or
-                f'{node_lower}' == key_lower):
-                ng_signal = ngspice_results[key]
-                break
+        # Handle voltage signals: v(node) -> look up node in voltages
+        if sig_lower.startswith('v(') and sig_lower.endswith(')'):
+            node = sig_lower[2:-1]  # Extract node name
+            for key in jaxspice_results:
+                if key.lower() == node:
+                    jax_signal = np.array(jaxspice_results[key])
+                    break
 
-        # Try various naming conventions for JAX-SPICE
-        for key in jaxspice_results:
-            key_lower = key.lower()
-            node_lower = node.lower()
-            if (node_lower in key_lower or
-                f'v({node_lower})' == key_lower or
-                node_lower == key_lower):
-                jax_signal = np.array(jaxspice_results[key])
-                break
+        # Handle branch currents: source#branch
+        # JAX-SPICE doesn't currently support branch currents, skip these
+        elif '#branch' in sig_lower:
+            # Can't compare branch currents - JAX-SPICE doesn't compute them
+            continue
 
-        if ng_signal is None or jax_signal is None:
+        if jax_signal is None:
             continue
 
         # Take real part (ngspice may return complex for some analyses)
-        ng_signal = np.real(ng_signal)
+        ref_signal = np.real(ref_signal)
 
-        # Interpolate JAX-SPICE to ngspice timepoints
-        ng_time_real = np.real(ng_time)
-        if len(ng_time_real) != len(jax_time):
-            jax_interp = np.interp(ng_time_real, jax_time, jax_signal)
+        # Interpolate JAX-SPICE to reference timepoints
+        ref_time_real = np.real(ref_time)
+        if len(ref_time_real) != len(jax_time):
+            jax_interp = np.interp(ref_time_real, jax_time, jax_signal)
         else:
             jax_interp = jax_signal
 
         comparison = compare_waveforms(
-            ng_signal,
+            ref_signal,
             jax_interp,
-            name=f"v({node})",
+            name=sig,
             abs_tol=atol,
             rel_tol=rtol,
         )
@@ -265,19 +297,15 @@ def compare_results(
 class TestNgspiceRegression:
     """ngspice regression tests against JAX-SPICE.
 
-    Auto-discovers all compatible tests from vendor/ngspice/tests/.
-    Tests are filtered to only include those using supported devices.
+    Auto-discovers all tests from vendor/ngspice/tests/.
+    Compares against .out reference files when available,
+    falls back to running ngspice if no reference file exists.
     """
 
     @pytest.fixture
     def ngspice_bin(self):
-        """Get ngspice binary, skip if not available."""
-        binary = find_ngspice_binary()
-        if binary is None:
-            pytest.skip(
-                "ngspice binary not found. Install ngspice or set NGSPICE_BIN."
-            )
-        return binary
+        """Get ngspice binary, returns None if not available."""
+        return find_ngspice_binary()
 
     @pytest.mark.parametrize(
         "test_name",
@@ -295,13 +323,18 @@ class TestNgspiceRegression:
         if test_case.analysis_type != 'tran':
             pytest.skip(f"Analysis type {test_case.analysis_type} not yet supported")
 
-        # Parse control section
-        control_params = parse_control_section(test_case.netlist_path)
+        # Try to load reference data from .out file first
+        ref_results, ref_error = load_reference_data(test_case)
 
-        # Run ngspice
-        ng_results, ng_error = run_ngspice_reference(test_case, ngspice_bin)
-        if ng_error:
-            pytest.skip(f"ngspice failed: {ng_error}")
+        # If no reference file, try running ngspice
+        if ref_error and ngspice_bin:
+            ref_results, ref_error = run_ngspice_reference(test_case, ngspice_bin)
+
+        if ref_error:
+            pytest.skip(f"No reference data: {ref_error}")
+
+        # Parse control section for simulation params
+        control_params = parse_control_section(test_case.netlist_path)
 
         # Run JAX-SPICE
         jax_results, jax_error = run_jaxspice(
@@ -313,12 +346,16 @@ class TestNgspiceRegression:
 
         # Compare results
         comparisons = compare_results(
-            ng_results,
+            ref_results,
             jax_results,
             test_case.expected_nodes,
             rtol=test_case.rtol,
             atol=test_case.atol,
         )
+
+        # If no comparisons could be made (e.g., only branch currents), skip
+        if not comparisons:
+            pytest.skip("No comparable signals (branch currents not supported)")
 
         # Report results
         failed = [c for c in comparisons if not c.within_tolerance]

@@ -2,12 +2,44 @@
 
 Central tracking for development tasks and known issues.
 
+## Critical - Blocking Transient Analysis
+
+### ddt() Operator Returns Zero
+
+**Status**: CRITICAL BUG - All capacitive/charge contributions are ignored
+
+**Problem**: The `ddt()` operator in openvaf_jax.py always returns zero regardless of analysis type.
+This means:
+- Capacitors don't charge/discharge in transient
+- MOSFET charge contributions (Qg, Qd, Qb) are zero
+- Ring oscillator settles to DC instead of oscillating
+- Any circuit relying on energy storage fails
+
+**Locations** (TWO places!):
+- `openvaf-py/openvaf_jax.py:3069-3071` - `_translate_callback_result()` returns `'_ZERO'`
+- `openvaf-py/openvaf_jax.py:3280-3281` - eval function translation returns `expr_builder.zero()`
+
+**Fix required**: Return the charge expression instead of zero. The transient solver computes `dQ/dt = (Q - Q_prev) / dt`.
+
+**Test**: Run ring benchmark - should show oscillation with ~578 zero crossings (currently shows 1).
+
 ## High Priority
 
 ### Make jitted function to *not* change with number of steps
 
 When used as an API, we should expect that a user would ask for different lengths of simuation of the same model.
 This issue is likely caused by the array sizes for the while loop (scan mode)
+
+### Branch Current Computation
+
+**Status**: Not implemented - JAX-SPICE only returns node voltages
+
+**Problem**: Many ngspice tests print `I(V1)` (source currents) which map to `v1#branch` in output.
+JAX-SPICE's `TransientResult` only contains `voltages` dict, not branch currents.
+
+**Impact**: Tests with only current outputs are skipped (no comparable signals).
+
+**Fix needed**: Compute and return branch currents through voltage sources.
 
 ### External Simulator Regression Suites
 
@@ -16,54 +48,52 @@ This issue is likely caused by the array sizes for the while loop (scan mode)
 #### ngspice Regression Suite (`vendor/ngspice/tests/`)
 
 **Current Status (2025-01)**:
-- 113 test files across categories: resistance, filters, general, bsim*, hisim, jfet, etc.
+- 70 tests discovered via auto-discovery
+- 65 tests have reference files (`.out` or `.standard` format)
+- 541 `.standard` reference files available (HiSIM, BSIM, etc.)
 - Infrastructure: `tests/test_ngspice_regression.py`, `tests/ngspice_test_registry.py`
-- Passing: 2 tests (res_simple, test_rc_benchmark)
-- Skipped: 2 tests (lowpass - AC analysis, rtlinv - BJT device)
+- Reference parsers: `jax_spice/io/ngspice_out_reader.py`
 
-**Supported test types**:
-- [x] Resistor circuits (res_simple, res_array, res_partition)
-- [x] RC circuits (rc in general/, RC benchmark comparison)
-- [ ] RLC circuits (need inductor support)
-- [ ] Diode circuits (basic diode tests)
-- [ ] Filter circuits (lowpass - needs AC analysis)
+**Test Discovery**:
+- Auto-discovers all `.sp`, `.cir`, `.spice` files in `vendor/ngspice/tests/`
+- Detects analysis type, device types, expected output signals
+- Finds reference files in same directory (`.out`) or `reference/` subdir (`.standard`)
 
-**Blocking features needed**:
-- [ ] AC analysis support (for lowpass.cir and filter tests)
-- [ ] Inductor device support (for RLC tests)
-- [ ] BJT device support (for rtlinv.cir and analog tests)
-- [ ] MOSFET tests via PSP103 (for general/mosamp.cir, fourbitadder.cir)
+**Current Blockers**:
+- [ ] **ddt() bug** - Capacitors/MOSFETs don't work in transient
+- [ ] **Branch currents** - Many tests print `I(source)`, not `V(node)`
+- [ ] **Behavioral sources** - 'b' devices not supported by converter
+- [ ] **ASCII plot format** - Some `.out` files use plot format, not tabular
 
-**Next steps**:
-- [ ] Add res_array and res_partition tests (resistor arrays)
-- [ ] Add general/rc.cir test (basic RC transient)
-- [ ] Implement inductor device for RLC tests
-- [ ] Add diode-only transient tests from ngspice suite
+**Device Support Gaps**:
+- [ ] BJT (`q` devices) - rtlinv.cir, analog tests
+- [ ] JFET (`j` devices) - jfet tests
+- [ ] Controlled sources (VCVS, CCCS, VCCS, CCVS) - `e`, `f`, `g`, `h` devices
+- [ ] Behavioral sources (`b` devices) - mesa/mesosc.cir, etc.
+- [ ] Transmission lines (`t` devices)
 
 #### Xyce Regression Suite (`vendor/Xyce_Regression/`)
 
 **Current Status (2025-01)**:
-- 267+ test directories covering all device types and analysis modes
-- Infrastructure: `tests/test_xyce_regression.py`, `jax_spice/io/prn_reader.py`
-- Passing: 0 tests (DC analysis tests not yet supported)
-- xfail: 1 test (DIODE/diode.cir - model parameter differences, was skipped until SI suffix fix)
+- 1929 tests discovered via auto-discovery
+- Infrastructure: `tests/test_xyce_regression.py`, `tests/xyce_test_registry.py`
+- Reference files: `vendor/Xyce_Regression/OutputData/*.prn`
+- Reference parser: `jax_spice/io/prn_reader.py`
 
-**Simple tests to add (using supported devices)**:
-- [ ] RESISTOR/resistor.cir - basic resistor DC/transient
-- [ ] CAPACITOR/capacitor.cir - capacitor transient
-- [ ] CAPACITOR/rc_osc.cir - RC oscillator
-- [ ] RLC/rlc.cir - RLC circuit (needs inductor)
-- [ ] SOURCES/sources.cir - various source types
+**Test Discovery**:
+- Auto-discovers all `.cir` files in `vendor/Xyce_Regression/Netlists/`
+- Matches with expected output in `OutputData/<category>/<file>.cir.prn`
+- Detects analysis type and device types
 
-**Blocking features needed**:
-- [ ] Fix diode model parameter alignment with Xyce defaults
-- [ ] Inductor device support (for RLC tests)
-- [ ] Controlled sources (VCVS, CCCS, VCCS, CCVS) for ABM tests
+**Current Blockers** (same as ngspice):
+- [ ] **ddt() bug** - Capacitor/MOSFET transients broken
+- [ ] **Device gaps** - BJT, JFET, controlled sources, PDE devices
 
-**Infrastructure improvements**:
-- [ ] Auto-discover compatible Xyce tests (like ngspice registry)
-- [ ] Add tolerance override per test (some need looser tolerances)
-- [ ] Generate coverage report showing pass/fail/skip by category
+**Xyce-specific devices**:
+- [ ] PDE devices (`y` prefix) - Xyce-specific
+- [ ] Digital devices (`p` prefix) - Xyce-specific
+- [ ] Mutual inductors (`u` prefix)
+- [ ] Coupling (`k` prefix)
 
 ### Convert Homotopy Loops to JAX
 
@@ -107,6 +137,21 @@ This issue is likely caused by the array sizes for the while loop (scan mode)
 
 ## Completed
 
+- [x] ~~Test suite auto-discovery~~ (2025-01)
+  - ngspice: 70 tests discovered, 65 with reference files
+  - Xyce: 1929 tests discovered via registry
+  - Full parametrized test generation without manual curation
+
+- [x] ~~Reference file parsers~~ (2025-01)
+  - Added `jax_spice/io/ngspice_out_reader.py` for `.out` and `.standard` formats
+  - Added `jax_spice/io/prn_reader.py` for Xyce `.prn` format
+  - Signal name mapping: `i(v1)` → `v1#branch` in ngspice output
+
+- [x] ~~Test registries~~ (2025-01)
+  - `tests/ngspice_test_registry.py` - discovers tests, detects devices/analysis/signals
+  - `tests/xyce_test_registry.py` - discovers Xyce tests with output matching
+  - Reference file detection in same directory or `reference/` subdir
+
 - [x] ~~Fixed SI suffix parsing in safe_eval.py~~ (2025-01)
   - Added time units (ms, us, ns, ps, fs) to `jax_spice/utils/safe_eval.py`
   - Added voltage/current units (mv, uv, nv, ma, ua, na, pa, fa)
@@ -114,16 +159,14 @@ This issue is likely caused by the array sizes for the while loop (scan mode)
   - Required for Xyce DIODE test and any netlists using time units
 
 - [x] ~~ngspice regression suite infrastructure~~ (2025-01)
-  - Added `test_ngspice_regression.py` with curated test list
+  - Added `test_ngspice_regression.py` with parametrized tests
   - Added `ngspice_test_registry.py` for test discovery and categorization
   - Fixed SPICE→VACASK converter for pulse sources with DC prefix
   - Fixed SI suffix parsing in source parameters (e.g., "1u" → 1e-6)
-  - Passing: res_simple, test_rc_benchmark (2/4, others skipped for missing features)
 
 - [x] ~~Xyce regression suite infrastructure~~ (2025-01)
   - Added `test_xyce_regression.py` with PRN comparison framework
   - Added `jax_spice/io/prn_reader.py` for Xyce output parsing
-  - One test added (DIODE/diode.cir) - xfail due to model parameter differences
 
 - [x] ~~openvaf_jax Complex Model Support~~ (2025-12)
   - JAX translator matches MIR interpreter for all models
@@ -196,13 +239,15 @@ This issue is likely caused by the array sizes for the while loop (scan mode)
 | Benchmark profiling | `scripts/profile_gpu.py` |
 | Cloud Run profiling | `scripts/profile_gpu_cloudrun.py` |
 | **OpenVAF batched eval** | `jax_spice/devices/openvaf_device.py` |
-| OpenVAF→JAX translator | `openvaf-py/openvaf_jax.py` |
+| **OpenVAF→JAX translator** | `openvaf-py/openvaf_jax.py` |
 | VACASK parser | `jax_spice/netlist/parser.py` |
 | VACASK suite tests | `tests/test_vacask_suite.py` |
 | **ngspice regression tests** | `tests/test_ngspice_regression.py` |
 | ngspice test registry | `tests/ngspice_test_registry.py` |
+| ngspice .out/.standard parser | `jax_spice/io/ngspice_out_reader.py` |
 | **Xyce regression tests** | `tests/test_xyce_regression.py` |
-| PRN file reader | `jax_spice/io/prn_reader.py` |
+| Xyce test registry | `tests/xyce_test_registry.py` |
+| Xyce .prn parser | `jax_spice/io/prn_reader.py` |
 | SPICE→VACASK converter | `jax_spice/netlist_converter/ng2vclib/` |
 
 ### Test Commands
