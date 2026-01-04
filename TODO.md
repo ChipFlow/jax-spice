@@ -41,21 +41,24 @@ JAX-SPICE's `TransientResult` only contains `voltages` dict, not branch currents
 
 **Fix needed**: Compute and return branch currents through voltage sources.
 
-### Analysis Type Support
+### Analysis Type Support in Test Runners
 
-**Current**: Only transient (`.tran`) analysis is implemented.
+**Engine capabilities** (in `CircuitEngine`):
+- `run_transient()` - transient analysis ✅
+- `run_ac()` - AC small-signal analysis ✅
+- `run_dcinc()` - DC incremental ✅
+- `run_dcxf()` / `run_acxf()` - transfer functions ✅
+- `run_noise()` - noise analysis ✅
+- `run_corners()` - corner/monte-carlo ✅
 
-**Missing analysis types** (test counts):
-| Type | ngspice | Xyce | Notes |
-|------|---------|------|-------|
-| `.dc` | 25 | 792 | DC sweep - vary source, measure response |
-| `.ac` | 5 | 80 | AC small-signal frequency analysis |
-| `.op` | 9 | 70 | DC operating point (we have this internally) |
+**Test runner gaps** (tests skip because runners only call `run_transient`):
+| Type | ngspice | Xyce | Fix needed |
+|------|---------|------|------------|
+| `.dc` | 25 | 792 | Parse `.dc` params, call appropriate engine method |
+| `.ac` | 5 | 80 | Parse `.ac` params, call `run_ac()` |
+| `.op` | 9 | 70 | Call DC solve, compare operating point |
 
-**Priority**:
-1. **DC sweep** - High value, 817 tests blocked. Relatively simple: loop over source values, solve DC each time.
-2. **AC analysis** - Linearize around DC OP, solve `(G + jωC)V = I` for each frequency.
-3. **OP** - Already implemented internally, just need to expose in test framework.
+**Task**: Update `test_ngspice_regression.py` and `test_xyce_regression.py` to dispatch to correct analysis based on `test_case.analysis_type`.
 
 ### External Simulator Regression Suites
 
