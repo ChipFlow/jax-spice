@@ -2781,6 +2781,33 @@ class OpenVAFToJAX:
         if len(pred_blocks) == 1:
             return pred_to_val.get(pred_blocks[0], '_ZERO')
 
+        # Optimization: If some predecessors have the same value, group them
+        # This handles cases like PSP103's current paths where multiple blocks
+        # contribute 0 and only one block contributes the actual current.
+        val_to_preds: Dict[str, List[str]] = {}
+        for pred in pred_blocks:
+            val = pred_to_val.get(pred, '_ZERO')
+            if val not in val_to_preds:
+                val_to_preds[val] = []
+            val_to_preds[val].append(pred)
+
+        # If we have exactly 2 unique values, simplify the problem
+        unique_vals = list(val_to_preds.keys())
+        if len(unique_vals) == 2:
+            # Find which conditions lead to each value
+            val_a, val_b = unique_vals
+            preds_a = val_to_preds[val_a]
+            preds_b = val_to_preds[val_b]
+
+            # Try to find a condition that separates preds_a from preds_b
+            # by checking if there's a common branching point
+            cond_expr = self._find_condition_for_pred_groups(
+                phi_block, preds_a, preds_b, blocks, branch_conds
+            )
+            if cond_expr:
+                # cond_expr is True when we reach preds_a
+                return f"jnp.where({cond_expr}, {val_a}, {val_b})"
+
         if len(pred_blocks) == 2:
             # Base case: 2 predecessors, find the branching condition
             pred0, pred1 = pred_blocks
@@ -2855,6 +2882,88 @@ class OpenVAFToJAX:
                         return f"jnp.where({cond_var}, {remaining_expr}, {direct_val})"
 
         # Fallback: couldn't build the expression
+        return None
+
+    def _find_condition_for_pred_groups(self, phi_block: str, preds_a: List[str],
+                                        preds_b: List[str], blocks: Dict,
+                                        branch_conds: Dict) -> Optional[str]:
+        """Find condition expression that is True when reaching preds_a, False for preds_b.
+
+        This handles complex CFG patterns like PSP103's channel current computation:
+        - Multiple paths (preds_a) lead to one value (e.g., 0 for no current)
+        - Single path (preds_b) leads to another value (e.g., actual current)
+        - The condition is a conjunction of multiple branch conditions
+
+        Returns a condition expression string like "v969558 & v972835" or None if not found.
+        """
+        # Build reachability sets - which blocks can reach preds_a vs preds_b?
+        # A decision point is a block where one successor leads to preds_b
+        # and another leads to preds_a (or is on a path to preds_a).
+
+        # Build reachability from each phi predecessor
+        def get_all_predecessors(start_blocks: List[str], max_depth: int = 20) -> Set[str]:
+            """Get all blocks that can reach the start blocks."""
+            result = set(start_blocks)
+            frontier = list(start_blocks)
+            for _ in range(max_depth):
+                if not frontier:
+                    break
+                new_frontier = []
+                for block in frontier:
+                    for pred in blocks.get(block, {}).get('predecessors', []):
+                        if pred not in result:
+                            result.add(pred)
+                            new_frontier.append(pred)
+                frontier = new_frontier
+            return result
+
+        # Blocks that can reach preds_a (the default value paths)
+        reaches_a = get_all_predecessors(preds_a)
+        # Blocks that can reach preds_b (the special value paths)
+        reaches_b = get_all_predecessors(preds_b)
+
+        # Find decision points: blocks that branch with one successor
+        # leading to preds_b and another leading to preds_a
+        conditions = []
+
+        for block_name in branch_conds:
+            succs = blocks.get(block_name, {}).get('successors', [])
+            if len(succs) != 2:
+                continue
+
+            succ0, succ1 = succs
+
+            # Check if this is a decision point between paths to a vs b
+            # We want blocks where one path leads ONLY to preds_b (or its chain)
+            # and another path leads to preds_a
+
+            # Check both orderings
+            for target_succ, default_succ in [(succ0, succ1), (succ1, succ0)]:
+                # Does target_succ lead to preds_b?
+                target_reaches_b = (target_succ in reaches_b or target_succ in preds_b)
+                # Does default_succ lead to preds_a (but NOT to preds_b)?
+                default_reaches_a = (default_succ in reaches_a or default_succ in preds_a)
+                default_not_reaches_b = (default_succ not in reaches_b and default_succ not in preds_b)
+
+                if target_reaches_b and default_reaches_a and default_not_reaches_b:
+                    # This block is a decision point!
+                    cond_info = branch_conds[block_name].get(target_succ)
+                    if cond_info:
+                        cond_var, is_true = cond_info
+                        if is_true:
+                            conditions.append(cond_var)
+                        else:
+                            conditions.append(f"(~{cond_var})")
+                    break  # Found the decision for this block
+
+        if conditions:
+            # Deduplicate and combine
+            unique_conds = list(dict.fromkeys(conditions))  # Preserve order, remove dups
+            if len(unique_conds) == 1:
+                return unique_conds[0]
+            else:
+                return f"({' & '.join(unique_conds)})"
+
         return None
 
     def _build_init_multi_way_phi(self, phi_block: str, phi_ops: List[dict],
