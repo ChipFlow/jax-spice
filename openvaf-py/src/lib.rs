@@ -40,6 +40,7 @@ struct OsdiParamInfo {
 #[derive(Clone)]
 struct OsdiNodeInfo {
     name: String,
+    kind: String,  // "KirchoffLaw", "BranchCurrent", or "Implicit"
     units: String,
     residual_units: String,
     is_internal: bool,
@@ -712,15 +713,7 @@ impl VaModule {
                 let node_dict = PyDict::new(py);
                 node_dict.set_item("idx", i).unwrap();
                 node_dict.set_item("name", &node_info.name).unwrap();
-                // Determine kind from the OSDI node name format:
-                // - "flow(...)" prefix indicates a branch current equation
-                // - Otherwise it's a KCL equation for that node (KirchoffLaw)
-                let kind = if node_info.name.starts_with("flow(") {
-                    "BranchCurrent"
-                } else {
-                    "KirchoffLaw"
-                };
-                node_dict.set_item("kind", kind).unwrap();
+                node_dict.set_item("kind", &node_info.kind).unwrap();
                 node_dict.set_item("is_internal", node_info.is_internal).unwrap();
                 nodes_list.append(node_dict).unwrap();
 
@@ -1392,27 +1385,35 @@ fn compile_va(path: &str, allow_analog_in_cond: bool, allow_builtin_primitives: 
         let num_terminals = module_info.module.ports(&db).len();
 
         let mut osdi_nodes: Vec<OsdiNodeInfo> = Vec::new();
-        for (idx, kind) in compiled.dae_system.unknowns.iter_enumerated() {
+        for (idx, unknown_kind) in compiled.dae_system.unknowns.iter_enumerated() {
             let is_internal = u32::from(idx) >= num_terminals as u32;
-            // Extract node name more cleanly
-            let clean_name = match kind {
-                sim_back::SimUnknownKind::KirchoffLaw(node) => node.name(&db).to_string(),
-                sim_back::SimUnknownKind::Current(ck) => match ck {
-                    CurrentKind::Branch(br) => format!("flow({})", br.name(&db)),
-                    CurrentKind::Unnamed { hi, lo } => {
-                        if let Some(lo) = lo {
-                            format!("flow({},{})", hi.name(&db), lo.name(&db))
-                        } else {
-                            format!("flow({})", hi.name(&db))
+            // Extract node name and kind from SimUnknownKind
+            let (clean_name, kind_str) = match unknown_kind {
+                sim_back::SimUnknownKind::KirchoffLaw(node) => {
+                    (node.name(&db).to_string(), "KirchoffLaw")
+                }
+                sim_back::SimUnknownKind::Current(ck) => {
+                    let name = match ck {
+                        CurrentKind::Branch(br) => format!("flow({})", br.name(&db)),
+                        CurrentKind::Unnamed { hi, lo } => {
+                            if let Some(lo) = lo {
+                                format!("flow({},{})", hi.name(&db), lo.name(&db))
+                            } else {
+                                format!("flow({})", hi.name(&db))
+                            }
                         }
-                    }
-                    CurrentKind::Port(node) => format!("flow(<{}>)", node.name(&db)),
-                },
-                sim_back::SimUnknownKind::Implicit(eq) => format!("implicit_equation_{}", u32::from(*eq)),
+                        CurrentKind::Port(node) => format!("flow(<{}>)", node.name(&db)),
+                    };
+                    (name, "BranchCurrent")
+                }
+                sim_back::SimUnknownKind::Implicit(eq) => {
+                    (format!("implicit_equation_{}", u32::from(*eq)), "Implicit")
+                }
             };
             // TODO: Extract units from discipline when available
             osdi_nodes.push(OsdiNodeInfo {
                 name: clean_name,
+                kind: kind_str.to_string(),
                 units: "V".to_string(),  // Default to voltage
                 residual_units: "A".to_string(),  // Default to current
                 is_internal,
