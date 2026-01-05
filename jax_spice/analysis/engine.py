@@ -984,10 +984,24 @@ class CircuitEngine:
             for model_node, global_idx in internal_nodes.items():
                 node_map[model_node] = global_idx
 
-            # Also map sim_node{i} names (DAE residuals use sequential indices)
-            # This includes branch currents which have names like 'br[Branch(BranchId(0))]'
-            for i, model_node in enumerate(model_nodes):
-                node_map[f'sim_node{i}'] = node_map.get(model_node, ground)
+            # Map clean VA node names from v2 API (e.g., 'D', 'G', 'S', 'B', 'NOI', ...)
+            # These are the names used in metadata['node_names'] and jacobian_keys
+            metadata = compiled.get('array_metadata', {})
+            va_terminals = metadata.get('terminals', [])
+            va_internal = metadata.get('internal_nodes', [])
+
+            # Map terminal names: D->ext_nodes[0], G->ext_nodes[1], etc.
+            for i, va_name in enumerate(va_terminals):
+                if i < len(ext_nodes):
+                    node_map[va_name] = ext_nodes[i]
+
+            # Map internal names: NOI->internal_nodes['node4'], GP->internal_nodes['node5'], etc.
+            # The v2 internal_nodes list order matches node indices starting after terminals
+            num_terminals = len(va_terminals)
+            for i, va_name in enumerate(va_internal):
+                internal_key = f'node{num_terminals + i}'
+                if internal_key in internal_nodes:
+                    node_map[va_name] = internal_nodes[internal_key]
 
             # Pre-compute voltage node pairs for fast update
             voltage_node_pairs = []
@@ -1244,11 +1258,8 @@ class CircuitEngine:
             node_map = ctx['node_map']
             for res_idx, node_name in enumerate(node_names):
                 # Map node name to global index
-                if node_name.startswith('sim_'):
-                    model_node = node_name[4:]
-                else:
-                    model_node = node_name
-                node_idx = node_map.get(model_node, node_map.get(node_name, None))
+                # V2 API provides clean names like 'D', 'G', 'S', 'B', 'NOI', etc.
+                node_idx = node_map.get(node_name, None)
 
                 if node_idx is not None and node_idx != ground and node_idx > 0:
                     res_indices[dev_idx, res_idx] = node_idx - 1  # 0-indexed residual
@@ -1260,13 +1271,9 @@ class CircuitEngine:
         for dev_idx, ctx in enumerate(device_contexts):
             node_map = ctx['node_map']
             for jac_idx, (row_name, col_name) in enumerate(jacobian_keys):
-                # Map row node
-                row_model = row_name[4:] if row_name.startswith('sim_') else row_name
-                row_idx = node_map.get(row_model, node_map.get(row_name, None))
-
-                # Map col node
-                col_model = col_name[4:] if col_name.startswith('sim_') else col_name
-                col_idx = node_map.get(col_model, node_map.get(col_name, None))
+                # Map row/col nodes - V2 API provides clean names
+                row_idx = node_map.get(row_name, None)
+                col_idx = node_map.get(col_name, None)
 
                 if (row_idx is not None and col_idx is not None and
                     row_idx != ground and col_idx != ground and
@@ -1498,108 +1505,6 @@ class CircuitEngine:
 
         return (node1_idx, node2_idx)
 
-    def _prepare_batched_inputs(self, model_type: str, openvaf_devices: List[Dict],
-                                 V: jax.Array, device_internal_nodes: Dict[str, Dict[str, int]],
-                                 ground: int) -> Tuple[jax.Array, List[Dict]]:
-        """Prepare batched inputs for all devices of a given OpenVAF model type.
-
-        DEPRECATED: This legacy method is no longer used. The split_eval path in
-        _prepare_split_eval_inputs handles device setup with proper hidden_state
-        handling via the init function cache.
-
-        This method has a bug: hidden_state params are set to 0.0 instead of
-        being computed by the init function, causing transistor models to
-        produce zero current.
-        """
-        import warnings
-        warnings.warn(
-            "_prepare_batched_inputs is deprecated and has bugs (hidden_state=0.0). "
-            "Use _prepare_split_eval_inputs instead.",
-            DeprecationWarning,
-            stacklevel=2
-        )
-        compiled = self._compiled_models.get(model_type)
-        if not compiled:
-            raise ValueError(f"OpenVAF model {model_type} not compiled")
-
-        param_names = compiled['param_names']
-        param_kinds = compiled['param_kinds']
-        model_nodes = compiled['nodes']
-
-        all_inputs = []
-        device_contexts = []
-
-        # Get defaults from openvaf-py (extracted from Verilog-A source)
-        model_defaults = compiled.get('init_param_defaults', {})
-
-        for dev in openvaf_devices:
-            ext_nodes = dev['nodes']  # [d, g, s, b]
-            params = dev['params']
-            internal_nodes = device_internal_nodes.get(dev['name'], {})
-
-            # Build node map: model node name -> global circuit node index
-            # Use actual number of external terminals (not hardcoded 4 for MOSFETs)
-            node_map = {}
-            n_ext_terminals = len(ext_nodes)
-            for i in range(n_ext_terminals):
-                model_node = model_nodes[i]
-                node_map[model_node] = ext_nodes[i]
-
-            # Internal nodes
-            for model_node, global_idx in internal_nodes.items():
-                node_map[model_node] = global_idx
-
-            # Also map sim_node{i} names (DAE residuals use sequential indices)
-            # This includes branch currents which have names like 'br[Branch(BranchId(0))]'
-            for i, model_node in enumerate(model_nodes):
-                node_map[f'sim_node{i}'] = node_map.get(model_node, ground)
-
-            # Build input array for this device
-            inputs = []
-            for name, kind in zip(param_names, param_kinds):
-                if kind == 'voltage':
-                    voltage_val = self._compute_voltage_param(name, V, node_map, model_nodes, ground)
-                    inputs.append(voltage_val)
-                elif kind == 'param':
-                    param_lower = name.lower()
-                    if param_lower in params:
-                        inputs.append(float(params[param_lower]))
-                    elif name in params:
-                        inputs.append(float(params[name]))
-                    elif 'temperature' in param_lower or name == '$temperature':
-                        inputs.append(self._simulation_temperature)
-                    elif param_lower == 'mfactor':
-                        inputs.append(params.get('mfactor', 1.0))
-                    elif param_lower in model_defaults:
-                        # Use model-specific default (handles tnom, etc. correctly)
-                        inputs.append(model_defaults[param_lower])
-                    elif param_lower in ('tnom', 'tref', 'tr'):
-                        # Temperature reference in Celsius (most VA models use 27°C)
-                        inputs.append(27.0)
-                    else:
-                        inputs.append(1.0)
-                elif kind == 'hidden_state':
-                    inputs.append(0.0)
-                elif kind == 'sysfun':
-                    # System functions like mfactor
-                    # mfactor is the system-level device multiplier and must be 1.0 by default
-                    if name.lower() == 'mfactor':
-                        inputs.append(params.get('mfactor', 1.0))
-                    else:
-                        inputs.append(0.0)
-                elif kind == 'temperature':
-                    inputs.append(self._simulation_temperature)
-                else:
-                    inputs.append(0.0)
-
-            all_inputs.append(inputs)
-            device_contexts.append({
-                'name': dev['name'],
-                'node_map': node_map,
-                'ext_nodes': ext_nodes,
-            })
-
-        return jnp.array(all_inputs), device_contexts
 
     def _stamp_batched_results(self, model_type: str, batch_residuals: jax.Array,
                                 batch_jacobian: jax.Array, device_contexts: List[Dict],
@@ -1629,14 +1534,9 @@ class CircuitEngine:
         for dev_idx, ctx in enumerate(device_contexts):
             node_map = ctx['node_map']
 
-            # Stamp residuals
+            # Stamp residuals - V2 API provides clean names like 'D', 'G', 'S'
             for res_idx, node_name in enumerate(node_names):
-                if node_name.startswith('sim_'):
-                    model_node = node_name[4:]
-                else:
-                    model_node = node_name
-
-                node_idx = node_map.get(model_node, node_map.get(node_name, None))
+                node_idx = node_map.get(node_name, None)
                 if node_idx is None or node_idx == ground:
                     continue
 
@@ -1645,13 +1545,10 @@ class CircuitEngine:
                     resist_safe = jnp.where(jnp.isnan(resist), 0.0, resist)
                     f = f.at[node_idx - 1].add(resist_safe)
 
-            # Stamp Jacobian
+            # Stamp Jacobian - V2 API provides clean names
             for jac_idx, (row_name, col_name) in enumerate(jacobian_keys):
-                row_model = row_name[4:] if row_name.startswith('sim_') else row_name
-                col_model = col_name[4:] if col_name.startswith('sim_') else col_name
-
-                row_idx = node_map.get(row_model, node_map.get(row_name, None))
-                col_idx = node_map.get(col_model, node_map.get(col_name, None))
+                row_idx = node_map.get(row_name, None)
+                col_idx = node_map.get(col_name, None)
 
                 if row_idx is None or col_idx is None:
                     continue

@@ -722,6 +722,128 @@ impl VaModule {
         })
     }
 
+    /// Export DAE system (residuals and Jacobian) with clear naming - V2 API
+    ///
+    /// This is the preferred API over get_dae_system(). It uses:
+    /// - Direct node indices and names (no synthetic sim_node{} names)
+    /// - mir_{} prefix for MIR SSA values (clear that these are compiler intermediates)
+    /// - Explicit node information including terminal/internal classification
+    ///
+    /// Returns a dict with:
+    ///   - 'nodes': List of node info dicts with idx, name, kind, is_internal
+    ///   - 'residuals': List of residual info dicts with equation_idx, node_idx, node_name, resist_var, react_var
+    ///   - 'jacobian': List of jacobian entry dicts with entry_idx, row/col indices and names, resist/react vars
+    ///   - 'terminals': List of terminal node names
+    ///   - 'internal_nodes': List of internal node names
+    ///   - 'num_terminals': Number of terminal nodes
+    ///   - 'num_internal': Number of internal nodes
+    fn get_dae_system_v2(&self) -> std::collections::HashMap<String, pyo3::PyObject> {
+        use pyo3::types::{PyDict, PyList};
+
+        Python::with_gil(|py| {
+            let mut result = std::collections::HashMap::new();
+
+            // Node information with clean names from OSDI metadata
+            let nodes_list = PyList::empty(py);
+            let mut terminal_names: Vec<String> = Vec::new();
+            let mut internal_names: Vec<String> = Vec::new();
+
+            for (i, node_info) in self.osdi_nodes.iter().enumerate() {
+                let node_dict = PyDict::new(py);
+                node_dict.set_item("idx", i).unwrap();
+                node_dict.set_item("name", &node_info.name).unwrap();
+                // Determine kind from the OSDI node name format:
+                // - "flow(...)" prefix indicates a branch current equation
+                // - Otherwise it's a KCL equation for that node (KirchoffLaw)
+                let kind = if node_info.name.starts_with("flow(") {
+                    "BranchCurrent"
+                } else {
+                    "KirchoffLaw"
+                };
+                node_dict.set_item("kind", kind).unwrap();
+                node_dict.set_item("is_internal", node_info.is_internal).unwrap();
+                nodes_list.append(node_dict).unwrap();
+
+                if node_info.is_internal {
+                    internal_names.push(node_info.name.clone());
+                } else {
+                    terminal_names.push(node_info.name.clone());
+                }
+            }
+            result.insert("nodes".to_string(), nodes_list.into());
+
+            // Residuals with direct indices and mir_ prefix
+            let residuals_list = PyList::empty(py);
+            for i in 0..self.num_residuals {
+                let res_dict = PyDict::new(py);
+                res_dict.set_item("equation_idx", i).unwrap();
+                res_dict.set_item("node_idx", i).unwrap();  // Residual i stamps into node i
+                // Get node name from OSDI metadata
+                let node_name = if i < self.osdi_nodes.len() {
+                    &self.osdi_nodes[i].name
+                } else {
+                    "unknown"
+                };
+                res_dict.set_item("node_name", node_name).unwrap();
+                res_dict.set_item("resist_var", format!("mir_{}", self.residual_resist_indices[i])).unwrap();
+                res_dict.set_item("react_var", format!("mir_{}", self.residual_react_indices[i])).unwrap();
+                residuals_list.append(res_dict).unwrap();
+            }
+            result.insert("residuals".to_string(), residuals_list.into());
+
+            // Jacobian with direct indices and mir_ prefix
+            let jacobian_list = PyList::empty(py);
+            for i in 0..self.num_jacobian {
+                let jac_dict = PyDict::new(py);
+                jac_dict.set_item("entry_idx", i).unwrap();
+
+                let row_idx = self.jacobian_rows[i] as usize;
+                let col_idx = self.jacobian_cols[i] as usize;
+
+                jac_dict.set_item("row_node_idx", row_idx).unwrap();
+                jac_dict.set_item("col_node_idx", col_idx).unwrap();
+
+                // Get node names from OSDI metadata
+                let row_name = if row_idx < self.osdi_nodes.len() {
+                    &self.osdi_nodes[row_idx].name
+                } else {
+                    "unknown"
+                };
+                let col_name = if col_idx < self.osdi_nodes.len() {
+                    &self.osdi_nodes[col_idx].name
+                } else {
+                    "unknown"
+                };
+                jac_dict.set_item("row_node_name", row_name).unwrap();
+                jac_dict.set_item("col_node_name", col_name).unwrap();
+
+                jac_dict.set_item("resist_var", format!("mir_{}", self.jacobian_resist_indices[i])).unwrap();
+                jac_dict.set_item("react_var", format!("mir_{}", self.jacobian_react_indices[i])).unwrap();
+
+                // Add flags from OSDI jacobian info if available
+                if i < self.osdi_jacobian.len() {
+                    let flags = self.osdi_jacobian[i].flags;
+                    jac_dict.set_item("has_resist", (flags & JACOBIAN_ENTRY_RESIST) != 0).unwrap();
+                    jac_dict.set_item("has_react", (flags & JACOBIAN_ENTRY_REACT) != 0).unwrap();
+                } else {
+                    jac_dict.set_item("has_resist", true).unwrap();
+                    jac_dict.set_item("has_react", true).unwrap();
+                }
+
+                jacobian_list.append(jac_dict).unwrap();
+            }
+            result.insert("jacobian".to_string(), jacobian_list.into());
+
+            // Terminal and internal node lists
+            result.insert("terminals".to_string(), terminal_names.clone().into_py(py));
+            result.insert("internal_nodes".to_string(), internal_names.clone().into_py(py));
+            result.insert("num_terminals".to_string(), terminal_names.len().into_py(py));
+            result.insert("num_internal".to_string(), internal_names.len().into_py(py));
+
+            result
+        })
+    }
+
     /// Run init function and then eval function
     /// This is the proper way to evaluate - init computes cached values that eval needs
     ///
@@ -1312,7 +1434,6 @@ fn compile_va(path: &str, allow_analog_in_cond: bool, allow_builtin_primitives: 
         let mut osdi_nodes: Vec<OsdiNodeInfo> = Vec::new();
         for (idx, kind) in compiled.dae_system.unknowns.iter_enumerated() {
             let is_internal = u32::from(idx) >= num_terminals as u32;
-            let name = format!("{:?}", kind);
             // Extract node name more cleanly
             let clean_name = match kind {
                 sim_back::SimUnknownKind::KirchoffLaw(node) => node.name(&db).to_string(),
