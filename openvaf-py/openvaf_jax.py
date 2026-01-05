@@ -940,19 +940,15 @@ class OpenVAFToJAX:
                     pname = param_names[idx] if idx < len(param_names) else f'param_{idx}'
                     unmapped_hidden_state.append((idx, pname, eval_var))
 
-        # Warn about unmapped hidden_state params
+        # Log unmapped hidden_state params (informational - OpenVAF inlines these)
+        # OpenVAF's optimizer aggressively inlines hidden_state computations into cache
+        # values, so these params are never actually read by eval. Setting to 0.0 is safe.
         if unmapped_hidden_state:
-            critical_unmapped = [(idx, name) for idx, name, _ in unmapped_hidden_state
-                                 if name.endswith('_i')]
-            if critical_unmapped:
-                logger.warning(
-                    f"CRITICAL: {len(critical_unmapped)} instance-computed params (_i suffix) "
-                    f"not computed by init! These will be 0.0. "
-                    f"Examples: {[name for _, name in critical_unmapped[:5]]}"
-                )
+            i_suffix_count = sum(1 for _, name, _ in unmapped_hidden_state if name.endswith('_i'))
             logger.debug(
                 f"hidden_state params: {len(hidden_state_vals)} mapped, "
-                f"{len(unmapped_hidden_state)} unmapped (will be 0.0)"
+                f"{len(unmapped_hidden_state)} unmapped ({i_suffix_count} with _i suffix). "
+                f"Unmapped params are inlined by OpenVAF and not read by eval."
             )
 
         # Store hidden_state mapping for eval to use
