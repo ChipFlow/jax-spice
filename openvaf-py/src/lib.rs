@@ -793,6 +793,41 @@ impl VaModule {
             result.insert("num_terminals".to_string(), terminal_names.len().into_py(py));
             result.insert("num_internal".to_string(), internal_names.len().into_py(py));
 
+            // Collapsible pairs with node names resolved
+            let collapsible_list = PyList::empty(py);
+            for (i, (n1, n2)) in self.collapsible_pairs.iter().enumerate() {
+                let pair_dict = PyDict::new(py);
+                pair_dict.set_item("pair_idx", i).unwrap();
+                pair_dict.set_item("node1_idx", *n1).unwrap();
+                pair_dict.set_item("node2_idx", *n2).unwrap();
+
+                // Resolve node names
+                let n1_name = if (*n1 as usize) < self.osdi_nodes.len() {
+                    self.osdi_nodes[*n1 as usize].name.clone()
+                } else {
+                    format!("unknown_{}", n1)
+                };
+                let n2_name = if *n2 == u32::MAX {
+                    "ground".to_string()
+                } else if (*n2 as usize) < self.osdi_nodes.len() {
+                    self.osdi_nodes[*n2 as usize].name.clone()
+                } else {
+                    format!("unknown_{}", n2)
+                };
+                pair_dict.set_item("node1_name", n1_name).unwrap();
+                pair_dict.set_item("node2_name", n2_name).unwrap();
+
+                // Include the collapse decision variable if available
+                if let Some((_, decision_var)) = self.collapse_decision_outputs.iter()
+                    .find(|(idx, _)| *idx == i as u32) {
+                    pair_dict.set_item("decision_var", decision_var).unwrap();
+                }
+
+                collapsible_list.append(pair_dict).unwrap();
+            }
+            result.insert("collapsible_pairs".to_string(), collapsible_list.into());
+            result.insert("num_collapsible".to_string(), self.collapsible_pairs.len().into_py(py));
+
             result
         })
     }
