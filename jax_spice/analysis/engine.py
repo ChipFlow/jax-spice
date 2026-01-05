@@ -84,10 +84,13 @@ class TransientResult:
         times: Array of time points
         voltages: Dict mapping node name (str) to voltage array.
                   Node names come from the netlist (e.g., 'vdd', 'out', 'inp').
+        currents: Dict mapping source name (str) to current array.
+                  Contains currents through voltage sources (e.g., 'vdd', 'v1').
         stats: Dict with simulation statistics (wall_time, convergence_rate, etc.)
     """
     times: Array
     voltages: Dict[str, Array]
+    currents: Dict[str, Array]
     stats: Dict[str, Any]
 
     @property
@@ -120,6 +123,32 @@ class TransientResult:
     def node_names(self) -> List[str]:
         """List of node names."""
         return list(self.voltages.keys())
+
+    def current(self, source: str) -> Array:
+        """Get current waveform through a voltage source.
+
+        Args:
+            source: Source name from the netlist (e.g., 'vdd', 'v1')
+
+        Returns:
+            Current array over time (positive = current flows from + to -)
+
+        Raises:
+            KeyError: If source not found
+        """
+        if source in self.currents:
+            return self.currents[source]
+        # Try case-insensitive lookup
+        source_lower = source.lower()
+        for key in self.currents:
+            if key.lower() == source_lower:
+                return self.currents[key]
+        raise KeyError(f"Source '{source}' not found. Available: {self.source_names}")
+
+    @property
+    def source_names(self) -> List[str]:
+        """List of voltage source names with current data."""
+        return list(self.currents.keys())
 
 
 class CircuitEngine:
@@ -2429,6 +2458,7 @@ class CircuitEngine:
             return TransientResult(
                 times=jnp.array([0.0]),
                 voltages={name: jnp.zeros((1,)) for name in self.node_names},
+                currents={},
                 stats={'setup_only': True},
             )
 
@@ -2463,6 +2493,14 @@ class CircuitEngine:
 
         times_list = []
         voltage_history = []  # Collect V arrays, convert to dict at end
+        current_history = []  # Collect vsource current arrays
+
+        # Get vsource info for current computation
+        vsource_data = source_device_data.get('vsource', {})
+        vsource_node_p = vsource_data.get('node_p', jnp.array([], dtype=jnp.int32))
+        vsource_node_n = vsource_data.get('node_n', jnp.array([], dtype=jnp.int32))
+        vsource_names = vsource_data.get('names', [])
+        G_vsource = 1e12  # High conductance for voltage source stamp
 
         total_nr_iters = 0
         non_converged_steps = []  # Track (time, max_residual) for non-converged steps
@@ -2524,6 +2562,13 @@ class CircuitEngine:
                 times_list.append(t)
                 voltage_history.append(V[:n_external])  # Single JAX slice, no float() calls
 
+                # Compute and record vsource currents: I = G * (Vp - Vn - Vtarget)
+                if len(vsource_names) > 0:
+                    Vp = V[vsource_node_p]
+                    Vn = V[vsource_node_n]
+                    I_vsource = G_vsource * (Vp - Vn - vsource_vals)
+                    current_history.append(I_vsource)
+
                 V_prev = V
 
         if profile_config:
@@ -2562,7 +2607,14 @@ class CircuitEngine:
                 if idx > 0 and idx < n_external:
                     voltages[name] = jnp.array([])
 
-        return TransientResult(times=times, voltages=voltages, stats=stats)
+        # Convert current history to dict format
+        currents: Dict[str, Array] = {}
+        if current_history and len(vsource_names) > 0:
+            I_stacked = jnp.stack(current_history)  # Shape: (n_timesteps, n_vsources)
+            for i, name in enumerate(vsource_names):
+                currents[name] = I_stacked[:, i]
+
+        return TransientResult(times=times, voltages=voltages, currents=currents, stats=stats)
 
     def _get_dc_source_values(
         self, n_vsources: int, n_isources: int
@@ -3062,7 +3114,21 @@ class CircuitEngine:
             if idx > 0 and idx < n_external:  # Skip ground (0), only external nodes
                 voltages[name] = all_V[:, idx]
 
-        return TransientResult(times=times, voltages=voltages, stats=stats)
+        # Compute vsource currents: I = G * (Vp - Vn - Vtarget)
+        currents: Dict[str, Array] = {}
+        if n_vsources > 0:
+            vsource_data = source_device_data['vsource']
+            vsource_node_p = vsource_data['node_p']
+            vsource_node_n = vsource_data['node_n']
+            vsource_names = vsource_data['names']
+            G_vsource = 1e12
+            Vp = all_V[:, vsource_node_p]  # Shape: (num_timesteps, n_vsources)
+            Vn = all_V[:, vsource_node_n]
+            I_vsource = G_vsource * (Vp - Vn - all_vsource_vals)
+            for i, name in enumerate(vsource_names):
+                currents[name] = I_vsource[:, i]
+
+        return TransientResult(times=times, voltages=voltages, currents=currents, stats=stats)
 
     def _get_source_fn_for_device(self, dev: Dict):
         """Get the source function for a device, or None if not a source."""
