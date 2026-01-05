@@ -106,7 +106,8 @@ class TestResistorSim:
                 inputs[i] = 300.0
 
         residuals, _ = eval_fn(inputs)
-        current = float(residuals['sim_node0']['resist'])
+        # Node names are now clean VA names ('A', 'B') not prefixed ('sim_node0')
+        current = float(residuals['A']['resist'])
 
         expected = 1.0 / r_value  # 0.0005 A
         assert abs(current - expected) < 1e-9, f"Expected {expected}, got {current}"
@@ -135,7 +136,8 @@ class TestResistorSim:
                 inputs[i] = 300.0
 
         residuals, _ = eval_fn(inputs)
-        current = float(residuals['sim_node0']['resist'])
+        # Node names are now clean VA names ('A', 'B') not prefixed ('sim_node0')
+        current = float(residuals['A']['resist'])
 
         # Total current with mfactor
         expected = mfactor * 1.0 / r_value  # 0.0015 A
