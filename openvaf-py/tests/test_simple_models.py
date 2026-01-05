@@ -220,3 +220,100 @@ class TestCCCS:
         for node, res in residuals.items():
             current = float(res['resist'])
             assert not np.isnan(current), f"NaN current at {node}"
+
+
+class TestHiddenStateInlining:
+    """Test that hidden_state params are inlined by OpenVAF and not actually used.
+
+    This is a critical assumption: OpenVAF's optimizer inlines hidden_state
+    computations into cache values, so the hidden_state params in eval
+    are never actually read. This test validates that assumption by setting
+    hidden_state params to NaN and verifying the function still works.
+
+    If this test fails, the hidden_state inlining assumption is violated
+    and JAX-SPICE's parameter handling needs to be updated.
+    """
+
+    @pytest.fixture
+    def psp103_model(self, compile_model):
+        """Compile PSP103 - a complex model with many hidden_state params."""
+        return compile_model(INTEGRATION_PATH / "PSP103/psp103.va")
+
+    def test_hidden_state_not_used_psp103(self, psp103_model: CompiledModel):
+        """PSP103 hidden_state params (1705) should not be used by eval.
+
+        This test sets all hidden_state params to NaN. If any were actually
+        read by eval, the output would contain NaN. The test passing proves
+        that hidden_state params are inlined by OpenVAF's optimizer.
+        """
+        inputs = psp103_model.build_default_inputs()
+        param_kinds = psp103_model.param_kinds
+
+        # Count hidden_state params
+        hidden_state_indices = [
+            i for i, kind in enumerate(param_kinds) if kind == 'hidden_state'
+        ]
+
+        # This model should have many hidden_state params
+        assert len(hidden_state_indices) > 100, (
+            f"PSP103 should have many hidden_state params, got {len(hidden_state_indices)}"
+        )
+
+        # Set all hidden_state params to NaN
+        for idx in hidden_state_indices:
+            inputs[idx] = float('nan')
+
+        # Run the function - if hidden_state params were used, output would be NaN
+        residuals, jacobian = psp103_model.jax_fn(inputs)
+
+        # Check that outputs are valid (not NaN)
+        nan_residuals = []
+        for node, res in residuals.items():
+            for component, value in res.items():
+                if np.isnan(float(value)):
+                    nan_residuals.append((node, component))
+
+        assert len(nan_residuals) == 0, (
+            f"hidden_state params appear to be used! "
+            f"Got NaN residuals at: {nan_residuals[:10]}... "
+            f"This violates the assumption that OpenVAF inlines hidden_state. "
+            f"Total hidden_state params: {len(hidden_state_indices)}"
+        )
+
+        nan_jacobians = []
+        for (row, col), jac in jacobian.items():
+            for component, value in jac.items():
+                if np.isnan(float(value)):
+                    nan_jacobians.append((row, col, component))
+
+        assert len(nan_jacobians) == 0, (
+            f"hidden_state params appear to be used in Jacobian! "
+            f"Got NaN at: {nan_jacobians[:10]}... "
+            f"Total hidden_state params: {len(hidden_state_indices)}"
+        )
+
+    def test_hidden_state_not_used_diode(self, diode_model: CompiledModel):
+        """Diode hidden_state params (16) should not be used by eval."""
+        inputs = diode_model.build_default_inputs()
+        param_kinds = diode_model.param_kinds
+
+        hidden_state_indices = [
+            i for i, kind in enumerate(param_kinds) if kind == 'hidden_state'
+        ]
+
+        # Diode has fewer hidden_state params
+        if len(hidden_state_indices) == 0:
+            pytest.skip("Diode model has no hidden_state params")
+
+        # Set all hidden_state params to NaN
+        for idx in hidden_state_indices:
+            inputs[idx] = float('nan')
+
+        residuals, jacobian = diode_model.jax_fn(inputs)
+
+        # Check outputs are valid
+        for node, res in residuals.items():
+            for component, value in res.items():
+                assert not np.isnan(float(value)), (
+                    f"hidden_state params used! NaN at {node}.{component}"
+                )
