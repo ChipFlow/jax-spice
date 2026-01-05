@@ -86,13 +86,17 @@ struct VaModule {
     /// Number of Jacobian entries
     #[pyo3(get)]
     num_jacobian: usize,
-    /// Residual variable indices (as Value u32)
+    /// MIR Value indices for residual components (internal, used by interpreter)
+    /// Maps: residual equation index -> MIR Value index
+    /// For JAX code generation, use get_dae_system()['residuals'][i]['resist_var'] instead
     residual_resist_indices: Vec<u32>,
     residual_react_indices: Vec<u32>,
-    /// Jacobian variable indices (as Value u32)
+    /// MIR Value indices for Jacobian components (internal, used by interpreter)
+    /// Maps: jacobian entry index -> MIR Value index
+    /// For JAX code generation, use get_dae_system()['jacobian'][i]['resist_var'] instead
     jacobian_resist_indices: Vec<u32>,
     jacobian_react_indices: Vec<u32>,
-    /// Jacobian row/col structure
+    /// Jacobian sparsity structure (row/col node indices)
     jacobian_rows: Vec<u32>,
     jacobian_cols: Vec<u32>,
     /// The compiled MIR function for evaluation
@@ -170,22 +174,6 @@ struct VaModule {
 
 #[pymethods]
 impl VaModule {
-    /// Get residual structure as (row_indices, resist_var_indices, react_var_indices)
-    fn get_residual_structure(&self) -> (Vec<usize>, Vec<u32>, Vec<u32>) {
-        let rows: Vec<usize> = (0..self.num_residuals).collect();
-        (rows, self.residual_resist_indices.clone(), self.residual_react_indices.clone())
-    }
-
-    /// Get Jacobian structure as (row_indices, col_indices, resist_var_indices, react_var_indices)
-    fn get_jacobian_structure(&self) -> (Vec<u32>, Vec<u32>, Vec<u32>, Vec<u32>) {
-        (
-            self.jacobian_rows.clone(),
-            self.jacobian_cols.clone(),
-            self.jacobian_resist_indices.clone(),
-            self.jacobian_react_indices.clone(),
-        )
-    }
-
     /// Get all Param-defined values in the function
     /// Returns list of (param_index, value_index) tuples
     fn get_all_func_params(&self) -> Vec<(u32, u32)> {
@@ -691,13 +679,45 @@ impl VaModule {
     /// - Explicit node information including terminal/internal classification
     ///
     /// Returns a dict with:
-    ///   - 'nodes': List of node info dicts with idx, name, kind, is_internal
-    ///   - 'residuals': List of residual info dicts with equation_idx, node_idx, node_name, resist_var, react_var
-    ///   - 'jacobian': List of jacobian entry dicts with entry_idx, row/col indices and names, resist/react vars
-    ///   - 'terminals': List of terminal node names
-    ///   - 'internal_nodes': List of internal node names
-    ///   - 'num_terminals': Number of terminal nodes
-    ///   - 'num_internal': Number of internal nodes
+    ///
+    /// **Nodes** (SimUnknown mapping):
+    ///   - 'nodes': List of node dicts, index = SimUnknown index
+    ///       - idx: SimUnknown index (0, 1, 2, ...)
+    ///       - name: VA node name ('D', 'G', 'S', 'B', 'NOI', ...)
+    ///       - kind: 'KirchoffLaw', 'BranchCurrent', or 'Implicit'
+    ///       - is_internal: true for internal nodes (idx >= num_terminals)
+    ///   - 'terminals': List of terminal node names ['D', 'G', 'S', 'B']
+    ///   - 'internal_nodes': List of internal node names ['NOI', 'GP', ...]
+    ///   - 'num_terminals', 'num_internal': Counts
+    ///
+    /// **Residuals** (DAE equations f(x) = 0):
+    ///   - 'residuals': List of residual dicts
+    ///       - equation_idx: Index of this residual equation
+    ///       - node_idx: SimUnknown index this residual stamps into
+    ///       - node_name: VA node name for this residual
+    ///       - resist_var: MIR variable name for resistive component ('mir_29')
+    ///       - react_var: MIR variable name for reactive component ('mir_3')
+    ///
+    /// **Jacobian** (∂f/∂x sparsity and values):
+    ///   - 'jacobian': List of Jacobian entry dicts
+    ///       - entry_idx: Index of this Jacobian entry
+    ///       - row_node_idx, col_node_idx: SimUnknown indices
+    ///       - row_node_name, col_node_name: VA node names
+    ///       - resist_var, react_var: MIR variable names ('mir_XX')
+    ///       - has_resist, has_react: Whether components are non-zero
+    ///
+    /// **Collapsible pairs** (node collapse for internal nodes):
+    ///   - 'collapsible_pairs': List of collapsible pair dicts
+    ///       - pair_idx: Index of this collapse pair
+    ///       - node1_idx, node2_idx: SimUnknown indices (node2=MAX means ground)
+    ///       - node1_name, node2_name: VA node names ('G' -> 'GP')
+    ///       - decision_var: MIR variable controlling collapse ('!v3729')
+    ///   - 'num_collapsible': Number of collapsible pairs
+    ///
+    /// The MIR variable names (resist_var, react_var) reference values computed
+    /// by the eval function. For JAX code generation, these map to Python variables
+    /// like `v29` (strip 'mir_' prefix). For interpreter use, extract the numeric
+    /// index to read from interpreter state.
     fn get_dae_system(&self) -> std::collections::HashMap<String, pyo3::PyObject> {
         use pyo3::types::{PyDict, PyList};
 
