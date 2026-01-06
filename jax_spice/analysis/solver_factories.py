@@ -123,7 +123,8 @@ def make_dense_solver(
 
     Args:
         build_system_jit: JIT-wrapped function
-            (V, vsource_vals, isource_vals, Q_prev, inv_dt, device_arrays, gmin, gshunt)
+            (V, vsource_vals, isource_vals, Q_prev, inv_dt, device_arrays, gmin, gshunt,
+             dQdt_prev, integ_c0, integ_c1, integ_d1)
             -> (J, f, Q)
         n_nodes: Total node count including ground
         noi_indices: Optional array of NOI node indices to constrain to 0V
@@ -141,7 +142,11 @@ def make_dense_solver(
     def nr_solve(V_init: Array, vsource_vals: Array, isource_vals: Array,
                  Q_prev: Array, inv_dt: float | Array,
                  device_arrays_arg: Dict[str, Array],
-                 gmin: float | Array = 1e-12, gshunt: float | Array = 0.0):
+                 gmin: float | Array = 1e-12, gshunt: float | Array = 0.0,
+                 dQdt_prev: Array | None = None,
+                 integ_c0: float | Array | None = None,
+                 integ_c1: float | Array | None = None,
+                 integ_d1: float | Array = 0.0):
 
         init_Q = jnp.zeros(n_nodes - 1, dtype=jnp.float64)
         init_state = (
@@ -161,7 +166,8 @@ def make_dense_solver(
             V, iteration, _, _, _, _ = state
 
             J, f, Q = build_system_jit(V, vsource_vals, isource_vals, Q_prev, inv_dt,
-                                       device_arrays_arg, gmin, gshunt)
+                                       device_arrays_arg, gmin, gshunt,
+                                       dQdt_prev, integ_c0, integ_c1, integ_d1)
 
             # Check residual convergence (mask NOI nodes)
             if residual_mask is not None:
@@ -204,7 +210,8 @@ def make_dense_solver(
 
         # Recompute Q from converged voltage
         _, _, Q_final = build_system_jit(V_final, vsource_vals, isource_vals, Q_prev,
-                                         inv_dt, device_arrays_arg, gmin, gshunt)
+                                         inv_dt, device_arrays_arg, gmin, gshunt,
+                                         dQdt_prev, integ_c0, integ_c1, integ_d1)
 
         return V_final, iterations, converged, max_f, Q_final
 
@@ -261,7 +268,11 @@ def make_sparse_solver(
     def nr_solve(V_init: Array, vsource_vals: Array, isource_vals: Array,
                  Q_prev: Array, inv_dt: float | Array,
                  device_arrays_arg: Dict[str, Array],
-                 gmin: float | Array = 1e-12, gshunt: float | Array = 0.0):
+                 gmin: float | Array = 1e-12, gshunt: float | Array = 0.0,
+                 dQdt_prev: Array | None = None,
+                 integ_c0: float | Array | None = None,
+                 integ_c1: float | Array | None = None,
+                 integ_d1: float | Array = 0.0):
 
         init_Q = jnp.zeros(n_nodes - 1, dtype=jnp.float64)
         init_state = (
@@ -281,7 +292,8 @@ def make_sparse_solver(
             V, iteration, _, _, _, _ = state
 
             J_bcoo, f, Q = build_system_jit(V, vsource_vals, isource_vals, Q_prev,
-                                            inv_dt, device_arrays_arg, gmin, gshunt)
+                                            inv_dt, device_arrays_arg, gmin, gshunt,
+                                            dQdt_prev, integ_c0, integ_c1, integ_d1)
 
             # Check residual convergence
             if residual_mask is not None:
@@ -340,7 +352,8 @@ def make_sparse_solver(
         )
 
         _, _, Q_final = build_system_jit(V_final, vsource_vals, isource_vals, Q_prev,
-                                         inv_dt, device_arrays_arg, gmin, gshunt)
+                                         inv_dt, device_arrays_arg, gmin, gshunt,
+                                         dQdt_prev, integ_c0, integ_c1, integ_d1)
 
         return V_final, iterations, converged, max_f, Q_final
 
@@ -408,7 +421,11 @@ def make_spineax_solver(
     def nr_solve(V_init: Array, vsource_vals: Array, isource_vals: Array,
                  Q_prev: Array, inv_dt: float | Array,
                  device_arrays_arg: Dict[str, Array],
-                 gmin: float | Array = 1e-12, gshunt: float | Array = 0.0):
+                 gmin: float | Array = 1e-12, gshunt: float | Array = 0.0,
+                 dQdt_prev: Array | None = None,
+                 integ_c0: float | Array | None = None,
+                 integ_c1: float | Array | None = None,
+                 integ_d1: float | Array = 0.0):
 
         init_Q = jnp.zeros(n_unknowns, dtype=jnp.float64)
         init_state = (
@@ -428,7 +445,8 @@ def make_spineax_solver(
             V, iteration, _, _, _, _ = state
 
             J_bcoo, f, Q = build_system_jit(V, vsource_vals, isource_vals, Q_prev,
-                                            inv_dt, device_arrays_arg, gmin, gshunt)
+                                            inv_dt, device_arrays_arg, gmin, gshunt,
+                                            dQdt_prev, integ_c0, integ_c1, integ_d1)
 
             if residual_mask is not None:
                 f_masked = jnp.where(residual_mask, f, 0.0)
@@ -474,7 +492,8 @@ def make_spineax_solver(
         )
 
         _, _, Q_final = build_system_jit(V_final, vsource_vals, isource_vals, Q_prev,
-                                         inv_dt, device_arrays_arg, gmin, gshunt)
+                                         inv_dt, device_arrays_arg, gmin, gshunt,
+                                         dQdt_prev, integ_c0, integ_c1, integ_d1)
 
         return V_final, iterations, converged, max_f, Q_final
 
@@ -535,7 +554,11 @@ def make_umfpack_solver(
     def nr_solve(V_init: Array, vsource_vals: Array, isource_vals: Array,
                  Q_prev: Array, inv_dt: float | Array,
                  device_arrays_arg: Dict[str, Array],
-                 gmin: float | Array = 1e-12, gshunt: float | Array = 0.0):
+                 gmin: float | Array = 1e-12, gshunt: float | Array = 0.0,
+                 dQdt_prev: Array | None = None,
+                 integ_c0: float | Array | None = None,
+                 integ_c1: float | Array | None = None,
+                 integ_d1: float | Array = 0.0):
 
         init_Q = jnp.zeros(n_unknowns, dtype=jnp.float64)
         init_state = (
@@ -555,7 +578,8 @@ def make_umfpack_solver(
             V, iteration, _, _, _, _ = state
 
             J_bcoo, f, Q = build_system_jit(V, vsource_vals, isource_vals, Q_prev,
-                                            inv_dt, device_arrays_arg, gmin, gshunt)
+                                            inv_dt, device_arrays_arg, gmin, gshunt,
+                                            dQdt_prev, integ_c0, integ_c1, integ_d1)
 
             if residual_mask is not None:
                 f_masked = jnp.where(residual_mask, f, 0.0)
@@ -601,7 +625,8 @@ def make_umfpack_solver(
         )
 
         _, _, Q_final = build_system_jit(V_final, vsource_vals, isource_vals, Q_prev,
-                                         inv_dt, device_arrays_arg, gmin, gshunt)
+                                         inv_dt, device_arrays_arg, gmin, gshunt,
+                                         dQdt_prev, integ_c0, integ_c1, integ_d1)
 
         return V_final, iterations, converged, max_f, Q_final
 

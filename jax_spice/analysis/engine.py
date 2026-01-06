@@ -3009,10 +3009,25 @@ class CircuitEngine:
 
             logger.info(f"  UIC mode: ground=0V, VDD={vdd_value}V, others={mid_rail}V")
 
+        # Get integration method from analysis params
+        from jax_spice.analysis.integration import IntegrationMethod, compute_coefficients
+        tran_method = self.analysis_params.get('tran_method', IntegrationMethod.BACKWARD_EULER)
+        if isinstance(tran_method, str):
+            tran_method = IntegrationMethod.from_string(tran_method)
+
+        # Compute integration coefficients
+        integ_coeffs = compute_coefficients(tran_method, dt)
+        integ_c0 = integ_coeffs.c0  # Leading coefficient (alpha for Jacobian)
+        integ_c1 = integ_coeffs.c1  # Coefficient for Q_prev
+        integ_d1 = integ_coeffs.d1  # Coefficient for dQdt_prev (0 for BE, -1 for trap)
+        needs_dqdt = integ_coeffs.needs_dqdt_history  # True for trapezoidal
+
+        logger.info(f"Integration method: {tran_method.value}, c0={integ_c0:.2e}, c1={integ_c1:.2e}, d1={integ_d1}")
+
         # Cache key for the scan function
         # Note: Does NOT include num_timesteps - lax.scan handles variable-length inputs
-        # Includes dt in key since inv_dt is captured in the closure
-        scan_cache_key = (n_nodes, n_vsources, n_isources, n_external, use_dense, dt)
+        # Includes dt and tran_method in key since coefficients are captured in closure
+        scan_cache_key = (n_nodes, n_vsources, n_isources, n_external, use_dense, dt, tran_method.value)
 
         if hasattr(self, '_cached_scan_fn') and self._cached_scan_key == scan_cache_key:
             run_simulation_with_outputs = self._cached_scan_fn
@@ -3020,37 +3035,59 @@ class CircuitEngine:
         else:
             # Create and cache the scan function
             # Source values are passed per-timestep via lax.scan's xs argument
-            inv_dt = 1.0 / dt  # Captured in closure for backward Euler
+            inv_dt = 1.0 / dt  # Still needed for backward compat
 
-            def make_scan_fn(nr_solve_fn, n_ext, inv_dt_val):
+            def make_scan_fn(nr_solve_fn, n_ext, inv_dt_val, c0, c1, d1, use_dqdt):
                 @jax.jit
-                def run_simulation_with_outputs(V_init, Q_init, all_vsource, all_isource, device_arrays_arg):
+                def run_simulation_with_outputs(V_init, Q_init, dQdt_init, all_vsource, all_isource, device_arrays_arg):
                     """Run simulation with time-varying sources using lax.scan.
 
-                    Carry includes both V and Q for reactive term tracking.
-                    Uses backward Euler: f = f_resist + (Q - Q_prev)/dt
+                    Carry includes V, Q, and dQdt for reactive term tracking.
+                    Supports multiple integration methods:
+                    - Backward Euler: f = f_resist + (Q - Q_prev)/dt
+                    - Trapezoidal: f = f_resist + 2/dt*(Q - Q_prev) - dQdt_prev
+
                     device_arrays_arg is passed through to nr_solve to avoid XLA constant folding.
                     """
                     def step_fn(carry, source_vals):
-                        V, Q_prev = carry
+                        V, Q_prev, dQdt_prev = carry
                         vsource_vals, isource_vals = source_vals
+
+                        # For the first timestep (or when dQdt_prev is all zeros), use backward Euler
+                        # This avoids numerical issues at t=0 when dQdt_prev isn't meaningful yet
+                        # After the first step, we have valid dQdt_prev for trapezoidal
+                        use_trap = use_dqdt  # Whether to use full trap coefficients
+
+                        # Call NR solver with integration coefficients
                         V_new, iterations, converged, max_f, Q = nr_solve_fn(
-                            V, vsource_vals, isource_vals, Q_prev, inv_dt_val, device_arrays_arg
+                            V, vsource_vals, isource_vals, Q_prev, inv_dt_val, device_arrays_arg,
+                            1e-12, 0.0,  # gmin, gshunt
+                            dQdt_prev if use_trap else None,
+                            c0, c1, d1 if use_trap else 0.0
                         )
-                        return (V_new, Q), (V_new[:n_ext], iterations, converged)
+
+                        # Compute dQdt for next timestep (needed for trapezoidal)
+                        # dQdt = c0*Q + c1*Q_prev + d1*dQdt_prev
+                        # For trap: dQdt = 2/dt*(Q - Q_prev) - dQdt_prev
+                        dQdt = c0 * Q + c1 * Q_prev
+                        if use_trap:
+                            dQdt = dQdt + d1 * dQdt_prev
+
+                        return (V_new, Q, dQdt), (V_new[:n_ext], iterations, converged)
 
                     # Stack source arrays for scan input
                     source_inputs = (all_vsource, all_isource)
                     _, (all_V, all_iters, all_converged) = jax.lax.scan(
-                        step_fn, (V_init, Q_init), source_inputs
+                        step_fn, (V_init, Q_init, dQdt_init), source_inputs
                     )
                     return all_V, all_iters, all_converged
                 return run_simulation_with_outputs
 
-            run_simulation_with_outputs = make_scan_fn(nr_solve, n_external, inv_dt)
+            run_simulation_with_outputs = make_scan_fn(nr_solve, n_external, inv_dt,
+                                                        integ_c0, integ_c1, integ_d1, needs_dqdt)
             self._cached_scan_fn = run_simulation_with_outputs
             self._cached_scan_key = scan_cache_key
-            logger.info(f"Created and cached lax.scan simulation function (inv_dt={inv_dt:.2e})")
+            logger.info(f"Created and cached lax.scan simulation function (method={tran_method.value}, c0={integ_c0:.2e})")
 
         # Initialize charge state for reactive terms by computing Q at the DC operating point
         # This avoids a discontinuity at t=0 (Q - Q_prev = 0 when Q_prev = Q(V0))
@@ -3064,17 +3101,23 @@ class CircuitEngine:
         else:
             Q0 = jnp.zeros(n_unknowns, dtype=jnp.float64)
 
+        # Initialize dQdt for trapezoidal method
+        # At t=0, we don't have a meaningful dQdt (no previous timestep)
+        # Using zeros causes the first step to effectively use backward Euler,
+        # then subsequent steps use full trapezoidal with the computed dQdt
+        dQdt0 = jnp.zeros(n_unknowns, dtype=jnp.float64)
+
         # Run the simulation (with optional profiling of just the core loop)
         logger.info("Running lax.scan simulation...")
         t0 = time_module.perf_counter()
         if profile_config:
             with profile_section("simulation", profile_config):
-                all_V, all_iters, all_converged = run_simulation_with_outputs(V0, Q0, all_vsource_vals, all_isource_vals, self._device_arrays)
+                all_V, all_iters, all_converged = run_simulation_with_outputs(V0, Q0, dQdt0, all_vsource_vals, all_isource_vals, self._device_arrays)
                 jax.block_until_ready(all_V)
                 # Measure time BEFORE profile_section.__exit__ (which saves trace to disk)
                 t1 = time_module.perf_counter()
         else:
-            all_V, all_iters, all_converged = run_simulation_with_outputs(V0, Q0, all_vsource_vals, all_isource_vals, self._device_arrays)
+            all_V, all_iters, all_converged = run_simulation_with_outputs(V0, Q0, dQdt0, all_vsource_vals, all_isource_vals, self._device_arrays)
             jax.block_until_ready(all_V)
             t1 = time_module.perf_counter()
         total_time = t1 - t0
@@ -3444,32 +3487,51 @@ class CircuitEngine:
         def build_system(V: jax.Array, vsource_vals: jax.Array, isource_vals: jax.Array,
                         Q_prev: jax.Array, inv_dt: float | jax.Array,
                         device_arrays_arg: Dict[str, jax.Array],
-                        gmin: float | jax.Array = 1e-12, gshunt: float | jax.Array = 0.0
+                        gmin: float | jax.Array = 1e-12, gshunt: float | jax.Array = 0.0,
+                        dQdt_prev: jax.Array | None = None,
+                        integ_c0: float | jax.Array | None = None,
+                        integ_c1: float | jax.Array | None = None,
+                        integ_d1: float | jax.Array = 0.0,
                         ) -> Tuple[Any, jax.Array, jax.Array]:
             """Build Jacobian J and residual f from current voltages.
 
             Fully JAX-traceable - no Python lists or dynamic allocation.
             All device contributions are concatenated into fixed-size arrays.
 
-            For transient analysis with backward Euler:
-                f = f_resist + (Q - Q_prev) / dt
-                J = J_resist + C / dt
+            Supports multiple integration methods:
+            - Backward Euler: dQ/dt = (Q - Q_prev) / dt
+                integ_c0 = 1/dt, integ_c1 = -1/dt, integ_d1 = 0
+            - Trapezoidal: dQ/dt = 2/dt * (Q - Q_prev) - dQdt_prev
+                integ_c0 = 2/dt, integ_c1 = -2/dt, integ_d1 = -1
+
+            General formula:
+                f = f_resist + integ_c0 * Q + integ_c1 * Q_prev + integ_d1 * dQdt_prev
+                J = J_resist + integ_c0 * C   (alpha = integ_c0)
 
             Args:
                 V: Current voltage vector
                 vsource_vals: Voltage source values
                 isource_vals: Current source values
                 Q_prev: Charges from previous timestep (shape: n_unknowns)
-                inv_dt: 1/dt for transient, 0 for DC analysis
+                inv_dt: 1/dt for transient, 0 for DC analysis (legacy, used if integ_c0 is None)
                 device_arrays_arg: Dict[model_type, cache] - cache arrays passed as args
                 gmin: GMIN conductance for device models (default 1e-12)
                 gshunt: Shunt conductance to ground for homotopy (default 0)
+                dQdt_prev: Previous dQ/dt for trapezoidal (None for backward Euler)
+                integ_c0: Leading coefficient for Q_new (default: inv_dt for backward compat)
+                integ_c1: Coefficient for Q_prev (default: -inv_dt for backward compat)
+                integ_d1: Coefficient for dQdt_prev (default: 0 for backward Euler)
 
             Returns:
                 J: Jacobian matrix (dense or BCOO)
                 f: Residual vector
                 Q: Current charges (for tracking across timesteps)
             """
+            # Backward compatibility: if integ_c0/c1 not provided, use inv_dt (backward Euler)
+            if integ_c0 is None:
+                integ_c0 = inv_dt
+            if integ_c1 is None:
+                integ_c1 = -inv_dt
             f_resist_parts = []
             f_react_parts = []  # Charge contributions
             j_resist_parts = []
@@ -3661,11 +3723,16 @@ class CircuitEngine:
             # f_corrected = f_computed - lim_rhs
             f_resist = f_resist - lim_rhs_resist
 
-            # === Combine for transient: f = f_resist + (Q - Q_prev) / dt ===
-            # For DC (inv_dt=0): f = f_resist
-            # For transient: f = f_resist + inv_dt * (Q - Q_prev)
+            # === Combine for transient: f = f_resist + integ_c0*Q + integ_c1*Q_prev + integ_d1*dQdt_prev ===
+            # For DC (integ_c0=0): f = f_resist
+            # For BE transient: f = f_resist + (1/dt)*Q - (1/dt)*Q_prev = f_resist + inv_dt*(Q - Q_prev)
+            # For Trap transient: f = f_resist + (2/dt)*Q - (2/dt)*Q_prev - dQdt_prev
             # Note: Q already includes reactive lim_rhs correction via the residual subtraction
-            f = f_resist + inv_dt * (Q - Q_prev - lim_rhs_react)
+            Q_corrected = Q - lim_rhs_react
+            f = f_resist + integ_c0 * Q_corrected + integ_c1 * Q_prev
+            # Add dQdt_prev contribution for trapezoidal (integ_d1 = -1 for trap, 0 for BE)
+            if dQdt_prev is not None:
+                f = f + integ_d1 * dQdt_prev
 
             # === Add GSHUNT contribution to residual ===
             # GSHUNT is a shunt conductance to ground: I = gshunt * V
@@ -3693,11 +3760,12 @@ class CircuitEngine:
                 all_j_react_cols = jnp.zeros(0, dtype=jnp.int32)
                 all_j_react_vals = jnp.zeros(0, dtype=jnp.float64)
 
-            # === Combine Jacobians: J = J_resist + C / dt ===
-            # Concatenate COO triplets and scale reactive by inv_dt
+            # === Combine Jacobians: J = J_resist + alpha * C ===
+            # alpha = integ_c0 (= 1/dt for BE, 2/dt for trap)
+            # Concatenate COO triplets and scale reactive by alpha
             all_j_rows = jnp.concatenate([all_j_resist_rows, all_j_react_rows])
             all_j_cols = jnp.concatenate([all_j_resist_cols, all_j_react_cols])
-            all_j_vals = jnp.concatenate([all_j_resist_vals, inv_dt * all_j_react_vals])
+            all_j_vals = jnp.concatenate([all_j_resist_vals, integ_c0 * all_j_react_vals])
 
             if use_dense:
                 # Dense: COO -> dense matrix via segment_sum

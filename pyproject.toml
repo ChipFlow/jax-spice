@@ -13,6 +13,7 @@ dependencies = [
     "openvaf-py",
     "klujax>=0.4.3",
     "simpleeval>=1.0.0",
+    "beartype>=0.22.8",
 ]
 
 [tool.uv]

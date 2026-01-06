@@ -446,6 +446,7 @@ name = "jax-spice"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "beartype" },
     { name = "jax" },
     { name = "jaxtyping" },
     { name = "klujax" },
@@ -488,6 +489,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "beartype", specifier = ">=0.22.8" },
     { name = "beartype", marker = "extra == 'dev'", specifier = ">=0.18.0" },
     { name = "beartype", marker = "extra == 'test'", specifier = ">=0.18.0" },
     { name = "jax", specifier = ">=0.8.0" },
