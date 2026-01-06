@@ -91,6 +91,11 @@ struct VaModule {
     /// For JAX code generation, use get_dae_system()['residuals'][i]['resist_var'] instead
     residual_resist_indices: Vec<u32>,
     residual_react_indices: Vec<u32>,
+    /// MIR Value indices for limiting RHS corrections
+    /// These are subtracted from residuals when limiting is applied during NR iteration
+    /// lim_rhs = J(lim_x) * (lim_x - x) where lim_x is the limited voltage
+    residual_resist_lim_rhs_indices: Vec<u32>,
+    residual_react_lim_rhs_indices: Vec<u32>,
     /// MIR Value indices for Jacobian components (internal, used by interpreter)
     /// Maps: jacobian entry index -> MIR Value index
     /// For JAX code generation, use get_dae_system()['jacobian'][i]['resist_var'] instead
@@ -760,6 +765,9 @@ impl VaModule {
                 res_dict.set_item("node_name", node_name).unwrap();
                 res_dict.set_item("resist_var", format!("mir_{}", self.residual_resist_indices[i])).unwrap();
                 res_dict.set_item("react_var", format!("mir_{}", self.residual_react_indices[i])).unwrap();
+                // Limiting RHS correction terms - subtracted from residuals during NR iteration
+                res_dict.set_item("resist_lim_rhs_var", format!("mir_{}", self.residual_resist_lim_rhs_indices[i])).unwrap();
+                res_dict.set_item("react_lim_rhs_var", format!("mir_{}", self.residual_react_lim_rhs_indices[i])).unwrap();
                 residuals_list.append(res_dict).unwrap();
             }
             result.insert("residuals".to_string(), residuals_list.into());
@@ -1172,9 +1180,14 @@ fn compile_va(path: &str, allow_analog_in_cond: bool, allow_builtin_primitives: 
         // Extract residual indices (convert Value to u32 using Into trait)
         let mut residual_resist_indices = Vec::new();
         let mut residual_react_indices = Vec::new();
+        let mut residual_resist_lim_rhs_indices = Vec::new();
+        let mut residual_react_lim_rhs_indices = Vec::new();
         for residual in compiled.dae_system.residual.iter() {
             residual_resist_indices.push(u32::from(residual.resist));
             residual_react_indices.push(u32::from(residual.react));
+            // Limiting RHS corrections - subtracted from residuals when limiting is applied
+            residual_resist_lim_rhs_indices.push(u32::from(residual.resist_lim_rhs));
+            residual_react_lim_rhs_indices.push(u32::from(residual.react_lim_rhs));
         }
 
         // Extract Jacobian structure
@@ -1557,6 +1570,8 @@ fn compile_va(path: &str, allow_analog_in_cond: bool, allow_builtin_primitives: 
             num_jacobian: compiled.dae_system.jacobian.len(),
             residual_resist_indices,
             residual_react_indices,
+            residual_resist_lim_rhs_indices,
+            residual_react_lim_rhs_indices,
             jacobian_resist_indices,
             jacobian_react_indices,
             jacobian_rows,

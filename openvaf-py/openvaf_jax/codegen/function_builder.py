@@ -270,6 +270,85 @@ class InitFunctionBuilder(FunctionBuilder):
         self.cache_mapping = cache_mapping
         self.collapse_decision_outputs = collapse_decision_outputs
 
+    def build_simple(self, param_indices: List[int]) -> Tuple[str, List[str]]:
+        """Build init function with single input array.
+
+        Args:
+            param_indices: List of param indices (usually range(n_params))
+
+        Returns:
+            Tuple of (function_name, code_lines)
+        """
+        # Create context
+        ctx = build_context_from_mir(self.mir_func, var_prefix='')
+
+        # Build function body
+        body: List[ast.stmt] = []
+
+        # Preamble
+        self._emit_preamble(body, ctx)
+
+        # Constants
+        self._emit_constants(body, ctx)
+
+        # Ensure v3 exists (commonly used for zero)
+        if 'v3' not in ctx.defined_vars:
+            body.append(assign('v3', ast_name(ctx.zero_var)))
+            ctx.defined_vars.add('v3')
+
+        # Map init params from input array
+        self._emit_simple_param_mapping(body, ctx, param_indices)
+
+        # Process blocks
+        translator = InstructionTranslator(ctx, self.ssa)
+        block_order = self.cfg.topological_order()
+
+        for item in block_order:
+            if isinstance(item, LoopInfo):
+                self._emit_loop(body, ctx, item, translator)
+            else:
+                block = self.mir_func.blocks.get(item)
+                if block:
+                    self._emit_block(body, ctx, block, translator)
+
+        # Build cache output array
+        self._emit_cache_output(body, ctx)
+
+        # Build collapse decisions
+        self._emit_collapse_decisions(body, ctx)
+
+        # Return statement
+        body.append(return_stmt(tuple_expr([
+            ast_name('cache'),
+            ast_name('collapse_decisions')
+        ])))
+
+        # Build function
+        func = function_def('init_fn', ['inputs'], body)
+
+        # Compile to code
+        module = build_module([func])
+        ast.fix_missing_locations(module)
+        code_str = ast.unparse(module)
+
+        return 'init_fn', code_str.split('\n')
+
+    def _emit_simple_param_mapping(self, body: List[ast.stmt],
+                                    ctx: CodeGenContext,
+                                    param_indices: List[int]):
+        """Emit parameter mapping from single input array."""
+        for init_idx, param in enumerate(self.mir_func.params):
+            var_name = f"{ctx.var_prefix}{param}"
+
+            if init_idx < len(param_indices):
+                body.append(assign(var_name,
+                    subscript(ast_name('inputs'), ast_const(init_idx))))
+            else:
+                # Fallback to zero
+                body.append(assign(var_name, ast_name(ctx.zero_var)))
+
+            ctx.defined_vars.add(var_name)
+
     def build_split(self, shared_indices: List[int],
                     varying_indices: List[int],
                     init_to_eval: List[int]) -> Tuple[str, List[str]]:
@@ -510,13 +589,16 @@ class EvalFunctionBuilder(FunctionBuilder):
         # Build output arrays
         self._emit_residual_arrays(body, ctx)
         self._emit_jacobian_arrays(body, ctx)
+        self._emit_lim_rhs_arrays(body, ctx)
 
-        # Return statement
+        # Return statement: (res_resist, res_react, jac_resist, jac_react, lim_rhs_resist, lim_rhs_react)
         body.append(return_stmt(tuple_expr([
             ast_name('residuals_resist'),
             ast_name('residuals_react'),
             ast_name('jacobian_resist'),
             ast_name('jacobian_react'),
+            ast_name('lim_rhs_resist'),
+            ast_name('lim_rhs_react'),
         ])))
 
         # Build function
@@ -617,6 +699,35 @@ class EvalFunctionBuilder(FunctionBuilder):
 
         body.append(assign('jacobian_resist', jnp_call('array', list_expr(resist_exprs))))
         body.append(assign('jacobian_react', jnp_call('array', list_expr(react_exprs))))
+
+    def _emit_lim_rhs_arrays(self, body: List[ast.stmt], ctx: CodeGenContext):
+        """Emit limiting RHS correction arrays.
+
+        These corrections are subtracted from residuals during Newton-Raphson iteration
+        when limiting is applied. The formula is:
+            lim_rhs = J(lim_x) * (lim_x - x)
+        where lim_x is the limited voltage and x is the actual voltage.
+
+        The corrected residual becomes:
+            f_corrected = f_computed - lim_rhs
+        """
+        resist_exprs: List[ast.expr] = []
+        react_exprs: List[ast.expr] = []
+
+        for res in self.dae_data['residuals']:
+            # Get lim_rhs variables if they exist
+            resist_lim_rhs_var = self._mir_to_var(res.get('resist_lim_rhs_var', ''), ctx)
+            react_lim_rhs_var = self._mir_to_var(res.get('react_lim_rhs_var', ''), ctx)
+
+            resist_exprs.append(
+                ast_name(resist_lim_rhs_var) if resist_lim_rhs_var in ctx.defined_vars
+                else ast_name(ctx.zero_var))
+            react_exprs.append(
+                ast_name(react_lim_rhs_var) if react_lim_rhs_var in ctx.defined_vars
+                else ast_name(ctx.zero_var))
+
+        body.append(assign('lim_rhs_resist', jnp_call('array', list_expr(resist_exprs))))
+        body.append(assign('lim_rhs_react', jnp_call('array', list_expr(react_exprs))))
 
     def _mir_to_var(self, mir_ref: str, ctx: CodeGenContext) -> str:
         """Convert MIR reference (e.g., 'mir_123') to variable name."""

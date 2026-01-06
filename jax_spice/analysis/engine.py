@@ -690,24 +690,17 @@ class CircuitEngine:
             t2 = time.perf_counter()
             log(f"  {model_type}: translator created in {t2-t1:.1f}s")
 
-            # Generate array function
-            log(f"  {model_type}: translate_array() - generating array function...")
-            jax_fn_array, array_metadata = translator.translate_array()
+            # Get DAE metadata (node names, jacobian keys, etc.) without generating code
+            dae_metadata = translator.get_dae_metadata()
             t3 = time.perf_counter()
-            log(f"  {model_type}: translate_array() done in {t3-t2:.1f}s")
+            log(f"  {model_type}: DAE metadata extracted in {t3-t2:.3f}s")
 
-            # Create JIT-compiled vmapped function for fast batched evaluation
-            log(f"  {model_type}: wrapping with vmap+jit...")
-            vmapped_fn = jax.jit(jax.vmap(jax_fn_array))
-            t4 = time.perf_counter()
-            log(f"  {model_type}: vmap+jit wrapped in {t4-t3:.1f}s")
-
-            # Generate separate init and eval_with_cache functions for cleaner hidden_state handling
+            # Generate init function for cache computation and collapse decisions
             log(f"  {model_type}: generating init function...")
             init_fn, init_meta = translator.translate_init_array()
             vmapped_init = jax.jit(jax.vmap(init_fn))
-            t5 = time.perf_counter()
-            log(f"  {model_type}: init function done in {t5-t4:.1f}s (cache_size={init_meta['cache_size']})")
+            t4 = time.perf_counter()
+            log(f"  {model_type}: init function done in {t4-t3:.1f}s (cache_size={init_meta['cache_size']})")
 
             # Build init->eval index mapping for extracting init inputs from eval inputs
             eval_name_to_idx = {n.lower(): i for i, n in enumerate(module.param_names)}
@@ -724,9 +717,7 @@ class CircuitEngine:
             compiled = {
                 'module': module,
                 'translator': translator,  # Stored for split function generation
-                'jax_fn_array': jax_fn_array,
-                'vmapped_fn': vmapped_fn,
-                'array_metadata': array_metadata,
+                'dae_metadata': dae_metadata,
                 'param_names': list(module.param_names),
                 'param_kinds': list(module.param_kinds),
                 'nodes': list(module.nodes),
@@ -1015,7 +1006,7 @@ class CircuitEngine:
 
             # Map clean VA node names from v2 API (e.g., 'D', 'G', 'S', 'B', 'NOI', ...)
             # These are the names used in metadata['node_names'] and jacobian_keys
-            metadata = compiled.get('array_metadata', {})
+            metadata = compiled.get('dae_metadata', {})
             va_terminals = metadata.get('terminals', [])
             va_internal = metadata.get('internal_nodes', [])
 
@@ -1272,7 +1263,7 @@ class CircuitEngine:
         if not compiled:
             return {}
 
-        metadata = compiled['array_metadata']
+        metadata = compiled['dae_metadata']
         node_names = metadata['node_names']  # Residual node names
         jacobian_keys = metadata['jacobian_keys']  # (row_name, col_name) pairs
 
@@ -1556,7 +1547,7 @@ class CircuitEngine:
         if not compiled:
             return f, J
 
-        metadata = compiled['array_metadata']
+        metadata = compiled['dae_metadata']
         node_names = metadata['node_names']
         jacobian_keys = metadata['jacobian_keys']
 
@@ -2153,15 +2144,14 @@ class CircuitEngine:
                     source_devices.append(dev)
 
             logger.debug(f"{len(source_devices)} source devices")
-            # Prepare OpenVAF: vmapped functions, static inputs, and stamp index mappings
-            vmapped_fns: Dict[str, Callable] = {}
+            # Prepare static inputs and stamp index mappings
+            vmapped_fns: Dict[str, Callable] = {}  # Legacy - kept for API compatibility but unused
             static_inputs_cache: Dict[str, Tuple[Any, List[int], List[Dict], Dict]] = {}
 
             for model_type in openvaf_by_type:
                 compiled = self._compiled_models.get(model_type)
-                if compiled and 'vmapped_fn' in compiled:
+                if compiled and 'dae_metadata' in compiled:
                     logger.debug(f"{model_type} already compiled")
-                    vmapped_fns[model_type] = compiled['vmapped_fn']
                     voltage_indices, device_contexts, cache, collapse_decisions = self._prepare_static_inputs(
                         model_type, openvaf_by_type[model_type], device_internal_nodes, ground
                     )
@@ -3484,6 +3474,9 @@ class CircuitEngine:
             f_react_parts = []  # Charge contributions
             j_resist_parts = []
             j_react_parts = []  # Capacitance contributions
+            # Limiting RHS corrections - subtracted from residuals when limiting is applied
+            lim_rhs_resist_parts = []
+            lim_rhs_react_parts = []
 
             # === Source devices contribution ===
             # Voltage sources: I = G * (Vp - Vn - Vtarget), G = 1e12
@@ -3559,11 +3552,14 @@ class CircuitEngine:
 
                 vmapped_split_eval = split_info['vmapped_split_eval']
                 # cache here is device_cache (or full cache if not split)
+                # Returns: (res_resist, res_react, jac_resist, jac_react, lim_rhs_resist, lim_rhs_react)
                 if use_cache_split:
-                    batch_res_resist, batch_res_react, batch_jac_resist, batch_jac_react = \
+                    batch_res_resist, batch_res_react, batch_jac_resist, batch_jac_react, \
+                        batch_lim_rhs_resist, batch_lim_rhs_react = \
                         vmapped_split_eval(shared_params, device_params_updated, shared_cache, cache)
                 else:
-                    batch_res_resist, batch_res_react, batch_jac_resist, batch_jac_react = \
+                    batch_res_resist, batch_res_react, batch_jac_resist, batch_jac_react, \
+                        batch_lim_rhs_resist, batch_lim_rhs_react = \
                         vmapped_split_eval(shared_params, device_params_updated, cache)
 
                 # NOTE: Huge value masking removed - NOI constraint enforcement in NR solver
@@ -3615,6 +3611,20 @@ class CircuitEngine:
                     flat_jac_react_masked
                 ))
 
+                # === Limiting RHS corrections ===
+                # These are subtracted from residuals when limiting is applied:
+                # f_corrected = f_computed - lim_rhs
+                # where lim_rhs = J(lim_x) * (lim_x - x)
+                flat_lim_rhs_resist_val = batch_lim_rhs_resist.ravel()
+                flat_lim_rhs_resist_masked = jnp.where(valid_res, flat_lim_rhs_resist_val, 0.0)
+                flat_lim_rhs_resist_masked = jnp.where(jnp.isnan(flat_lim_rhs_resist_masked), 0.0, flat_lim_rhs_resist_masked)
+                lim_rhs_resist_parts.append((flat_res_idx_masked, flat_lim_rhs_resist_masked))
+
+                flat_lim_rhs_react_val = batch_lim_rhs_react.ravel()
+                flat_lim_rhs_react_masked = jnp.where(valid_res, flat_lim_rhs_react_val, 0.0)
+                flat_lim_rhs_react_masked = jnp.where(jnp.isnan(flat_lim_rhs_react_masked), 0.0, flat_lim_rhs_react_masked)
+                lim_rhs_react_parts.append((flat_res_idx_masked, flat_lim_rhs_react_masked))
+
             # === Build resistive residual vector f_resist ===
             if f_resist_parts:
                 all_f_resist_idx = jnp.concatenate([p[0] for p in f_resist_parts])
@@ -3631,10 +3641,31 @@ class CircuitEngine:
             else:
                 Q = jnp.zeros(n_unknowns, dtype=jnp.float64)
 
+            # === Build limiting RHS correction vectors ===
+            # lim_rhs = J(lim_x) * (lim_x - x) is subtracted from residuals
+            if lim_rhs_resist_parts:
+                all_lim_rhs_resist_idx = jnp.concatenate([p[0] for p in lim_rhs_resist_parts])
+                all_lim_rhs_resist_val = jnp.concatenate([p[1] for p in lim_rhs_resist_parts])
+                lim_rhs_resist = jax.ops.segment_sum(all_lim_rhs_resist_val, all_lim_rhs_resist_idx, num_segments=n_unknowns)
+            else:
+                lim_rhs_resist = jnp.zeros(n_unknowns, dtype=jnp.float64)
+
+            if lim_rhs_react_parts:
+                all_lim_rhs_react_idx = jnp.concatenate([p[0] for p in lim_rhs_react_parts])
+                all_lim_rhs_react_val = jnp.concatenate([p[1] for p in lim_rhs_react_parts])
+                lim_rhs_react = jax.ops.segment_sum(all_lim_rhs_react_val, all_lim_rhs_react_idx, num_segments=n_unknowns)
+            else:
+                lim_rhs_react = jnp.zeros(n_unknowns, dtype=jnp.float64)
+
+            # === Apply limiting corrections ===
+            # f_corrected = f_computed - lim_rhs
+            f_resist = f_resist - lim_rhs_resist
+
             # === Combine for transient: f = f_resist + (Q - Q_prev) / dt ===
             # For DC (inv_dt=0): f = f_resist
             # For transient: f = f_resist + inv_dt * (Q - Q_prev)
-            f = f_resist + inv_dt * (Q - Q_prev)
+            # Note: Q already includes reactive lim_rhs correction via the residual subtraction
+            f = f_resist + inv_dt * (Q - Q_prev - lim_rhs_react)
 
             # === Add GSHUNT contribution to residual ===
             # GSHUNT is a shunt conductance to ground: I = gshunt * V
@@ -3852,14 +3883,13 @@ class CircuitEngine:
                 continue
             openvaf_by_type.setdefault(model, []).append(dev)
 
-        # Prepare vmapped functions and static inputs
-        vmapped_fns: Dict[str, Callable] = {}
+        # Prepare static inputs
+        vmapped_fns: Dict[str, Callable] = {}  # Legacy - kept for API compatibility but unused
         static_inputs_cache: Dict[str, Tuple] = {}
 
         for model_type in openvaf_by_type:
             compiled = self._compiled_models.get(model_type)
-            if compiled and 'vmapped_fn' in compiled:
-                vmapped_fns[model_type] = compiled['vmapped_fn']
+            if compiled and 'dae_metadata' in compiled:
                 voltage_indices, device_contexts, cache, collapse_decisions = self._prepare_static_inputs(
                     model_type, openvaf_by_type[model_type], device_internal_nodes, ground
                 )
