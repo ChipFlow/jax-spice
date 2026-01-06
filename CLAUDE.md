@@ -16,6 +16,9 @@
 - Avoid duplication - unify critical paths where possible
 - Keep files under ~70KB (~20,000 tokens) - split large modules
 - Regularly check for opportunities to simplify without impacting functionality
+- *NO API/ABI Stability* - this is still v0.x. Do not keep old code paths, remove them agressively.
+- Comprehendability - This code does some pretty complex maths and operations, try to keep the code as understandable as possible. 
+  Any data structures should be well defined - dict keys should have meaning, arrays should have their index defined meaningfully.
 
 ### JAX vs NumPy/SciPy
 
