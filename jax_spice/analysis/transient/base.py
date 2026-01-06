@@ -145,6 +145,13 @@ class TransientStrategy(ABC):
 
         Returns cached solver if available, otherwise builds and caches new solver.
 
+        The solver has signature:
+            (V, vsource_vals, isource_vals, Q_prev, inv_dt, device_arrays,
+             gmin, gshunt, dQdt_prev, integ_c0, integ_c1, integ_d1)
+            -> (V_final, iterations, converged, max_residual, Q_final)
+
+        Use get_device_arrays() to get the device_arrays parameter.
+
         Returns:
             JIT-compiled Newton-Raphson solver function
         """
@@ -167,6 +174,52 @@ class TransientStrategy(ABC):
         self.runner._run_transient_hybrid(t_stop=1e-12, dt=1e-12, backend=self.backend, use_dense=self.use_dense)
         self._nr_solve = self.runner._cached_nr_solve
         return self._nr_solve
+
+    def get_device_arrays(self) -> Dict[str, jax.Array]:
+        """Get device arrays needed for solver calls.
+
+        Must be called after ensure_solver().
+
+        Returns:
+            Dict of device arrays for passing to nr_solve
+        """
+        if not hasattr(self.runner, '_device_arrays'):
+            raise RuntimeError("ensure_solver() must be called before get_device_arrays()")
+        return self.runner._device_arrays
+
+    def get_initial_Q(self) -> jax.Array:
+        """Get initial charge vector from DC operating point.
+
+        Must be called after ensure_solver().
+
+        Returns:
+            Initial Q vector (zeros if build_system not available)
+        """
+        setup = self.ensure_setup()
+        n_unknowns = setup.n_unknowns
+
+        if hasattr(self.runner, '_cached_build_system'):
+            # Compute Q from DC operating point
+            vsource_dc = setup.source_device_data.get('vsource', {}).get('dc', jnp.array([]))
+            isource_dc = setup.source_device_data.get('isource', {}).get('dc', jnp.array([]))
+            if isinstance(vsource_dc, (list, tuple)):
+                vsource_dc = jnp.array(vsource_dc)
+            if isinstance(isource_dc, (list, tuple)):
+                isource_dc = jnp.array(isource_dc)
+            if vsource_dc.size == 0:
+                vsource_dc = jnp.array([])
+            if isource_dc.size == 0:
+                isource_dc = jnp.array([])
+
+            V_init = jnp.zeros(n_unknowns + 1, dtype=jnp.float64)
+            Q_init = jnp.zeros(n_unknowns, dtype=jnp.float64)
+            device_arrays = self.get_device_arrays()
+            _, _, Q0 = self.runner._cached_build_system(
+                V_init, vsource_dc, isource_dc, Q_init, 0.0, device_arrays
+            )
+            return Q0
+
+        return jnp.zeros(n_unknowns, dtype=jnp.float64)
 
     @abstractmethod
     def run(self, t_stop: float, dt: float,

@@ -14,6 +14,11 @@ Strategy classes for transient simulation:
   - 5x+ speedup over Python loop
   - Limited per-step debugging
 
+- AdaptiveStrategy: LTE-based adaptive timestep control
+  - Automatic timestep adjustment based on accuracy
+  - Predictor-corrector error estimation
+  - Matches VACASK behavior (tran_lteratio, tran_redofactor)
+
 Strategy Usage:
     from jax_spice.analysis.transient import PythonLoopStrategy, ScanStrategy
 
@@ -24,12 +29,19 @@ Strategy Usage:
     # Using lax.scan (faster, but requires matching warmup steps)
     strategy = ScanStrategy(runner, use_sparse=False)
     times, voltages, stats = strategy.run(t_stop=1e-6, dt=1e-9)
+
+    # Using adaptive (automatic timestep control)
+    from jax_spice.analysis.transient import AdaptiveStrategy, AdaptiveConfig
+    config = AdaptiveConfig(lte_ratio=3.5, redo_factor=2.5)
+    strategy = AdaptiveStrategy(runner, config=config)
+    times, voltages, stats = strategy.run(t_stop=1e-6, dt=1e-9)
 """
 
 # Strategy classes for OpenVAF-based transient
 from .base import TransientStrategy, TransientSetup
 from .python_loop import PythonLoopStrategy
 from .scan import ScanStrategy
+from .adaptive import AdaptiveStrategy, AdaptiveConfig
 
 __all__ = [
     # Strategy classes for OpenVAF
@@ -37,4 +49,6 @@ __all__ = [
     'TransientSetup',
     'PythonLoopStrategy',
     'ScanStrategy',
+    'AdaptiveStrategy',
+    'AdaptiveConfig',
 ]

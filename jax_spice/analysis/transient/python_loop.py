@@ -77,13 +77,24 @@ class PythonLoopStrategy(TransientStrategy):
         # Ensure setup and solver are ready
         setup = self.ensure_setup()
         nr_solve = self.ensure_solver()
+        device_arrays = self.get_device_arrays()
 
         n_external = setup.n_external
         n_total = setup.n_total
+        n_unknowns = setup.n_unknowns
         source_fn = setup.source_fn
 
         # Initialize state
         V = jnp.zeros(n_total, dtype=jnp.float64)
+        Q_prev = self.get_initial_Q()
+        inv_dt = 1.0 / dt
+
+        # Trapezoidal integration coefficients: c0=2/dt, c1=-2/dt, d1=-1
+        integ_c0 = 2.0 / dt
+        integ_c1 = -2.0 / dt
+        integ_d1 = -1.0
+        dQdt_prev = jnp.zeros(n_unknowns, dtype=jnp.float64)
+
         times_list: List[float] = []
         voltages_dict: Dict[int, List[float]] = {i: [] for i in range(n_external)}
 
@@ -95,6 +106,9 @@ class PythonLoopStrategy(TransientStrategy):
         if num_timesteps > max_steps:
             num_timesteps = max_steps
             dt = t_stop / (max_steps - 1) if max_steps > 1 else t_stop
+            inv_dt = 1.0 / dt
+            integ_c0 = 2.0 / dt
+            integ_c1 = -2.0 / dt
             logger.info(f"{self.name}: Limiting to {max_steps} steps, dt={dt:.2e}s")
 
         logger.info(f"{self.name}: Starting simulation ({num_timesteps} timesteps, "
@@ -108,13 +122,22 @@ class PythonLoopStrategy(TransientStrategy):
             source_values = source_fn(t)
             vsource_vals, isource_vals = self._build_source_arrays(source_values)
 
-            # JIT-compiled NR solve
-            V_new, iterations, converged, max_f = nr_solve(V, vsource_vals, isource_vals)
+            # JIT-compiled NR solve with full interface
+            V_new, iterations, converged, max_f, Q = nr_solve(
+                V, vsource_vals, isource_vals, Q_prev, inv_dt, device_arrays,
+                1e-12, 0.0,  # gmin, gshunt
+                dQdt_prev, integ_c0, integ_c1, integ_d1
+            )
 
             # Extract Python values for tracking
             nr_iters = int(iterations)
             is_converged = bool(converged)
             residual = float(max_f)
+
+            # Update charge state for trapezoidal integration
+            dQdt = integ_c0 * Q + integ_c1 * Q_prev + integ_d1 * dQdt_prev
+            Q_prev = Q
+            dQdt_prev = dQdt
 
             V = V_new
             total_nr_iters += nr_iters
