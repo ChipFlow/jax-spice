@@ -127,6 +127,34 @@ class OpenVAFToJAX:
         self.eval_mir = None
         self.init_mir = None
 
+    def get_dae_metadata(self) -> Dict:
+        """Get DAE system metadata without generating code.
+
+        Returns the same metadata that would be included in translate_array()
+        or translate_eval_array_with_cache_split() output, but without
+        generating any JAX functions.
+
+        Returns:
+            Dict with:
+            - 'node_names': list of residual node names
+            - 'jacobian_keys': list of (row_name, col_name) tuples
+            - 'terminals': list of terminal node names
+            - 'internal_nodes': list of internal node names
+            - 'num_terminals': number of terminals
+            - 'num_internal': number of internal nodes
+        """
+        return {
+            'node_names': [res['node_name'] for res in self.dae_data['residuals']],
+            'jacobian_keys': [
+                (entry['row_node_name'], entry['col_node_name'])
+                for entry in self.dae_data['jacobian']
+            ],
+            'terminals': self.dae_data['terminals'],
+            'internal_nodes': self.dae_data['internal_nodes'],
+            'num_terminals': self.dae_data['num_terminals'],
+            'num_internal': self.dae_data['num_internal'],
+        }
+
     def translate(self) -> Callable:
         """Generate a JAX function from MIR (legacy interface).
 
@@ -180,23 +208,62 @@ class OpenVAFToJAX:
     def translate_init_array(self) -> Tuple[Callable, Dict]:
         """Generate a vmappable init function.
 
-        This method provides backward compatibility with CircuitEngine.
-        For new code, prefer translate_init_array_split() for better GPU performance.
+        Returns a function with signature:
+            init_fn(inputs: Array[N_init]) -> (cache: Array[N_cache], collapse_decisions: Array[N_collapse])
 
-        Returns:
-            Tuple of (init_fn, metadata)
+        Also returns metadata dict with:
+            - 'param_names': list of init param names
+            - 'param_kinds': list of init param kinds
+            - 'cache_size': number of cached values
+            - 'cache_mapping': list of {init_value, eval_param} dicts
+
+        This function computes all cached values that eval needs.
         """
-        # Use old implementation for backward compatibility
-        import sys
-        import os
-        old_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        sys.path.insert(0, old_path)
-        try:
-            import openvaf_jax_old
-            old_translator = openvaf_jax_old.OpenVAFToJAX(self.module)
-            return old_translator.translate_init_array()
-        finally:
-            sys.path.remove(old_path)
+        from .codegen.function_builder import InitFunctionBuilder
+
+        t0 = time.perf_counter()
+        logger.info("    translate_init_array: generating code...")
+
+        # Build init function with all params as "device" params (no shared)
+        # This produces init_fn(device_params) instead of init_fn_split(shared, device)
+        n_init_params = len(self.init_params)
+        all_indices = list(range(n_init_params))
+
+        builder = InitFunctionBuilder(
+            self.init_mir,
+            self.cache_mapping,
+            self.collapse_decision_outputs
+        )
+        fn_name, code_lines = builder.build_simple(all_indices)
+
+        t1 = time.perf_counter()
+        logger.info(f"    translate_init_array: code generated ({len(code_lines)} lines) in {t1-t0:.1f}s")
+
+        code = '\n'.join(code_lines)
+        logger.info(f"    translate_init_array: code size = {len(code)} chars")
+
+        # Compile with caching
+        logger.info("    translate_init_array: exec()...")
+        init_fn = exec_with_cache(code, fn_name)
+        t2 = time.perf_counter()
+        logger.info(f"    translate_init_array: exec() done in {t2-t1:.1f}s")
+
+        # Build metadata
+        param_defaults = {}
+        if hasattr(self.module, 'get_param_defaults'):
+            param_defaults = dict(self.module.get_param_defaults())
+
+        metadata = {
+            'param_names': list(self.module.init_param_names),
+            'param_kinds': list(self.module.init_param_kinds),
+            'cache_size': len(self.cache_mapping),
+            'cache_mapping': self.cache_mapping,
+            'param_defaults': param_defaults,
+            'collapsible_pairs': self.collapsible_pairs,
+            'collapse_decision_outputs': self.collapse_decision_outputs,
+        }
+
+        return init_fn, metadata
 
     def translate_init_array_split(
         self,
