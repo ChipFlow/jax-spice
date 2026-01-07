@@ -2920,7 +2920,18 @@ class CircuitEngine:
 
         # Call build_system to get Q
         try:
-            build_system = self._make_build_system(use_dense=True, n_unknowns=n_unknowns, max_nnz=10000)
+            # Need to get transient setup to get source_device_data
+            if self._transient_setup_cache is None:
+                raise ValueError("Cannot output charges - transient not initialized yet")
+
+            setup = self._transient_setup_cache
+            build_system, _ = self._make_gpu_resident_build_system_fn(
+                source_device_data=setup['source_device_data'],
+                vmapped_fns=setup.get('vmapped_fns', {}),
+                static_inputs_cache=setup.get('static_inputs_cache', {}),
+                n_unknowns=n_unknowns,
+                use_dense=True,
+            )
             J, f, Q = build_system(V, vsource_vals, isource_vals, Q_prev, 0.0, device_arrays)
 
             # Output Q values by node
