@@ -1942,10 +1942,12 @@ class CircuitEngine:
 
         if use_sparse:
             logger.info(f"Using BCOO/BCSR sparse solver ({self.num_nodes} nodes)")
+            logger.info(f"CALLING _run_transient_hybrid with use_dense=False")
             return self._run_transient_hybrid(t_stop, dt, backend=backend, use_dense=False,
                                                profile_config=profile_config)
         else:
             logger.info(f"Using dense solver ({self.num_nodes} nodes)")
+            logger.info(f"CALLING _run_transient_hybrid with use_dense=True")
             return self._run_transient_hybrid(t_stop, dt, backend=backend, use_dense=True,
                                                profile_config=profile_config)
 
@@ -2515,7 +2517,9 @@ class CircuitEngine:
 
         # Compute initial condition based on icmode
         icmode = self.analysis_params.get('icmode', 'op')
+        logger.info(f"ICMODE = {icmode}")
         if icmode == 'op':
+            logger.info("COMPUTING DC OPERATING POINT...")
             V = self._compute_dc_operating_point(
                 n_nodes=n_nodes,
                 n_vsources=n_vsources,
@@ -2746,7 +2750,10 @@ class CircuitEngine:
         vdd_value = self._get_vdd_value()
 
         # Initialize V with a good starting point for convergence
-        mid_rail = vdd_value / 2.0
+        # NOTE: Initial guess is critical for ring oscillators with multiple equilibria
+        # 0.55*VDD works well (converges to ~0.66V DC point)
+        # Bad guesses (e.g. 0.3*VDD) can converge to wrong equilibria or cause homotopy to fail
+        mid_rail = vdd_value * 0.55
         V = jnp.full(n_nodes, mid_rail, dtype=jnp.float64)
         V = V.at[0].set(0.0)  # Ground is always 0
 
@@ -2827,9 +2834,11 @@ class CircuitEngine:
         # First try direct NR without homotopy (works for well-initialized circuits)
         # Uses analytic jacobians from OpenVAF via the cached nr_solve
         logger.info("  Trying direct NR solver first...")
+        logger.info(f"  Initial guess: V(1) = {float(V[1]):.6f}V")
         V_new, nr_iters, is_converged, max_f, _ = nr_solve(
             V, vsource_dc_vals, isource_dc_vals, Q_prev, 0.0, device_arrays  # inv_dt=0 for DC
         )
+        logger.info(f"  After NR: V(1) = {float(V_new[1]):.6f}V, converged={is_converged}, iters={nr_iters}, residual={max_f:.2e}")
 
         if is_converged:
             V = V_new

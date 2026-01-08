@@ -211,7 +211,26 @@ def gmin_stepping(
 
     # Final solve at original gmin
     if continuation:
-        V_final, iters, converged, _, _ = nr_solve(
+        # Check if we actually reached the target gmin
+        # If not, the homotopy failed - don't claim success with a wrong solution
+        reached_target = good_gmin <= target_gmin
+
+        if not reached_target:
+            _debug_print(
+                config,
+                1,
+                f"Homotopy: {mode} stepping failed (stuck at {mode}={good_gmin:.2e}, target={target_gmin:.2e})",
+            )
+            return HomotopyResult(
+                converged=False,
+                V=V_good,
+                method=f"{mode}_stepping",
+                iterations=total_iterations,
+                homotopy_steps=homotopy_steps,
+                final_gmin=good_gmin,
+            )
+
+        V_final, iters, converged, max_f, _ = nr_solve(
             V_good, scaled_vsource, scaled_isource, Q_prev, 0.0, device_arrays, config.gmin, 0.0
         )
         total_iterations += int(iters)
