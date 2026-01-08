@@ -1,0 +1,22 @@
+PSP103 PMOS test at Vgs=-1.2V
+
+load "psp103v4.osdi"
+
+// Load model card from ring benchmark
+include "../../../VACASK/benchmark/ring/vacask/models.inc"
+
+// Simple PMOS test device: D G S B
+// Vs=1.2V, Vd=0V, Vg=0V, Vb=1.2V → Vgs=-1.2V, Vds=-1.2V
+m1 (d_node g_node vdd vdd) pmos w=20u l=1u
+
+// Voltage sources
+vdd (vdd 0) vsource dc=1.2
+vg (g_node 0) vsource dc=0.0
+vd (d_node 0) vsource dc=0.0
+
+control
+  // DC operating point
+  analysis op1 op
+  print op all
+  print op device m1
+endc

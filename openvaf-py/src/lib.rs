@@ -881,7 +881,11 @@ impl VaModule {
         let mut init_args: TiVec<Param, Data> = TiVec::new();
         for i in 0..self.init_num_params {
             let val = if i < self.init_param_names.len() {
-                params.get(&self.init_param_names[i]).copied().unwrap_or(0.0)
+                let param_name = &self.init_param_names[i];
+                // Try: 1) user-provided value, 2) VA default, 3) 0.0
+                params.get(param_name).copied()
+                    .or_else(|| self.param_defaults.get(&param_name.to_lowercase()).copied())
+                    .unwrap_or(0.0)
             } else {
                 0.0
             };
@@ -948,6 +952,53 @@ impl VaModule {
         }
 
         Ok((residuals, jacobian))
+    }
+
+    /// Debug method: Run init and return all cached values
+    ///
+    /// Returns:
+    ///     List of (init_val_idx, value) tuples for all cached values
+    fn debug_init_cache(&self, params: std::collections::HashMap<String, f64>) -> PyResult<Vec<(u32, f64)>> {
+        // Stub callback
+        fn stub_callback(state: &mut InterpreterState, _args: &[Value], rets: &[Value], _data: *mut c_void) {
+            for &ret in rets {
+                state.write(ret, 0.0f64);
+            }
+        }
+
+        // Run init
+        let mut init_args: TiVec<Param, Data> = TiVec::new();
+        for i in 0..self.init_num_params {
+            let val = if i < self.init_param_names.len() {
+                let param_name = &self.init_param_names[i];
+                // Try: 1) user-provided value, 2) VA default, 3) 0.0
+                params.get(param_name).copied()
+                    .or_else(|| self.param_defaults.get(&param_name.to_lowercase()).copied())
+                    .unwrap_or(0.0)
+            } else {
+                0.0
+            };
+            init_args.push(Data::from(val));
+        }
+
+        let init_callbacks: Vec<(mir_interpret::Func, *mut c_void)> =
+            (0..self.init_func.dfg.signatures.len())
+                .map(|_| (stub_callback as mir_interpret::Func, std::ptr::null_mut()))
+                .collect();
+
+        let init_calls: &TiSlice<FuncRef, _> = TiSlice::from_ref(&init_callbacks);
+        let init_args_slice: &TiSlice<Param, Data> = init_args.as_ref();
+        let mut init_interp = Interpreter::new(&self.init_func, init_calls, init_args_slice);
+        init_interp.run();
+
+        // Extract all cached values
+        let mut cache_values = Vec::new();
+        for (init_val_idx, _eval_param_idx) in &self.cache_mapping {
+            let cached_val: f64 = init_interp.state.read(Value::with_number_(*init_val_idx));
+            cache_values.push((*init_val_idx, cached_val));
+        }
+
+        Ok(cache_values)
     }
 
     fn __repr__(&self) -> String {

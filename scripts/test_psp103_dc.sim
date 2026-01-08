@@ -1,0 +1,25 @@
+PSP103 DC test at V=0
+
+load "psp103v4.osdi"
+
+model vsource vsource
+
+model pmos psp103va (
+  type=-1
+  tox=1.8e-9
+  nsubo=4e17
+  vfb=-1.0
+)
+
+// PMOS with all terminals at V=0 (initial DC guess)
+m1 (d g s b) pmos w=20e-6 l=1e-6
+
+vd (d 0) vsource dc=0.0
+vg (g 0) vsource dc=0.0
+vs (s 0) vsource dc=0.0
+vb (b 0) vsource dc=0.0
+
+control
+  analysis op1 op
+  print op all
+endc

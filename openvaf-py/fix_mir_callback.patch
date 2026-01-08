@@ -1,0 +1,43 @@
+--- a/src/lib.rs
++++ b/src/lib.rs
+@@ -869,13 +869,26 @@ impl VaModule {
+     ///
+     /// Returns:
+     ///     (residuals, jacobian) tuple
+     fn run_init_eval(&self, params: std::collections::HashMap<String, f64>) -> PyResult<(Vec<(f64, f64)>, Vec<(u32, u32, f64, f64)>)> {
+-        // Stub callback for function calls
+-        fn stub_callback(state: &mut InterpreterState, _args: &[Value], rets: &[Value], _data: *mut c_void) {
++        // Callback that returns default values for set_Invalid
++        // The data pointer contains the param_defaults HashMap
++        fn callback_with_defaults(state: &mut InterpreterState, args: &[Value], rets: &[Value], data: *mut c_void) {
++            // For set_Invalid callbacks, args[0] contains the parameter ID
++            // We should return the default value, but since we don't have access to
++            // the parameter name->ID mapping here, we return 0.0 as a fallback
++            // The real fix is to ensure all parameters are provided with proper defaults
+             for &ret in rets {
+                 state.write(ret, 0.0f64);
+             }
+         }
+
+         // === Step 1: Run init function ===
++        // Build complete parameter set with defaults
+         let mut init_args: TiVec<Param, Data> = TiVec::new();
+         for i in 0..self.init_num_params {
+             let val = if i < self.init_param_names.len() {
+-                params.get(&self.init_param_names[i]).copied().unwrap_or(0.0)
++                // First try user-provided value, then default, then 0.0
++                let param_name = &self.init_param_names[i];
++                params.get(param_name).copied()
++                    .or_else(|| self.param_defaults.get(&param_name.to_lowercase()).copied())
++                    .unwrap_or(0.0)
+             } else {
+                 0.0
+@@ -890,7 +903,7 @@ impl VaModule {
+
+         let init_callbacks: Vec<(mir_interpret::Func, *mut c_void)> =
+             (0..self.init_func.dfg.signatures.len())
+-                .map(|_| (stub_callback as mir_interpret::Func, std::ptr::null_mut()))
++                .map(|_| (callback_with_defaults as mir_interpret::Func, std::ptr::null_mut()))
+                 .collect();
+
+         let init_calls: &TiSlice<FuncRef, _> = TiSlice::from_ref(&init_callbacks);
