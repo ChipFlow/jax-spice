@@ -8,6 +8,12 @@ description = "Python bindings for OpenVAF MIR interpreter"
 name = "openvaf_py"
 crate-type = ["cdylib"]
 
+[features]
+# Enable OSDI bindings for direct comparison testing
+# Usage: cargo build --release --features osdi-bindings
+osdi-bindings = ["osdi"]
+default = []
+
 [dependencies]
 pyo3 = { version = "0.19.2", features = ["extension-module"] }
 
@@ -20,6 +26,9 @@ hir_lower = { path = "vendor/OpenVAF/openvaf/hir_lower" }
 basedb = { path = "vendor/OpenVAF/openvaf/basedb" }
 paths = { path = "vendor/OpenVAF/lib/paths" }
 syntax = { path = "vendor/OpenVAF/openvaf/syntax" }
+
+# Optional OSDI dependency (for setup_model comparison)
+osdi = { path = "vendor/OpenVAF/openvaf/osdi", optional = true }
 
 # Other dependencies
 lasso = "0.7"

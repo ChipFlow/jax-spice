@@ -1135,6 +1135,28 @@ impl VaModule {
 
         Ok((residuals, jacobian))
     }
+
+    #[cfg(feature = "osdi-bindings")]
+    /// Call OSDI setup_model() function with parameters
+    ///
+    /// This binds the actual OSDI compiled setup_model() for direct comparison
+    /// against our MIR→Python generated code.
+    ///
+    /// Args:
+    ///     params: Dict mapping parameter names (lowercase) to values
+    ///
+    /// Returns:
+    ///     Dict of validated/defaulted parameters
+    ///
+    /// Note: Requires osdi-bindings feature flag
+    #[pyo3(name = "call_osdi_setup_model")]
+    fn call_osdi_setup_model(&self, params: HashMap<String, f64>) -> PyResult<HashMap<String, f64>> {
+        Err(PyValueError::new_err(
+            "OSDI setup_model() binding not yet implemented. \
+            This requires deeper integration with OSDI compiled code. \
+            For now, use run_init_eval() or compare against generated setup_model()."
+        ))
+    }
 }
 
 /// Compile a Verilog-A file and return module information
