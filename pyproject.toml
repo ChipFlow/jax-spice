@@ -11,16 +11,18 @@ dependencies = [
     "scipy>=1.11.0",
     "matplotlib>=3.7.0",
     "openvaf-py",
+    "osdi-py",
     "klujax>=0.4.3",
     "simpleeval>=1.0.0",
     "beartype>=0.22.8",
 ]
 
-[tool.uv]
-sources = { openvaf-py = { workspace = true } }
-
 [tool.uv.workspace]
-members = ["openvaf-py"]
+members = ["openvaf-py", "osdi-py"]
+
+[tool.uv.sources]
+openvaf-py = { workspace = true }
+osdi-py = { workspace = true }
 
 [project.optional-dependencies]
 cuda12 = [
