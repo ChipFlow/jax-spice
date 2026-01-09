@@ -698,6 +698,400 @@ def emit_eval_lax_loop(module) -> Callable:
     return eval_fn
 
 
+def _build_generic_emit_context(mir: Dict, output_var_names: List[str]) -> Tuple[EmitContext, List['CompiledInstruction'], int]:
+    """Build emit context from arbitrary MIR (for model_param_setup and init).
+
+    Unlike eval which uses get_codegen_metadata(), setup functions
+    just need to execute MIR and extract specific output variables.
+
+    Returns:
+        (ctx, compiled, entry_block_idx) - The entry block may not be 0
+    """
+    import numpy as np
+
+    constants = mir['constants']
+    params = mir.get('params', [])
+    instructions = mir['instructions']
+    blocks_info = mir['blocks']
+    function_decls = mir.get('function_decls', {})
+
+    # Collect all variables
+    all_vars = set()
+    for i in range(8):
+        all_vars.add(f'v{i}')
+    all_vars.update(constants.keys())
+    all_vars.update(params)
+    for inst in instructions:
+        result = inst.get('result')
+        if result:
+            all_vars.add(result)
+        for op in inst.get('operands', []):
+            if op:
+                all_vars.add(op)
+        for phi_op in inst.get('phi_operands', []):
+            val = phi_op.get('value')
+            if val:
+                all_vars.add(val)
+
+    # Also add output variables
+    all_vars.update(output_var_names)
+
+    var_list = sorted(all_vars)
+    var_to_idx = {v: i for i, v in enumerate(var_list)}
+    n_vars = len(var_list)
+
+    # Build constant array
+    const_vals = np.zeros(n_vars, dtype=np.float64)
+    for var, val in PREALLOCATED_CONSTANTS.items():
+        if var in var_to_idx:
+            const_vals[var_to_idx[var]] = val
+    for var, val in constants.items():
+        if val is not None and var in var_to_idx:
+            fval = float(val) if isinstance(val, (int, float)) else 0.0
+            if isinstance(fval, float) and np.isnan(fval):
+                fval = 0.0
+            const_vals[var_to_idx[var]] = fval
+
+    const_array = jnp.array(const_vals)
+    param_indices = [var_to_idx[p] for p in params]
+    block_to_idx = {name: i for i, name in enumerate(blocks_info.keys())}
+
+    # Output indices
+    output_indices = [var_to_idx.get(v, 0) for v in output_var_names]
+
+    ctx = EmitContext(
+        var_to_idx=var_to_idx,
+        n_vars=n_vars,
+        block_to_idx=block_to_idx,
+        n_blocks=len(blocks_info),
+        const_array=const_array,
+        param_indices=param_indices,
+        n_params=len(params),
+        cache_to_var_idx={},  # Not used for setup
+        resist_res_indices=output_indices,  # Reuse for outputs
+        react_res_indices=[],
+        resist_jac_indices=[],
+        react_jac_indices=[],
+        function_decls=function_decls,
+    )
+
+    # Compile instructions
+    compiled = []
+    for inst in instructions:
+        opcode = inst['opcode']
+        result_idx = var_to_idx.get(inst.get('result'), -1)
+        block_idx = block_to_idx.get(inst.get('block', 'default'), 0)
+
+        ci = CompiledInstruction(
+            opcode=opcode,
+            result_idx=result_idx,
+            block_idx=block_idx,
+        )
+
+        if opcode == 'phi':
+            for phi_op in inst.get('phi_operands', []):
+                val_idx = var_to_idx.get(phi_op.get('value'), 0)
+                pred_idx = block_to_idx.get(phi_op.get('block'), 0)
+                ci.phi_operands.append((val_idx, pred_idx))
+        elif opcode == 'br':
+            cond_idx = var_to_idx.get(inst.get('condition'), 0)
+            true_idx = block_to_idx.get(inst.get('true_block'), 0)
+            false_idx = block_to_idx.get(inst.get('false_block'), 0)
+            ci.branch_info = (cond_idx, true_idx, false_idx)
+        elif opcode == 'jmp':
+            ci.jump_dest = block_to_idx.get(inst.get('destination'), 0)
+        elif opcode == 'call':
+            func_ref = inst.get('func_ref', '')
+            ci.func_name = function_decls.get(func_ref, {}).get('name', '')
+            ci.operand_indices = [var_to_idx.get(op, 0) for op in inst.get('operands', [])]
+        else:
+            ci.operand_indices = [var_to_idx.get(op, 0) for op in inst.get('operands', [])]
+
+        compiled.append(ci)
+
+    # Entry block is the first block in the blocks dict
+    entry_block_name = list(blocks_info.keys())[0]
+    entry_block_idx = block_to_idx[entry_block_name]
+
+    return ctx, compiled, entry_block_idx
+
+
+def _compute_reverse_postorder(
+    compiled: List['CompiledInstruction'],
+    n_blocks: int,
+    entry_block_idx: int,
+) -> List[int]:
+    """Compute reverse postorder of blocks from CFG.
+
+    OpenVAF uses reverse postorder for block execution - this ensures
+    that each block is executed after all its predecessors (except back-edges).
+    """
+    # Build CFG: block_idx -> list of successor block indices
+    successors: Dict[int, List[int]] = {i: [] for i in range(n_blocks)}
+
+    for inst in compiled:
+        if inst.opcode == 'br' and inst.branch_info is not None:
+            _, true_idx, false_idx = inst.branch_info
+            # Order matters: else (false) before then (true) for postorder
+            if false_idx not in successors[inst.block_idx]:
+                successors[inst.block_idx].append(false_idx)
+            if true_idx not in successors[inst.block_idx]:
+                successors[inst.block_idx].append(true_idx)
+        elif inst.opcode == 'jmp' and inst.jump_dest is not None:
+            if inst.jump_dest not in successors[inst.block_idx]:
+                successors[inst.block_idx].append(inst.jump_dest)
+
+    # DFS postorder traversal
+    visited = set()
+    postorder = []
+
+    def dfs(block_idx: int):
+        if block_idx in visited:
+            return
+        visited.add(block_idx)
+        for succ in successors[block_idx]:
+            dfs(succ)
+        postorder.append(block_idx)
+
+    dfs(entry_block_idx)
+
+    # Reverse postorder = topological order for DAGs
+    return list(reversed(postorder))
+
+
+def _execute_mir_branchless(
+    compiled: List['CompiledInstruction'],
+    const_array: jnp.ndarray,
+    param_indices: List[int],
+    n_blocks: int,
+    entry_block_idx: int,
+    input_array: jnp.ndarray,
+    output_indices: List[int],
+) -> jnp.ndarray:
+    """Execute MIR instructions and return specified outputs.
+
+    This is the core branchless execution engine used by all emit functions.
+    Uses reverse postorder block traversal (same as OpenVAF LLVM emit).
+    """
+    vals = const_array.copy()
+
+    # Load params
+    for i, param_idx in enumerate(param_indices):
+        if i < input_array.shape[0]:
+            vals = vals.at[param_idx].set(input_array[i])
+
+    # Block reachability - start at entry block
+    block_reached = jnp.zeros(n_blocks).at[entry_block_idx].set(1.0)
+
+    # Compute reverse postorder for correct execution order
+    rpo = _compute_reverse_postorder(compiled, n_blocks, entry_block_idx)
+
+    # Group instructions by block
+    block_insts: Dict[int, List['CompiledInstruction']] = {i: [] for i in range(n_blocks)}
+    for inst in compiled:
+        block_insts[inst.block_idx].append(inst)
+
+    # Execute blocks in reverse postorder
+    for block_idx in rpo:
+        for inst in block_insts[block_idx]:
+            opcode = inst.opcode
+
+            if opcode == 'phi':
+                if inst.result_idx < 0 or not inst.phi_operands:
+                    continue
+                first_val_idx, _ = inst.phi_operands[0]
+                result = vals[first_val_idx]
+                for val_idx, pred_idx in inst.phi_operands:
+                    pred_reached = block_reached[pred_idx]
+                    result = jnp.where(pred_reached > 0.5, vals[val_idx], result)
+                vals = vals.at[inst.result_idx].set(result)
+
+            elif opcode == 'br':
+                if inst.branch_info is None:
+                    continue
+                cond_idx, true_idx, false_idx = inst.branch_info
+                this_reached = block_reached[inst.block_idx]
+                cond = vals[cond_idx]
+                block_reached = block_reached.at[true_idx].set(
+                    jnp.maximum(block_reached[true_idx], this_reached * cond)
+                )
+                block_reached = block_reached.at[false_idx].set(
+                    jnp.maximum(block_reached[false_idx], this_reached * (1.0 - cond))
+                )
+
+            elif opcode == 'jmp':
+                if inst.jump_dest is None:
+                    continue
+                this_reached = block_reached[inst.block_idx]
+                block_reached = block_reached.at[inst.jump_dest].set(
+                    jnp.maximum(block_reached[inst.jump_dest], this_reached)
+                )
+
+            elif opcode == 'call':
+                if inst.result_idx < 0:
+                    continue
+                op_vals = [vals[i] for i in inst.operand_indices]
+                func_name = inst.func_name
+
+                if 'SimParam' in func_name:
+                    result = jnp.array(1e-12)
+                elif 'TimeDerivative' in func_name:
+                    result = jnp.array(0.0)
+                elif 'NodeDerivative' in func_name:
+                    result = jnp.array(0.0)
+                elif 'limexp' in func_name.lower():
+                    result = safe_exp(jnp.minimum(op_vals[0], 700.0)) if op_vals else jnp.array(1.0)
+                elif 'fatal' in func_name.lower() or 'error' in func_name.lower():
+                    # Parameter validation errors - just continue (branchless ignores)
+                    result = jnp.array(0.0)
+                else:
+                    result = jnp.array(0.0)
+
+                vals = vals.at[inst.result_idx].set(result)
+
+            else:
+                if inst.result_idx < 0:
+                    continue
+                op_vals = [vals[i] for i in inst.operand_indices]
+
+                if opcode in BINARY_OPS and len(op_vals) >= 2:
+                    result = BINARY_OPS[opcode](op_vals[0], op_vals[1])
+                elif opcode in UNARY_OPS and len(op_vals) >= 1:
+                    result = UNARY_OPS[opcode](op_vals[0])
+                else:
+                    result = op_vals[0] if op_vals else jnp.array(0.0)
+
+                vals = vals.at[inst.result_idx].set(result)
+
+    # Extract outputs
+    return vals[jnp.array(output_indices, dtype=jnp.int32)]
+
+
+def emit_model_param_setup(module) -> Callable:
+    """Generate model parameter setup function.
+
+    This function processes model parameters by:
+    - Applying defaults for unset parameters
+    - Validating parameter ranges
+    - Computing derived parameters
+
+    Args:
+        module: openvaf_py VaModule
+
+    Returns:
+        setup_fn(param_values, param_given) -> processed_params
+
+        Where:
+        - param_values: array of raw parameter values
+        - param_given: array of boolean flags (1.0 if param was set, 0.0 if default)
+        - processed_params: array of processed parameter values
+    """
+    mir = module.get_model_param_setup_mir()
+    info = module.get_model_param_setup_info()
+
+    # Extract parameter info
+    param_info = info['params']
+
+    # Find output variable names (the param values after processing)
+    # These are the param values at the end of the function
+    output_vars = []
+    seen_params = set()
+    for p in param_info:
+        if p['kind'] == 'param' and p['name'] not in seen_params:
+            output_vars.append(f"v{p['value_idx']}")
+            seen_params.add(p['name'])
+
+    ctx, compiled, entry_block_idx = _build_generic_emit_context(mir, output_vars)
+
+    const_array = ctx.const_array
+    param_indices = list(ctx.param_indices)
+    n_blocks = ctx.n_blocks
+    output_indices = list(ctx.resist_res_indices)
+
+    def setup_fn(param_values: jnp.ndarray, param_given: jnp.ndarray) -> jnp.ndarray:
+        """Process model parameters.
+
+        Args:
+            param_values: Raw parameter values (length = num_model_params)
+            param_given: Boolean flags (length = num_model_params)
+
+        Returns:
+            Processed parameter values
+        """
+        # Interleave values and given flags
+        n_params = param_values.shape[0]
+        input_array = jnp.zeros(n_params * 2)
+        for i in range(n_params):
+            input_array = input_array.at[i * 2].set(param_values[i])
+            input_array = input_array.at[i * 2 + 1].set(param_given[i])
+
+        return _execute_mir_branchless(
+            compiled, const_array, param_indices, n_blocks, entry_block_idx, input_array, output_indices
+        )
+
+    return setup_fn
+
+
+def emit_init(module) -> Callable:
+    """Generate instance initialization function.
+
+    This function computes cache values from model/instance parameters:
+    - Temperature-dependent calculations
+    - Pre-computed constants for eval
+    - Operating point independent setup
+
+    Args:
+        module: openvaf_py VaModule
+
+    Returns:
+        init_fn(init_params) -> cache_values
+
+        Where:
+        - init_params: array following init_param_kinds order
+        - cache_values: array of computed cache values
+    """
+    mir = module.get_init_mir_instructions()
+    metadata = module.get_codegen_metadata()
+    cache_info = metadata['cache_info']
+    n_cache = module.num_cached_values
+
+    # Extract output variable names from cache_info
+    # cache_info has: init_value (var name from init MIR), cache_idx (slot in cache)
+    output_vars = [ci['init_value'] for ci in cache_info]
+    cache_slots = [ci['cache_idx'] for ci in cache_info]
+
+    ctx, compiled, entry_block_idx = _build_generic_emit_context(mir, output_vars)
+
+    const_array = ctx.const_array
+    param_indices = list(ctx.param_indices)
+    n_blocks = ctx.n_blocks
+    output_indices = list(ctx.resist_res_indices)
+
+    def init_fn(init_params: jnp.ndarray) -> jnp.ndarray:
+        """Compute cache values from init parameters.
+
+        Args:
+            init_params: Array of init parameters (following init_param_kinds order)
+
+        Returns:
+            Cache array with computed values at appropriate slots
+        """
+        # Execute init MIR
+        outputs = _execute_mir_branchless(
+            compiled, const_array, param_indices, n_blocks, entry_block_idx, init_params, output_indices
+        )
+
+        # Place outputs in cache array at correct slots
+        cache = jnp.zeros(n_cache)
+        for i, slot in enumerate(cache_slots):
+            if i < outputs.shape[0]:
+                cache = cache.at[slot].set(outputs[i])
+
+        return cache
+
+    return init_fn
+
+
 def build_eval_fn(module, force_lax_loop: bool = False) -> Tuple[Callable, Dict]:
     """Build JAX eval function from module.
 

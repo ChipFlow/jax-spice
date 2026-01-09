@@ -261,6 +261,135 @@ class TestBuildEvalFn:
         assert meta['strategy'] == 'lax_loop'
 
 
+class TestEmitModelParamSetup:
+    """Tests for emit_model_param_setup."""
+
+    def test_resistor_model_param_setup(self, resistor_module):
+        """Test model param setup for resistor."""
+        from jax_emit import emit_model_param_setup
+
+        setup_fn = emit_model_param_setup(resistor_module)
+        jit_setup = jax.jit(setup_fn)
+
+        # r=1000, has_noise=0, both given
+        param_values = jnp.array([1000.0, 0.0])
+        param_given = jnp.array([1.0, 1.0])
+
+        result = jit_setup(param_values, param_given)
+        assert result.shape[0] == 2
+        assert jnp.all(jnp.isfinite(result))
+
+
+class TestEmitInit:
+    """Tests for emit_init."""
+
+    def test_resistor_init(self, resistor_module):
+        """Test init for resistor."""
+        from jax_emit import emit_init
+
+        init_fn = emit_init(resistor_module)
+        jit_init = jax.jit(init_fn)
+
+        # Init params: r, has_noise, temperature, mfactor, r_given
+        init_params = jnp.array([1000.0, 0.0, 300.0, 1.0, 1.0])
+        cache = jit_init(init_params)
+
+        assert cache.shape[0] == resistor_module.num_cached_values
+        assert jnp.all(jnp.isfinite(cache))
+
+        # For R=1000, G=1/R=0.001 should be in cache
+        assert jnp.any(jnp.abs(cache - 0.001) < 1e-10)
+
+    def test_diode_init(self, diode_module):
+        """Test init for diode."""
+        from jax_emit import emit_init
+
+        init_fn = emit_init(diode_module)
+        jit_init = jax.jit(init_fn)
+
+        n_init = len(list(diode_module.init_param_names))
+        init_params = jnp.zeros(n_init)
+
+        # Set temperature and mfactor
+        init_kinds = list(diode_module.init_param_kinds)
+        for i, kind in enumerate(init_kinds):
+            if kind == 'temperature':
+                init_params = init_params.at[i].set(300.0)
+            elif kind == 'sysfun':
+                init_params = init_params.at[i].set(1.0)
+
+        cache = jit_init(init_params)
+        assert cache.shape[0] == diode_module.num_cached_values
+        # Some cache values may be inf/-inf for edge cases, but most should be finite
+        finite_count = jnp.sum(jnp.isfinite(cache))
+        assert finite_count > cache.shape[0] // 2
+
+
+class TestFullPipeline:
+    """Tests for the full setup -> eval pipeline."""
+
+    def test_resistor_pipeline(self, resistor_module):
+        """Test resistor: init -> eval."""
+        from jax_emit import emit_init, build_eval_fn
+
+        init_fn = emit_init(resistor_module)
+        eval_fn, _ = build_eval_fn(resistor_module)
+
+        jit_init = jax.jit(init_fn)
+        jit_eval = jax.jit(eval_fn)
+
+        # Init with R=1000
+        init_params = jnp.array([1000.0, 0.0, 300.0, 1.0, 1.0])
+        cache = jit_init(init_params)
+
+        # Eval with V=1V
+        eval_params = jnp.array([1.0, 1000.0, 0.0, 0.0, 300.0, 1.0])
+        (resist_res, _), (resist_jac, _) = jit_eval(eval_params, cache)
+
+        # Check Ohm's law: I = V/R = 1/1000 = 0.001
+        assert jnp.abs(resist_res[0] - 0.001) < 1e-10
+
+    def test_diode_pipeline(self, diode_module):
+        """Test diode: init -> eval."""
+        from jax_emit import emit_init, build_eval_fn
+
+        init_fn = emit_init(diode_module)
+        eval_fn, _ = build_eval_fn(diode_module)
+
+        jit_init = jax.jit(init_fn)
+        jit_eval = jax.jit(eval_fn)
+
+        # Init
+        n_init = len(list(diode_module.init_param_names))
+        init_params = jnp.zeros(n_init)
+        init_kinds = list(diode_module.init_param_kinds)
+        for i, kind in enumerate(init_kinds):
+            if kind == 'temperature':
+                init_params = init_params.at[i].set(300.0)
+            elif kind == 'sysfun':
+                init_params = init_params.at[i].set(1.0)
+
+        cache = jit_init(init_params)
+
+        # Eval with forward bias
+        n_eval = len(list(diode_module.param_names))
+        eval_params = jnp.zeros(n_eval)
+        eval_kinds = list(diode_module.param_kinds)
+        for i, kind in enumerate(eval_kinds):
+            if kind == 'voltage':
+                eval_params = eval_params.at[i].set(0.6)
+            elif kind == 'temperature':
+                eval_params = eval_params.at[i].set(300.0)
+            elif kind == 'sysfun':
+                eval_params = eval_params.at[i].set(1.0)
+
+        (resist_res, _), (resist_jac, _) = jit_eval(eval_params, cache)
+
+        # Should produce some current
+        assert jnp.all(jnp.isfinite(resist_res))
+        assert jnp.all(jnp.isfinite(resist_jac))
+
+
 class TestSafeMath:
     """Tests for safe math operations."""
 
