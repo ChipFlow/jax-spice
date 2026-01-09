@@ -1,0 +1,32 @@
+[package]
+name = "openvaf-py"
+version = "0.1.0"
+edition = "2021"
+description = "Python bindings for OpenVAF MIR metadata extraction"
+
+[lib]
+name = "openvaf_py"
+crate-type = ["cdylib"]
+
+[features]
+default = []
+
+[dependencies]
+pyo3 = { version = "0.23", features = ["extension-module"] }
+
+# OpenVAF dependencies (using vendored OpenVAF)
+mir = { path = "../vendor/OpenVAF/openvaf/mir" }
+sim_back = { path = "../vendor/OpenVAF/openvaf/sim_back" }
+hir = { path = "../vendor/OpenVAF/openvaf/hir" }
+hir_lower = { path = "../vendor/OpenVAF/openvaf/hir_lower" }
+basedb = { path = "../vendor/OpenVAF/openvaf/basedb" }
+paths = { path = "../vendor/OpenVAF/lib/paths" }
+syntax = { path = "../vendor/OpenVAF/openvaf/syntax" }
+
+# Other dependencies
+lasso = "0.7"
+typed-index-collections = "3.1"
+
+# Patch to use the same salsa version as OpenVAF
+[patch.crates-io]
+salsa = { git = 'https://github.com/pascalkuthe/salsa' }
