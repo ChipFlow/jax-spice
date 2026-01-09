@@ -12,7 +12,7 @@ Collection of scripts for development, analysis, benchmarking, and investigation
 - Status: Incomplete stub, needs full implementation
 - Goal: Load capacitor.osdi, call init/eval, validate results
 
-See `docs/IMPLEMENTATION_PLAN.md` → Phase 1 for details.
+See `../planning/IMPLEMENTATION_PLAN.md` → Phase 1 for details.
 
 ---
 
@@ -181,7 +181,7 @@ python scripts/compare_openvaf_vs_osdi.py
 
 ## 📖 Key References
 
-- **Phase 1 plan**: `docs/IMPLEMENTATION_PLAN.md` → Phase 1 section
+- **Phase 1 plan**: `../planning/IMPLEMENTATION_PLAN.md` → Phase 1 section
 - **OSDI API**: `docs/reference/osdi-vacask/SIMULATOR_INTERNALS.md`
 - **Parameter mapping bug**: `docs/PHI_NODE_BUG.md`
 - **Overall context**: `docs/RESTART_PROMPT.md`

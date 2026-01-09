@@ -17,8 +17,34 @@
 - Keep files under ~70KB (~20,000 tokens) - split large modules
 - Regularly check for opportunities to simplify without impacting functionality
 - *NO API/ABI Stability* - this is still v0.x. Do not keep old code paths, remove them agressively.
-- Comprehendability - This code does some pretty complex maths and operations, try to keep the code as understandable as possible. 
+- Comprehendability - This code does some pretty complex maths and operations, try to keep the code as understandable as possible.
   Any data structures should be well defined - dict keys should have meaning, arrays should have their index defined meaningfully.
+
+## Documentation & Planning Organization
+
+### Planning vs Documentation
+
+**Keep planning separate from technical documentation:**
+
+- **`planning/`** - Ephemeral working plans and task breakdowns
+  - Implementation plans with phase breakdowns
+  - Task lists for specific features/milestones
+  - Investigation plans for debugging efforts
+  - **Regularly clean up** - Archive completed plans, delete obsolete ones
+  - Review at least monthly or when completing major milestones
+
+- **`docs/`** - Permanent technical documentation
+  - Architecture overviews and API references
+  - Technical deep-dives and design decisions
+  - Reference material (OSDI, OpenVAF internals)
+  - Contribution and development guidelines
+
+**Cleanup policy for `planning/`:**
+- Completed plans → Archive to `planning/archive/YYYY-MM-name/`
+- Obsolete plans → Delete entirely
+- Review when: completing milestones, monthly, or when plans become stale (2+ months untouched)
+
+See `planning/README.md` for details.
 
 ### JAX vs NumPy/SciPy
 

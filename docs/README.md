@@ -16,13 +16,7 @@ Our November 2024 MIR-to-Python implementation was fundamentally broken - it val
    - What we learned (PHI nodes work correctly!)
    - Where to start (OSDI ctypes interface)
 
-2. **[IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md)** ⭐ **THE PLAN**
-   - Detailed 7-phase implementation plan
-   - Phase 1: OSDI ctypes interface (ground truth)
-   - Phases 2-7: Incremental validation (capacitor → diode → PSP103)
-   - Acceptance criteria for each phase
-
-3. **[PHI_NODE_BUG.md](PHI_NODE_BUG.md)** ⭐ **TECHNICAL REFERENCE**
+2. **[PHI_NODE_BUG.md](PHI_NODE_BUG.md)** - Technical reference
    - PHI node implementation deep-dive
    - Why code generation works correctly
    - Parameter mapping bug explanation and fix
@@ -98,47 +92,39 @@ See [archive/november-2024/README.md](archive/november-2024/README.md) for why t
 
 ### For Fresh Context (New Session)
 ```bash
-# 1. Read the restart prompt
+# Read the restart prompt for context
 cat docs/RESTART_PROMPT.md
 
-# 2. Read the implementation plan
-cat docs/IMPLEMENTATION_PLAN.md
-
-# 3. Check current phase
-cat docs/IMPLEMENTATION_PLAN.md | grep -A 10 "Current Phase"
+# Check active work in planning/
+cat planning/IMPLEMENTATION_PLAN.md
 ```
 
-### For Continuing Work
+### Key Reference Documents
 ```bash
-# Check which phase we're on
-cat docs/IMPLEMENTATION_PLAN.md | grep "Status:" | head -7
+# OSDI API reference (for Phase 1 interface work)
+cat docs/reference/osdi-vacask/SIMULATOR_INTERNALS.md
 
-# Read relevant reference docs based on phase
-# Phase 1: docs/reference/osdi-vacask/SIMULATOR_INTERNALS.md
-# Phase 2+: docs/PHI_NODE_BUG.md
+# Technical deep-dive on PHI nodes and parameter mapping
+cat docs/PHI_NODE_BUG.md
 ```
 
 ---
 
-## 📋 Reading Order by Phase
+## 📋 Reading by Topic
 
-### Phase 1: OSDI Interface
-Must read:
+### OSDI Interface Work
+Essential references:
 1. RESTART_PROMPT.md (context)
-2. IMPLEMENTATION_PLAN.md → Phase 1 section
-3. reference/osdi-vacask/SIMULATOR_INTERNALS.md (OSDI API)
-4. reference/osdi-vacask/osdi_parameter_architecture.md
+2. reference/osdi-vacask/SIMULATOR_INTERNALS.md (OSDI API)
+3. reference/osdi-vacask/osdi_parameter_architecture.md (parameters)
+4. reference/osdi-vacask/vacask_osdi_inputs.md (input structure)
 
-### Phase 2: Rebuild openvaf-py
-Must read:
-1. PHI_NODE_BUG.md (parameter mapping fix)
-2. PARAMETER_MAPPING_SOLUTION.md
-
-### Phase 3-7: Code Generation & Validation
-Must read:
-1. PHI_NODE_BUG.md (how PHI nodes work)
+### Code Generation Work
+Essential references:
+1. PHI_NODE_BUG.md (how PHI nodes work, parameter mapping fix)
 2. reference/osdi-vacask/CACHE_SLOTS_ANALYSIS.md (cache system)
-3. CODEGEN_METADATA_API.md
+3. CODEGEN_METADATA_API.md (metadata extraction)
+4. PARAMETER_MAPPING_SOLUTION.md (parameter handling)
 
 ---
 
@@ -153,4 +139,4 @@ Build incrementally:
 
 **Starting point**: `scripts/test_vacask_osdi_psp103.py`
 
-See IMPLEMENTATION_PLAN.md for the complete roadmap.
+See `../planning/` for current implementation plans.
