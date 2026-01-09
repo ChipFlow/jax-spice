@@ -475,118 +475,25 @@ class OpenVAFToJAX:
         self._init_fn = generate_init_function(self.module)
 
     def _build_eval_fn(self):
-        """Build the eval function from MIR for JAX tracing."""
-        eval_mir = self.module.get_mir_instructions()
-        metadata = self.module.get_codegen_metadata()
+        """Build the eval function from MIR using JAX-native code generation.
 
-        constants = eval_mir['constants']
-        params = eval_mir.get('params', [])
-        instructions = eval_mir['instructions']
-        blocks = eval_mir['blocks']
+        Uses jax_codegen to generate JIT-compilable functions that properly
+        handle control flow via jnp.where for branches. This is much faster
+        than pure_callback and works on GPU.
 
-        eval_param_mapping = metadata['eval_param_mapping']
-        cache_info = metadata['cache_info']
-        residuals_meta = metadata['residuals']
-        jacobian_meta = metadata['jacobian']
+        See docs/reference/openvaf/EVAL_FUNCTION_GENERATION.md for details.
+        """
+        from jax_codegen import build_eval_fn, analyze_mir
 
-        # Build cache-to-param index mapping
-        cache_to_param_idx = {}
-        for ci in cache_info:
-            eval_param = ci['eval_param']
-            if eval_param.startswith('v'):
-                param_idx = int(eval_param[1:])
-                cache_to_param_idx[ci['cache_idx']] = param_idx
+        # Analyze the model to determine strategy
+        analysis = analyze_mir(self.module)
+        logger.info(f"Model {self.module.name}: {analysis.num_branches} branches, "
+                   f"{analysis.num_phi_nodes} phi nodes, "
+                   f"{analysis.varying_dependent_branches} varying-dependent")
 
-        # Build param name to index mapping
-        param_name_to_idx = {}
-        for name, mir_var in eval_param_mapping.items():
-            for i, p in enumerate(params):
-                if p == mir_var:
-                    param_name_to_idx[name] = i
-                    break
-
-        # For simple straight-line code (no complex control flow),
-        # we can build a JAX function directly
-        # Group instructions by block
-        block_instrs = {}
-        for instr in instructions:
-            block = instr.get('block', 'default')
-            if block not in block_instrs:
-                block_instrs[block] = []
-            block_instrs[block].append(instr)
-
-        def eval_fn(input_array: jnp.ndarray, cache: jnp.ndarray) -> Tuple[jnp.ndarray, jnp.ndarray]:
-            """Evaluate the device model.
-
-            Args:
-                input_array: Array of input parameter values (voltages, params)
-                cache: Array of cache values from init
-
-            Returns:
-                (residuals, jacobian) arrays
-            """
-            # Initialize values dict with constants
-            values = {k: jnp.float64(v) for k, v in constants.items()}
-
-            # Set input params
-            for i, var in enumerate(params):
-                if i < len(input_array):
-                    values[var] = input_array[i]
-
-            # Set cache values
-            for cache_idx, param_idx in cache_to_param_idx.items():
-                if param_idx < len(params) and cache_idx < len(cache):
-                    values[params[param_idx]] = cache[cache_idx]
-
-            # Execute instructions (simple case: single block, no control flow)
-            # For complex models with control flow, we'd need lax.cond/lax.switch
-            for block_name in sorted(block_instrs.keys()):
-                for instr in block_instrs[block_name]:
-                    opcode = instr['opcode']
-                    result_var = instr.get('result')
-                    operands = instr.get('operands', [])
-
-                    if opcode in ('jmp', 'br', 'phi'):
-                        # Skip control flow for now
-                        continue
-
-                    if opcode in JAX_OPCODE_MAP:
-                        func = JAX_OPCODE_MAP[opcode]
-                        op_values = [values.get(op, jnp.float64(0.0)) for op in operands]
-                        if result_var:
-                            values[result_var] = func(*op_values)
-                    elif opcode == 'call':
-                        # Handle special function calls
-                        if result_var:
-                            values[result_var] = jnp.float64(0.0)
-
-            # Extract residuals
-            n_residuals = len(residuals_meta)
-            resist_residuals = jnp.zeros(n_residuals)
-            react_residuals = jnp.zeros(n_residuals)
-
-            for i, r in enumerate(residuals_meta):
-                resist_residuals = resist_residuals.at[i].set(
-                    values.get(r['resist_var'], jnp.float64(0.0))
-                )
-                react_residuals = react_residuals.at[i].set(
-                    values.get(r['react_var'], jnp.float64(0.0))
-                )
-
-            # Extract jacobian
-            n_jacobian = len(jacobian_meta)
-            resist_jacobian = jnp.zeros(n_jacobian)
-            react_jacobian = jnp.zeros(n_jacobian)
-
-            for i, j in enumerate(jacobian_meta):
-                resist_jacobian = resist_jacobian.at[i].set(
-                    values.get(j['resist_var'], jnp.float64(0.0))
-                )
-                react_jacobian = react_jacobian.at[i].set(
-                    values.get(j['react_var'], jnp.float64(0.0))
-                )
-
-            return (resist_residuals, react_residuals), (resist_jacobian, react_jacobian)
+        # Build JAX-native eval function
+        eval_fn, meta = build_eval_fn(self.module)
+        logger.info(f"Using {meta['strategy']} code generation strategy")
 
         self._eval_fn = eval_fn
 
