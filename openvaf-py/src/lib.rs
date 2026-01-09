@@ -65,6 +65,33 @@ struct OsdiNoiseInfo {
     node2: u32,  // u32::MAX for ground
 }
 
+/// Extended noise source metadata for full topology info
+#[derive(Clone)]
+struct NoiseSourceDetail {
+    name: String,
+    hi: u32,
+    lo: Option<u32>,
+    factor_idx: u32,
+    kind: String,           // "WhiteNoise", "FlickerNoise", "NoiseTable"
+    pwr_idx: Option<u32>,   // For WhiteNoise/FlickerNoise
+    exp_idx: Option<u32>,   // For FlickerNoise only
+    log: Option<bool>,      // For NoiseTable
+    table_vals: Option<Vec<(f64, f64)>>,  // For NoiseTable
+}
+
+/// Residual nature kind
+#[derive(Clone)]
+struct ResidualDetail {
+    node_idx: u32,
+    resist_idx: u32,
+    react_idx: u32,
+    resist_small_signal_idx: u32,
+    react_small_signal_idx: u32,
+    resist_lim_rhs_idx: u32,
+    react_lim_rhs_idx: u32,
+    nature_kind: String,  // "Flow", "Potential", "Switch"
+}
+
 /// Python wrapper for a compiled Verilog-A module
 ///
 /// This struct contains all metadata extracted from OpenVAF compilation,
@@ -167,6 +194,37 @@ struct VaModule {
     osdi_nodes: Vec<OsdiNodeInfo>,
     osdi_jacobian: Vec<OsdiJacobianInfo>,
     osdi_noise_sources: Vec<OsdiNoiseInfo>,
+
+    // === Model param setup metadata ===
+    /// The model_param_setup MIR function
+    model_param_setup_func: Function,
+    /// Model param setup parameter names
+    #[pyo3(get)]
+    model_param_names: Vec<String>,
+    /// Model param setup parameter kinds
+    #[pyo3(get)]
+    model_param_kinds: Vec<String>,
+    /// Model param setup parameter Value indices
+    #[pyo3(get)]
+    model_param_value_indices: Vec<u32>,
+
+    // === Extended topology info ===
+    /// Detailed residual info (with nature_kind, small_signal)
+    residual_details: Vec<ResidualDetail>,
+    /// Detailed noise source info (with kind, factor, pwr, exp)
+    noise_source_details: Vec<NoiseSourceDetail>,
+    /// Small signal parameter indices
+    #[pyo3(get)]
+    small_signal_param_indices: Vec<u32>,
+    /// Model inputs (node pairs for voltage probes)
+    #[pyo3(get)]
+    model_input_pairs: Vec<(u32, u32)>,
+    /// Number of resistive matrix entries
+    #[pyo3(get)]
+    num_resistive_entries: u32,
+    /// Number of reactive matrix entries
+    #[pyo3(get)]
+    num_reactive_entries: u32,
 }
 
 #[pymethods]
@@ -467,6 +525,176 @@ impl VaModule {
             }
             result.insert("collapsible_pairs".to_string(), collapsible_list.into());
             result.insert("num_collapsible".to_string(), self.collapsible_pairs.len().into_py(py));
+
+            result
+        })
+    }
+
+    /// Export model_param_setup MIR instructions for code generation
+    fn get_model_param_setup_mir(&self) -> HashMap<String, PyObject> {
+        export_mir_instructions(&self.model_param_setup_func, &[])
+    }
+
+    /// Get detailed topology/DAE system information for debugging
+    ///
+    /// This provides more information than get_dae_system(), including:
+    /// - nature_kind for each residual (Flow/Potential/Switch)
+    /// - small_signal parameter indices
+    /// - full noise source details (kind, factor, pwr, exp)
+    /// - model input pairs
+    fn get_topology_detailed(&self) -> HashMap<String, PyObject> {
+        use pyo3::types::{PyDict, PyList};
+
+        Python::with_gil(|py| {
+            let mut result = HashMap::new();
+
+            // Detailed residuals with nature_kind
+            let residuals_list = PyList::empty(py);
+            for res in &self.residual_details {
+                let res_dict = PyDict::new(py);
+                res_dict.set_item("node_idx", res.node_idx).unwrap();
+                res_dict.set_item("resist_idx", res.resist_idx).unwrap();
+                res_dict.set_item("react_idx", res.react_idx).unwrap();
+                res_dict.set_item("resist_small_signal_idx", res.resist_small_signal_idx).unwrap();
+                res_dict.set_item("react_small_signal_idx", res.react_small_signal_idx).unwrap();
+                res_dict.set_item("resist_lim_rhs_idx", res.resist_lim_rhs_idx).unwrap();
+                res_dict.set_item("react_lim_rhs_idx", res.react_lim_rhs_idx).unwrap();
+                res_dict.set_item("nature_kind", &res.nature_kind).unwrap();
+                residuals_list.append(res_dict).unwrap();
+            }
+            result.insert("residuals".to_string(), residuals_list.into());
+
+            // Detailed noise sources
+            let noise_list = PyList::empty(py);
+            for src in &self.noise_source_details {
+                let noise_dict = PyDict::new(py);
+                noise_dict.set_item("name", &src.name).unwrap();
+                noise_dict.set_item("hi", src.hi).unwrap();
+                noise_dict.set_item("lo", src.lo).unwrap();
+                noise_dict.set_item("factor_idx", src.factor_idx).unwrap();
+                noise_dict.set_item("kind", &src.kind).unwrap();
+                noise_dict.set_item("pwr_idx", src.pwr_idx).unwrap();
+                noise_dict.set_item("exp_idx", src.exp_idx).unwrap();
+                noise_dict.set_item("log", src.log).unwrap();
+                if let Some(ref vals) = src.table_vals {
+                    let py_vals: Vec<(f64, f64)> = vals.clone();
+                    noise_dict.set_item("table_vals", py_vals).unwrap();
+                } else {
+                    noise_dict.set_item("table_vals", py.None()).unwrap();
+                }
+                noise_list.append(noise_dict).unwrap();
+            }
+            result.insert("noise_sources".to_string(), noise_list.into());
+
+            // Small signal parameters
+            let ss_params: Vec<u32> = self.small_signal_param_indices.clone();
+            result.insert("small_signal_param_indices".to_string(), ss_params.into_py(py));
+
+            // Model inputs (node pairs)
+            let model_inputs: Vec<(u32, u32)> = self.model_input_pairs.clone();
+            result.insert("model_input_pairs".to_string(), model_inputs.into_py(py));
+
+            // Counts
+            result.insert("num_resistive_entries".to_string(), self.num_resistive_entries.into_py(py));
+            result.insert("num_reactive_entries".to_string(), self.num_reactive_entries.into_py(py));
+
+            // Also include basic DAE info for convenience
+            result.insert("num_residuals".to_string(), self.num_residuals.into_py(py));
+            result.insert("num_jacobian".to_string(), self.num_jacobian.into_py(py));
+            result.insert("num_noise_sources".to_string(), self.noise_source_details.len().into_py(py));
+
+            result
+        })
+    }
+
+    /// Get detailed initialization information
+    ///
+    /// This provides more details about the init function than get_init_mir_instructions():
+    /// - cache_mapping with semantic info
+    /// - param_given flags
+    /// - collapse decisions
+    fn get_init_detailed(&self) -> HashMap<String, PyObject> {
+        use pyo3::types::{PyDict, PyList};
+
+        Python::with_gil(|py| {
+            let mut result = HashMap::new();
+
+            // Init parameters with semantic info
+            let init_params = PyList::empty(py);
+            for ((name, kind), &val_idx) in self.init_param_names.iter()
+                .zip(&self.init_param_kinds)
+                .zip(&self.init_param_value_indices)
+            {
+                let param_dict = PyDict::new(py);
+                param_dict.set_item("name", name).unwrap();
+                param_dict.set_item("kind", kind).unwrap();
+                param_dict.set_item("value_idx", val_idx).unwrap();
+                init_params.append(param_dict).unwrap();
+            }
+            result.insert("params".to_string(), init_params.into());
+
+            // Cache mapping with semantic info
+            let cache_map = PyList::empty(py);
+            for (cache_idx, (init_val, eval_param)) in self.cache_mapping.iter().enumerate() {
+                let entry = PyDict::new(py);
+                entry.set_item("cache_idx", cache_idx).unwrap();
+                entry.set_item("init_value_idx", *init_val).unwrap();
+                entry.set_item("eval_param_idx", *eval_param).unwrap();
+                cache_map.append(entry).unwrap();
+            }
+            result.insert("cache_mapping".to_string(), cache_map.into());
+
+            // Collapsible pairs with semantic info
+            let collapse_list = PyList::empty(py);
+            for (i, (n1, n2)) in self.collapsible_pairs.iter().enumerate() {
+                let pair_dict = PyDict::new(py);
+                pair_dict.set_item("pair_idx", i).unwrap();
+                pair_dict.set_item("node1_idx", *n1).unwrap();
+                pair_dict.set_item("node2_idx", if *n2 == u32::MAX { -1i32 } else { *n2 as i32 }).unwrap();
+
+                // Find collapse decision output for this pair
+                if let Some((_, decision_var)) = self.collapse_decision_outputs.iter()
+                    .find(|(idx, _)| *idx == i as u32) {
+                    pair_dict.set_item("decision_var", decision_var).unwrap();
+                } else {
+                    pair_dict.set_item("decision_var", py.None()).unwrap();
+                }
+                collapse_list.append(pair_dict).unwrap();
+            }
+            result.insert("collapsible_pairs".to_string(), collapse_list.into());
+
+            // Counts
+            result.insert("num_init_params".to_string(), self.init_num_params.into_py(py));
+            result.insert("num_cached_values".to_string(), self.num_cached_values.into_py(py));
+            result.insert("num_collapsible".to_string(), self.num_collapsible.into_py(py));
+
+            result
+        })
+    }
+
+    /// Get model_param_setup parameter information
+    fn get_model_param_setup_info(&self) -> HashMap<String, PyObject> {
+        use pyo3::types::{PyDict, PyList};
+
+        Python::with_gil(|py| {
+            let mut result = HashMap::new();
+
+            // Model param setup parameters
+            let params = PyList::empty(py);
+            for ((name, kind), &val_idx) in self.model_param_names.iter()
+                .zip(&self.model_param_kinds)
+                .zip(&self.model_param_value_indices)
+            {
+                let param_dict = PyDict::new(py);
+                param_dict.set_item("name", name).unwrap();
+                param_dict.set_item("kind", kind).unwrap();
+                param_dict.set_item("value_idx", val_idx).unwrap();
+                params.append(param_dict).unwrap();
+            }
+            result.insert("params".to_string(), params.into());
+
+            // Basic counts
+            result.insert("num_params".to_string(), self.model_param_names.len().into_py(py));
 
             result
         })
@@ -903,6 +1131,90 @@ fn compile_va(path: &str, allow_analog_in_cond: bool, allow_builtin_primitives: 
         let has_bound_step = compiled.intern.outputs.contains_key(&PlaceKind::BoundStep);
         let num_states = compiled.intern.lim_state.len();
 
+        // === Model param setup metadata ===
+        let mut model_param_names = Vec::new();
+        let mut model_param_kinds = Vec::new();
+        let mut model_param_value_indices = Vec::new();
+
+        for (kind, val) in compiled.model_param_intern.params.iter() {
+            model_param_value_indices.push(u32::from(*val));
+            let (kind_str, name) = extract_param_info(&db, kind);
+            model_param_kinds.push(kind_str);
+            model_param_names.push(name);
+        }
+
+        // === Extended topology/DAE details ===
+        // Detailed residuals with nature_kind
+        // Note: resist_small_signal and react_small_signal are private in sim_back
+        // They are typically F_ZERO during large signal simulation
+        let residual_details: Vec<ResidualDetail> = compiled.dae_system.residual
+            .iter_enumerated()
+            .map(|(idx, res)| {
+                let nature_kind = match res.nature_kind {
+                    sim_back::dae::ResidualNatureKind::Flow => "Flow",
+                    sim_back::dae::ResidualNatureKind::Potential => "Potential",
+                    sim_back::dae::ResidualNatureKind::Switch => "Switch",
+                };
+                ResidualDetail {
+                    node_idx: u32::from(idx),
+                    resist_idx: u32::from(res.resist),
+                    react_idx: u32::from(res.react),
+                    // small_signal fields are private in sim_back, use F_ZERO (0)
+                    resist_small_signal_idx: 0,
+                    react_small_signal_idx: 0,
+                    resist_lim_rhs_idx: u32::from(res.resist_lim_rhs),
+                    react_lim_rhs_idx: u32::from(res.react_lim_rhs),
+                    nature_kind: nature_kind.to_string(),
+                }
+            })
+            .collect();
+
+        // Detailed noise sources
+        let noise_source_details: Vec<NoiseSourceDetail> = compiled.dae_system.noise_sources
+            .iter()
+            .map(|src| {
+                let name = literals.resolve(&src.name).to_owned();
+                let (kind, pwr_idx, exp_idx, log, table_vals) = match &src.kind {
+                    sim_back::dae::NoiseSourceKind::WhiteNoise { pwr } => {
+                        ("WhiteNoise", Some(u32::from(*pwr)), None, None, None)
+                    }
+                    sim_back::dae::NoiseSourceKind::FlickerNoise { pwr, exp } => {
+                        ("FlickerNoise", Some(u32::from(*pwr)), Some(u32::from(*exp)), None, None)
+                    }
+                    sim_back::dae::NoiseSourceKind::NoiseTable { log, vals } => {
+                        let table: Vec<(f64, f64)> = vals.iter()
+                            .map(|(a, b)| (f64::from(*a), f64::from(*b)))
+                            .collect();
+                        ("NoiseTable", None, None, Some(*log), Some(table))
+                    }
+                };
+                NoiseSourceDetail {
+                    name,
+                    hi: u32::from(src.hi),
+                    lo: src.lo.map(|lo| u32::from(lo)),
+                    factor_idx: u32::from(src.factor),
+                    kind: kind.to_string(),
+                    pwr_idx,
+                    exp_idx,
+                    log,
+                    table_vals,
+                }
+            })
+            .collect();
+
+        // Small signal parameter indices
+        let small_signal_param_indices: Vec<u32> = compiled.dae_system.small_signal_parameters
+            .iter()
+            .map(|val| u32::from(*val))
+            .collect();
+
+        // Model inputs (node pairs)
+        let model_input_pairs: Vec<(u32, u32)> = compiled.dae_system.model_inputs.clone();
+
+        // Counts
+        let num_resistive_entries = compiled.dae_system.num_resistive;
+        let num_reactive_entries = compiled.dae_system.num_reactive;
+
         result.push(VaModule {
             name: module_info.module.name(&db).to_string(),
             param_names,
@@ -941,6 +1253,18 @@ fn compile_va(path: &str, allow_analog_in_cond: bool, allow_builtin_primitives: 
             osdi_noise_sources,
             num_states,
             has_bound_step,
+            // Model param setup
+            model_param_setup_func: compiled.model_param_setup.clone(),
+            model_param_names,
+            model_param_kinds,
+            model_param_value_indices,
+            // Extended topology
+            residual_details,
+            noise_source_details,
+            small_signal_param_indices,
+            model_input_pairs,
+            num_resistive_entries,
+            num_reactive_entries,
         });
     }
 
