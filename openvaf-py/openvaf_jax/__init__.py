@@ -143,6 +143,7 @@ class OpenVAFToJAX:
             - 'num_terminals': number of terminals
             - 'num_internal': number of internal nodes
         """
+        assert self.dae_data is not None, "dae_data released, call before release_mir_data()"
         return {
             'node_names': [res['node_name'] for res in self.dae_data['residuals']],
             'jacobian_keys': [
@@ -221,6 +222,8 @@ class OpenVAFToJAX:
         """
         from .codegen.function_builder import InitFunctionBuilder
 
+        assert self.init_mir is not None, "init_mir released, call before release_mir_data()"
+
         t0 = time.perf_counter()
         logger.info("    translate_init_array: generating code...")
 
@@ -294,6 +297,8 @@ class OpenVAFToJAX:
         - device_params is mapped over axis 0
         """
         from .codegen.function_builder import InitFunctionBuilder
+
+        assert self.init_mir is not None, "init_mir released, call before release_mir_data()"
 
         t0 = time.perf_counter()
         logger.info("    translate_init_array_split: generating code...")
@@ -370,6 +375,9 @@ class OpenVAFToJAX:
         or in_axes=(None, 0, 0) for unsplit cache.
         """
         from .codegen.function_builder import EvalFunctionBuilder
+
+        assert self.eval_mir is not None, "eval_mir released, call before release_mir_data()"
+        assert self.dae_data is not None, "dae_data released, call before release_mir_data()"
 
         use_cache_split = shared_cache_indices is not None and varying_cache_indices is not None
 

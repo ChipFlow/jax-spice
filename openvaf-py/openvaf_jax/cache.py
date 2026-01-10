@@ -7,7 +7,7 @@ This module provides caching for:
 
 import hashlib
 import logging
-from typing import Callable, Dict, Tuple, Union
+from typing import Callable, Dict, Literal, Tuple, Union, cast, overload
 
 logger = logging.getLogger("jax_spice.openvaf")
 
@@ -19,6 +19,14 @@ _exec_fn_cache: Dict[str, Callable] = {}
 # This avoids repeated JIT compilation for the same function with same vmap axes
 _vmapped_jit_cache: Dict[Tuple[str, Tuple], Callable] = {}
 
+
+@overload
+def exec_with_cache(code: str, fn_name: str,
+                    return_hash: Literal[False] = ...) -> Callable: ...
+
+@overload
+def exec_with_cache(code: str, fn_name: str,
+                    return_hash: Literal[True]) -> Tuple[Callable, str]: ...
 
 def exec_with_cache(code: str, fn_name: str,
                     return_hash: bool = False) -> Union[Callable, Tuple[Callable, str]]:
@@ -49,7 +57,7 @@ def exec_with_cache(code: str, fn_name: str,
 
     local_ns = {'jnp': jnp, 'lax': lax}
     exec(code, local_ns)
-    fn = local_ns[fn_name]
+    fn = cast(Callable, local_ns[fn_name])
 
     _exec_fn_cache[code_hash] = fn
     logger.debug(f"    {fn_name}: cached new function (hash={code_hash[:8]})")
