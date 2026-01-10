@@ -1047,20 +1047,22 @@ def emit_model_param_setup(module) -> Callable:
 def emit_init(module) -> Callable:
     """Generate instance initialization function.
 
-    This function computes cache values from model/instance parameters:
+    This function computes cache values and collapse decisions from model/instance parameters:
     - Temperature-dependent calculations
     - Pre-computed constants for eval
     - Operating point independent setup
+    - Collapse decisions for internal node merging
 
     Args:
         module: openvaf_py VaModule
 
     Returns:
-        init_fn(init_params) -> cache_values
+        init_fn(init_params) -> (cache_values, collapse_decisions)
 
         Where:
         - init_params: array following init_param_kinds order
         - cache_values: array of computed cache values
+        - collapse_decisions: array of booleans (1.0 = collapse, 0.0 = don't collapse)
     """
     mir = module.get_init_mir_instructions()
     metadata = module.get_codegen_metadata()
@@ -1071,35 +1073,69 @@ def emit_init(module) -> Callable:
     # cache_info has: init_value (var name from init MIR), cache_idx (slot in cache)
     output_vars = [ci['init_value'] for ci in cache_info]
     cache_slots = [ci['cache_idx'] for ci in cache_info]
+    n_cache_outputs = len(output_vars)
 
-    ctx, compiled, entry_block_idx = _build_generic_emit_context(mir, output_vars)
+    # Extract collapse decision variables
+    # collapse_decision_outputs: [(idx, var_name), ...]
+    # var_name may have '!' prefix meaning negated
+    collapse_outputs = list(module.collapse_decision_outputs)
+    collapse_var_names = []
+    collapse_negated = []
+    for idx, var_name in collapse_outputs:
+        if var_name.startswith('!'):
+            collapse_var_names.append(var_name[1:])  # Remove '!' prefix
+            collapse_negated.append(True)
+        else:
+            collapse_var_names.append(var_name)
+            collapse_negated.append(False)
+    n_collapse = len(collapse_var_names)
+
+    # Combine cache and collapse outputs
+    all_output_vars = output_vars + collapse_var_names
+
+    ctx, compiled, entry_block_idx = _build_generic_emit_context(mir, all_output_vars)
 
     const_array = ctx.const_array
     param_indices = list(ctx.param_indices)
     n_blocks = ctx.n_blocks
     output_indices = list(ctx.resist_res_indices)
 
-    def init_fn(init_params: jnp.ndarray) -> jnp.ndarray:
-        """Compute cache values from init parameters.
+    def init_fn(init_params: jnp.ndarray) -> Tuple[jnp.ndarray, jnp.ndarray]:
+        """Compute cache values and collapse decisions from init parameters.
 
         Args:
             init_params: Array of init parameters (following init_param_kinds order)
 
         Returns:
-            Cache array with computed values at appropriate slots
+            (cache, collapse_decisions) where:
+            - cache: Cache array with computed values at appropriate slots
+            - collapse_decisions: Array of booleans (1.0 = collapse, 0.0 = don't)
         """
         # Execute init MIR
         outputs = _execute_mir_branchless(
             compiled, const_array, param_indices, n_blocks, entry_block_idx, init_params, output_indices
         )
 
-        # Place outputs in cache array at correct slots
+        # Place cache outputs in cache array at correct slots
         cache = jnp.zeros(n_cache)
         for i, slot in enumerate(cache_slots):
-            if i < outputs.shape[0]:
+            if i < n_cache_outputs and i < outputs.shape[0]:
                 cache = cache.at[slot].set(outputs[i])
 
-        return cache
+        # Extract collapse decisions
+        collapse = jnp.zeros(max(n_collapse, 1))
+        for i in range(n_collapse):
+            out_idx = n_cache_outputs + i
+            if out_idx < outputs.shape[0]:
+                val = outputs[out_idx]
+                # Convert to boolean (> 0.5 means true)
+                decision = jnp.where(val > 0.5, 1.0, 0.0)
+                # Negate if needed (! prefix in var_name means collapse if false)
+                if collapse_negated[i]:
+                    decision = 1.0 - decision
+                collapse = collapse.at[i].set(decision)
+
+        return cache, collapse
 
     return init_fn
 
@@ -1114,10 +1150,8 @@ def emit_init_lax_loop(module) -> Callable:
         module: openvaf_py VaModule
 
     Returns:
-        init_fn(init_params) -> cache_values
+        init_fn(init_params) -> (cache_values, collapse_decisions)
     """
-    import numpy as np
-
     mir = module.get_init_mir_instructions()
     metadata = module.get_codegen_metadata()
     cache_info = metadata['cache_info']
@@ -1125,8 +1159,25 @@ def emit_init_lax_loop(module) -> Callable:
 
     output_vars = [ci['init_value'] for ci in cache_info]
     cache_slots = [ci['cache_idx'] for ci in cache_info]
+    n_cache_outputs = len(output_vars)
 
-    ctx, compiled, entry_block_idx = _build_generic_emit_context(mir, output_vars)
+    # Extract collapse decision variables
+    collapse_outputs = list(module.collapse_decision_outputs)
+    collapse_var_names = []
+    collapse_negated = []
+    for _, var_name in collapse_outputs:
+        if var_name.startswith('!'):
+            collapse_var_names.append(var_name[1:])
+            collapse_negated.append(True)
+        else:
+            collapse_var_names.append(var_name)
+            collapse_negated.append(False)
+    n_collapse = len(collapse_var_names)
+
+    # Combine cache and collapse outputs
+    all_output_vars = output_vars + collapse_var_names
+
+    ctx, compiled, entry_block_idx = _build_generic_emit_context(mir, all_output_vars)
     n_instructions = len(compiled)
 
     # Encode instructions as arrays for lax.fori_loop
@@ -1183,9 +1234,10 @@ def emit_init_lax_loop(module) -> Callable:
     n_blocks = ctx.n_blocks
     output_indices = jnp.array(ctx.resist_res_indices, dtype=jnp.int32)
     cache_slots_arr = jnp.array(cache_slots, dtype=jnp.int32)
+    collapse_negated_arr = jnp.array([1.0 if neg else 0.0 for neg in collapse_negated], dtype=jnp.float64)
 
-    def init_fn(init_params: jnp.ndarray) -> jnp.ndarray:
-        """Compute cache values using lax.fori_loop interpreter."""
+    def init_fn(init_params: jnp.ndarray) -> Tuple[jnp.ndarray, jnp.ndarray]:
+        """Compute cache values and collapse decisions using lax.fori_loop interpreter."""
         vals = const_array.copy()
 
         # Load params
@@ -1311,15 +1363,28 @@ def emit_init_lax_loop(module) -> Callable:
 
         vals, _ = lax.fori_loop(0, n_instructions, exec_inst, (vals, block_reached))
 
-        # Extract outputs and place in cache
+        # Extract cache outputs and place in cache array
         cache = jnp.zeros(n_cache)
 
         def fill_cache(i, c):
             return c.at[cache_slots_arr[i]].set(vals[output_indices[i]])
 
-        cache = lax.fori_loop(0, len(cache_slots), fill_cache, cache)
+        cache = lax.fori_loop(0, n_cache_outputs, fill_cache, cache)
 
-        return cache
+        # Extract collapse decisions
+        collapse = jnp.zeros(max(n_collapse, 1))
+
+        def fill_collapse(i, col):
+            out_idx = n_cache_outputs + i
+            val = vals[output_indices[out_idx]]
+            decision = jnp.where(val > 0.5, 1.0, 0.0)
+            # Apply negation (collapse_negated captured from closure)
+            decision = jnp.where(jnp.array(collapse_negated_arr[i]) > 0.5, 1.0 - decision, decision)
+            return col.at[i].set(decision)
+
+        collapse = lax.fori_loop(0, n_collapse, fill_collapse, collapse)
+
+        return cache, collapse
 
     return init_fn
 
@@ -1327,12 +1392,16 @@ def emit_init_lax_loop(module) -> Callable:
 def build_init_fn(module, force_lax_loop: bool = False) -> Tuple[Callable, Dict]:
     """Build JAX init function from module.
 
+    The returned function computes both cache values and collapse decisions.
+
     Args:
         module: openvaf_py VaModule
         force_lax_loop: Force use of lax_loop interpreter
 
     Returns:
-        (init_fn, metadata)
+        (init_fn, metadata) where:
+        - init_fn(params) -> (cache, collapse_decisions)
+        - metadata includes strategy, n_instructions, collapsible_pairs, etc.
     """
     mir = module.get_init_mir_instructions()
     n_instructions = len(mir['instructions'])
@@ -1350,6 +1419,8 @@ def build_init_fn(module, force_lax_loop: bool = False) -> Tuple[Callable, Dict]
     metadata = {
         'strategy': strategy,
         'n_instructions': n_instructions,
+        'collapsible_pairs': list(module.collapsible_pairs),
+        'n_collapsible': len(module.collapsible_pairs),
     }
 
     return init_fn, metadata

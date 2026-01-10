@@ -312,7 +312,7 @@ def test_psp103_jax_emit_basic():
         **NMOS_MODEL_PARAMS,
     }
     init_params = build_init_params_array(module, init_param_values)
-    cache = jit_init(init_params)
+    cache, _ = jit_init(init_params)
 
     assert cache.shape[0] == module.num_cached_values
     # Most cache values should be finite
@@ -358,7 +358,7 @@ def test_psp103_voltage_sweep():
         **NMOS_MODEL_PARAMS,
     }
     init_params = build_init_params_array(module, init_param_values)
-    cache = jit_init(init_params)
+    cache, _ = jit_init(init_params)
 
     # Sweep Vgs at Vds=0.6V
     vds = 0.6
@@ -416,7 +416,7 @@ def main():
         **NMOS_MODEL_PARAMS,
     }
     init_params = build_init_params_array(module, init_param_values)
-    cache = jit_init(init_params)
+    cache, _ = jit_init(init_params)
     print(f"Cache size: {cache.shape[0]}")
     print(f"Finite cache values: {jnp.sum(jnp.isfinite(cache))}/{cache.shape[0]}")
 

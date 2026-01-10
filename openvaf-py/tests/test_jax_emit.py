@@ -292,10 +292,12 @@ class TestEmitInit:
 
         # Init params: r, has_noise, temperature, mfactor, r_given
         init_params = jnp.array([1000.0, 0.0, 300.0, 1.0, 1.0])
-        cache = jit_init(init_params)
+        cache, collapse = jit_init(init_params)
 
         assert cache.shape[0] == resistor_module.num_cached_values
         assert jnp.all(jnp.isfinite(cache))
+        # Collapse array should exist (even if empty for simple models)
+        assert collapse.shape[0] >= 1
 
         # For R=1000, G=1/R=0.001 should be in cache
         assert jnp.any(jnp.abs(cache - 0.001) < 1e-10)
@@ -318,11 +320,13 @@ class TestEmitInit:
             elif kind == 'sysfun':
                 init_params = init_params.at[i].set(1.0)
 
-        cache = jit_init(init_params)
+        cache, collapse = jit_init(init_params)
         assert cache.shape[0] == diode_module.num_cached_values
         # Some cache values may be inf/-inf for edge cases, but most should be finite
         finite_count = jnp.sum(jnp.isfinite(cache))
         assert finite_count > cache.shape[0] // 2
+        # Collapse array should exist
+        assert collapse.shape[0] >= 1
 
 
 class TestFullPipeline:
@@ -340,7 +344,7 @@ class TestFullPipeline:
 
         # Init with R=1000
         init_params = jnp.array([1000.0, 0.0, 300.0, 1.0, 1.0])
-        cache = jit_init(init_params)
+        cache, _ = jit_init(init_params)  # Unpack (cache, collapse)
 
         # Eval with V=1V
         eval_params = jnp.array([1.0, 1000.0, 0.0, 0.0, 300.0, 1.0])
@@ -369,7 +373,7 @@ class TestFullPipeline:
             elif kind == 'sysfun':
                 init_params = init_params.at[i].set(1.0)
 
-        cache = jit_init(init_params)
+        cache, _ = jit_init(init_params)  # Unpack (cache, collapse)
 
         # Eval with forward bias
         n_eval = len(list(diode_module.param_names))

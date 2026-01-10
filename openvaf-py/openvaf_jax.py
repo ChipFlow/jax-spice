@@ -229,85 +229,31 @@ class OpenVAFToJAX:
     def translate_init_array(self) -> Tuple[Callable, Dict]:
         """Generate a vmappable init function.
 
+        Uses jax_emit.build_init_fn to generate a JAX-native init function that
+        properly computes both cache values and collapse decisions.
+
         Returns:
             Tuple of (init_fn, metadata) where:
             - init_fn takes an input array and returns (cache_array, collapse_decisions)
             - metadata contains param_names, param_kinds, cache_size, etc.
         """
-        self._build_init_fn()
+        from jax_emit import build_init_fn
+
+        # Build JAX-native init function using jax_emit
+        jax_init_fn, emit_meta = build_init_fn(self.module)
 
         # Get init param info from module
         init_param_names = list(self.module.init_param_names)
         init_param_kinds = list(self.module.init_param_kinds)
         cache_mapping = list(self._init_mir.get('cache_mapping', []))
-        collapsible_pairs = list(self.module.collapsible_pairs)
+        collapsible_pairs = emit_meta.get('collapsible_pairs', list(self.module.collapsible_pairs))
         collapse_outputs = list(self.module.collapse_decision_outputs)
-
-        # Wrap the Python init_fn to work with arrays
-        python_init_fn = self._init_fn
         n_cache = self._cache_size
-        n_collapse = max(len(collapse_outputs), 1)
+        n_collapse = emit_meta.get('n_collapsible', len(collapsible_pairs))
 
-        # Create a pure callback version for vmap compatibility
-        def _python_init_impl(inputs_np):
-            """Pure Python implementation for callback."""
-            import numpy as np
-
-            # Get dtype from input
-            out_dtype = inputs_np.dtype
-
-            inputs_list = inputs_np.tolist() if hasattr(inputs_np, 'tolist') else list(inputs_np)
-
-            # Build kwargs from input array
-            # Use param_kinds to detect param_given types (add _given suffix)
-            kwargs = {}
-            for i, (name, kind) in enumerate(zip(init_param_names, init_param_kinds)):
-                if i < len(inputs_list):
-                    val = inputs_list[i]
-                    # Handle param_given kind as booleans with _given suffix
-                    if kind == 'param_given':
-                        actual_name = f"{name}_given"
-                        kwargs[actual_name] = val != 0.0
-                    else:
-                        kwargs[name] = val
-
-            # Call Python init
-            cache_list = python_init_fn(**kwargs)
-
-            # Convert to numpy arrays with matching dtype
-            cache = np.array([v if v is not None else 0.0 for v in cache_list], dtype=out_dtype)
-            collapse = np.zeros(n_collapse, dtype=out_dtype)
-
-            return cache, collapse
-
-        def array_init_fn(inputs: jnp.ndarray) -> Tuple[jnp.ndarray, jnp.ndarray]:
-            """Array-based init function (vmap-compatible via pure_callback).
-
-            Args:
-                inputs: Array of init parameters
-
-            Returns:
-                (cache_array, collapse_decisions_array)
-            """
-            # Use the same dtype as inputs for output
-            out_dtype = inputs.dtype
-
-            # Define result shapes for pure_callback
-            result_shape = (
-                jax.ShapeDtypeStruct((n_cache,), out_dtype),
-                jax.ShapeDtypeStruct((n_collapse,), out_dtype),
-            )
-
-            # Use pure_callback to call Python from within JAX tracing
-            # vmap_method='sequential' makes vmap call the function once per batch element
-            cache, collapse = jax.pure_callback(
-                _python_init_impl,
-                result_shape,
-                inputs,
-                vmap_method='sequential',
-            )
-
-            return cache, collapse
+        # jax_emit.build_init_fn returns (cache, collapse_decisions) directly
+        # No need for pure_callback wrapper - it's already JAX-native
+        array_init_fn = jax_init_fn
 
         metadata = {
             'param_names': init_param_names,
@@ -317,6 +263,7 @@ class OpenVAFToJAX:
             'collapsible_pairs': collapsible_pairs,
             'collapse_decision_outputs': collapse_outputs,
             'param_defaults': {},
+            'strategy': emit_meta.get('strategy', 'unknown'),
         }
 
         return array_init_fn, metadata
