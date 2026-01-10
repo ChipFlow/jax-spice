@@ -37,12 +37,14 @@ class TestGF130Compilation:
     def test_has_va_files(self):
         """GF130 PDK contains .va files"""
         gf130_path = PDK_PATHS["gf130"]
+        assert gf130_path is not None, "PDK_GF130_PATH not set"
         va_files = list(gf130_path.glob("**/*.va"))
         assert len(va_files) > 0, "No .va files found in GF130 PDK"
 
     def test_model_count(self):
         """GF130 has expected number of models"""
         gf130_path = PDK_PATHS["gf130"]
+        assert gf130_path is not None, "PDK_GF130_PATH not set"
         va_files = list(gf130_path.glob("**/*.va"))
         # GF130 should have 30+ models
         assert len(va_files) >= 30, f"Expected 30+ models, found {len(va_files)}"
@@ -50,6 +52,7 @@ class TestGF130Compilation:
     def test_all_models_compile(self):
         """GF130 .va files compile to JAX (excluding known failures)"""
         gf130_path = PDK_PATHS["gf130"]
+        assert gf130_path is not None, "PDK_GF130_PATH not set"
         va_files = list(gf130_path.glob("**/*.va"))
 
         results = []
@@ -95,6 +98,7 @@ class TestGF130ModelProperties:
     def sample_model(self) -> CompiledPDKModel:
         """Get a sample compiled GF130 model for testing"""
         gf130_path = PDK_PATHS["gf130"]
+        assert gf130_path is not None, "PDK_GF130_PATH not set"
         # Find first .va file
         va_files = list(gf130_path.glob("**/*.va"))
         if not va_files:
@@ -122,6 +126,7 @@ class TestGF130JAXExecution:
     def compiled_models(self):
         """Compile a few sample GF130 models"""
         gf130_path = PDK_PATHS["gf130"]
+        assert gf130_path is not None, "PDK_GF130_PATH not set"
         va_files = list(gf130_path.glob("**/*.va"))[:5]  # First 5 models
 
         models = []

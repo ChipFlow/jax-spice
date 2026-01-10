@@ -35,3 +35,6 @@ addopts = "-v --tb=short"
 filterwarnings = [
     "ignore::DeprecationWarning",
 ]
+
+[tool.pyright]
+exclude = ["vendor/", ".venv/"]

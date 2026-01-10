@@ -141,7 +141,7 @@ class TestParameterDefaults:
         defaults = module.get_param_defaults()
 
         # VACASK resistor should have 'r' parameter with a default
-        assert "r" in defaults or "R" in defaults.get("r", defaults), f"Expected 'r' param, got {defaults.keys()}"
+        assert "r" in defaults or "R" in defaults, f"Expected 'r' param, got {defaults.keys()}"
 
     def test_diode_has_default_is(self):
         """Test that diode has extractable default Is value."""
