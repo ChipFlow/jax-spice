@@ -34,6 +34,7 @@ class InstructionTranslator:
         'fadd': ast.Add,
         'fsub': ast.Sub,
         'fmul': ast.Mult,
+        'frem': ast.Mod,  # Float remainder
         'iadd': ast.Add,
         'isub': ast.Sub,
         'imul': ast.Mult,
@@ -46,6 +47,8 @@ class InstructionTranslator:
         'iand': ast.BitAnd,
         'ior': ast.BitOr,
         'ixor': ast.BitXor,
+        'ishl': ast.LShift,
+        'ishr': ast.RShift,
     }
 
     # Comparison operators
@@ -64,6 +67,8 @@ class InstructionTranslator:
         'ige': ast.GtE,
         'beq': ast.Eq,
         'bne': ast.NotEq,
+        'seq': ast.Eq,   # String equal
+        'sne': ast.NotEq,  # String not equal
     }
 
     # Unary jnp functions with same name
@@ -160,6 +165,10 @@ class InstructionTranslator:
         if opcode == 'bnot':
             return self._translate_bnot(inst)
 
+        # Integer bitwise not
+        if opcode == 'inot':
+            return self._translate_inot(inst)
+
         # Square root (safe)
         if opcode == 'sqrt':
             return self._translate_sqrt(inst)
@@ -167,6 +176,14 @@ class InstructionTranslator:
         # Natural log (safe)
         if opcode == 'ln':
             return self._translate_ln(inst)
+
+        # Base-10 log
+        if opcode == 'log':
+            return self._translate_log10(inst)
+
+        # Ceiling log base 2
+        if opcode == 'clog2':
+            return self._translate_clog2(inst)
 
         # Unary jnp functions
         if opcode in self.UNARY_JNP_SAME:
@@ -208,8 +225,8 @@ class InstructionTranslator:
         if opcode == 'copy':
             return self._translate_copy(inst)
 
-        # Unknown opcode - return zero as fallback
-        return self.ctx.zero()
+        # Unknown opcode - raise error
+        raise ValueError(f"Unknown opcode: {inst.opcode}")
 
     def _translate_phi(self, inst: MIRInstruction,
                        loop_info=None) -> ast.expr:
@@ -304,6 +321,11 @@ class InstructionTranslator:
         operand = self.ctx.get_operand(inst.operands[0])
         return jnp_call('logical_not', operand)
 
+    def _translate_inot(self, inst: MIRInstruction) -> ast.expr:
+        """Translate integer bitwise NOT."""
+        operand = self.ctx.get_operand(inst.operands[0])
+        return unaryop(ast.Invert(), operand)
+
     def _translate_sqrt(self, inst: MIRInstruction) -> ast.expr:
         """Translate sqrt with safe clamping for negative inputs."""
         operand = self.ctx.get_operand(inst.operands[0])
@@ -318,6 +340,27 @@ class InstructionTranslator:
         small_eps = ast_const(1e-300)
         clamped = jnp_call('maximum', operand, small_eps)
         return jnp_call('log', clamped)
+
+    def _translate_log10(self, inst: MIRInstruction) -> ast.expr:
+        """Translate base-10 log with safe clamping."""
+        operand = self.ctx.get_operand(inst.operands[0])
+        # Clamp to small epsilon to avoid -inf
+        small_eps = ast_const(1e-300)
+        clamped = jnp_call('maximum', operand, small_eps)
+        return jnp_call('log10', clamped)
+
+    def _translate_clog2(self, inst: MIRInstruction) -> ast.expr:
+        """Translate ceiling of log base 2.
+
+        Computes ceil(log2(x)) for integer x.
+        """
+        operand = self.ctx.get_operand(inst.operands[0])
+        # log2(x) = log(x) / log(2)
+        # Then ceil the result
+        small_eps = ast_const(1e-300)
+        clamped = jnp_call('maximum', operand, small_eps)
+        log2_val = jnp_call('log2', clamped)
+        return jnp_call('ceil', log2_val)
 
     def _translate_unary_jnp(self, inst: MIRInstruction,
                               func_name: str) -> ast.expr:
