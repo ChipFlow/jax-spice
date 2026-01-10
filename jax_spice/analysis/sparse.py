@@ -8,6 +8,23 @@ The solver uses jax.experimental.sparse.linalg.spsolve which:
 - Works on GPU via cuSOLVER
 - Provides a unified API across all platforms
 
+NaN/Inf Safety:
+    This module does NOT perform explicit NaN/Inf checking on inputs.
+    Safety is guaranteed by upstream code in the simulation pipeline:
+
+    1. Device models (OpenVAF/Verilog-A) clamp terminal voltages to prevent
+       numerical overflow (e.g., exp(V) for diodes is clamped).
+
+    2. The Jacobian builder in solver.py/transient.py validates that device
+       contributions are finite before assembly.
+
+    3. Newton-Raphson convergence checks in solver.py detect and handle
+       divergence before it propagates to the linear solve.
+
+    This separation of concerns keeps the sparse solver focused on its
+    core responsibility (linear algebra) while upstream components ensure
+    numerical validity.
+
 Note: For CPU-optimized circuit simulation, see VACASK which uses
 native sparse solvers. This module prioritizes code consistency
 across platforms over maximum single-platform performance.
@@ -17,9 +34,10 @@ All sparse operations use JAX's BCOO/BCSR formats for GPU acceleration.
 """
 
 from typing import Tuple, Union
-import numpy as np
+
 import jax
 import jax.numpy as jnp
+import numpy as np
 from jax import Array
 from jax.experimental.sparse.linalg import spsolve as jax_spsolve
 
@@ -89,14 +107,12 @@ def build_csr_arrays(
     # Sort by linear index to group duplicates
     sort_order = jnp.argsort(linear_idx)
     sorted_linear = linear_idx[sort_order]
-    sorted_rows = rows[sort_order]
-    sorted_cols = cols[sort_order]
     sorted_values = values[sort_order]
 
-    # Find unique entries and sum duplicates
-    # Use segment_sum with unique keys
+    # Find unique entries and sum duplicates using segment_sum
     unique_linear, unique_inverse = jnp.unique(sorted_linear, return_inverse=True)
-    summed_values = jax.ops.segment_sum(sorted_values, unique_inverse, num_segments=len(unique_linear))
+    n_unique = len(unique_linear)
+    summed_values = jax.ops.segment_sum(sorted_values, unique_inverse, num_segments=n_unique)
 
     # Get unique row/col indices
     unique_rows = unique_linear // shape[1]
@@ -196,7 +212,6 @@ def sparse_solve_bcoo(
 
 def dense_to_sparse_gpu(
     dense_matrix: Array,
-    threshold: float = 1e-15,
 ) -> "jax.experimental.sparse.BCOO":
     """Convert dense matrix to BCOO sparse format on GPU.
 
@@ -204,7 +219,6 @@ def dense_to_sparse_gpu(
 
     Args:
         dense_matrix: Dense matrix as JAX array
-        threshold: Values below this are treated as zero
 
     Returns:
         BCOO sparse matrix

@@ -14,9 +14,9 @@ Falls back to JAX spsolve if scikit-umfpack is not available.
 
 from typing import Optional, Tuple
 
-import numpy as np
 import jax
 import jax.numpy as jnp
+import numpy as np
 from jax import Array
 from scipy.sparse import csc_matrix
 

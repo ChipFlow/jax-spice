@@ -34,8 +34,9 @@ For JAX profiling, traces can be viewed in:
 
 import functools
 import os
+import threading
 from contextlib import contextmanager
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Callable, Optional, TypeVar, Union
 
@@ -56,9 +57,9 @@ def _env_bool(name: str, default: bool = False) -> bool:
     return default
 
 
-@dataclass
+@dataclass(frozen=True)
 class ProfileConfig:
-    """Configuration for profiling.
+    """Configuration for profiling (immutable for thread safety).
 
     Attributes:
         jax: Enable JAX/XLA profiling (Perfetto/TensorBoard traces)
@@ -80,24 +81,27 @@ class ProfileConfig:
         return self.jax or self.cuda
 
 
-# Global config (can be modified at runtime)
-_global_config = ProfileConfig()
+# Global config with thread-safe access
+_config_lock = threading.Lock()
+_global_config: ProfileConfig = ProfileConfig()
 
 
 def get_config() -> ProfileConfig:
-    """Get the global profiling configuration."""
-    return _global_config
+    """Get the global profiling configuration (thread-safe)."""
+    with _config_lock:
+        return _global_config
 
 
 def set_config(config: ProfileConfig) -> None:
-    """Set the global profiling configuration."""
+    """Set the global profiling configuration (thread-safe)."""
     global _global_config
-    _global_config = config
+    with _config_lock:
+        _global_config = config
 
 
 def enable_profiling(jax: bool = True, cuda: bool = True,
                      trace_dir: Optional[str] = None) -> None:
-    """Enable profiling globally.
+    """Enable profiling globally (thread-safe).
 
     Args:
         jax: Enable JAX/XLA profiling
@@ -105,17 +109,20 @@ def enable_profiling(jax: bool = True, cuda: bool = True,
         trace_dir: Directory for trace output
     """
     global _global_config
-    _global_config.jax = jax
-    _global_config.cuda = cuda
-    if trace_dir:
-        _global_config.trace_dir = trace_dir
+    with _config_lock:
+        _global_config = replace(
+            _global_config,
+            jax=jax,
+            cuda=cuda,
+            trace_dir=trace_dir if trace_dir else _global_config.trace_dir
+        )
 
 
 def disable_profiling() -> None:
-    """Disable all profiling globally."""
+    """Disable all profiling globally (thread-safe)."""
     global _global_config
-    _global_config.jax = False
-    _global_config.cuda = False
+    with _config_lock:
+        _global_config = replace(_global_config, jax=False, cuda=False)
 
 
 # CUDA profiler API (optional dependency)

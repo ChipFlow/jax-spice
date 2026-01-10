@@ -137,7 +137,7 @@ _evaluator = EvalWithCompoundTypes(functions=SAFE_FUNCTIONS)
 
 def safe_eval_expr(
     expr: str, params: Dict[str, float], default: float = 0.0
-) -> Union[float, str]:
+) -> float:
     """Safely evaluate a SPICE parameter expression.
 
     Supports:

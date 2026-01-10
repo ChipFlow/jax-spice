@@ -16,7 +16,7 @@ class OutputMixin:
             if v[0]=="{":
                 v = v[1:-1]
             npairs.append((n, v))
-        
+
         return parts[0]+" "+(" ".join([ p+"="+v for p, v in npairs ]))
 
     def vacask_file(self):
@@ -49,7 +49,7 @@ class OutputMixin:
                 else:
                     if "signature" in self.cfg:
                         out.append(self.cfg["signature"])
-            
+
             # Handle various lines
             if len(l)==0:
                 # Empty line
@@ -60,14 +60,14 @@ class OutputMixin:
             elif pat_cidotmodel.match(l):
                 # Model, output if it is used or output is forced
                 if (
-                    self.cfg.get("all_models", False) or 
+                    self.cfg.get("all_models", False) or
                     len(self.data["model_usage"].get((annot["name"], in_sub), set()))>0
                 ):
                     out.append(self.process_model(lws, l, eolc, annot, in_sub))
             elif pat_cidotinclude.match(l):
                 # Include
                 if target_depth is None or depth<target_depth:
-                    # Not at the deepest level yet, 
+                    # Not at the deepest level yet,
                     # output a comment containing original .include
                     out.append(lws+"// "+l)
                 else:
@@ -82,7 +82,7 @@ class OutputMixin:
                 else:
                     # Library section include
                     if target_depth is None or depth<target_depth:
-                        # Not at the deepest level yet, 
+                        # Not at the deepest level yet,
                         # output a comment containing original .lib
                         out.append(lws+"// "+l)
                     else:
@@ -96,15 +96,15 @@ class OutputMixin:
                 name = l.split(" ", 2)[1]
                 in_sub = name
                 orig_name = annot["origline"].split(" ", 2)[1]
-                
+
                 if self.cfg.get("original_case_subckt", False):
                     output_name = orig_name
                 else:
                     output_name = name
-                
+
                 if self.debug>0:
                     print((" "*self.dbgindent)+"toplevel subckt:", output_name)
-                
+
                 terminals, params = self.data["subckts"][name]
                 vcline = lws+"subckt "+output_name+"("
                 vcline += " ".join(terminals)
@@ -138,7 +138,7 @@ class OutputMixin:
                 txt = l.replace(".endif", "@end")
                 out.append(lws+txt)
             elif pat_cidotend.match(l):
-                # Done. 
+                # Done.
                 break
             else:
                 # Instance
@@ -151,28 +151,28 @@ class OutputMixin:
                     except ConverterError as e:
                         raise ConverterError(str(e), history, lnum)
                     out.append(txt)
-        
+
         if self.data["is_toplevel"]:
-            # Dump load statements and default models. 
+            # Dump load statements and default models.
             # This will happen only in the toplevel
             m = self.load_statements()
             if len(m)>0:
                 out.append("")
                 out.append("// Modules")
                 out.extend(m)
-            
+
             m = self.default_models()
             if len(m)>0:
                 out.append("")
                 out.append("// Default models")
                 out.extend(m)
-        
+
         return out
-                
 
 
 
-            
 
-            
+
+
+
 

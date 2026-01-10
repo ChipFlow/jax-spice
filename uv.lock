@@ -496,7 +496,7 @@ requires-dist = [
     { name = "klujax", specifier = ">=0.4.3" },
     { name = "matplotlib", specifier = ">=3.7.0" },
     { name = "numpy", specifier = ">=1.24.0" },
-    { name = "openvaf-py", editable = "openvaf-py" },
+    { name = "openvaf-py", editable = "openvaf_jax/openvaf_py" },
     { name = "pyright", marker = "extra == 'dev'" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=7.4.0" },
     { name = "pytest", marker = "extra == 'test'", specifier = ">=7.4.0" },
@@ -1094,7 +1094,7 @@ wheels = [
 [[package]]
 name = "openvaf-py"
 version = "0.1.0"
-source = { editable = "openvaf-py" }
+source = { editable = "openvaf_jax/openvaf_py" }
 
 [package.dev-dependencies]
 dev = [

@@ -10,16 +10,16 @@ class InstanceNMixin:
         parts = annot["words"]
         mod_index = annot["mod_index"]
         model = annot["mod_name"]
-        
+
         if model is None:
             raise ConverterError(line+"\nModel not found.")
-        
+
         terminals = self.process_terminals(parts[:mod_index])
         params = parts[(mod_index+1):]
-        
+
         # Process parameters
         psplit = self.process_instance_params(params, "n", handle_m=True)
-        
+
         txt = lws + annot["output_name"] + " (" + (" ".join(terminals))+") "+annot["output_mod_name"]+" "
 
         if len(psplit)>0:
@@ -30,5 +30,5 @@ class InstanceNMixin:
                 txt += "\n" + lws + ")"
             else:
                 txt += " " + fmted
-        
+
         return txt

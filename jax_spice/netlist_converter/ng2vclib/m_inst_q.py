@@ -12,7 +12,7 @@ class InstanceQMixin:
         parts = annot["words"]
         mod_index = annot["mod_index"]
         model = annot["mod_name"]
-        
+
         terminals = self.process_terminals(parts[:mod_index])
 
         if model is None:
@@ -26,10 +26,10 @@ class InstanceQMixin:
             else:
                 # Don't know how to handle
                 raise ConverterError("Cannot handle model at position "+str(mod_index+1)+".")
-        
+
         # Process parameters
         psplit = self.process_instance_params(params, "q", handle_m=True)
-        
+
         txt = lws + annot["output_name"] + " (" + (" ".join(terminals))+") "+annot["output_mod_name"]+" "
 
         if len(psplit)>0:
@@ -40,5 +40,5 @@ class InstanceQMixin:
                 txt += "\n" + lws + ")"
             else:
                 txt += fmted
-        
+
         return txt

@@ -4,20 +4,55 @@ Provides DC operating point, transient, and AC (small-signal) analysis
 using OpenVAF-compiled devices.
 """
 
-from jax_spice.analysis.context import AnalysisContext
-from jax_spice.analysis.engine import CircuitEngine, TransientResult
-from jax_spice.analysis.mna import DeviceInfo, DeviceType, eval_param_simple
-from jax_spice.analysis.transient import (
-    TransientStrategy,
-    TransientSetup,
-    PythonLoopStrategy,
-    ScanStrategy,
+from jax_spice.analysis.ac import (
+    ACConfig,
+    ACResult,
+    generate_frequencies,
+    run_ac_analysis,
 )
-from jax_spice.analysis.sparse import sparse_solve, sparse_solve_csr
+from jax_spice.analysis.context import AnalysisContext
+from jax_spice.analysis.corners import (
+    PROCESS_CORNERS,
+    TEMPERATURE_CORNERS,
+    CornerConfig,
+    CornerResult,
+    CornerSweepResult,
+    ProcessCorner,
+    VoltageCorner,
+    create_pvt_corners,
+    create_standard_corners,
+)
+from jax_spice.analysis.engine import CircuitEngine, TransientResult
 from jax_spice.analysis.gpu_backend import (
-    select_backend,
-    is_gpu_available,
     BackendConfig,
+    is_gpu_available,
+    select_backend,
+)
+from jax_spice.analysis.hb import (
+    HBConfig,
+    HBResult,
+    build_apft_matrices,
+    build_collocation_points,
+    build_frequency_grid,
+    run_hb_analysis,
+)
+from jax_spice.analysis.homotopy import (
+    HomotopyConfig,
+    HomotopyResult,
+    gmin_stepping,
+    run_homotopy_chain,
+    source_stepping,
+)
+from jax_spice.analysis.mna import DeviceInfo, DeviceType, eval_param_simple
+from jax_spice.analysis.noise import (
+    NoiseConfig,
+    NoiseResult,
+    NoiseSource,
+    compute_flicker_noise_psd,
+    compute_shot_noise_psd,
+    compute_thermal_noise_psd,
+    extract_noise_sources,
+    run_noise_analysis,
 )
 from jax_spice.analysis.solver import (
     NRConfig,
@@ -25,62 +60,27 @@ from jax_spice.analysis.solver import (
     newton_solve,
     newton_solve_with_system,
 )
-from jax_spice.analysis.homotopy import (
-    HomotopyConfig,
-    HomotopyResult,
-    run_homotopy_chain,
-    gmin_stepping,
-    source_stepping,
-)
-from jax_spice.analysis.ac import (
-    ACConfig,
-    ACResult,
-    generate_frequencies,
-    run_ac_analysis,
+from jax_spice.analysis.sparse import sparse_solve, sparse_solve_csr
+from jax_spice.analysis.transient import (
+    PythonLoopStrategy,
+    ScanStrategy,
+    TransientSetup,
+    TransientStrategy,
 )
 from jax_spice.analysis.xfer import (
-    # DCINC
-    DCIncConfig,
-    DCIncResult,
-    solve_dcinc,
-    build_dcinc_excitation,
-    # DCXF
-    DCXFConfig,
-    DCXFResult,
-    solve_dcxf,
     # ACXF
     ACXFConfig,
     ACXFResult,
+    # DCINC
+    DCIncConfig,
+    DCIncResult,
+    # DCXF
+    DCXFConfig,
+    DCXFResult,
+    build_dcinc_excitation,
     solve_acxf,
-)
-from jax_spice.analysis.noise import (
-    NoiseConfig,
-    NoiseResult,
-    NoiseSource,
-    run_noise_analysis,
-    extract_noise_sources,
-    compute_thermal_noise_psd,
-    compute_shot_noise_psd,
-    compute_flicker_noise_psd,
-)
-from jax_spice.analysis.hb import (
-    HBConfig,
-    HBResult,
-    build_frequency_grid,
-    build_collocation_points,
-    build_apft_matrices,
-    run_hb_analysis,
-)
-from jax_spice.analysis.corners import (
-    ProcessCorner,
-    VoltageCorner,
-    CornerConfig,
-    CornerResult,
-    CornerSweepResult,
-    PROCESS_CORNERS,
-    TEMPERATURE_CORNERS,
-    create_standard_corners,
-    create_pvt_corners,
+    solve_dcinc,
+    solve_dcxf,
 )
 
 __all__ = [

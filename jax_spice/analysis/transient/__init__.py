@@ -27,7 +27,7 @@ Strategy Usage:
 """
 
 # Strategy classes for OpenVAF-based transient
-from .base import TransientStrategy, TransientSetup
+from .base import TransientSetup, TransientStrategy
 from .python_loop import PythonLoopStrategy
 from .scan import ScanStrategy
 

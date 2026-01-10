@@ -14,7 +14,7 @@ class InstancePassiveMixin:
         parts = annot["words"]
         mod_index = annot["mod_index"]
         model = annot["mod_name"]
-        
+
         terminals = self.process_terminals(parts[:2])
 
         if model is None:
@@ -35,7 +35,7 @@ class InstancePassiveMixin:
 
                 # No parameter assignments yet
                 psplit = []
-            
+
         else:
             # Have model
             if mod_index==2:
@@ -65,7 +65,7 @@ class InstancePassiveMixin:
                 txt += "\n" + lws + ")"
             else:
                 txt += " " + fmted
-        
+
         return txt
 
     def process_instance_c(self, lws, line, eol, annot, in_sub):
@@ -82,7 +82,7 @@ class InstancePassiveMixin:
         parts = annot["words"]
         mod_index = annot["mod_index"]
         model = annot["mod_name"]
-        
+
         terminals = self.process_terminals(parts[:2])
 
         if model is None:
@@ -132,7 +132,7 @@ class InstancePassiveMixin:
                 txt += "\n" + lws + ")"
             else:
                 txt += " " + fmted
-        
+
         return txt
 
     def process_instance_l(self, lws, line, eol, annot, in_sub):
@@ -149,7 +149,7 @@ class InstancePassiveMixin:
         parts = annot["words"]
         mod_index = annot["mod_index"]
         model = annot["mod_name"]
-        
+
         terminals = self.process_terminals(parts[:2])
 
         if model is None:
@@ -191,5 +191,5 @@ class InstancePassiveMixin:
                 txt += "\n" + lws + ")"
             else:
                 txt += " " + fmted
-        
+
         return txt

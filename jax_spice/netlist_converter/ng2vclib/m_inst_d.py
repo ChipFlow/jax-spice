@@ -12,7 +12,7 @@ class InstanceDMixin:
         parts = annot["words"]
         mod_index = annot["mod_index"]
         model = annot["mod_name"]
-        
+
         terminals = self.process_terminals(parts[:2])
 
         if model is None:
@@ -27,10 +27,10 @@ class InstanceDMixin:
             else:
                 # Don't know how to handle
                 raise ConverterError("Cannot handle model at position "+str(mod_index+1)+".")
-        
+
         # Process parameters
         psplit = self.process_instance_params(params, "d", handle_m=True)
-        
+
         txt = lws + annot["output_name"] + " (" + (" ".join(terminals))+") "+annot["output_mod_name"]+" "
 
         if len(psplit)>0:
@@ -41,5 +41,5 @@ class InstanceDMixin:
                 txt += "\n" + lws + ")"
             else:
                 txt += " " + fmted
-        
+
         return txt

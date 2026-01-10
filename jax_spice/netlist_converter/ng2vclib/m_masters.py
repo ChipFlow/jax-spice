@@ -5,7 +5,6 @@
 import re
 
 from ..spiceparser.params import sanitize_identifier as _sanitize_identifier
-
 from .exc import ConverterError
 from .generators import traverse
 from .patterns import *
@@ -40,8 +39,8 @@ class MastersMixin:
         """
         parts = line.split()
         orig_parts = orig_line.split()
-        
-        # Is it a subcircuit instance? 
+
+        # Is it a subcircuit instance?
         name = parts[0]
         issubinst = name[0]=="x"
 
@@ -80,14 +79,14 @@ class MastersMixin:
                         self.data["model_usage"][key] = set()
                     self.data["model_usage"][key].add(in_sub)
                     break
-        
+
         # No parameters found for a subcircuit instance
         if issubinst and mod_index is None:
             # Last word is the subcircuit definition name
             mod_index = len(parts)-1
 
         return parts, orig_parts, mod_index
-    
+
     def preprocess_instance(self, lnum, lws, line, eol, annot, in_sub):
         """
         First stage of instance procesing. 
@@ -108,7 +107,7 @@ class MastersMixin:
         orig_parts = orig_parts[1:]
         if mod_index is not None:
             mod_index -= 1
-        
+
         # Replace [] with _ in name and orignal name
         name = name.replace("[", "_")
         name = name.replace("]", "_")
@@ -164,7 +163,7 @@ class MastersMixin:
 
                 if isinstance(eolc, tuple):
                     # If eolc is a tuple this is an .include/.lib line
-                    # We do not process those. 
+                    # We do not process those.
                     continue
                 elif l.startswith("*"):
                     # Comment
@@ -203,7 +202,7 @@ class MastersMixin:
                         name = parts[1]
                         mtype = parts[2]
                         params = parts[3:]
-                        
+
                         annot["name"] = name
 
                         # Split params into name-value pairs
@@ -221,7 +220,7 @@ class MastersMixin:
                             # Builtins needs special handling
                             builtin = True
                             extra_params, family, remove_level, remove_version = self.cfg["type_map"][mtype]
-                            
+
                             # Collect level and version and remove them if requested
                             pnew = []
                             for pname, pval in params:
@@ -235,7 +234,7 @@ class MastersMixin:
                                         continue
                                 else:
                                     pnew.append((pname, pval))
-                            
+
                             params = pnew
 
                         # Add to list of models
@@ -253,8 +252,8 @@ class MastersMixin:
                         except ConverterError as e:
                             raise ConverterError(str(e), history, lnum)
 
-            
 
 
 
-                
+
+

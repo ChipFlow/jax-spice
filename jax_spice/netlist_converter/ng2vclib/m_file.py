@@ -20,7 +20,7 @@ def remove_paired_parentheses_spaces(l):
                 inner = l[start:i].replace(" ", "")
                 result += inner + char
             continue
-        
+
         if len(stack)==0:
             result += char
             continue
@@ -77,13 +77,13 @@ class FileLoaderMixin:
         """
         if os.path.isfile(filename):
             return filename
-        
+
         if not os.path.isabs(filename):
             for p in self.cfg["sourcepath"]:
                 full_path = os.path.join(p, filename)
                 if os.path.isfile(full_path):
                     return full_path
-        
+
         return None
 
     def read_file(self, filename, section=None, depth=0, inside_control=False):
@@ -138,10 +138,10 @@ class FileLoaderMixin:
                 lines = [line.rstrip('\r\n') for line in file]
         except (OSError, IOError, UnicodeDecodeError) as e:
             raise ConverterError(f"Failed to open {fp}: {e}")
-        
+
         # Canonical path
         fp = os.path.realpath(fp)
-        
+
         # Check if it needs patching
         for patchfile, pl in self.cfg.get("patch", {}).items():
             if fp.endswith(patchfile):
@@ -153,15 +153,15 @@ class FileLoaderMixin:
                             line = pchange
                     nlines.append(line)
                 lines = nlines
-        
+
         # Extract title
         if depth==0:
             self.data["title"] = lines[0]
 
         # Split into leading spaces, core, and trailing eol comment
-        # Merge lines that start with continuation character. 
-        # Line comments between merged lines are dropped. 
-        # End of line comment on a line to which a line is merged are dropped. 
+        # Merge lines that start with continuation character.
+        # Line comments between merged lines are dropped.
+        # End of line comment on a line to which a line is merged are dropped.
         nlines = []
         comments = []
         is_toplevel = False
@@ -172,7 +172,7 @@ class FileLoaderMixin:
                 if collect:
                     comments.append((lnum, "", l, "", {}))
                 continue
-            
+
             # Separate leading whitespace
             match = pat_leadspace.search(l)
             if match:
@@ -186,7 +186,7 @@ class FileLoaderMixin:
                 if collect:
                     comments.append((lnum, lws, l, "", {}))
                 continue
-            
+
             # Is it a .lib or .include line
             # Look for match at beginning of string (match())
             # Leading whitespace has been removed
@@ -196,7 +196,7 @@ class FileLoaderMixin:
             isendl = pat_cidotendl.match(l)
             iscontrol = pat_cidotcontrol.match(l)
             isendc = pat_cidotendc.match(l)
-            
+
             if islib:
                 # Check for lib section start
                 # Convert sequences of whitespace to single spaces, strip, and split
@@ -218,8 +218,8 @@ class FileLoaderMixin:
                         # Stray .lib section marker, probably included a .lib file
                         # Error
                         raise ConverterError(filename+", line "+str(lnum+1)+": stray section marker.")
-                    else: 
-                        # Not looking for section, depth is 0 
+                    else:
+                        # Not looking for section, depth is 0
                         # Store section marker (will do it later)
                         pass
             elif isendl:
@@ -235,7 +235,7 @@ class FileLoaderMixin:
                     # Stray .endl, error
                     raise ConverterError(filename+", line "+str(lnum+1)+": stray end of section marker.")
                 else:
-                    # Not looking for section, depth is 0 
+                    # Not looking for section, depth is 0
                     # Store section marker (will do it later)
                     pass
             elif iscontrol:
@@ -244,11 +244,11 @@ class FileLoaderMixin:
             elif isendc:
                 # End of control block
                 inside_control = False
-            
+
             # Not in collect mode, continue
             if not collect:
                 continue
-            
+
             # Assume no eol comment
             eolc = ""
 
@@ -259,7 +259,7 @@ class FileLoaderMixin:
                 s = l[8:].strip()
                 # Unquote
                 if (
-                    s.startswith("'") and s.endswith("'") or 
+                    s.startswith("'") and s.endswith("'") or
                     s.startswith('"') and s.endswith('"')
                 ):
                     s = s[1:-1]
@@ -272,7 +272,7 @@ class FileLoaderMixin:
                     # Not going further, just store extracted filename
                     eolc = (s, None, None)
             elif islib:
-                # Handle .lib recursive read and .lib marker                
+                # Handle .lib recursive read and .lib marker
                 if libmarker is not None:
                     # This is a section marker, store its data
                     eolc = (None, libmarker, None)
@@ -292,7 +292,7 @@ class FileLoaderMixin:
                     lfname = s[:sndx].strip()
                     # Unquote
                     if (
-                        lfname.startswith("'") and lfname.endswith("'") or 
+                        lfname.startswith("'") and lfname.endswith("'") or
                         lfname.startswith('"') and lfname.endswith('"')
                     ):
                         lfname = lfname[1:-1]
@@ -313,7 +313,7 @@ class FileLoaderMixin:
                 if match:
                     eolc = "//"+l[match.start():]
                     l = l[:match.start()]
-            
+
             # Conclude processing
             # Convert to lowercase every non-comment outside control block
             if len(l)==0:
@@ -342,11 +342,11 @@ class FileLoaderMixin:
                 if collect:
                     # Convert to lowercase if outside control block
                     nlines.append((lnum, lws, l, eolc, { "isnl": not inside_control }))
-        
+
         # Flush trailing comments
         nlines.extend(comments)
 
-        # Go through all lines, preprocess lines outside control block 
+        # Go through all lines, preprocess lines outside control block
         lines = []
         for lnum, lws, line, eolc, data in nlines:
             if data.get("isnl", False):
@@ -364,10 +364,10 @@ class FileLoaderMixin:
                 line = line.lower()
 
             lines.append((lnum, lws, line, eolc, data))
-        
-        # Lines is now a list of tuples of the form 
+
+        # Lines is now a list of tuples of the form
         # (line number, leading whitespace, core line, trailing eol comment, extra data)
-        
+
         if depth>0:
             return (inside_control, (filename, section, lines), fp)
         else:
@@ -375,4 +375,3 @@ class FileLoaderMixin:
                 raise ConverterError("Unterminated control block found.")
 
             return (inside_control, (filename, section, lines), fp)
-        

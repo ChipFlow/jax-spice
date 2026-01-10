@@ -26,14 +26,14 @@ For production benchmarks and normal simulation, use:
 """
 
 import time as time_module
-from typing import Any, Dict, List, Tuple
+from typing import Dict, List, Tuple
 
 import jax
 import jax.numpy as jnp
 
-from .base import TransientStrategy
 from jax_spice._logging import logger
 
+from .base import TransientStrategy
 
 # Newton-Raphson solver constants
 MAX_NR_ITERATIONS = 100

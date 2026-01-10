@@ -21,9 +21,7 @@ Usage:
 import functools
 import logging
 from collections import defaultdict
-from typing import Any, Callable, Dict, List, Optional, Tuple
-import jax
-import jax.numpy as jnp
+from typing import Any, Callable, Dict, List, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -88,8 +86,8 @@ def trace_monitor(
                 )
                 if seen_before and warn_on_retrace:
                     logger.warning(
-                        f"  Same shape signature seen before - "
-                        f"possible unnecessary retrace!"
+                        "  Same shape signature seen before - "
+                        "possible unnecessary retrace!"
                     )
 
             return fn(*args, **kwargs)

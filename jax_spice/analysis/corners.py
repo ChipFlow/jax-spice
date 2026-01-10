@@ -32,6 +32,8 @@ Example usage:
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
+from jax_spice.config import DEFAULT_TEMPERATURE_K
+
 
 @dataclass
 class ProcessCorner:
@@ -90,7 +92,7 @@ class CornerConfig:
     name: str
     process: Optional[ProcessCorner] = None
     voltage: Optional[VoltageCorner] = None
-    temperature: float = 300.15  # 27°C
+    temperature: float = DEFAULT_TEMPERATURE_K  # 27°C
 
 
 @dataclass
@@ -217,7 +219,7 @@ def create_standard_corners(
     if processes is None:
         processes = ['TT']
     if temperatures is None:
-        temperatures = [300.15]
+        temperatures = [DEFAULT_TEMPERATURE_K]
     if vdd_scales is None:
         vdd_scales = [1.0]
 

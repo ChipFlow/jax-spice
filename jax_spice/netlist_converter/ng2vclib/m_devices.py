@@ -4,7 +4,7 @@ class DevicesMixin:
         """
         Generate load statements. 
         """
-        # Scan all used models, collect osdi files. 
+        # Scan all used models, collect osdi files.
         files = []
         for (name, in_sub), in_sub_use_set in self.data["model_usage"].items():
             # Look up model definition
@@ -12,14 +12,14 @@ class DevicesMixin:
             if builtin:
                 # Look up family
                 file, module, _ = self.cfg["family_map"][family, level, version]
-                # Add load 
+                # Add load
                 files.append(file)
-        
+
         # Add pre_osdi loaded files
         for osdi_file in self.data["osdi_loads"]:
             files.append(osdi_file)
-        
-        # Add default models. 
+
+        # Add default models.
         for inst_letter in self.data["default_models_needed"]:
             file, module = self.cfg["default_models"][inst_letter]
             # Add load

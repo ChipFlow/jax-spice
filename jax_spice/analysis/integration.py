@@ -17,7 +17,7 @@ Where:
 from dataclasses import dataclass
 from enum import Enum
 from typing import NamedTuple
-import jax.numpy as jnp
+
 from jax import Array
 
 

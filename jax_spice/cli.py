@@ -12,7 +12,7 @@ import argparse
 import logging
 import sys
 from pathlib import Path
-from typing import Optional, List
+from typing import List, Optional
 
 import jax
 
@@ -169,7 +169,7 @@ def _write_output(result, output_path: Path, fmt: str) -> None:
         write_csv(result, output_path)
     elif fmt == 'json':
         import json
-        import numpy as np
+
         data = {
             'times': result.times.tolist() if hasattr(result, 'times') else [],
             'voltages': {k: v.tolist() for k, v in result.voltages.items()},

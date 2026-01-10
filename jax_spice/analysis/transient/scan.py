@@ -27,13 +27,14 @@ Use this strategy when:
 """
 
 import time as time_module
-from typing import Any, Callable, Dict, List, Tuple, Optional
+from typing import Callable, Dict, Optional, Tuple
 
 import jax
 import jax.numpy as jnp
 
-from .base import TransientStrategy
 from jax_spice._logging import logger
+
+from .base import TransientStrategy
 
 
 class ScanStrategy(TransientStrategy):

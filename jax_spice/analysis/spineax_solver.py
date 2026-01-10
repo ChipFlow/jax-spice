@@ -12,11 +12,9 @@ Requires: spineax package (GPU only, Linux)
 Falls back to JAX spsolve if spineax is not available.
 """
 
-from typing import Optional, Tuple
 import logging
+from typing import Optional, Tuple
 
-import jax
-import jax.numpy as jnp
 from jax import Array
 
 logger = logging.getLogger(__name__)

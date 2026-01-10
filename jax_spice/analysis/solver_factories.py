@@ -16,8 +16,8 @@ from typing import Callable, Dict, Optional
 
 import jax
 import jax.numpy as jnp
-from jax import lax, Array
 import numpy as np
+from jax import Array, lax
 
 from jax_spice._logging import logger
 
@@ -516,6 +516,7 @@ def make_umfpack_solver(
         JIT-compiled UMFPACK solver function
     """
     from jax.experimental.sparse import BCSR
+
     from jax_spice.analysis.umfpack_solver import UMFPACKSolver
 
     n_unknowns = n_nodes - 1

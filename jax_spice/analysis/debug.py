@@ -13,12 +13,12 @@ parameter flow:
 """
 
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 if TYPE_CHECKING:
-    from jax_spice.netlist.circuit import Circuit, PrintDirective
     from jax_spice.analysis.engine import CircuitEngine
+    from jax_spice.netlist.circuit import Circuit, PrintDirective
 
 logger = logging.getLogger(__name__)
 
@@ -66,7 +66,7 @@ class ParamTrace:
         if self.in_instance:
             lines.append(f"  [Instance] {self.param_name} = {self.instance_value}")
         else:
-            lines.append(f"  [Instance] (not set)")
+            lines.append("  [Instance] (not set)")
 
         # Layer 2
         if self.in_model:
@@ -78,13 +78,13 @@ class ParamTrace:
         if self.param_kind:
             lines.append(f"  [OpenVAF] kind={self.param_kind}, index={self.param_index}")
         else:
-            lines.append(f"  [OpenVAF] (not mapped)")
+            lines.append("  [OpenVAF] (not mapped)")
 
         # Layer 4
         if self.final_value is not None:
             lines.append(f"  [Final] value={self.final_value} (from {self.source})")
         else:
-            lines.append(f"  [Final] (no value)")
+            lines.append("  [Final] (no value)")
 
         return "\n".join(lines)
 
@@ -425,11 +425,11 @@ def format_param_trace(
         lines.append(f"  Unmapped: {len(coverage['unmapped'])}")
 
         if coverage['unmapped']:
-            lines.append(f"\nUnmapped parameters:")
+            lines.append("\nUnmapped parameters:")
             for p in coverage['unmapped']:
                 lines.append(f"  - {p}")
 
-        lines.append(f"\nAll parameters:")
+        lines.append("\nAll parameters:")
         for trace in traces:
             status = "✓" if trace.param_kind else "✗"
             value = trace.final_value if trace.final_value is not None else trace.instance_value or trace.model_value
@@ -524,7 +524,7 @@ def format_models(circuit: "Circuit") -> str:
         lines.append(f"\n{name}:")
         lines.append(f"  Module: {model.module}")
         if model.params:
-            lines.append(f"  Parameters:")
+            lines.append("  Parameters:")
             for k, v in sorted(model.params.items()):
                 lines.append(f"    {k} = {v}")
 
@@ -582,7 +582,7 @@ def format_instance(
                     break
 
         if not found:
-            lines.append(f"  (not found)")
+            lines.append("  (not found)")
 
     return "\n".join(lines)
 

@@ -6,7 +6,7 @@ for running transient analysis with OpenVAF-compiled devices.
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Tuple, Optional
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple
 
 import jax
 import jax.numpy as jnp

@@ -77,12 +77,12 @@ from jax_spice.analysis import CircuitEngine, TransientResult
 
 # Profiling utilities (lazy import to avoid loading unless needed)
 from jax_spice.profiling import (
-    profile,
-    profile_section,
-    enable_profiling,
-    disable_profiling,
     ProfileConfig,
     ProfileTimer,
+    disable_profiling,
+    enable_profiling,
+    profile,
+    profile_section,
 )
 
 __all__ = [

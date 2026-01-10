@@ -41,7 +41,7 @@ jobs:
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
         with:
-          workspaces: openvaf-py
+          workspaces: openvaf_jax/openvaf_py
 
       - name: Install uv
         uses: astral-sh/setup-uv@v4
@@ -50,13 +50,13 @@ jobs:
         run: uv python install 3.10
 
       - name: Build and install openvaf-py
-        working-directory: openvaf-py
+        working-directory: openvaf_jax/openvaf_py
         run: |
           uv sync
           uv run maturin develop --release
 
       - name: Run tests
-        working-directory: openvaf-py
+        working-directory: openvaf_jax/openvaf_py
         timeout-minutes: 30
         run: uv run pytest tests/ -v --tb=short --durations=20 --log-cli-level=INFO
 
@@ -86,7 +86,7 @@ jobs:
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
         with:
-          workspaces: openvaf-py
+          workspaces: openvaf_jax/openvaf_py
 
       - name: Install system dependencies
         run: |
@@ -100,7 +100,7 @@ jobs:
         run: uv python install 3.11
 
       - name: Build openvaf-py
-        working-directory: openvaf-py
+        working-directory: openvaf_jax/openvaf_py
         run: |
           uv sync
           uv run maturin develop --release
@@ -148,7 +148,7 @@ jobs:
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
         with:
-          workspaces: openvaf-py
+          workspaces: openvaf_jax/openvaf_py
 
       - name: Install system dependencies
         run: |
@@ -162,7 +162,7 @@ jobs:
         run: uv python install 3.11
 
       - name: Build openvaf-py
-        working-directory: openvaf-py
+        working-directory: openvaf_jax/openvaf_py
         run: |
           uv sync
           uv run maturin develop --release
@@ -226,7 +226,7 @@ jobs:
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
         with:
-          workspaces: openvaf-py
+          workspaces: openvaf_jax/openvaf_py
 
       - name: Install system dependencies
         run: |
@@ -240,7 +240,7 @@ jobs:
         run: uv python install 3.11
 
       - name: Build openvaf-py
-        working-directory: openvaf-py
+        working-directory: openvaf_jax/openvaf_py
         run: |
           uv sync
           uv run maturin develop --release

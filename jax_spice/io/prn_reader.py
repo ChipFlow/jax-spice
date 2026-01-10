@@ -7,9 +7,9 @@ Xyce outputs simulation results in PRN (print) format:
 - Last line may contain "End of Xyce(TM) Simulation"
 """
 
+import re
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
-import re
 
 import jax.numpy as jnp
 from jax import Array

@@ -17,40 +17,50 @@ import sys
 import warnings
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Dict, List, Tuple, Any, Optional, Union
+from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 import jax
 import jax.numpy as jnp
-from jax import lax, Array
 import numpy as np
+from jax import Array
 
 # Suppress scipy's MatrixRankWarning from spsolve - this is expected for circuits
 # with floating internal nodes (e.g., PSP103 NOI nodes). The QR solver handles
 # near-singular matrices gracefully and produces correct results.
 from scipy.sparse.linalg import MatrixRankWarning
+
 warnings.filterwarnings('ignore', category=MatrixRankWarning)
 
-from jax_spice.netlist.parser import VACASKParser
-from jax_spice.netlist.circuit import Instance
-from jax_spice.analysis.mna import DeviceInfo
-from jax_spice.analysis.homotopy import (
-    HomotopyConfig, HomotopyResult, run_homotopy_chain, gmin_stepping, source_stepping
-)
-from jax_spice.analysis.solver_factories import (
-    make_dense_solver, make_sparse_solver, make_spineax_solver, make_umfpack_solver
-)
 # Note: solver.py contains standalone NR solvers (newton_solve) used by tests
 # The engine uses its own nr_solve with analytic jacobians from OpenVAF
 from jax_spice._logging import logger
-from jax_spice.profiling import profile, profile_section, ProfileConfig
+from jax_spice.analysis.homotopy import (
+    HomotopyConfig,
+    run_homotopy_chain,
+)
+from jax_spice.analysis.solver_factories import (
+    make_dense_solver,
+    make_sparse_solver,
+    make_spineax_solver,
+    make_umfpack_solver,
+)
+from jax_spice.config import DEFAULT_TEMPERATURE_K
+from jax_spice.netlist.parser import VACASKParser
+from jax_spice.profiling import ProfileConfig, profile, profile_section
 
 # Try to import OpenVAF support
-_openvaf_path = Path(__file__).parent.parent.parent / "openvaf-py"
-if str(_openvaf_path) not in sys.path:
-    sys.path.insert(0, str(_openvaf_path))
+# openvaf_jax is at top level, openvaf_py is built from openvaf_jax/openvaf_py
+_project_root = Path(__file__).parent.parent.parent
+_openvaf_jax_path = _project_root / "openvaf_jax"
+_openvaf_py_path = _openvaf_jax_path / "openvaf_py"
+if _openvaf_jax_path.exists() and str(_project_root) not in sys.path:
+    sys.path.insert(0, str(_project_root))
+if _openvaf_py_path.exists() and str(_openvaf_py_path) not in sys.path:
+    sys.path.insert(0, str(_openvaf_py_path))
 
 try:
     import openvaf_py
+
     import openvaf_jax
     HAS_OPENVAF = True
 except ImportError:
@@ -255,7 +265,7 @@ class CircuitEngine:
         self._transient_setup_key: str | None = None
 
         # Simulation temperature in Kelvin (default room temperature)
-        self._simulation_temperature: float = 300.15
+        self._simulation_temperature: float = DEFAULT_TEMPERATURE_K
 
     def clear_cache(self):
         """Clear all cached data to free memory.
@@ -327,7 +337,6 @@ class CircuitEngine:
     def parse(self):
         """Parse the sim file and extract circuit information."""
         import time
-        import sys
 
         # Clear instance-specific caches when re-parsing (circuit may have changed)
         self._transient_setup_cache = None
@@ -554,7 +563,6 @@ class CircuitEngine:
     def _build_devices(self):
         """Build device list from flattened instances."""
         import time
-        import sys
         t_start = time.perf_counter()
 
         logger.info(f"_build_devices(): starting with {len(self.flat_instances)} instances")
@@ -645,7 +653,7 @@ class CircuitEngine:
         # Base paths for different VA model sources
         project_root = Path(__file__).parent.parent.parent
         base_paths = {
-            'integration_tests': project_root / "openvaf-py" / "vendor" / "OpenVAF" / "integration_tests",
+            'integration_tests': project_root / "openvaf_jax" / "openvaf_py" / "vendor" / "OpenVAF" / "integration_tests",
             'vacask': project_root / "vendor" / "VACASK" / "devices",
         }
 
@@ -1738,7 +1746,10 @@ class CircuitEngine:
                 # Parse wave if it's a string (from netlist parser)
                 if isinstance(wave, str):
                     import ast
-                    wave = ast.literal_eval(wave)
+                    try:
+                        wave = ast.literal_eval(wave)
+                    except (ValueError, SyntaxError) as e:
+                        raise ValueError(f"Invalid PWL wave format '{wave}': {e}") from e
 
                 # Convert wave to JAX arrays
                 wave_arr = jnp.array(wave, dtype=jnp.float64)
@@ -1835,7 +1846,7 @@ class CircuitEngine:
                       use_scan: bool = False,
                       use_while_loop: bool = False,
                       profile_config: Optional['ProfileConfig'] = None,
-                      temperature: float = 300.15) -> TransientResult:
+                      temperature: float = DEFAULT_TEMPERATURE_K) -> TransientResult:
         """Run transient analysis.
 
         All computation is JIT-compiled. Automatically uses sparse matrices
@@ -1862,7 +1873,7 @@ class CircuitEngine:
             self._transient_setup_cache = None
             self._transient_setup_key = None
             logger.info(f"Temperature changed to {temperature}K ({temperature - 273.15:.1f}°C)")
-        from jax_spice.analysis.gpu_backend import select_backend, is_gpu_available
+        from jax_spice.analysis.gpu_backend import select_backend
 
         if t_stop is None:
             t_stop = self.analysis_params.get('stop', 1e-3)
@@ -2089,12 +2100,11 @@ class CircuitEngine:
 
         logger.info(f"Importing backend ({backend})")
 
-        from jax_spice.analysis.gpu_backend import get_device, get_default_dtype
-        from jax_spice.analysis.sparse import build_csr_arrays, sparse_solve_csr
-        from jax.experimental.sparse import BCOO, BCSR
+
+        from jax_spice.analysis.gpu_backend import get_default_dtype, get_device
 
         ground = 0
-    
+
         # Get target device for JAX operations
 
         logger.info("getting device and dtype")
@@ -2303,7 +2313,6 @@ class CircuitEngine:
                 backend_name = jax.default_backend()
                 if backend_name == 'gpu':
                     try:
-                        from spineax.cudss.solver import CuDSSSolver
                         use_spineax = True
                         logger.info("Spineax available - will use cuDSS with cached symbolic factorization")
                     except Exception as e:
@@ -2366,7 +2375,9 @@ class CircuitEngine:
                 else:
                     # CPU path: Try UMFPACK (cached symbolic factorization) first,
                     # fall back to JAX spsolve if not available
-                    from jax_spice.analysis.umfpack_solver import is_umfpack_available, UMFPACKSolver
+                    from jax_spice.analysis.umfpack_solver import (
+                        is_umfpack_available,
+                    )
 
                     # Pre-compute COO→CSR mapping (needed for both UMFPACK and JAX spsolve)
                     logger.info("Pre-computing COO→CSR mapping for fast sparse assembly...")
@@ -3409,8 +3420,6 @@ class CircuitEngine:
             For DC analysis: pass inv_dt=0.0 and Q_prev=zeros (reactive terms ignored)
             For transient: pass inv_dt=1/dt and Q_prev from previous timestep
         """
-        from jax.experimental.sparse import BCOO, BCSR
-        from jax_spice.analysis.sparse import sparse_solve_csr
 
         # Capture model types as static list (unrolled at trace time)
         model_types = list(static_inputs_cache.keys())
@@ -3820,7 +3829,7 @@ class CircuitEngine:
         Returns:
             ACResult with frequencies and complex voltage phasors
         """
-        from jax_spice.analysis.ac import ACConfig, ACResult, run_ac_analysis
+        from jax_spice.analysis.ac import ACConfig, run_ac_analysis
 
         logger.info(f"Running AC analysis: {freq_start:.2e} to {freq_stop:.2e} Hz, mode={mode}")
 
@@ -4196,7 +4205,7 @@ class CircuitEngine:
         Returns:
             DCIncResult with incremental node voltages
         """
-        from jax_spice.analysis.xfer import DCIncResult, solve_dcinc, build_dcinc_excitation
+        from jax_spice.analysis.xfer import build_dcinc_excitation, solve_dcinc
 
         logger.info("Running DCINC analysis")
 
@@ -4238,7 +4247,7 @@ class CircuitEngine:
         Returns:
             DCXFResult with tf, zin, yin for each source
         """
-        from jax_spice.analysis.xfer import DCXFResult, solve_dcxf
+        from jax_spice.analysis.xfer import solve_dcxf
 
         logger.info(f"Running DCXF analysis, output node: {out}")
 
@@ -4289,7 +4298,7 @@ class CircuitEngine:
         Returns:
             ACXFResult with complex tf, zin, yin over frequency
         """
-        from jax_spice.analysis.xfer import ACXFConfig, ACXFResult, solve_acxf
+        from jax_spice.analysis.xfer import ACXFConfig, solve_acxf
 
         logger.info(f"Running ACXF analysis: {freq_start:.2e} to {freq_stop:.2e} Hz, out={out}")
 
@@ -4362,7 +4371,7 @@ class CircuitEngine:
         points: int = 10,
         step: Optional[float] = None,
         values: Optional[List[float]] = None,
-        temperature: float = 300.15,
+        temperature: float = DEFAULT_TEMPERATURE_K,
     ) -> 'NoiseResult':
         """Run noise analysis.
 
@@ -4392,8 +4401,9 @@ class CircuitEngine:
             self._transient_setup_key = None
 
         from jax_spice.analysis.noise import (
-            NoiseConfig, NoiseResult, run_noise_analysis,
+            NoiseConfig,
             extract_noise_sources,
+            run_noise_analysis,
         )
 
         logger.info(f"Running noise analysis: {freq_start:.2e} to {freq_stop:.2e} Hz, out={out}")
@@ -4524,9 +4534,7 @@ class CircuitEngine:
             for r in results.converged_results():
                 print(f"{r.corner.name}: max voltage = {r.result.voltages['out'].max()}")
         """
-        from jax_spice.analysis.corners import (
-            CornerConfig, CornerResult, CornerSweepResult
-        )
+        from jax_spice.analysis.corners import CornerResult, CornerSweepResult
 
         results = []
 

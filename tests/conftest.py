@@ -19,6 +19,8 @@ import sys
 from pathlib import Path
 from typing import Any, Dict
 
+from jax_spice.utils.safe_eval import safe_eval_expr
+
 
 def _setup_cuda_libraries():
     """Preload CUDA libraries before JAX import for proper GPU detection."""
@@ -120,8 +122,6 @@ def parse_embedded_python(sim_path: Path) -> Dict[str, Any]:
         - 'expectations': List of (variable_name, expected_value, tolerance)
         - 'analysis_type': 'op' or 'tran'
     """
-    import numpy as np
-
     text = sim_path.read_text()
 
     # Find embedded Python between <<<FILE and >>>FILE
@@ -146,9 +146,9 @@ def parse_embedded_python(sim_path: Path) -> Dict[str, Any]:
         m = re.match(r'\s*exact\s*=\s*(.+)', line)
         if m and current_var:
             try:
-                # Safe evaluation of numeric expressions
+                # Safe evaluation of numeric expressions using simpleeval
                 expr = m.group(1).strip()
-                val = eval(expr, {"__builtins__": {}, "np": np}, {})
+                val = safe_eval_expr(expr, {})
                 expectations.append((current_var, float(val), 1e-3))
             except Exception:
                 pass

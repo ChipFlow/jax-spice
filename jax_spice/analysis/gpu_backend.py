@@ -6,6 +6,7 @@ GPU availability detection, and device management.
 
 from dataclasses import dataclass
 from typing import Optional
+
 import jax
 
 

@@ -5,6 +5,6 @@ Exports:
     BenchmarkRunner: Benchmark runner with timing utilities
 """
 
-from .runner import CircuitEngine, BenchmarkRunner
+from .runner import BenchmarkRunner, CircuitEngine
 
 __all__ = ['CircuitEngine', 'BenchmarkRunner']

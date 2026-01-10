@@ -6,10 +6,10 @@ from Verilog-A sources using OpenVAF.
 """
 
 from jax_spice.devices.vsource import (
+    isource_batch,
     pulse_voltage,
     pulse_voltage_jax,
     vsource_batch,
-    isource_batch,
 )
 
 # Optional Verilog-A support (requires openvaf_py)

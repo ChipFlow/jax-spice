@@ -10,16 +10,16 @@ class InstanceXMixin:
         parts = annot["words"]
         mod_index = annot["mod_index"]
         model = annot["mod_name"]
-        
+
         if model is None:
             raise ConverterError(line+"\nModel not found.")
-        
+
         terminals = self.process_terminals(parts[:mod_index])
         params = parts[(mod_index+1):]
-        
+
         # Process parameters, do not handle m (keep its name unchanged)
         psplit = self.process_instance_params(params, "x", handle_m=False)
-        
+
         # Use lowercase model name (consistent with subcircuit definitions)
         # and sanitize for VACASK compatibility
         output_model = self.sanitize_identifier(annot["mod_name"])
@@ -34,5 +34,5 @@ class InstanceXMixin:
                 txt += "\n" + lws + ")"
             else:
                 txt += " " + fmted
-        
+
         return txt

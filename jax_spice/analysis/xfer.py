@@ -16,9 +16,9 @@ Implements three related small-signal analyses:
    - Returns complex-valued tf, zin, yin
 """
 
-from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Union
 import logging
+from dataclasses import dataclass
+from typing import Dict, List, Optional, Union
 
 import jax
 import jax.numpy as jnp
@@ -458,7 +458,7 @@ def solve_acxf(
     Returns:
         ACXFResult with complex tf, zin, yin over frequency
     """
-    from jax_spice.analysis.ac import generate_frequencies, ACConfig
+    from jax_spice.analysis.ac import ACConfig, generate_frequencies
 
     # Generate frequencies using AC module's generator
     ac_config = ACConfig(

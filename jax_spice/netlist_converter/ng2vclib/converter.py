@@ -13,7 +13,6 @@ import os
 
 # Import dialect support from ..spiceparser
 from ..spiceparser.dialect import SpiceDialect, get_dialect
-
 from . import dfl
 from .m_devices import DevicesMixin
 from .m_file import FileLoaderMixin
@@ -110,12 +109,12 @@ class Converter(
         }
         self.dbgindent = indent
         self.debug = debug
-    
+
     def convert(self, fromFile, toFile=None):
       _, deck, canonical_file_path = self.read_file(fromFile)
       self.data["deck"] = deck
       self.data["canonical_input_path"] = canonical_file_path
-      
+
       self.collect_masters()
 
       out = self.vacask_file()

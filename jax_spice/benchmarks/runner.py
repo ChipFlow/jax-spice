@@ -11,10 +11,9 @@ For core circuit simulation, use CircuitEngine from jax_spice.analysis.engine.
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-from jax_spice.profiling import ProfileConfig
-
 # Re-export CircuitEngine for convenience
 from jax_spice.analysis.engine import CircuitEngine
+from jax_spice.profiling import ProfileConfig
 
 
 class BenchmarkRunner:

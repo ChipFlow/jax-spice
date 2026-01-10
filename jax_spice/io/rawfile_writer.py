@@ -10,10 +10,9 @@ Supports both ASCII and binary formats.
 
 import struct
 from pathlib import Path
-from typing import Dict, Any, Union
-import numpy as np
+from typing import Any, Dict, Union
 
-from jax import Array
+import numpy as np
 
 
 def write_rawfile(
@@ -75,10 +74,10 @@ def _write_ascii_rawfile(
     """Write ASCII format raw file."""
     with open(output_path, 'w') as f:
         # Header
-        f.write(f"Title: JAX-SPICE Simulation\n")
-        f.write(f"Date: \n")
+        f.write("Title: JAX-SPICE Simulation\n")
+        f.write("Date: \n")
         f.write(f"Plotname: {analysis_type}\n")
-        f.write(f"Flags: real\n")
+        f.write("Flags: real\n")
         f.write(f"No. Variables: {len(variables)}\n")
         f.write(f"No. Points: {n_points}\n")
 

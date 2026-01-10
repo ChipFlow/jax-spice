@@ -27,7 +27,6 @@ from ..spiceparser.params import (
 from ..spiceparser.params import (
     split_params as _split_params,
 )
-
 from .exc import ConverterError
 
 

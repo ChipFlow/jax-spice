@@ -8,6 +8,7 @@ Provides pure functions for computing source waveforms:
 """
 
 from typing import Tuple
+
 import jax.numpy as jnp
 from jax import Array
 

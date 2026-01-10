@@ -15,8 +15,10 @@ from pathlib import Path
 import pytest
 import numpy as np
 
-# Add openvaf-py to path
-sys.path.insert(0, str(Path(__file__).parent.parent / "openvaf-py"))
+# Add openvaf_jax and openvaf_py to path
+project_root = Path(__file__).parent.parent
+sys.path.insert(0, str(project_root))
+sys.path.insert(0, str(project_root / "openvaf_jax" / "openvaf_py"))
 
 from jax_spice.netlist.parser import parse_netlist
 from jax_spice.netlist.circuit import Circuit

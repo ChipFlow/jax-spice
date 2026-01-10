@@ -1,13 +1,13 @@
 """Debug utilities for JAX-SPICE."""
 
 from jax_spice.debug.trace_monitor import (
-    trace_monitor,
-    reset_traces,
-    get_trace_counts,
-    report_traces,
-    print_traces,
     TraceScope,
+    get_trace_counts,
     monitor_dict,
+    print_traces,
+    report_traces,
+    reset_traces,
+    trace_monitor,
 )
 
 __all__ = [

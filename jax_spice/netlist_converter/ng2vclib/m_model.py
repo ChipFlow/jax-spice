@@ -10,10 +10,10 @@ class ModelMixin:
             output_name = annot["origline"].split(" ")[1]
         else:
             output_name = name
-        
+
         if in_sub is None and self.debug>0:
             print((" "*self.dbgindent)+"toplevel model: ", output_name)
-        
+
         builtin, mtype, family, level, version, params = self.data["models"][in_sub][name]
 
         paren = False
@@ -24,7 +24,7 @@ class ModelMixin:
 
             # Get names of parameters to remove
             vecnames = self.cfg["remove_model_params"].get(module, None)
-            
+
             # Output
             vcline = "model "+output_name+" "+module
             if len(extra_params)>0 or len(params)>0:
@@ -43,7 +43,7 @@ class ModelMixin:
 
             # Get names of parameters to remove
             vecnames = self.cfg["remove_model_params"].get(mtype, None)
-            
+
             # Output
             vcline = "model "+output_name+" "+mtype
             if len(params)>0:
@@ -51,18 +51,18 @@ class ModelMixin:
                 paren = True
             else:
                 vcline += " "+eol
-            
+
         if len(params)>=0:
             # Remove parameters
             if vecnames is not None:
                 params = self.remove_params(params, vecnames)
-        
+
             fmted, _, _ = self.format_params(params, len(vcline))
             fmted = self.indent(fmted, len(lws)+2)
             vcline += "\n" + fmted
-        
+
         if paren:
             vcline += "\n" + lws + ")"
 
         return vcline
-        
+

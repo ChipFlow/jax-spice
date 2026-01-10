@@ -12,7 +12,6 @@ Format structure:
 7. May repeat headers for long outputs
 """
 
-import re
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 

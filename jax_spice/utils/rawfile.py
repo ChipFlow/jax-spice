@@ -22,7 +22,8 @@ Usage:
         print(rf.sweepData(i))
 """
 
-from typing import Any, Dict, List, Tuple, Union
+from typing import Dict, List, Tuple, Union
+
 import numpy as np
 
 __all__ = ['rawread', 'RawFile', 'RawData']

@@ -1,0 +1,12 @@
+{
+    v22: cslot0,
+}
+{
+    cslot0: (
+        (
+            Some(ClassId(7)),
+            0,
+        ),
+        Real,
+    ),
+}

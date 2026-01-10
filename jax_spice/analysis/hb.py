@@ -24,9 +24,9 @@ References:
   Microwave Circuits", Kluwer Academic Publishers, 1990
 """
 
+import logging
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple, Union
-import logging
 
 import jax
 import jax.numpy as jnp

@@ -12,12 +12,11 @@ import subprocess
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple
 
-import jax.numpy as jnp
 import numpy as np
 
-from jax_spice.utils.rawfile import rawread, RawFile
+from jax_spice.utils.rawfile import RawFile, rawread
 
 # Type alias for array-like inputs (numpy or JAX arrays)
 ArrayLike = Any  # Could be np.ndarray or jax.Array

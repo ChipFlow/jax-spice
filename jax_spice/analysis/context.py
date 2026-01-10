@@ -3,8 +3,10 @@
 Holds simulation state and parameters passed to device evaluations.
 """
 
-from dataclasses import dataclass, field
-from typing import Optional, Dict, Any
+from dataclasses import dataclass
+from typing import Dict, Optional
+
+from jax_spice.config import DEFAULT_TEMPERATURE_K
 
 
 @dataclass
@@ -24,11 +26,11 @@ class AnalysisContext:
     """
     time: Optional[float] = None
     dt: Optional[float] = None
-    temperature: float = 300.15  # Room temp in Kelvin
+    temperature: float = DEFAULT_TEMPERATURE_K  # Room temp in Kelvin (27°C)
     analysis_type: str = 'dc'
     iteration: int = 0
     prev_solution: Optional[Dict[str, float]] = None
-    
+
     # Integration coefficients for reactive elements
     # For backward Euler: qdot = (q - q_prev) / dt
     # Stored as: qdot = c0 * q + c1 * q_prev + rhs_correction
@@ -39,11 +41,11 @@ class AnalysisContext:
     # GMIN: Minimum conductance added to diagonal for numerical stability
     # Used in GMIN stepping for convergence of difficult circuits
     gmin: float = 1e-12
-    
+
     def is_dc(self) -> bool:
         """Check if this is a DC analysis"""
         return self.time is None
-    
+
     def is_transient(self) -> bool:
         """Check if this is a transient analysis"""
         return self.time is not None

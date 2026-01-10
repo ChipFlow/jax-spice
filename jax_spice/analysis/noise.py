@@ -24,9 +24,9 @@ Physical constants:
 - q (electron charge): 1.602176634e-19 C
 """
 
-from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Tuple, Union
 import logging
+from dataclasses import dataclass
+from typing import Dict, List, Optional, Tuple, Union
 
 import jax
 import jax.numpy as jnp
@@ -398,7 +398,7 @@ def run_noise_analysis(
     Returns:
         NoiseResult with output noise, power gain, and contributions
     """
-    from jax_spice.analysis.ac import generate_frequencies, ACConfig
+    from jax_spice.analysis.ac import ACConfig, generate_frequencies
 
     # Generate frequencies
     ac_config = ACConfig(

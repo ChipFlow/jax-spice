@@ -5,8 +5,7 @@ Represents parsed netlist as Python objects.
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Union
-
+from typing import Any, Dict, List, Optional, Tuple
 
 # ============================================================================
 # Source Location Tracking (mirrors VACASK FileStack/Loc from sourceloc.cpp)

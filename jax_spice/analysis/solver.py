@@ -8,12 +8,12 @@ The solver uses jax.lax.while_loop for fully traceable iteration that
 keeps computation on-device without Python callbacks.
 """
 
-from typing import Any, Callable, Dict, NamedTuple, Tuple
+from typing import Callable, NamedTuple, Tuple
 
 import jax
 import jax.numpy as jnp
-from jax import lax, Array
-from jaxtyping import Num, Bool
+from jax import Array, lax
+from jaxtyping import Bool, Num
 
 # Scalar types for JIT-traced values
 Scalar = Num[Array, ""]

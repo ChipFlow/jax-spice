@@ -11,8 +11,10 @@ from pathlib import Path
 from typing import Dict, List, Tuple, Any
 from collections import namedtuple
 
-# Add openvaf-py to path
-sys.path.insert(0, str(Path(__file__).parent.parent / "openvaf-py"))
+# Add openvaf_jax and openvaf_py to path
+project_root = Path(__file__).parent.parent
+sys.path.insert(0, str(project_root))
+sys.path.insert(0, str(project_root / "openvaf_jax" / "openvaf_py"))
 
 import numpy as np
 

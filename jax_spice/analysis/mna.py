@@ -5,9 +5,8 @@ The actual MNA matrix assembly is done in the runner using OpenVAF-compiled mode
 """
 
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Callable, Any
 from enum import Enum
-
+from typing import Any, Callable, Dict, List, Optional
 
 # =============================================================================
 # Parameter Evaluation

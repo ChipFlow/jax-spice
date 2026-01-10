@@ -14,24 +14,30 @@ if platform.system() == "Darwin" and platform.machine() == "arm64":
     # Apple Silicon - force CPU backend to avoid Metal/GPU issues
     os.environ.setdefault("JAX_PLATFORMS", "cpu")
 
-from typing import Dict, List, Tuple, Callable, Optional, Any
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
-import jax.numpy as jnp
-
-import sys
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 # Try to import openvaf_py directly first (if installed)
-# If not found, add openvaf-py to path
+# If not found, add openvaf_jax to path (contains openvaf_py as subpackage)
 try:
     import openvaf_py
+
     import openvaf_jax
 except ImportError:
-    openvaf_py_path = Path(__file__).parent.parent.parent / "openvaf-py"
+    # openvaf_jax is at top level, openvaf_py is built from openvaf_jax/openvaf_py
+    openvaf_jax_path = Path(__file__).parent.parent.parent / "openvaf_jax"
+    openvaf_py_path = openvaf_jax_path / "openvaf_py"
+    if openvaf_jax_path.exists() and str(openvaf_jax_path.parent) not in sys.path:
+        sys.path.insert(0, str(openvaf_jax_path.parent))
     if openvaf_py_path.exists() and str(openvaf_py_path) not in sys.path:
         sys.path.insert(0, str(openvaf_py_path))
     import openvaf_py
+
     import openvaf_jax
+
+from jax_spice.config import DEFAULT_TEMPERATURE_K
 
 
 @dataclass
@@ -144,7 +150,7 @@ class VerilogADevice:
         self,
         voltages: Dict[str, float],
         params: Optional[Dict[str, float]] = None,
-        temperature: float = 300.15
+        temperature: float = DEFAULT_TEMPERATURE_K
     ) -> List[float]:
         """Build input array for the eval function
 
@@ -183,7 +189,7 @@ class VerilogADevice:
         self,
         voltages: Dict[str, float],
         params: Optional[Dict[str, float]] = None,
-        temperature: float = 300.15
+        temperature: float = DEFAULT_TEMPERATURE_K
     ) -> Tuple[Dict, Dict]:
         """Evaluate the device at given voltages
 
@@ -204,7 +210,7 @@ class VerilogADevice:
         self,
         voltages: Dict[str, float],
         params: Optional[Dict[str, float]] = None,
-        temperature: float = 300.15
+        temperature: float = DEFAULT_TEMPERATURE_K
     ) -> Tuple[Any, Any]:
         """Evaluate using the MIR interpreter (for validation)
 
@@ -240,7 +246,7 @@ class VerilogADevice:
         node_indices: Dict[str, int],
         voltages: Dict[str, float],
         params: Optional[Dict[str, float]] = None,
-        temperature: float = 300.15
+        temperature: float = DEFAULT_TEMPERATURE_K
     ) -> Tuple[Dict[Tuple[int, int], float], Dict[int, float]]:
         """Get conductance matrix stamps and RHS contributions
 

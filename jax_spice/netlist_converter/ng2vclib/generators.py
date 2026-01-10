@@ -34,7 +34,7 @@ def traverse(deck, depth=None, input_history=[], parent_line=None, inside_contro
     """
     filename, section, lines = deck
     history = input_history + [ (parent_line, filename, section) ]
-    
+
     at_depth = len(history)-1
 
     for line in lines:
@@ -54,7 +54,7 @@ def traverse(deck, depth=None, input_history=[], parent_line=None, inside_contro
             # No
             # First yield inclusion line
             yield (history, line, at_depth, inside_control)
-            
+
             # Check if we are not at the bottom
             if depth is None or at_depth<depth:
                 # Do we have a subdeck
@@ -63,7 +63,7 @@ def traverse(deck, depth=None, input_history=[], parent_line=None, inside_contro
                     # Yield subdeck
                     for subh, subl, subd, inside_control in traverse(eolc, depth, history, lnum, inside_control=inside_control):
                         yield (subh, subl, subd, inside_control)
-            
+
 def format_history(history, lineno):
     """
     Formats *history* for an error on line number *lineno*. 
@@ -77,6 +77,5 @@ def format_history(history, lineno):
                 txt += "included as section"+sec+" on line "+str(pline+1)+" of "
             else:
                 txt += "included on line "+str(pline+1)+" of "
-    
+
     return txt
-    

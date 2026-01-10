@@ -6,24 +6,21 @@ Passes all VACASK test cases (vendor/VACASK/test/*.sim).
 See docs/vacask_sim_format.md for details.
 """
 
-import re
-from pathlib import Path
-from typing import Optional, Union, List, Tuple, Dict
 from dataclasses import dataclass
+from pathlib import Path
+from typing import Dict, List, Optional, Union
 
 from jax_spice.netlist.circuit import (
+    AnalysisDirective,
     Circuit,
-    Subcircuit,
+    ControlBlock,
     Instance,
     Model,
-    ControlBlock,
     OptionsDirective,
-    AnalysisDirective,
-    SaveDirective,
-    VarDirective,
     PrintDirective,
-    FileStack,
-    SourceLocation,
+    SaveDirective,
+    Subcircuit,
+    VarDirective,
 )
 
 

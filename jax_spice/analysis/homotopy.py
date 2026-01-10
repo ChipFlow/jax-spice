@@ -25,6 +25,12 @@ from typing import Any, Callable, Dict, Tuple
 import jax.numpy as jnp
 from jax import Array
 
+# Adaptive step adjustment thresholds (fraction of max iterations)
+# If NR converges in <= 25% of max iterations, convergence is "fast" - keep or increase step
+# If NR converges in > 75% of max iterations, convergence is "slow" - reduce step
+_FAST_CONVERGENCE_THRESHOLD = 0.25
+_SLOW_CONVERGENCE_THRESHOLD = 0.75
+
 
 @dataclass
 class HomotopyConfig:
@@ -165,10 +171,12 @@ def gmin_stepping(
                 _debug_print(config, 1, f"Homotopy: {mode} stepping succeeded")
                 break
 
-            # Adaptive factor adjustment
-            if iters <= config.max_iterations // 4:
-                pass  # Keep factor unchanged
-            elif iters > config.max_iterations * 3 // 4:
+            # Adaptive factor adjustment based on convergence speed
+            fast_threshold = int(config.max_iterations * _FAST_CONVERGENCE_THRESHOLD)
+            slow_threshold = int(config.max_iterations * _SLOW_CONVERGENCE_THRESHOLD)
+            if iters <= fast_threshold:
+                pass  # Keep factor unchanged - fast convergence
+            elif iters > slow_threshold:
                 factor = max(jnp.sqrt(factor), config.gmin_factor_min)
 
             # Update gmin
@@ -330,7 +338,7 @@ def source_stepping(
             homotopy_steps += gmin_result.homotopy_steps
 
         if not gmin_result.converged:
-            _debug_print(config, 1, "Homotopy: Source stepping failed (could not solve at source=0)")
+            _debug_print(config, 1, "Homotopy: Source stepping failed (no solution at source=0)")
             return HomotopyResult(
                 converged=False,
                 V=V_init,
@@ -379,10 +387,12 @@ def source_stepping(
                     final_source_scale=1.0,
                 )
 
-            # Adaptive step adjustment
-            if iters <= config.max_iterations // 4:
+            # Adaptive step adjustment based on convergence speed
+            fast_threshold = int(config.max_iterations * _FAST_CONVERGENCE_THRESHOLD)
+            slow_threshold = int(config.max_iterations * _SLOW_CONVERGENCE_THRESHOLD)
+            if iters <= fast_threshold:
                 raise_step *= config.source_scale
-            elif iters > config.max_iterations * 3 // 4:
+            elif iters > slow_threshold:
                 raise_step = max(raise_step / config.source_scale, config.source_step_min)
         else:
             _debug_print(

@@ -21,9 +21,9 @@ Frequency sweep modes (matching VACASK):
 - 'list': Explicit frequency values in 'values' array
 """
 
-from dataclasses import dataclass
-from typing import Dict, List, Optional, Tuple, Union
 import logging
+from dataclasses import dataclass
+from typing import Dict, List, Optional
 
 import jax
 import jax.numpy as jnp
