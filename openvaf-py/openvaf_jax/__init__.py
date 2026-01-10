@@ -168,17 +168,19 @@ class OpenVAFToJAX:
 
         The inputs should be ordered according to module.param_names
         """
-        # Use old implementation for backward compatibility
-        import sys
-        import os
-        old_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        sys.path.insert(0, old_path)
-        try:
-            import openvaf_jax_old
-            old_translator = openvaf_jax_old.OpenVAFToJAX(self.module)
-            return old_translator.translate()
-        finally:
-            sys.path.remove(old_path)
+        # Get array-based function and metadata
+        eval_fn, metadata = self.translate_array()
+        node_names = metadata['node_names']
+        jacobian_keys = metadata['jacobian_keys']
+
+        def dict_wrapper(inputs):
+            residuals_arr, jacobian_arr = eval_fn(inputs)
+            # Convert arrays to dicts
+            residuals = {name: residuals_arr[i] for i, name in enumerate(node_names)}
+            jacobian = {key: jacobian_arr[i] for i, key in enumerate(jacobian_keys)}
+            return residuals, jacobian
+
+        return dict_wrapper
 
     def translate_array(self) -> Tuple[Callable, Dict]:
         """Generate a JAX function that returns arrays (vmap-compatible).
@@ -194,17 +196,42 @@ class OpenVAFToJAX:
             - 'node_names': list of node names in residual array order
             - 'jacobian_keys': list of (row, col) tuples in jacobian array order
         """
-        # Use old implementation for backward compatibility
-        import sys
-        import os
-        old_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        sys.path.insert(0, old_path)
-        try:
-            import openvaf_jax_old
-            old_translator = openvaf_jax_old.OpenVAFToJAX(self.module)
-            return old_translator.translate_array()
-        finally:
-            sys.path.remove(old_path)
+        # Generate init and eval functions
+        init_fn, init_metadata = self.translate_init_array()
+
+        # Use all indices as varying (no shared/device split for legacy interface)
+        n_eval_params = len(self.params)
+        all_indices = list(range(n_eval_params))
+
+        eval_fn, eval_metadata = self.translate_eval_array_with_cache_split(
+            shared_indices=[],
+            varying_indices=all_indices,
+        )
+
+        # Create combined function
+        def combined_fn(inputs):
+            # Split inputs into init params and eval params (voltages)
+            # The input array contains: [init_params..., voltages...]
+            n_init = len(init_metadata['param_names'])
+            init_inputs = inputs[:n_init]
+            voltages = inputs[n_init:]
+
+            # Run init to get cache
+            cache, _collapse = init_fn(init_inputs)
+
+            # Run eval with empty shared params, voltages as device params, and cache
+            residuals, jacobian = eval_fn([], voltages, cache)
+            return residuals, jacobian
+
+        # Build combined metadata
+        metadata = {
+            'node_names': eval_metadata['node_names'],
+            'jacobian_keys': eval_metadata['jacobian_keys'],
+            'init_param_names': init_metadata['param_names'],
+            'eval_param_names': list(self.module.param_names) if hasattr(self.module, 'param_names') else [],
+        }
+
+        return combined_fn, metadata
 
     def translate_init_array(self) -> Tuple[Callable, Dict]:
         """Generate a vmappable init function.
