@@ -5,20 +5,16 @@ as returned by openvaf_py.VaModule methods.
 """
 
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Any, NewType
 
 
-@dataclass(frozen=True)
-class MIRValue:
-    """Reference to a MIR value (e.g., 'v123').
+# Type-safe identifiers for MIR elements
+# These are strings at runtime but distinct types for type checking
+BlockId = NewType('BlockId', str)
+"""Identifier for a basic block (e.g., 'block0')."""
 
-    In MIR, values are named vN where N is the value ID.
-    Each value is assigned exactly once (SSA form).
-    """
-    id: str
-
-    def __str__(self) -> str:
-        return self.id
+ValueId = NewType('ValueId', str)
+"""Identifier for an SSA value (e.g., 'v123')."""
 
 
 @dataclass
@@ -30,8 +26,8 @@ class PhiOperand:
     - block: The predecessor block this value comes from
     - value: The value ID from that block
     """
-    block: str
-    value: str
+    block: BlockId
+    value: ValueId
 
 
 @dataclass
@@ -214,7 +210,7 @@ def parse_mir_function(name: str, mir_data: Dict[str, Any]) -> MIRFunction:
                     try:
                         return int(name.replace('block', ''))
                     except ValueError:
-                        return float('inf')
+                        return 2**31 - 1  # Large int as fallback
                 func.entry_block = min(func.blocks.keys(), key=block_num)
 
     return func
@@ -235,7 +231,7 @@ def _parse_instruction(inst_data: Dict[str, Any]) -> MIRInstruction:
     if opcode == 'phi':
         phi_ops = inst_data.get('phi_operands', [])
         inst.phi_operands = [
-            PhiOperand(block=op['block'], value=op['value'])
+            PhiOperand(block=BlockId(op['block']), value=ValueId(op['value']))
             for op in phi_ops
         ]
 

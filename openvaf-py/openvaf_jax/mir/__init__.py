@@ -7,7 +7,8 @@ This module provides:
 """
 
 from .types import (
-    MIRValue,
+    BlockId,
+    ValueId,
     MIRInstruction,
     PhiOperand,
     Block,
@@ -19,7 +20,8 @@ from .ssa import SSAAnalyzer, BranchInfo, PHIResolution
 
 __all__ = [
     # types
-    "MIRValue",
+    "BlockId",
+    "ValueId",
     "MIRInstruction",
     "PhiOperand",
     "Block",

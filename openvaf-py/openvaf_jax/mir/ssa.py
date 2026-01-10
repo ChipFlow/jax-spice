@@ -6,11 +6,11 @@ This module provides SSA-specific analysis including:
 - Multi-way PHI handling for complex control flow
 """
 
-from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Set, Tuple, FrozenSet
+from dataclasses import dataclass
+from typing import Dict, List, Optional, Tuple, FrozenSet
 from enum import Enum
 
-from .types import MIRFunction, MIRInstruction, Block
+from .types import MIRFunction, MIRInstruction, BlockId, ValueId
 from .cfg import CFGAnalyzer, LoopInfo
 
 
@@ -182,6 +182,7 @@ class SSAAnalyzer:
         - Init value: from predecessor outside the loop
         - Update value: from predecessor inside the loop (back-edge)
         """
+        assert phi.phi_operands is not None
         init_value = None
         update_value = None
 
@@ -303,9 +304,9 @@ class SSAAnalyzer:
         val_by_pred = {op.block: op.value for op in phi.phi_operands}
 
         # Group predecessors by value
-        val_to_preds: Dict[str, List[str]] = {}
+        val_to_preds: Dict[ValueId, List[BlockId]] = {}
         for pred in pred_blocks:
-            val = val_by_pred.get(pred, '_ZERO')
+            val = val_by_pred.get(pred, ValueId('_ZERO'))
             if val not in val_to_preds:
                 val_to_preds[val] = []
             val_to_preds[val].append(pred)
@@ -356,8 +357,8 @@ class SSAAnalyzer:
             default=default,
         )
 
-    def _find_condition_for_groups(self, preds_a: List[str],
-                                    preds_b: List[str]) -> Optional[str]:
+    def _find_condition_for_groups(self, preds_a: List[BlockId],
+                                    preds_b: List[BlockId]) -> Optional[str]:
         """Find a condition that separates two groups of predecessors."""
         branch_conds = self.branch_conditions
 
@@ -386,7 +387,7 @@ class SSAAnalyzer:
 
         return None
 
-    def _any_reachable(self, start: str, targets: List[str]) -> bool:
+    def _any_reachable(self, start: str, targets: List[BlockId]) -> bool:
         """Check if any target is reachable from start."""
         if start in targets:
             return True
@@ -410,9 +411,9 @@ class SSAAnalyzer:
 
         return False
 
-    def _peel_one_predecessor(self, remaining: List[str],
-                               val_by_pred: Dict[str, str]
-                               ) -> Optional[Tuple[str, str, str]]:
+    def _peel_one_predecessor(self, remaining: List[BlockId],
+                               val_by_pred: Dict[BlockId, ValueId]
+                               ) -> Optional[Tuple[str, ValueId, BlockId]]:
         """Try to peel off one predecessor from the remaining set.
 
         Returns (condition, value, predecessor) if successful.
