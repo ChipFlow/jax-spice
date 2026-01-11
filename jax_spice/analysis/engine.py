@@ -4091,12 +4091,13 @@ class CircuitEngine:
                 device_params_updated = device_params_updated.at[:, -1].set(1e-12)
 
             # cache here is device_cache (or full cache if not split)
+            # Returns: (res_resist, res_react, jac_resist, jac_react, lim_rhs_resist, lim_rhs_react)
             if use_cache_split:
-                _, _, batch_jac_resist, batch_jac_react = vmapped_split_eval(
+                _, _, batch_jac_resist, batch_jac_react, _, _ = vmapped_split_eval(
                     shared_params, device_params_updated, shared_cache, cache
                 )
             else:
-                _, _, batch_jac_resist, batch_jac_react = vmapped_split_eval(
+                _, _, batch_jac_resist, batch_jac_react, _, _ = vmapped_split_eval(
                     shared_params, device_params_updated, cache
                 )
 
