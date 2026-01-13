@@ -1,9 +1,12 @@
 """JAX-SPICE: GPU-Accelerated Analog Circuit Simulator"""
+import logging
 
 import jax
 
 __version__ = "0.1.0"
 
+
+logger = logging.getLogger("jax_spice")
 
 def _backend_supports_x64() -> bool:
     """Check if the current JAX backend supports 64-bit floats.
@@ -51,6 +54,13 @@ def configure_precision(force_x64: bool | None = None) -> bool:
         enable_x64 = force_x64
     else:
         enable_x64 = _backend_supports_x64()
+
+    if enable_x64:
+        logger.info("Using 64-bit float precision")
+        print("Using 64-bit float precision")
+    else:
+        logger.warn("Using 32-bit float precision")
+        print("Using 32-bit float precision")
 
     jax.config.update("jax_enable_x64", enable_x64)
     return enable_x64

@@ -251,6 +251,7 @@ def build_context_from_mir(mir_func, var_prefix: str = '') -> CodeGenContext:
         constants=dict(mir_func.constants),
         bool_constants=dict(mir_func.bool_constants),
         int_constants=dict(mir_func.int_constants),
+        str_constants=dict(mir_func.str_constants),
         defined_vars=set(),
         var_prefix=var_prefix,
     )
