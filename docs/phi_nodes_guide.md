@@ -397,6 +397,91 @@ zero_phis = inspector.find_phi_nodes_with_value('v3')  # v3 = 0.0
 
 ---
 
+## LLVM vs JAX: Critical Semantic Difference
+
+### The Division-by-Zero Problem
+
+There is a **fundamental semantic difference** between how LLVM (used by OSDI) and JAX handle conditional code that can cause correctness issues.
+
+**LLVM Backend (OSDI)** - Real conditional branches:
+
+```c
+if (condition) {
+    divisor = 0.0;
+    // Division NEVER happens here - this path is guarded
+} else {
+    divisor = computed_value;
+    result = a / divisor;  // Safe: divisor is never 0
+}
+```
+
+**JAX Backend** - Both branches always computed:
+
+```python
+divisor = jnp.where(condition, 0.0, computed_value)
+result = a / divisor  # PROBLEM! If condition=True, divisor=0 → NaN
+```
+
+### Why This Happens
+
+In LLVM, code on non-taken branches **never executes**. The compiler knows that if `condition` is true, the division won't happen.
+
+In JAX, `jnp.where` is a **selection** operation that evaluates both operands, then picks one. The division happens regardless of the condition value.
+
+### Real-World Impact: PSP102
+
+Analysis of PSP102 found **592 `fdiv` instructions** where the divisor is a PHI that can be 0.0 on one branch:
+
+```
+v1034362 = phi [v3, block4165], [v1015784, block4174]
+           ;    ↑ v3 = 0.0         ↑ computed value
+
+v1038445 = fdiv v1038444, v1034362
+           ;              ↑ divisor can be 0.0!
+```
+
+- **LLVM**: If we came from `block4165`, the fdiv is in a different branch that doesn't execute
+- **JAX**: We compute `divisor = jnp.where(cond, 0.0, val)`, then `result = a / divisor`. If `cond` is True, we get NaN
+
+### Solution: Guarded Division
+
+To match LLVM semantics, we guard all division operations in codegen:
+
+```python
+# Instead of:
+result = a / divisor
+
+# We generate:
+result = jnp.where(divisor != 0.0, a / divisor, 0.0)
+```
+
+This ensures division by zero never produces NaN, because:
+1. When `divisor == 0`, the division result is unused (0.0 is selected instead)
+2. When `divisor != 0`, the division is safe
+
+### Other Dangerous Operations
+
+The same pattern applies to other operations that can produce NaN/inf:
+
+| Operation | Dangerous Input | Guard Pattern |
+|-----------|-----------------|---------------|
+| `fdiv(a, b)` | `b == 0` | `where(b != 0, a/b, 0.0)` |
+| `sqrt(x)` | `x < 0` | `where(x >= 0, sqrt(x), 0.0)` |
+| `log(x)` | `x <= 0` | `where(x > 0, log(x), -inf)` |
+| `pow(x, y)` | `x < 0, y non-int` | context-dependent |
+
+### Trade-offs
+
+| Approach | Pros | Cons |
+|----------|------|------|
+| Guarded operations | Simple, always safe | Extra comparison per operation |
+| `lax.cond` | True branching semantics | Slower, breaks vectorization |
+| Restructure code | Optimal performance | Requires complex CFG analysis |
+
+We chose guarded operations as the best balance of correctness and performance.
+
+---
+
 ## References
 
 - Appel, A. W. (1998). [SSA is Functional Programming](https://www.cs.princeton.edu/~appel/papers/ssafun.pdf). ACM SIGPLAN Notices.

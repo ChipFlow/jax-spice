@@ -430,6 +430,33 @@ class SSAAnalyzer:
                     false_value=val_b,
                 )
 
+            # No exclusive discriminator found. Use majority value as default.
+            # The minority value is the "special case" that needs a condition.
+            if len(preds_a) > len(preds_b):
+                # val_a is majority (default), val_b is minority
+                majority_val, minority_val = val_a, val_b
+                minority_preds = preds_b
+            else:
+                # val_b is majority (default), val_a is minority
+                majority_val, minority_val = val_b, val_a
+                minority_preds = preds_a
+
+            # Try to find a condition that leads to the minority value
+            minority_condition = self._find_condition_for_minority(minority_preds)
+            if minority_condition:
+                return PHIResolution(
+                    type=PHIResolutionType.TWO_WAY,
+                    condition=minority_condition,
+                    true_value=minority_val,
+                    false_value=majority_val,
+                )
+
+            # Last resort: return fallback with majority value
+            return PHIResolution(
+                type=PHIResolutionType.FALLBACK,
+                single_value=majority_val
+            )
+
         # Build nested cases
         cases: List[Tuple[str, ValueId]] = []
         remaining = list(pred_blocks)
@@ -443,8 +470,16 @@ class SSAAnalyzer:
             cases.append((cond, value))
             remaining.remove(pred)
 
-        # Default is the remaining predecessor's value
-        default = val_by_pred.get(remaining[0], phi.phi_operands[0].value) if remaining else phi.phi_operands[0].value
+        # Default is the remaining predecessor's value (use majority if possible)
+        if remaining:
+            # Count values among remaining predecessors
+            remaining_vals = [val_by_pred.get(p) for p in remaining]
+            from collections import Counter
+            val_counts = Counter(remaining_vals)
+            # Use most common value as default
+            default = val_counts.most_common(1)[0][0] if val_counts else phi.phi_operands[0].value
+        else:
+            default = phi.phi_operands[0].value
 
         if not cases:
             return PHIResolution(
@@ -460,10 +495,19 @@ class SSAAnalyzer:
 
     def _find_condition_for_groups(self, preds_a: List[BlockId],
                                     preds_b: List[BlockId]) -> Optional[str]:
-        """Find a condition that separates two groups of predecessors."""
+        """Find a condition that separates two groups of predecessors.
+
+        Strategy: Find the NEAREST branch to the predecessors that discriminates.
+        We search backwards from the predecessors to find branches where:
+        - One branch target leads to preds_a (not preds_b)
+        - Other branch target leads to preds_b (not preds_a)
+
+        This finds closer, more accurate discriminators than searching all branches.
+        """
+        # First try: find branches where targets are in the predecessor lists
+        # (immediate discriminators)
         branch_conds = self.branch_conditions
 
-        # Look for a branch where true leads to preds_a and false leads to preds_b
         for block_name, cond_info in branch_conds.items():
             targets = list(cond_info.keys())
             if len(targets) != 2:
@@ -472,18 +516,142 @@ class SSAAnalyzer:
             t0, t1 = targets
             cond_var, is_t0_true = cond_info[t0]
 
-            # Check if t0 leads to preds_a and t1 leads to preds_b
-            t0_reaches_a = t0 in preds_a or self._any_reachable(t0, preds_a)
-            t1_reaches_b = t1 in preds_b or self._any_reachable(t1, preds_b)
+            # Check if targets are directly in the predecessor lists
+            t0_in_a = t0 in preds_a
+            t0_in_b = t0 in preds_b
+            t1_in_a = t1 in preds_a
+            t1_in_b = t1 in preds_b
 
-            if t0_reaches_a and t1_reaches_b:
+            # Case: t0 directly in preds_a, t1 directly in preds_b (no cross)
+            if t0_in_a and not t0_in_b and t1_in_b and not t1_in_a:
                 return cond_var if is_t0_true else f"!{cond_var}"
 
-            # Or vice versa
+            # Case: t0 directly in preds_b, t1 directly in preds_a (no cross)
+            if t0_in_b and not t0_in_a and t1_in_a and not t1_in_b:
+                return cond_var if not is_t0_true else f"!{cond_var}"
+
+        # Second try: find branches with EXCLUSIVE reachability
+        for block_name, cond_info in branch_conds.items():
+            targets = list(cond_info.keys())
+            if len(targets) != 2:
+                continue
+
+            t0, t1 = targets
+            cond_var, is_t0_true = cond_info[t0]
+
+            # Check reachability in all directions
+            t0_reaches_a = t0 in preds_a or self._any_reachable(t0, preds_a)
             t0_reaches_b = t0 in preds_b or self._any_reachable(t0, preds_b)
             t1_reaches_a = t1 in preds_a or self._any_reachable(t1, preds_a)
+            t1_reaches_b = t1 in preds_b or self._any_reachable(t1, preds_b)
 
-            if t0_reaches_b and t1_reaches_a:
+            # Case 1: t0 ONLY reaches preds_a, t1 ONLY reaches preds_b
+            if t0_reaches_a and not t0_reaches_b and t1_reaches_b and not t1_reaches_a:
+                return cond_var if is_t0_true else f"!{cond_var}"
+
+            # Case 2: t0 ONLY reaches preds_b, t1 ONLY reaches preds_a
+            if t0_reaches_b and not t0_reaches_a and t1_reaches_a and not t1_reaches_b:
+                return cond_var if not is_t0_true else f"!{cond_var}"
+
+        # Third try: trace backwards from predecessors to find nearest branch
+        return self._find_nearest_discriminator(preds_a, preds_b)
+
+    def _find_nearest_discriminator(self, preds_a: List[BlockId],
+                                     preds_b: List[BlockId]) -> Optional[str]:
+        """Find nearest branch by tracing backwards from predecessors.
+
+        For each predecessor block, trace back through its predecessors
+        to find a branching block. Check if that branch separates the groups.
+        """
+        branch_conds = self.branch_conditions
+
+        # Collect all predecessors of each group
+        def get_predecessors_chain(blocks: List[BlockId], max_depth: int = 10) -> set:
+            """Get all blocks that can reach the given blocks within max_depth."""
+            result: set = set()
+            visited: set = set()
+            worklist = list(blocks)
+            depth = 0
+
+            while worklist and depth < max_depth:
+                next_worklist = []
+                for block_id in worklist:
+                    if block_id in visited:
+                        continue
+                    visited.add(block_id)
+                    result.add(block_id)
+
+                    block = self.mir_func.blocks.get(block_id)
+                    if block:
+                        for pred in block.predecessors:
+                            pred_id = BlockId(pred)
+                            if pred_id not in visited:
+                                next_worklist.append(pred_id)
+                worklist = next_worklist
+                depth += 1
+
+            return result
+
+        # Get predecessor chains for both groups
+        chain_a = get_predecessors_chain(preds_a)
+        chain_b = get_predecessors_chain(preds_b)
+
+        # Find branches in the chains
+        for block_id in chain_a | chain_b:
+            if block_id not in branch_conds:
+                continue
+
+            cond_info = branch_conds[block_id]
+            targets = list(cond_info.keys())
+            if len(targets) != 2:
+                continue
+
+            t0, t1 = targets
+            cond_var, is_t0_true = cond_info[t0]
+
+            # Check if this branch separates the groups
+            t0_reaches_a = t0 in chain_a
+            t0_reaches_b = t0 in chain_b
+            t1_reaches_a = t1 in chain_a
+            t1_reaches_b = t1 in chain_b
+
+            # Want exclusive: one reaches a only, other reaches b only
+            if t0_reaches_a and not t0_reaches_b and t1_reaches_b and not t1_reaches_a:
+                return cond_var if is_t0_true else f"!{cond_var}"
+
+            if t0_reaches_b and not t0_reaches_a and t1_reaches_a and not t1_reaches_b:
+                return cond_var if not is_t0_true else f"!{cond_var}"
+
+        return None
+
+    def _find_condition_for_minority(self, minority_preds: List[BlockId]) -> Optional[str]:
+        """Find a condition that leads to minority predecessors.
+
+        This is used when we have 2 unique values with unequal predecessor counts.
+        We want to find a branch where one target leads to the minority preds
+        and the other target does NOT lead to them.
+        """
+        branch_conds = self.branch_conditions
+
+        for block_name, cond_info in branch_conds.items():
+            targets = list(cond_info.keys())
+            if len(targets) != 2:
+                continue
+
+            t0, t1 = targets
+            cond_var, is_t0_true = cond_info[t0]
+
+            # Check if one target reaches minority preds and the other doesn't
+            t0_reaches_minority = t0 in minority_preds or self._any_reachable(t0, minority_preds)
+            t1_reaches_minority = t1 in minority_preds or self._any_reachable(t1, minority_preds)
+
+            # We want exclusive: one reaches, the other doesn't
+            if t0_reaches_minority and not t1_reaches_minority:
+                # t0 leads to minority, use t0's condition
+                return cond_var if is_t0_true else f"!{cond_var}"
+
+            if t1_reaches_minority and not t0_reaches_minority:
+                # t1 leads to minority, use negated condition
                 return cond_var if not is_t0_true else f"!{cond_var}"
 
         return None
