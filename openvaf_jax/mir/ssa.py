@@ -289,11 +289,110 @@ class SSAAnalyzer:
                             false_value=val0,
                         )
 
+        # Strategy 3: Trace back through unconditional jumps to find branching ancestor
+        # This handles diamond-with-intermediate-blocks patterns where predecessors
+        # aren't direct branch targets but reach the PHI block via JMP chains.
+        resolution = self._resolve_via_ancestor_trace(pred0, pred1, val0, val1)
+        if resolution:
+            return resolution
+
         # Fallback: couldn't find condition
         return PHIResolution(
             type=PHIResolutionType.FALLBACK,
             single_value=val0
         )
+
+    def _resolve_via_ancestor_trace(
+        self, pred0: str, pred1: str, val0: ValueId, val1: ValueId
+    ) -> Optional[PHIResolution]:
+        """Resolve PHI by finding a branching block that separates the predecessors.
+
+        Handles diamond-with-intermediate-blocks patterns:
+        - PHI at block61 with predecessors block59 and block64
+        - block52 branches to block59 (true) and block60 (false)
+        - block64 is reached via block60 -> intermediate -> block64
+
+        Algorithm:
+        For each branching block, check if:
+        - pred0 is reachable only from one branch (true or false)
+        - pred1 is reachable only from the other branch
+        If so, use that branch's condition.
+        """
+        branch_conds = self.branch_conditions
+
+        # For each branching block, check if it separates pred0 and pred1
+        for block_name, cond_info in branch_conds.items():
+            if len(cond_info) != 2:
+                continue
+
+            targets = list(cond_info.keys())
+            true_target = None
+            false_target = None
+
+            for target, (cond_var, is_true) in cond_info.items():
+                if is_true:
+                    true_target = target
+                else:
+                    false_target = target
+
+            if not true_target or not false_target:
+                continue
+
+            # Check reachability: can pred0/pred1 be reached from true/false branches?
+            pred0_from_true = self._is_reachable(true_target, pred0)
+            pred0_from_false = self._is_reachable(false_target, pred0)
+            pred1_from_true = self._is_reachable(true_target, pred1)
+            pred1_from_false = self._is_reachable(false_target, pred1)
+
+            # We want exclusive reachability: pred0 from one branch only, pred1 from the other only
+            cond_var, _ = cond_info[true_target]
+
+            # Case 1: pred0 only from true, pred1 only from false
+            if pred0_from_true and not pred0_from_false and pred1_from_false and not pred1_from_true:
+                return PHIResolution(
+                    type=PHIResolutionType.TWO_WAY,
+                    condition=cond_var,
+                    true_value=val0,
+                    false_value=val1,
+                )
+
+            # Case 2: pred0 only from false, pred1 only from true
+            if pred0_from_false and not pred0_from_true and pred1_from_true and not pred1_from_false:
+                return PHIResolution(
+                    type=PHIResolutionType.TWO_WAY,
+                    condition=cond_var,
+                    true_value=val1,
+                    false_value=val0,
+                )
+
+        return None
+
+    def _is_reachable(self, start: str, target: str, max_depth: int = 50) -> bool:
+        """Check if target is reachable from start via successors."""
+        if start == target:
+            return True
+
+        visited = set()
+        stack = [start]
+        depth = 0
+
+        while stack and depth < max_depth:
+            current = stack.pop()
+            if current in visited:
+                continue
+            visited.add(current)
+
+            if current == target:
+                return True
+
+            if current in self.mir_func.blocks:
+                for succ in self.mir_func.blocks[current].successors:
+                    if succ not in visited:
+                        stack.append(succ)
+
+            depth += 1
+
+        return False
 
     def _resolve_multi_way_phi(self, phi: MIRInstruction) -> PHIResolution:
         """Resolve a multi-way PHI node (3+ predecessors).
