@@ -316,3 +316,71 @@ cd vendor/OpenVAF && cargo build --release -p openvaf-viz
 
 4. **Finding NMOS/PMOS split**: Use `--branches` to list all conditional branches,
    then trace paths to find where device type selection occurs.
+
+---
+
+## Debug Tools (`jax_spice.debug`)
+
+The `jax_spice.debug` module provides utilities for debugging OSDI vs JAX discrepancies.
+See `docs/debug_tools.md` for comprehensive documentation.
+
+### When to Use Debug Tools
+
+| Symptom | Tool | First Step |
+|---------|------|------------|
+| JAX returns wrong current | `ModelComparator` | Compare at specific bias point |
+| Jacobian mismatch | `compare_jacobians()` | Check format-aware comparison |
+| Near-zero outputs | `MIRInspector` | Check PHI nodes with zero operand |
+| Cache looks suspicious | `CacheAnalysis` | Look for inf/nan, VT values |
+| NMOS/PMOS issues | `MIRInspector.find_type_param()` | Verify TYPE parameter location |
+
+### Quick Start
+
+```python
+from jax_spice.debug import quick_compare, ModelComparator, MIRInspector
+
+# One-shot comparison
+result = quick_compare(va_path, osdi_path, params, voltages)
+print(result)
+
+# Detailed investigation
+comparator = ModelComparator(va_path, osdi_path, params)
+result = comparator.compare_at_bias([0.5, 0.6, 0.0, 0.0])
+cache = comparator.analyze_cache()
+comparator.print_residual_table([0.5, 0.6, 0.0, 0.0])
+
+# MIR inspection
+inspector = MIRInspector(va_path)
+inspector.print_mir_stats()
+inspector.print_phi_summary('eval')
+inspector.print_type_param_info()
+```
+
+### Debugging Workflow
+
+1. **Initial comparison**: Use `quick_compare()` to see if outputs match
+2. **Cache analysis**: If mismatch, check `analyze_cache()` for inf/nan/temperature issues
+3. **MIR inspection**: If cache looks OK, check `print_phi_summary()` for PHI node issues
+4. **CFG analysis**: Use `scripts/analyze_mir_cfg.py` to trace control flow
+
+### Key Modules
+
+| Module | Purpose |
+|--------|---------|
+| `model_comparison` | Compare OSDI vs JAX outputs (residuals, Jacobians, cache) |
+| `mir_inspector` | Inspect MIR data (params, PHI nodes, constants) |
+| `jacobian` | Format-aware Jacobian comparison (OSDI sparse vs JAX dense) |
+| `mir_tracer` | Trace value flow through MIR |
+| `param_analyzer` | Analyze parameter kinds and OSDI comparison |
+| `mir_analysis` | CFG analysis with networkx (optional dependency) |
+
+### Common Issues and Solutions
+
+1. **JAX returns near-zero current** (~1e-15): PHI node resolution issue in NMOS/PMOS branching.
+   Check `inspector.find_phi_nodes_with_value('v3')` for PHIs with zero operand.
+
+2. **Jacobian sparsity mismatch**: OSDI has N non-zeros, JAX has M << N.
+   Branch not taken, computations skipped. Trace control flow.
+
+3. **~1% current difference**: Usually temperature-related. Check `cache.temperature_related`
+   for VT values (should be ~0.02585 at 300K).
