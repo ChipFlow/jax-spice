@@ -1170,7 +1170,6 @@ class TestMVSGComparison:
 
         assert max_diff < 1e-6, f"Max Ids diff over Vgs sweep: {max_diff}"
 
-    @pytest.mark.xfail(reason="MVSG Jacobian has value mismatches (max abs diff ~1.0) - may be PHI node issue")
     def test_jacobian_match(self, osdi_path, va_path, default_params):
         """Compare Jacobian at typical operating point."""
         osdi_eval, _, _, _, jacobian_keys, n_nodes = create_osdi_evaluator(osdi_path, default_params)
