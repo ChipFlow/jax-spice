@@ -11,7 +11,12 @@ from enum import Enum
 from typing import Dict, FrozenSet, List, Optional, Set, Tuple
 
 from .cfg import CFGAnalyzer, LoopInfo
-from .types import V_F_ZERO, BlockId, MIRFunction, MIRInstruction, ValueId
+from .types import V_F_ZERO, BlockId, MIRFunction, MIRInstruction, PhiOperand, ValueId
+
+# Import SCCP for type hints only (avoid circular import at runtime)
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from .constprop import SCCP
 
 
 @dataclass
@@ -70,15 +75,23 @@ class SSAAnalyzer:
     3. Map predecessors to branch targets to determine condition
     """
 
-    def __init__(self, mir_func: MIRFunction, cfg: CFGAnalyzer):
+    def __init__(
+        self,
+        mir_func: MIRFunction,
+        cfg: CFGAnalyzer,
+        sccp: Optional['SCCP'] = None,
+    ):
         """Initialize SSA analyzer.
 
         Args:
             mir_func: The MIR function to analyze
             cfg: Pre-computed CFG analysis
+            sccp: Optional SCCP analysis for constant-based dead code elimination.
+                  When provided, PHI nodes with dead predecessors will be simplified.
         """
         self.mir_func = mir_func
         self.cfg = cfg
+        self.sccp = sccp
 
         # Cached analysis - built lazily
         self._branch_conditions: Optional[Dict[str, Dict[str, Tuple[ValueId, bool]]]] = None
@@ -167,21 +180,55 @@ class SSAAnalyzer:
         if loop is not None and phi.block == loop.header:
             return self._resolve_loop_phi(phi, loop)
 
-        num_ops = len(phi.phi_operands)
+        # Filter operands based on SCCP if available
+        live_operands = self._get_live_operands(phi)
 
-        if num_ops == 0:
+        if len(live_operands) == 0:
             return PHIResolution(type=PHIResolutionType.FALLBACK, single_value=ValueId('0'))
 
-        if num_ops == 1:
+        if len(live_operands) == 1:
             return PHIResolution(
                 type=PHIResolutionType.FALLBACK,
-                single_value=phi.phi_operands[0].value
+                single_value=live_operands[0].value
             )
 
-        if num_ops == 2:
+        # If SCCP reduced operands, create a "virtual" PHI with filtered operands
+        if len(live_operands) != len(phi.phi_operands):
+            # Create a modified PHI instruction for resolution
+            filtered_phi = MIRInstruction(
+                opcode=phi.opcode,
+                block=phi.block,
+                result=phi.result,
+                phi_operands=live_operands,
+            )
+            if len(live_operands) == 2:
+                return self._resolve_two_way_phi(filtered_phi)
+            return self._resolve_multi_way_phi(filtered_phi)
+
+        if len(live_operands) == 2:
             return self._resolve_two_way_phi(phi)
 
         return self._resolve_multi_way_phi(phi)
+
+    def _get_live_operands(self, phi: MIRInstruction) -> List[PhiOperand]:
+        """Get PHI operands from live (executable) predecessors.
+
+        Uses SCCP analysis if available to filter out dead predecessors.
+        Without SCCP, returns all operands.
+        """
+        if phi.phi_operands is None:
+            return []
+
+        if self.sccp is None:
+            return list(phi.phi_operands)
+
+        # Filter by executable edges
+        live = []
+        for op in phi.phi_operands:
+            if self.sccp.is_edge_executable(op.block, phi.block):
+                live.append(op)
+
+        return live
 
     def _build_branch_conditions(self) -> Dict[str, Dict[str, Tuple[ValueId, bool]]]:
         """Build map of block -> {successor: (condition, is_true_branch)}.

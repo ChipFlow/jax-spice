@@ -278,7 +278,8 @@ def _parse_instruction(
         inst.true_block = inst_data.get('true_block')
         inst.false_block = inst_data.get('false_block')
     elif opcode == 'jmp':
-        inst.target_block = inst_data.get('target_block')
+        # JMP uses 'destination' in raw MIR data
+        inst.target_block = inst_data.get('destination') or inst_data.get('target_block')
 
     # Parse call-specific fields
     if opcode == 'call':

@@ -549,6 +549,7 @@ class OpenVAFToJAX:
         mfactor: float = 1.0,
         debug: bool = False,
         cache_split: Optional[Tuple[List[int], List[int]]] = None,
+        sccp_known_values: Optional[Dict[str, Any]] = None,
     ) -> Tuple[Callable, Dict]:
         """Generate eval function with validated parameters.
 
@@ -562,6 +563,10 @@ class OpenVAFToJAX:
             debug: If True, print parameter table for debugging.
             cache_split: Optional tuple of (shared_cache_indices, varying_cache_indices)
                          for advanced cache splitting optimization.
+            sccp_known_values: Optional dict mapping MIR value IDs to constant values
+                              for SCCP-based dead code elimination. Used to eliminate
+                              branches based on compile-time known values like TYPE=1.
+                              Example: {'v51588': 1} for PSP102 NMOS.
 
         Returns:
             Tuple of (eval_fn, metadata)
@@ -684,13 +689,14 @@ class OpenVAFToJAX:
         # Generate code
         t0 = time.perf_counter()
         use_cache_split = shared_cache_indices is not None
-        logger.info(f"    translate_eval: generating code (cache_split={use_cache_split})...")
+        logger.info(f"    translate_eval: generating code (cache_split={use_cache_split}, sccp={sccp_known_values is not None})...")
 
         builder = EvalFunctionBuilder(
             self.eval_mir,
             self.dae_data,
             self.cache_mapping,
-            self.param_idx_to_val
+            self.param_idx_to_val,
+            sccp_known_values=sccp_known_values
         )
         fn_name, code_lines = builder.build_with_cache_split(
             shared_indices, voltage_indices,

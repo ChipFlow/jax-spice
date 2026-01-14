@@ -9,6 +9,7 @@ import ast
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 from ..mir.cfg import CFGAnalyzer, LoopInfo
+from ..mir.constprop import SCCP
 from ..mir.ssa import PHIResolutionType, SSAAnalyzer
 from ..mir.types import Block, MIRFunction, ValueId
 from ..openvaf_ast import (
@@ -529,7 +530,8 @@ class EvalFunctionBuilder(FunctionBuilder):
     def __init__(self, mir_func: MIRFunction,
                  dae_data: Dict[str, Any],
                  cache_mapping: List[Dict[str, Any]],
-                 param_idx_to_val: Dict[int, str]):
+                 param_idx_to_val: Dict[int, str],
+                 sccp_known_values: Optional[Dict[str, Any]] = None):
         """Initialize eval function builder.
 
         Args:
@@ -537,8 +539,23 @@ class EvalFunctionBuilder(FunctionBuilder):
             dae_data: DAE system data (residuals, jacobian)
             cache_mapping: Cache slot to eval param mapping
             param_idx_to_val: Maps eval param index to value name
+            sccp_known_values: Optional dict mapping MIR value IDs to constant values
+                              for SCCP-based dead code elimination. Used to eliminate
+                              branches based on compile-time known values like TYPE=1.
+                              Example: {'v51588': 1} for NMOS.
         """
+        # Run SCCP if known values provided
+        self.sccp: Optional[SCCP] = None
+        if sccp_known_values:
+            self.sccp = SCCP(mir_func, known_values=sccp_known_values)
+
+        # Call parent init after SCCP so we can pass it to SSAAnalyzer
         super().__init__(mir_func)
+
+        # Re-create SSA analyzer with SCCP if available
+        if self.sccp is not None:
+            self.ssa = SSAAnalyzer(mir_func, self.cfg, sccp=self.sccp)
+
         self.dae_data = dae_data
         self.cache_mapping = cache_mapping
         self.param_idx_to_val = param_idx_to_val
