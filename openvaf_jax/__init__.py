@@ -550,6 +550,7 @@ class OpenVAFToJAX:
         debug: bool = False,
         cache_split: Optional[Tuple[List[int], List[int]]] = None,
         sccp_known_values: Optional[Dict[str, Any]] = None,
+        propagate_constants: bool = True,
     ) -> Tuple[Callable, Dict]:
         """Generate eval function with validated parameters.
 
@@ -567,6 +568,10 @@ class OpenVAFToJAX:
                               for SCCP-based dead code elimination. Used to eliminate
                               branches based on compile-time known values like TYPE=1.
                               Example: {'v51588': 1} for PSP102 NMOS.
+            propagate_constants: If True (default), automatically propagate all model
+                                parameters to SCCP for constant folding. This enables
+                                dead code elimination for any computation that only
+                                depends on model params (not voltages).
 
         Returns:
             Tuple of (eval_fn, metadata)
@@ -686,17 +691,41 @@ class OpenVAFToJAX:
         if cache_split is not None:
             shared_cache_indices, varying_cache_indices = cache_split
 
+        # Build SCCP known values for constant propagation
+        # This maps MIR value IDs to their constant values for shared params
+        effective_sccp_values: Optional[Dict[str, Any]] = sccp_known_values
+        if propagate_constants:
+            # Start with explicitly provided values
+            effective_sccp_values = dict(sccp_known_values) if sccp_known_values else {}
+
+            # Add all shared params with known values
+            for j, orig_idx in enumerate(shared_indices):
+                # Get MIR value ID for this param
+                value_id = self.param_idx_to_val.get(orig_idx)
+                if value_id and value_id not in effective_sccp_values:
+                    # Get the computed value for this param
+                    param_value = shared_inputs[j]
+                    if param_value is not None:
+                        effective_sccp_values[value_id] = param_value
+
+            if debug and effective_sccp_values:
+                print(f"\n=== SCCP Constants ({len(effective_sccp_values)}) ===")
+                n_explicit = len(sccp_known_values) if sccp_known_values else 0
+                n_auto = len(effective_sccp_values) - n_explicit
+                print(f"  Explicit: {n_explicit}, Auto from params: {n_auto}")
+
         # Generate code
         t0 = time.perf_counter()
         use_cache_split = shared_cache_indices is not None
-        logger.info(f"    translate_eval: generating code (cache_split={use_cache_split}, sccp={sccp_known_values is not None})...")
+        has_sccp = effective_sccp_values is not None and len(effective_sccp_values) > 0
+        logger.info(f"    translate_eval: generating code (cache_split={use_cache_split}, sccp={has_sccp})...")
 
         builder = EvalFunctionBuilder(
             self.eval_mir,
             self.dae_data,
             self.cache_mapping,
             self.param_idx_to_val,
-            sccp_known_values=sccp_known_values
+            sccp_known_values=effective_sccp_values
         )
         fn_name, code_lines = builder.build_with_cache_split(
             shared_indices, voltage_indices,
@@ -755,6 +784,37 @@ class OpenVAFToJAX:
                 'description': descriptions.get(name, f'$simparam("{name}")'),
             }
 
+        # Collect SCCP statistics if available
+        sccp_stats = {}
+        if builder.sccp is not None:
+            sccp = builder.sccp
+            total_constants = sum(1 for v in sccp.lattice.values() if v.is_constant())
+            mir_constants = (
+                len(self.eval_mir.constants) +
+                len(self.eval_mir.int_constants) +
+                len(self.eval_mir.bool_constants)
+            )
+            # Constants discovered through propagation (not from MIR or known_values)
+            builtin_count = len(sccp.BUILTIN_CONSTANTS)
+            known_count = len(effective_sccp_values) if effective_sccp_values else 0
+            computed_constants = total_constants - mir_constants - builtin_count - known_count
+            sccp_stats = {
+                'total_blocks': len(self.eval_mir.blocks),
+                'reachable_blocks': len(sccp.visited_blocks),
+                'dead_blocks': len(sccp.get_dead_blocks()),
+                'total_constants': total_constants,
+                'mir_constants': mir_constants,
+                'param_constants': known_count,
+                'computed_constants': max(0, computed_constants),
+            }
+            if debug and sccp_stats:
+                print(f"\n=== SCCP Results ===")
+                print(f"  Blocks: {sccp_stats['reachable_blocks']}/{sccp_stats['total_blocks']} reachable, {sccp_stats['dead_blocks']} dead")
+                print(f"  Constants: {sccp_stats['total_constants']} total")
+                print(f"    MIR constants: {sccp_stats['mir_constants']}")
+                print(f"    Param constants: {sccp_stats['param_constants']}")
+                print(f"    Computed (propagated): {sccp_stats['computed_constants']}")
+
         metadata = {
             'param_names': eval_param_names,
             'param_kinds': eval_param_kinds,
@@ -778,6 +838,7 @@ class OpenVAFToJAX:
             'simparams_used': simparam_meta.get('simparams_used', ['$analysis_type']),
             'simparam_indices': simparam_meta.get('simparam_indices', {'$analysis_type': 0}),
             'simparam_count': simparam_meta.get('simparam_count', 1),
+            'sccp_stats': sccp_stats,
             'warnings': warnings,
         }
 
