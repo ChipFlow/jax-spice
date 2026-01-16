@@ -260,11 +260,27 @@ class InstructionTranslator:
 
         if res.type == PHIResolutionType.TWO_WAY:
             assert res.condition is not None
-            assert res.true_value is not None
-            assert res.false_value is not None
-            cond = self.ctx.get_operand(res.condition)
-            true_val = self.ctx.get_operand(res.true_value)
-            false_val = self.ctx.get_operand(res.false_value)
+            # Handle potentially negated conditions
+            cond_str = res.condition
+            if cond_str.startswith('!'):
+                cond = jnp_call('logical_not',
+                                self.ctx.get_operand(cond_str[1:]))
+            else:
+                cond = self.ctx.get_operand(cond_str)
+
+            # Support nested resolutions: branch can be either a value or another PHIResolution
+            if res.nested_true is not None:
+                true_val = self._apply_phi_resolution(res.nested_true)
+            else:
+                assert res.true_value is not None
+                true_val = self.ctx.get_operand(res.true_value)
+
+            if res.nested_false is not None:
+                false_val = self._apply_phi_resolution(res.nested_false)
+            else:
+                assert res.false_value is not None
+                false_val = self.ctx.get_operand(res.false_value)
+
             return jnp_where(cond, true_val, false_val)
 
         if res.type == PHIResolutionType.MULTI_WAY:

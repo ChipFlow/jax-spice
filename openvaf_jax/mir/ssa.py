@@ -53,6 +53,11 @@ class PHIResolution:
     true_value: Optional[ValueId] = None
     false_value: Optional[ValueId] = None
 
+    # For NESTED_TWO_WAY: branches can be nested PHIResolutions
+    # Use these instead of true_value/false_value when branch needs further resolution
+    nested_true: Optional['PHIResolution'] = None
+    nested_false: Optional['PHIResolution'] = None
+
     # For MULTI_WAY: list of (condition_expr, value) pairs + default
     # condition_expr may have negation prefix (e.g., '!v5')
     cases: Optional[List[Tuple[str, ValueId]]] = None
@@ -579,13 +584,12 @@ class SSAAnalyzer:
     def _resolve_multi_way_phi(self, phi: MIRInstruction) -> PHIResolution:
         """Resolve a multi-way PHI node (3+ predecessors).
 
-        Strategy:
+        Strategy: Build a binary decision tree by recursively splitting predecessors.
         1. Group predecessors by value
         2. If only one non-v3 value, use it directly (v3=0.0 is placeholder)
-        3. If 2 unique values, try dominator-based TWO_WAY resolution
-        4. Otherwise, build nested where using hierarchical peeling:
-           a. Try dominator-based peeling first
-           b. If that fails, try ancestor trace peeling
+        3. Find a branch that separates predecessors into two groups
+        4. Recursively resolve each group if it has multiple predecessors
+        5. Build TWO_WAY with nested_true/nested_false for recursive cases
         """
         assert phi.phi_operands and len(phi.phi_operands) >= 3
 
@@ -628,41 +632,193 @@ class SSAAnalyzer:
             if resolution:
                 return resolution
 
-        # Build nested cases using hierarchical peeling
-        cases: List[Tuple[str, ValueId]] = []
-        remaining = list(pred_blocks)
+        # Build nested TWO_WAY using recursive tree construction
+        resolution = self._build_phi_decision_tree(pred_blocks, val_by_pred)
+        if resolution:
+            return resolution
 
-        # Peel off predecessors one at a time
-        while len(remaining) > 1:
-            # Try dominator-based peeling first
-            peeled = self._peel_via_dominator(phi.block, remaining, val_by_pred)
+        # Fallback to first value if tree building fails
+        return PHIResolution(
+            type=PHIResolutionType.FALLBACK,
+            single_value=phi.phi_operands[0].value
+        )
 
-            # If dominator fails and exactly 2 remaining, try ancestor trace
-            if peeled is None and len(remaining) == 2:
-                peeled = self._peel_via_ancestor_trace(remaining, val_by_pred)
+    def _build_phi_decision_tree(
+        self,
+        pred_blocks: List[BlockId],
+        val_by_pred: Dict[BlockId, ValueId],
+    ) -> Optional[PHIResolution]:
+        """Build a binary decision tree for PHI resolution.
 
-            if peeled is None:
-                break
+        Recursively finds branches that separate predecessors and builds
+        nested TWO_WAY resolutions.
 
-            cond, value, peeled_preds = peeled
-            cases.append((cond, value))
-            for p in peeled_preds:
-                remaining.remove(p)
+        Args:
+            pred_blocks: List of predecessor blocks to resolve
+            val_by_pred: Map from predecessor block to its value
 
-        # Default is the remaining predecessor's value
-        default = val_by_pred.get(remaining[0], phi.phi_operands[0].value) if remaining else phi.phi_operands[0].value
-
-        if not cases:
+        Returns:
+            PHIResolution with nested structure, or None if no separation found
+        """
+        # Base case: 1 predecessor - return FALLBACK with that value
+        if len(pred_blocks) == 1:
             return PHIResolution(
                 type=PHIResolutionType.FALLBACK,
-                single_value=default
+                single_value=val_by_pred[pred_blocks[0]]
             )
 
+        # Base case: 2 predecessors with same value - return FALLBACK
+        if len(pred_blocks) == 2:
+            val0 = val_by_pred[pred_blocks[0]]
+            val1 = val_by_pred[pred_blocks[1]]
+            if val0 == val1:
+                return PHIResolution(
+                    type=PHIResolutionType.FALLBACK,
+                    single_value=val0
+                )
+
+        # Find a branch that separates predecessors into two non-empty groups
+        split = self._find_separating_branch(pred_blocks)
+        if split is None:
+            return None
+
+        cond_var, true_preds, false_preds = split
+
+        # Build resolution for true branch
+        if len(true_preds) == 1:
+            # Single predecessor - use value directly
+            true_resolution = None
+            true_value = val_by_pred[true_preds[0]]
+        else:
+            # Multiple predecessors - check if all have same value
+            true_vals = set(val_by_pred[p] for p in true_preds)
+            if len(true_vals) == 1:
+                true_resolution = None
+                true_value = true_vals.pop()
+            else:
+                # Recursively build subtree
+                true_resolution = self._build_phi_decision_tree(true_preds, val_by_pred)
+                if true_resolution is None:
+                    # Recursive call failed - can't resolve this PHI
+                    return None
+                true_value = None
+
+        # Build resolution for false branch
+        if len(false_preds) == 1:
+            # Single predecessor - use value directly
+            false_resolution = None
+            false_value = val_by_pred[false_preds[0]]
+        else:
+            # Multiple predecessors - check if all have same value
+            false_vals = set(val_by_pred[p] for p in false_preds)
+            if len(false_vals) == 1:
+                false_resolution = None
+                false_value = false_vals.pop()
+            else:
+                # Recursively build subtree
+                false_resolution = self._build_phi_decision_tree(false_preds, val_by_pred)
+                if false_resolution is None:
+                    # Recursive call failed - can't resolve this PHI
+                    return None
+                false_value = None
+
         return PHIResolution(
-            type=PHIResolutionType.MULTI_WAY,
-            cases=cases,
-            default=default,
+            type=PHIResolutionType.TWO_WAY,
+            condition=cond_var,
+            true_value=true_value,
+            false_value=false_value,
+            nested_true=true_resolution,
+            nested_false=false_resolution,
         )
+
+    def _find_separating_branch(
+        self,
+        pred_blocks: List[BlockId],
+    ) -> Optional[Tuple[str, List[BlockId], List[BlockId]]]:
+        """Find a branch that separates predecessors into two non-empty groups.
+
+        Args:
+            pred_blocks: List of predecessor blocks
+
+        Returns:
+            (condition_var, true_preds, false_preds) or None if no separation found
+        """
+        branch_conds = self.branch_conditions
+
+        for block_name, cond_info in branch_conds.items():
+            if len(cond_info) != 2:
+                continue
+
+            targets = list(cond_info.keys())
+            true_target = None
+            false_target = None
+
+            for target, (cond_var, is_true) in cond_info.items():
+                if is_true:
+                    true_target = target
+                else:
+                    false_target = target
+
+            if not true_target or not false_target:
+                continue
+
+            # Classify each predecessor by which branch reaches it
+            true_preds: List[BlockId] = []
+            false_preds: List[BlockId] = []
+
+            for pred in pred_blocks:
+                # Case 1: pred IS the branching block itself
+                # The edge pred->PHI_block exists when the branch goes directly to the PHI block
+                if pred == block_name:
+                    # Check which branch target the PHI block is
+                    # (One of true_target or false_target must be the PHI block for this to matter)
+                    from_true = (true_target in pred_blocks) or self._is_reachable(true_target, pred)
+                    from_false = (false_target in pred_blocks) or self._is_reachable(false_target, pred)
+
+                    # If this block branches directly to another predecessor via true/false,
+                    # classify based on which target reaches more of our predecessors
+                    # Actually, for the branching block, its contribution to the PHI is when
+                    # it takes the branch that leads directly or indirectly to the PHI block
+                    # But since pred IS the branching block, the edge pred->PHI must be one of the targets
+                    if true_target not in pred_blocks and false_target not in pred_blocks:
+                        # Neither target is another predecessor, use reachability
+                        pass
+                    elif true_target in pred_blocks and false_target not in pred_blocks:
+                        # true_target is another predecessor, so this pred goes via true
+                        # Wait no - if pred IS block_name and true_target is another pred,
+                        # that means block_name branches to true_target, not to the PHI block
+                        # So this pred's edge to PHI block must be via FALSE
+                        from_true = False
+                        from_false = True
+                    elif false_target in pred_blocks and true_target not in pred_blocks:
+                        from_true = True
+                        from_false = False
+                # Case 2: pred IS a direct branch target
+                elif pred == true_target:
+                    from_true = True
+                    from_false = False
+                elif pred == false_target:
+                    from_true = False
+                    from_false = True
+                # Case 3: pred is reachable from one branch but not the other
+                else:
+                    from_true = self._is_reachable(true_target, pred)
+                    from_false = self._is_reachable(false_target, pred)
+
+                # Predecessor must be reachable from exactly one branch
+                if from_true and not from_false:
+                    true_preds.append(pred)
+                elif from_false and not from_true:
+                    false_preds.append(pred)
+                # If reachable from both or neither, this branch doesn't separate
+
+            # Check if this branch separates ALL predecessors into two non-empty groups
+            if len(true_preds) + len(false_preds) == len(pred_blocks):
+                if len(true_preds) > 0 and len(false_preds) > 0:
+                    cond_var, _ = cond_info[true_target]
+                    return (str(cond_var), true_preds, false_preds)
+
+        return None
 
     def _peel_via_dominator(
         self,

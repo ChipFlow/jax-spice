@@ -61,6 +61,14 @@ try:
 except ImportError:
     _HAS_MIR_ANALYSIS = False
 
+# MIR graph imports are optional (require networkx)
+try:
+    from jax_spice.debug.mir_graph import MIRGraph
+
+    _HAS_MIR_GRAPH = True
+except ImportError:
+    _HAS_MIR_GRAPH = False
+
 __all__ = [
     # Trace monitoring
     "trace_monitor",
@@ -103,4 +111,6 @@ __all__ = [
     "get_cfg_summary",
     "find_paths_to_block",
     "analyze_phi_block",
+    # MIR graph (optional)
+    "MIRGraph",
 ]

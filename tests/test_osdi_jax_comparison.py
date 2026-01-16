@@ -324,10 +324,10 @@ TRANSISTOR_CONFIGS = [
             "wg": 1e-6,
             "mfactor": 1.0,
         },
-        "terminals": ["d", "g", "s"],  # 3-terminal device
+        "terminals": ["d", "g", "s", "b"],  # 4-terminal device
         "vds": 0.5,
         "vgs_for_jacobian": 0.6,
-        "xfail": False,
+        "xfail": False,  # Fixed by nested 2-way PHI resolution
     },
     {
         "name": "psp102",
@@ -341,7 +341,7 @@ TRANSISTOR_CONFIGS = [
         "terminals": ["d", "g", "s", "b"],
         "vds": 0.5,
         "vgs_for_jacobian": 0.6,
-        "xfail": True,  # Known PHI node resolution issues
+        "xfail": False,  # Fixed by nested 2-way PHI resolution
     },
 ]
 
@@ -1073,7 +1073,6 @@ class TestPSP102Comparison:
             "mfactor": 1.0,
         }
 
-    @pytest.mark.xfail(reason="PSP102 has known PHI node resolution issues for NMOS/PMOS branching")
     def test_ids_vs_vds_sweep(self, osdi_path, va_path, nmos_params):
         """Sweep Vds at fixed Vgs, compare Ids (output characteristics).
 

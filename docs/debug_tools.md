@@ -18,6 +18,12 @@ print(result)
 
 # Inspect MIR structure
 inspect_model("vendor/OpenVAF/integration_tests/PSP102/psp102.va")
+
+# Graph-based queries (requires networkx)
+from jax_spice.debug import MIRGraph
+graph = MIRGraph.from_va_file("model.va", func='eval')
+graph.dae_residual('dt')      # Find residual variable
+graph.param_to_value('rth')   # Map param to MIR value
 ```
 
 ## Module Overview
@@ -26,6 +32,7 @@ inspect_model("vendor/OpenVAF/integration_tests/PSP102/psp102.va")
 |--------|---------|
 | `model_comparison` | Compare OSDI vs JAX outputs (residuals, Jacobians, cache) |
 | `mir_inspector` | Inspect MIR data (params, PHI nodes, constants) |
+| `mir_graph` | Graph-based MIR queries (requires networkx) |
 | `jacobian` | Format-aware Jacobian comparison (OSDI sparse vs JAX dense) |
 | `mir_tracer` | Trace value flow through MIR |
 | `param_analyzer` | Analyze parameter kinds and OSDI comparison |
@@ -130,6 +137,86 @@ for phi in zero_phis[:5]:
     print(f"PHI {phi.result} in {phi.block}")
     for pred, val in phi.operands:
         print(f"  {pred} -> {val}")
+```
+
+---
+
+## MIR Graph (`mir_graph.py`)
+
+Graph-based queries for MIR analysis. Requires `networkx`.
+
+### MIRGraph
+
+Build a queryable graph from a VA model:
+
+```python
+from jax_spice.debug import MIRGraph
+
+graph = MIRGraph.from_va_file("model.va", func='eval', include_dae=True)
+```
+
+### Value Tracing
+
+```python
+# What instruction defines a value?
+graph.who_defines('v273116')
+# Returns: {'opcode': 'optbarrier', 'block': 'block1458', ...}
+
+# What instructions use a value?
+graph.who_uses('v142825')
+# Returns: [{'target': 'value:v142827', 'opcode': 'fgt', ...}, ...]
+
+# Trace dependencies backwards
+graph.trace_back('v273116', depth=5)
+
+# Trace usage forwards
+graph.trace_forward('v142825', depth=5)
+```
+
+### Parameter Mapping
+
+```python
+# Find MIR value ID for a parameter
+graph.param_to_value('rth')  # Returns 'v142825'
+
+# Reverse lookup
+graph.value_to_param('v142825')  # Returns 'rth'
+```
+
+### DAE System Queries
+
+```python
+# Get resist/react value IDs for a node
+graph.dae_residual('dt')
+# Returns: {'resist': 'v273116', 'react': 'v273117'}
+```
+
+### Control Flow
+
+```python
+# Find path from entry to a block
+graph.path_to_block('block1451')
+# Returns: ['block0', 'block4', ..., 'block1450', 'block1451']
+
+# Get PHI nodes in a block
+graph.phi_info('block1453')
+# Returns: [{'result': 'v252438', 'operands': [...], ...}, ...]
+
+# Get branch condition for a block
+graph.branch_condition('block1450')
+# Returns: {'condition': 'v142827', 'true_block': 'block1451', 'false_block': 'block1453'}
+
+# Find all blocks that branch on a value
+graph.blocks_with_condition('v142827')
+# Returns: ['block1450']
+```
+
+### Constants
+
+```python
+# Check if a value is a constant
+is_const, value = graph.is_constant('v3')
+# Returns: (True, 0.0)
 ```
 
 ---
