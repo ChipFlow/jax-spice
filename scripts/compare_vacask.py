@@ -318,7 +318,7 @@ def run_jax_spice(config: BenchmarkInfo, num_steps: int, use_scan: bool,
         startup_start = time.perf_counter()
         engine.run_transient(
             t_stop=t_stop, dt=config.dt,
-            use_sparse=use_sparse, use_while_loop=use_scan,
+            use_sparse=use_sparse,
             backend=backend,
         )
         startup_time = time.perf_counter() - startup_start
@@ -364,7 +364,7 @@ def run_jax_spice(config: BenchmarkInfo, num_steps: int, use_scan: bool,
         print(f"TIMED_RUN_START: {start:.6f}")
         result = engine.run_transient(
             t_stop=t_stop, dt=config.dt,
-            use_sparse=use_sparse, use_while_loop=use_scan,
+            use_sparse=use_sparse,
             backend=backend,
             profile_config=sim_profile_config,
         )
