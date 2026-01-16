@@ -8,10 +8,12 @@ This module provides builders for:
 import ast
 from typing import Any, Dict, List, Optional, Set, Tuple
 
+from collections import defaultdict
+
 from ..mir.cfg import CFGAnalyzer, LoopInfo
 from ..mir.constprop import SCCP
-from ..mir.ssa import PHIResolutionType, SSAAnalyzer
-from ..mir.types import Block, MIRFunction, ValueId
+from ..mir.ssa import PHIResolution, PHIResolutionType, SSAAnalyzer
+from ..mir.types import Block, MIRFunction, MIRInstruction, ValueId
 from ..openvaf_ast import (
     assign,
     assign_tuple,
@@ -20,6 +22,7 @@ from ..openvaf_ast import (
     import_from,
     jnp_bool,
     jnp_call,
+    jnp_where,
     list_expr,
     return_stmt,
     subscript,
@@ -94,19 +97,142 @@ class FunctionBuilder:
     def _emit_block(self, body: List[ast.stmt], ctx: CodeGenContext,
                     block: Block, translator: InstructionTranslator,
                     loop_info: Optional[LoopInfo] = None):
-        """Emit code for a basic block."""
-        for inst in block.instructions:
-            if inst.is_terminator:
-                continue
+        """Emit code for a basic block with PHI batching optimization.
 
+        PHIs with the same condition are batched to reduce XLA graph complexity.
+        """
+        # Separate PHIs from regular instructions
+        phi_insts = block.phi_nodes
+        regular_insts = [inst for inst in block.instructions
+                         if not inst.is_phi and not inst.is_terminator]
+
+        # Batch PHIs with same condition
+        self._emit_batched_phis(body, ctx, translator, phi_insts, loop_info)
+
+        # Emit regular instructions
+        for inst in regular_insts:
             expr = translator.translate(inst, loop_info)
             if expr and inst.result:
                 var_name = ctx.define_var(inst.result)
                 body.append(assign(var_name, expr))
             elif expr and not inst.result:
                 # Side-effect only instruction (e.g., $display)
-                # Emit as expression statement
                 body.append(ast.Expr(value=expr))
+
+    def _emit_batched_phis(self, body: List[ast.stmt], ctx: CodeGenContext,
+                           translator: InstructionTranslator,
+                           phi_insts: List[MIRInstruction],
+                           loop_info: Optional[LoopInfo] = None):
+        """Emit PHI nodes with batching optimization.
+
+        Groups PHIs by their condition and emits batched jnp.where calls
+        for groups with 2+ PHIs sharing the same condition.
+        """
+        if not phi_insts:
+            return
+
+        # Resolve all PHIs and group by condition
+        # Key: (condition_str, is_negated) -> list of (inst, resolution, true_val, false_val)
+        cond_groups: Dict[Tuple[str, bool], List[Tuple[MIRInstruction, PHIResolution]]] = defaultdict(list)
+        non_batchable: List[Tuple[MIRInstruction, PHIResolution]] = []
+
+        for inst in phi_insts:
+            if not inst.result:
+                continue
+
+            resolution = self.ssa.resolve_phi(inst, loop_info)
+
+            # Only batch simple TWO_WAY PHIs (no nested resolutions)
+            if (resolution.type == PHIResolutionType.TWO_WAY and
+                resolution.condition and
+                resolution.nested_true is None and
+                resolution.nested_false is None and
+                resolution.true_value and
+                resolution.false_value):
+
+                # Normalize negated conditions for grouping
+                cond_str = resolution.condition
+                is_negated = cond_str.startswith('!')
+                base_cond = cond_str[1:] if is_negated else cond_str
+
+                cond_groups[(base_cond, is_negated)].append((inst, resolution))
+            else:
+                non_batchable.append((inst, resolution))
+
+        # Emit batched groups (2+ PHIs with same condition)
+        for (base_cond, is_negated), group in cond_groups.items():
+            if len(group) >= 2:
+                self._emit_phi_batch(body, ctx, translator, base_cond, is_negated, group)
+            else:
+                # Single PHI, emit normally
+                inst, resolution = group[0]
+                expr = translator._apply_phi_resolution(resolution)
+                var_name = ctx.define_var(inst.result)
+                body.append(assign(var_name, expr))
+
+        # Emit non-batchable PHIs individually
+        for inst, resolution in non_batchable:
+            expr = translator._apply_phi_resolution(resolution)
+            var_name = ctx.define_var(inst.result)
+            body.append(assign(var_name, expr))
+
+    def _emit_phi_batch(self, body: List[ast.stmt], ctx: CodeGenContext,
+                        translator: InstructionTranslator,
+                        base_cond: str, is_negated: bool,
+                        group: List[Tuple[MIRInstruction, PHIResolution]]):
+        """Emit a batch of PHIs with the same condition using tree_map.
+
+        Generates:
+            (v1, v2, ...) = jax.tree_util.tree_map(
+                lambda t, f: jnp.where(cond, t, f),
+                (true1, true2, ...),
+                (false1, false2, ...)
+            )
+        """
+        # Build the condition expression
+        cond_expr = ctx.get_operand(base_cond)
+        if is_negated:
+            cond_expr = jnp_call('logical_not', cond_expr)
+
+        # Collect variable names and values
+        var_names = []
+        true_vals = []
+        false_vals = []
+
+        for inst, resolution in group:
+            var_name = ctx.define_var(inst.result)
+            var_names.append(var_name)
+            true_vals.append(ctx.get_operand(resolution.true_value))
+            false_vals.append(ctx.get_operand(resolution.false_value))
+
+        # Build tree_map call:
+        # jax.tree_util.tree_map(lambda t, f: jnp.where(cond, t, f), (t1, t2, ...), (f1, f2, ...))
+
+        # Lambda: lambda t, f: jnp.where(cond, t, f)
+        t_param = ast.arg(arg='t', annotation=None)
+        f_param = ast.arg(arg='f', annotation=None)
+        lambda_body = jnp_where(cond_expr, ast_name('t'), ast_name('f'))
+        lambda_node = ast.Lambda(
+            args=ast.arguments(
+                posonlyargs=[],
+                args=[t_param, f_param],
+                vararg=None,
+                kwonlyargs=[],
+                kw_defaults=[],
+                kwarg=None,
+                defaults=[]
+            ),
+            body=lambda_body
+        )
+
+        # jax.tree_util.tree_map(lambda_node, (true_vals), (false_vals))
+        tree_map_call = ast_call(
+            attr(attr(ast_name('jax'), 'tree_util'), 'tree_map'),
+            [lambda_node, tuple_expr(true_vals), tuple_expr(false_vals)]
+        )
+
+        # Emit tuple assignment: (v1, v2, ...) = tree_map(...)
+        body.append(assign_tuple(var_names, tree_map_call))
 
     def _emit_loop(self, body: List[ast.stmt], ctx: CodeGenContext,
                    loop: LoopInfo, translator: InstructionTranslator) -> None:

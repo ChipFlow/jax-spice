@@ -255,6 +255,31 @@ def jnp_where(cond: ast.expr, true_val: ast.expr,
     return jnp_call('where', cond, true_val, false_val)
 
 
+def jnp_select(condlist: List[ast.expr], choicelist: List[ast.expr],
+               default: ast.expr) -> ast.Call:
+    """Create a jnp.select(condlist, choicelist, default) call.
+
+    This is more efficient than nested jnp.where for multiple conditions
+    as it creates a single XLA operation instead of nested conditionals.
+
+    Args:
+        condlist: List of condition expressions
+        choicelist: List of value expressions (one per condition)
+        default: Default value if no conditions match
+
+    Returns:
+        ast.Call node for jnp.select([...], [...], default)
+
+    Example:
+        >>> jnp_select([cond1, cond2], [val1, val2], default)
+        # Generates: jnp.select([cond1, cond2], [val1, val2], default)
+    """
+    return call(
+        attr(name('jnp'), 'select'),
+        [list_expr(condlist), list_expr(choicelist), default]
+    )
+
+
 def jnp_float64(value: ast.expr) -> ast.Call:
     """Create a jnp.float64(value) call.
 
@@ -354,20 +379,31 @@ def safe_divide(dividend: ast.expr, divisor: ast.expr,
 
 
 def nested_where(conditions: List[tuple], default: ast.expr) -> ast.expr:
-    """Build nested jnp.where for multi-way conditionals.
+    """Build multi-way conditional using jnp.select.
+
+    Uses jnp.select for 2+ conditions (more efficient XLA graph) and
+    jnp.where for single condition.
 
     Args:
         conditions: List of (condition, value) tuples
         default: Default value if no conditions match
 
     Returns:
-        Nested jnp.where expression
+        jnp.select or jnp.where expression
 
     Example:
         >>> nested_where([(cond1, val1), (cond2, val2)], default)
-        # Generates: jnp.where(cond1, val1, jnp.where(cond2, val2, default))
+        # Generates: jnp.select([cond1, cond2], [val1, val2], default)
     """
-    result = default
-    for cond, val in reversed(conditions):
-        result = jnp_where(cond, val, result)
-    return result
+    if not conditions:
+        return default
+
+    if len(conditions) == 1:
+        # Single condition: use jnp.where (equivalent but simpler)
+        cond, val = conditions[0]
+        return jnp_where(cond, val, default)
+
+    # Multiple conditions: use jnp.select for more efficient XLA graph
+    condlist = [cond for cond, _ in conditions]
+    choicelist = [val for _, val in conditions]
+    return jnp_select(condlist, choicelist, default)
