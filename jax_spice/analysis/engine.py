@@ -1851,7 +1851,7 @@ class CircuitEngine:
                       max_steps: int = 1000000, use_sparse: Optional[bool] = None,
                       backend: Optional[str] = None,
                       use_scan: bool = False,
-                      use_while_loop: bool = False,
+                      use_while_loop: bool = True,
                       profile_config: Optional['ProfileConfig'] = None,
                       temperature: float = DEFAULT_TEMPERATURE_K) -> TransientResult:
         """Run transient analysis.
@@ -1867,7 +1867,7 @@ class CircuitEngine:
             backend: 'gpu', 'cpu', or None (auto-select based on circuit size).
                      For circuits >500 nodes with GPU available, uses GPU acceleration.
             use_scan: If True, use lax.scan (pre-computes all source values)
-            use_while_loop: If True, use lax.while_loop (computes sources on-the-fly)
+            use_while_loop: Use lax.while_loop for 2x faster per-step execution (default: True)
             profile_config: If provided, profile just the core simulation (not setup)
             temperature: Simulation temperature in Kelvin (default: 300.15K = 27°C)
 
