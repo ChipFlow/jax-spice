@@ -103,6 +103,7 @@ class SSAAnalyzer:
         self._succ_pair_map: Optional[Dict[FrozenSet[str], List[str]]] = None
         self._pred_to_branch_target: Optional[Dict[str, Dict[str, str]]] = None
         self._reachable_from: Optional[Dict[str, Set[str]]] = None  # Transitive closure
+        self._dominated_reachable_cache: Dict[Tuple[str, str, str], bool] = {}  # Cache for dominated reachability
 
     @property
     def branch_conditions(self) -> Dict[str, Dict[str, Tuple[ValueId, bool]]]:
@@ -138,31 +139,66 @@ class SSAAnalyzer:
         return self._reachable_from
 
     def _build_transitive_closure(self) -> Dict[str, Set[str]]:
-        """Build transitive closure using Kameda's algorithm.
+        """Build transitive closure using optimized reverse post-order algorithm.
 
-        Process blocks in reverse topological order. For each block,
-        its reachability set = union of successors' reachability sets + itself.
+        For reducible CFGs (typical compiler output), this completes in 1-2 passes.
+        Uses reverse post-order traversal for efficient propagation.
         """
         blocks = self.mir_func.blocks
+        if not blocks:
+            return {}
 
-        # Get reverse post-order (approximates reverse topological order for CFGs)
-        # For CFGs with back-edges, we iterate until fixed point
+        # Step 1: Compute post-order via iterative DFS
+        entry = self.mir_func.entry_block
+        post_order: List[str] = []
+        visited: Set[str] = set()
+        # Stack: (block, children_processed)
+        stack: List[Tuple[str, bool]] = [(entry, False)]
+
+        while stack:
+            block, done = stack.pop()
+            if done:
+                post_order.append(block)
+                continue
+            if block in visited or block not in blocks:
+                continue
+            visited.add(block)
+            stack.append((block, True))
+            for succ in reversed(blocks[block].successors):
+                if succ not in visited and succ in blocks:
+                    stack.append((succ, False))
+
+        # Add any unreachable blocks (shouldn't happen for valid CFGs)
+        for name in blocks:
+            if name not in visited:
+                post_order.append(name)
+
+        # Step 2: Process in reverse post-order (forward topological order)
+        # For reachability, we need to process in reverse - from exits to entry
+        # So we use post_order directly (not reversed)
         reachable: Dict[str, Set[str]] = {name: {name} for name in blocks}
 
-        # Iterate until fixed point (handles cycles)
+        # Single pass in post-order (reverse topological) - handles DAGs perfectly
+        for name in post_order:
+            block = blocks[name]
+            for succ in block.successors:
+                if succ in reachable:
+                    reachable[name].update(reachable[succ])
+
+        # Second pass to handle back-edges (cycles)
+        # Only needed if there are loops; for most CFGs this adds little
         changed = True
-        max_iterations = len(blocks) + 1
-        iteration = 0
-
-        while changed and iteration < max_iterations:
+        max_extra_passes = 3  # Typically converges in 1-2 extra passes
+        for _ in range(max_extra_passes):
+            if not changed:
+                break
             changed = False
-            iteration += 1
-
-            for name, block in blocks.items():
+            for name in post_order:
+                block = blocks[name]
                 old_size = len(reachable[name])
                 for succ in block.successors:
                     if succ in reachable:
-                        reachable[name] |= reachable[succ]
+                        reachable[name].update(reachable[succ])
                 if len(reachable[name]) > old_size:
                     changed = True
 
@@ -486,10 +522,32 @@ class SSAAnalyzer:
         return None
 
     def _is_dominated_reachable(self, start: str, target: str, dominator: str) -> bool:
-        """Check if target is reachable from start without going back through dominator."""
+        """Check if target is reachable from start without going back through dominator.
+
+        Uses caching and fast-path optimization with transitive closure for efficiency.
+        """
         if start == target:
             return True
 
+        # Check cache first
+        cache_key = (start, target, dominator)
+        cached = self._dominated_reachable_cache.get(cache_key)
+        if cached is not None:
+            return cached
+
+        # Fast-path: if target not reachable from start at all, return False
+        reachable = self.reachable_from
+        if start in reachable and target not in reachable[start]:
+            self._dominated_reachable_cache[cache_key] = False
+            return False
+
+        # Fast-path: if dominator not reachable from start, dominator can't block the path
+        if start in reachable and dominator not in reachable[start]:
+            result = target in reachable[start]
+            self._dominated_reachable_cache[cache_key] = result
+            return result
+
+        # Full DFS avoiding dominator
         visited = {dominator}  # Don't go back through dominator
         stack = [start]
 
@@ -500,6 +558,7 @@ class SSAAnalyzer:
             visited.add(current)
 
             if current == target:
+                self._dominated_reachable_cache[cache_key] = True
                 return True
 
             if current in self.mir_func.blocks:
@@ -507,6 +566,7 @@ class SSAAnalyzer:
                     if succ not in visited:
                         stack.append(succ)
 
+        self._dominated_reachable_cache[cache_key] = False
         return False
 
     def _resolve_via_ancestor_trace(

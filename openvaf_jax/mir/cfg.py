@@ -137,89 +137,112 @@ class CFGAnalyzer:
         return visited
 
     def _compute_dominators(self) -> Dict[str, Set[str]]:
-        """Compute dominator sets using iterative algorithm.
+        """Compute dominator sets from immediate dominators.
 
-        Uses the standard iterative data-flow algorithm:
-        Dom(entry) = {entry}
-        Dom(n) = {n} union (intersection of Dom(p) for all predecessors p)
+        Derives full dominator sets by walking up the idom tree.
+        This is computed on-demand since most uses only need idom.
+        """
+        idom = self.immediate_dominators
+        dom: Dict[str, Set[str]] = {}
+
+        for block in self.reachable_blocks:
+            # Walk up idom tree to collect all dominators
+            dominators = {block}
+            current = idom.get(block)
+            while current is not None:
+                dominators.add(current)
+                current = idom.get(current)
+            dom[block] = dominators
+
+        return dom
+
+    def _compute_immediate_dominators(self) -> Dict[str, Optional[str]]:
+        """Compute immediate dominators using Cooper et al. algorithm.
+
+        This is the "simple and fast" algorithm from:
+        Cooper, Harvey, Kennedy. "A Simple, Fast Dominance Algorithm" (2001)
+
+        Time complexity: O(n) for reducible CFGs (typical), O(n²) worst case.
+        Much faster than the iterative dataflow algorithm for large CFGs.
         """
         reachable = self.reachable_blocks
         if not reachable:
             return {}
 
-        # Initialize: entry dominates only itself, others dominated by all
-        dom: Dict[str, Set[str]] = {}
-        for block in reachable:
-            if block == self.entry:
-                dom[block] = {block}
-            else:
-                dom[block] = set(reachable)  # Start with all blocks
+        # Step 1: Compute reverse post-order numbering via iterative DFS
+        post_order: List[str] = []
+        visited: Set[str] = set()
+        # Stack: (block, have_visited_children)
+        stack: List[Tuple[str, bool]] = [(self.entry, False)]
 
-        # Iterate until fixed point
+        while stack:
+            block, children_done = stack.pop()
+
+            if children_done:
+                # All children processed, add to post-order
+                post_order.append(block)
+                continue
+
+            if block in visited or block not in reachable:
+                continue
+
+            visited.add(block)
+            # Push self again to add to post-order after children
+            stack.append((block, True))
+
+            # Push children (in reverse to maintain order)
+            if block in self.blocks:
+                for succ in reversed(self.blocks[block].successors):
+                    if succ not in visited:
+                        stack.append((succ, False))
+
+        # Reverse to get reverse post-order
+        rpo = list(reversed(post_order))
+        rpo_number: Dict[str, int] = {block: i for i, block in enumerate(rpo)}
+
+        # Step 2: Initialize idom
+        idom: Dict[str, Optional[str]] = {block: None for block in reachable}
+        idom[self.entry] = self.entry  # Entry's idom is itself (sentinel)
+
+        def intersect(b1: str, b2: str) -> str:
+            """Find common dominator by walking up idom tree."""
+            finger1, finger2 = b1, b2
+            while finger1 != finger2:
+                while rpo_number.get(finger1, 0) > rpo_number.get(finger2, 0):
+                    finger1 = idom[finger1] or finger1
+                while rpo_number.get(finger2, 0) > rpo_number.get(finger1, 0):
+                    finger2 = idom[finger2] or finger2
+            return finger1
+
+        # Step 3: Iterate until convergence
         changed = True
         while changed:
             changed = False
-            for block in reachable:
+            for block in rpo:
                 if block == self.entry:
                     continue
 
-                # Get predecessors that are reachable
+                # Get processed predecessors (those with idom already set)
                 preds = [p for p in self.blocks[block].predecessors
-                         if p in reachable]
+                         if p in reachable and idom.get(p) is not None]
 
                 if not preds:
-                    new_dom = {block}
-                else:
-                    # Intersection of all predecessor dominators
-                    new_dom = set(dom[preds[0]])
-                    for pred in preds[1:]:
-                        new_dom &= dom[pred]
-                    new_dom.add(block)
+                    continue
 
-                if new_dom != dom[block]:
-                    dom[block] = new_dom
+                # Start with first processed predecessor
+                new_idom = preds[0]
+
+                # Intersect with other predecessors
+                for pred in preds[1:]:
+                    if idom.get(pred) is not None:
+                        new_idom = intersect(pred, new_idom)
+
+                if idom[block] != new_idom:
+                    idom[block] = new_idom
                     changed = True
 
-        return dom
-
-    def _compute_immediate_dominators(self) -> Dict[str, Optional[str]]:
-        """Compute immediate dominators from dominator sets.
-
-        The immediate dominator of n is the unique dominator that:
-        - Is not n itself
-        - Is dominated by all other dominators of n
-        """
-        idom: Dict[str, Optional[str]] = {}
-        dom = self.dominators
-
-        for block in self.reachable_blocks:
-            if block == self.entry:
-                idom[block] = None
-                continue
-
-            # Find the immediate dominator
-            # It's the dominator closest to block (dominates block,
-            # but is dominated by all other dominators of block)
-            doms = dom[block] - {block}
-            if not doms:
-                idom[block] = None
-                continue
-
-            # Find the dominator that is dominated by all others
-            # i.e., the one closest to 'block' (furthest from entry)
-            for candidate in doms:
-                is_immediate = True
-                for other in doms:
-                    if other != candidate and other not in dom.get(candidate, set()):
-                        # other does not dominate candidate, so candidate is not the closest
-                        is_immediate = False
-                        break
-                if is_immediate:
-                    idom[block] = candidate
-                    break
-            else:
-                # Fallback: pick any dominator
-                idom[block] = next(iter(doms))
+        # Fix entry's idom to be None (we used self as sentinel)
+        idom[self.entry] = None
 
         return idom
 
