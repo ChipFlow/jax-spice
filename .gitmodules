@@ -1,7 +1,7 @@
 [submodule "vendor/OpenVAF"]
 	path = vendor/OpenVAF
 	url = https://github.com/robtaylor/OpenVAF.git
-	branch = builtin-primitive-support
+	branch = jax-spice
 [submodule "vendor/VACASK"]
 	path = vendor/VACASK
 	url = https://codeberg.org/robtaylor/VACASK.git
