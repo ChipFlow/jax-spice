@@ -26,7 +26,6 @@ class TestHICUM:
         assert 'hicum' in hicum_model.name.lower()
         assert len(hicum_model.nodes) >= 4
 
-    @pytest.mark.xfail(reason="JAX translator has init variable issues for complex models")
     def test_valid_output(self, hicum_model: CompiledModel):
         """HICUM produces valid outputs"""
         inputs = hicum_model.build_default_inputs()
@@ -58,7 +57,6 @@ class TestMEXTRAM:
         # MEXTRAM is also known as bjt505t
         assert len(mextram_model.nodes) >= 4
 
-    @pytest.mark.xfail(reason="JAX translator has init variable issues for complex models")
     def test_valid_output(self, mextram_model: CompiledModel):
         """MEXTRAM produces valid outputs"""
         inputs = mextram_model.build_default_inputs()

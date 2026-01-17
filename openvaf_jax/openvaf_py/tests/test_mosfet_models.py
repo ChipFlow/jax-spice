@@ -75,7 +75,6 @@ class TestBSIM3:
         assert 'bsim3' in bsim3_model.name.lower()
         assert len(bsim3_model.nodes) >= 4
 
-    @pytest.mark.xfail(reason="JAX translator has init variable issues for complex models")
     def test_valid_output(self, bsim3_model: CompiledModel):
         """BSIM3 produces valid outputs"""
         inputs = bsim3_model.build_default_inputs()
@@ -164,7 +163,6 @@ class TestBSIMCMG:
         assert 'bsimcmg' in bsimcmg_model.name.lower()
         assert len(bsimcmg_model.nodes) >= 4
 
-    @pytest.mark.xfail(reason="JAX translator has init variable issues for complex models")
     def test_valid_output(self, bsimcmg_model: CompiledModel):
         """BSIMCMG produces valid outputs"""
         inputs = bsimcmg_model.build_default_inputs()

@@ -127,47 +127,45 @@ class CompiledModel:
         return list(self.module.param_kinds)
 
     def build_default_inputs(self) -> List[float]:
-        """Build input array with sensible defaults (for legacy compatibility)
+        """Build input array with defaults from the parsed Verilog-A model.
 
         Returns list of floats indexed by module.param_names order.
-        Uses actual model defaults from module.get_param_defaults() where available.
+        Uses the actual defaults computed by the translator from the VA source.
         """
-        # Get model's actual parameter defaults
-        param_defaults = self.module.get_param_defaults()
+        # Start with the translator's init_inputs which have correct VA defaults
+        init_inputs = list(self._default_init_meta['init_inputs'])
 
+        # Build reverse mapping: init_index -> user_index
+        # So we can map init defaults back to user param order
+        init_to_user = {}
+        if self._user_indices is not None:
+            for ui, ii in zip(self._user_indices, self._init_indices):
+                init_to_user[int(ii)] = int(ui)
+
+        # Build user inputs array with proper defaults
         inputs = []
-        for name, kind in zip(self.param_names, self.param_kinds):
+        for i, (name, kind) in enumerate(zip(self.param_names, self.param_kinds)):
             if kind == 'voltage':
                 inputs.append(0.0)
             elif kind == 'current':
                 inputs.append(0.0)
             elif kind == 'temperature':
                 inputs.append(300.15)  # Operating temperature in Kelvin
-            elif kind == 'param':
-                # Use model's default if available
-                if name in param_defaults:
-                    inputs.append(param_defaults[name])
-                # Fallback for common parameters not in defaults
-                elif 'temperature' in name.lower() or name == '$temperature':
-                    inputs.append(300.15)
-                elif name.lower() == 'mfactor':
-                    inputs.append(1.0)
-                elif name.lower() == 'r':
-                    inputs.append(1000.0)
-                else:
-                    inputs.append(1.0)
             elif kind == 'hidden_state':
-                # SAFE: OpenVAF's optimizer inlines all hidden_state computations
-                # into cache values. MIR analysis shows 0% usage of hidden_state
-                # params in eval functions across all tested models (resistor,
-                # capacitor, diode, bsim4, psp103). See openvaf_jax.py for details.
                 inputs.append(0.0)
             elif kind == 'sysfun':
-                # System functions like mfactor
-                if 'mfactor' in name.lower():
+                inputs.append(1.0 if 'mfactor' in name.lower() else 0.0)
+            elif kind == 'param':
+                # Find if this param has a mapping to init_inputs
+                found = False
+                for ii, ui in init_to_user.items():
+                    if ui == i and ii < len(init_inputs):
+                        inputs.append(init_inputs[ii])
+                        found = True
+                        break
+                if not found:
+                    # Fallback for params not in init
                     inputs.append(1.0)
-                else:
-                    inputs.append(0.0)
             else:
                 inputs.append(0.0)
         return inputs

@@ -47,38 +47,20 @@ class TestJaxVsInterpreter:
             assert not np.isnan(resist), f"{model_name} NaN resist at {node}"
             assert not np.isnan(react), f"{model_name} NaN react at {node}"
 
-    # Complex models that now work with the JAX translator
-    WORKING_COMPLEX_MODELS = ['diode_cmc', 'ekv', 'psp102', 'psp103', 'juncap',
-                               'hisim2', 'hisimhv', 'asmhemt', 'mvsg']
+    # All complex models now work with proper VA defaults
+    COMPLEX_MODELS = ['diode_cmc', 'ekv', 'psp102', 'psp103', 'juncap',
+                      'hisim2', 'hisimhv', 'asmhemt', 'mvsg',
+                      'bsim3', 'bsim4', 'bsim6', 'bsimbulk', 'bsimcmg', 'bsimsoi',
+                      'hicum', 'mextram']
 
     @pytest.mark.parametrize("model_name,model_path", [
         m for m in INTEGRATION_MODELS if m[0] in ['diode_cmc', 'ekv', 'psp102', 'psp103', 'juncap',
-                                                    'hisim2', 'hisimhv', 'asmhemt', 'mvsg']
+                                                   'hisim2', 'hisimhv', 'asmhemt', 'mvsg',
+                                                   'bsim3', 'bsim4', 'bsim6', 'bsimbulk', 'bsimcmg', 'bsimsoi',
+                                                   'hicum', 'mextram']
     ])
-    def test_working_complex_model_produces_valid_output(self, compile_model, model_name, model_path):
-        """Working complex JAX function produces non-NaN resist outputs"""
-        model = compile_model(INTEGRATION_PATH / model_path)
-        inputs = model.build_default_inputs()
-
-        residuals, jacobian = model.jax_fn(inputs)
-
-        # Check resist residuals are valid (react may have NaN for some models)
-        assert residuals is not None, f"{model_name} returned None residuals"
-        for node, res in residuals.items():
-            resist = float(res['resist'])
-            assert not np.isnan(resist), f"{model_name} NaN resist at {node}"
-
-    # Models that still have issues with the JAX translator
-    FAILING_COMPLEX_MODELS = ['bsim3', 'bsim4', 'bsim6', 'bsimbulk', 'bsimcmg', 'bsimsoi',
-                               'hicum', 'mextram']
-
-    @pytest.mark.parametrize("model_name,model_path", [
-        m for m in INTEGRATION_MODELS if m[0] in ['bsim3', 'bsim4', 'bsim6', 'bsimbulk', 'bsimcmg', 'bsimsoi',
-                                                    'hicum', 'mextram']
-    ])
-    @pytest.mark.xfail(reason="JAX translator has init variable issues for complex models")
-    def test_failing_complex_model_produces_valid_output(self, compile_model, model_name, model_path):
-        """Failing complex JAX function produces non-NaN resist outputs"""
+    def test_complex_model_produces_valid_output(self, compile_model, model_name, model_path):
+        """Complex JAX function produces non-NaN resist outputs with VA defaults"""
         model = compile_model(INTEGRATION_PATH / model_path)
         inputs = model.build_default_inputs()
 
