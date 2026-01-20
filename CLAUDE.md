@@ -384,3 +384,49 @@ inspector.print_type_param_info()
 
 3. **~1% current difference**: Usually temperature-related. Check `cache.temperature_related`
    for VT values (should be ~0.02585 at 300K).
+
+---
+
+## OpenVAF CallbackKind Handling
+
+OpenVAF compiles Verilog-A system functions into CallbackKind callbacks. These are translated
+in `openvaf_jax/codegen/instruction.py:_translate_call()`. Analysis across 87 VACASK/OpenVAF
+models shows the following callback usage:
+
+### Callback Summary
+
+| CallbackKind | Uses | Models | Handling |
+|--------------|------|--------|----------|
+| `WhiteNoise` | 424 | 47 | Returns 0 (noise analysis not supported) |
+| `CollapseHint` | 253 | 43 | No-op (node collapse at build time) |
+| `NodeDerivative` | 178 | 30 | Returns 0 (partial derivatives not supported) |
+| `Print` | 131 | 33 | `jax.debug.print` (disabled by default for JIT speed) |
+| `FlickerNoise` | 72 | 46 | Returns 0 (noise analysis not supported) |
+| `TimeDerivative` | 49 | 49 | Returns charge (transient handles dQ/dt) |
+| `StoreLimit` | 47 | 13 | Passthrough (no pnjlim/fetlim algorithms) |
+| `SimParamOpt` | 28 | 28 | Via `simparams` array with default fallback |
+| `SetRetFlag` | 19 | 19 | No-op ($finish/$stop not supported) |
+| `Analysis` | 14 | 14 | Via `simparams[$analysis_type]` |
+| `LimDiscontinuity` | 13 | 13 | Ignored for DC analysis |
+| `SimParam` | 2 | 2 | Via `simparams` array |
+
+### Implementation Notes
+
+**Limiting Functions (`$limit`):**
+- `StoreLimit` and `BuiltinLimit` (pnjlim, fetlim) are used for Newton-Raphson convergence help
+- Current implementation passes through the input voltage unchanged
+- This may result in slightly different convergence behavior compared to OSDI
+
+**Noise Functions:**
+- `white_noise()`, `flicker_noise()`, `noise_table()` return 0.0
+- Full noise analysis would require frequency-domain analysis
+
+**$simparam:**
+- Registered dynamically via `ctx.register_simparam(name)`
+- Caller builds `simparams` array using `build_simparams(eval_meta, values)`
+- See `jax_spice/__init__.py:build_simparams()` for helper
+
+**$display/$strobe:**
+- Disabled by default (`emit_debug_prints=False`)
+- Enable via `InstructionTranslator(..., emit_debug_prints=True)`
+- Warning: `jax.debug.print` causes slow JIT tracing

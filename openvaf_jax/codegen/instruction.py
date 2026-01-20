@@ -458,14 +458,24 @@ class InstructionTranslator:
     def _translate_call(self, inst: MIRInstruction) -> ast.expr:
         """Translate function call.
 
-        Handles special functions:
-        - $simparam("gmin") -> inputs[-1]
-        - analysis("type") -> comparison with inputs[-2]
-        - ddt() -> returns charge directly (for reactive component)
-        - ddx() -> returns 0 (spatial derivative not supported)
-        - noise functions -> returns 0
+        Handles OpenVAF CallbackKind callbacks:
+        - SimParam/SimParamOpt/SimParamStr: $simparam("name") -> simparams[idx]
+        - Analysis: analysis("type") -> comparison with $analysis_type
+        - TimeDerivative: ddt() -> returns charge (transient handles dQ/dt)
+        - Derivative/NodeDerivative: ddx() -> returns 0 (not supported)
+        - StoreLimit/BuiltinLimit: $limit -> passthrough (convergence help)
+        - LimDiscontinuity: $discontinuity -> ignored for DC
+        - WhiteNoise/FlickerNoise/NoiseTable: noise -> returns 0
+        - Print: $display/$strobe -> jax.debug.print (disabled by default)
+        - CollapseHint: node collapse -> no-op (handled at build time)
+        - SetRetFlag: $finish/$stop -> no-op
         """
         func_name = inst.func_name or ''
+
+        # Empty func_name indicates an inlined or optimized-away function
+        # This can happen when function declarations don't resolve
+        if not func_name:
+            return self.ctx.zero()
 
         # $simparam - access via simparams array using dynamic registry
         # Supported simparams (VAMS-LRM Table 9-27): gmin, abstol, vntol, reltol, tnom, scale, shrink, imax
@@ -605,7 +615,60 @@ class InstructionTranslator:
                                 self.ctx.get_operand(inst.operands[0]),
                                 self.ctx.get_operand(inst.operands[1]))
 
-        # Unknown function - return zero
+        # $limit related functions - StoreLimit, LoadLimit, BuiltinLimit
+        # These are used for Newton-Raphson convergence help. In DC analysis
+        # without full limiting, we pass through the input voltage unchanged.
+        # The MIR has: StoreLimit(lim_stateN), LoadLimit(lim_stateN), $limit[pnjlim], etc.
+        if 'storelimit' in func_name.lower() or 'loadlimit' in func_name.lower():
+            if inst.operands:
+                # Pass through the input voltage
+                return self.ctx.get_operand(inst.operands[0])
+            return self.ctx.zero()
+
+        # $limit[pnjlim], $limit[fetlim], etc. - BuiltinLimit callbacks
+        # These implement NR convergence algorithms. For now, pass through first operand.
+        if '$limit' in func_name.lower() or 'builtinlimit' in func_name.lower():
+            if inst.operands:
+                # First operand is the voltage to be limited
+                return self.ctx.get_operand(inst.operands[0])
+            return self.ctx.zero()
+
+        # SimParamOpt - $simparam("name", default) - with optional default
+        if 'simparam_opt' in func_name.lower():
+            if inst.operands and inst.operands[0] in self.ctx.str_constants:
+                param_name = self.ctx.str_constants[inst.operands[0]]
+                simparam_idx = self.ctx.register_simparam(param_name)
+                return subscript(ast_name('simparams'), ast_const(simparam_idx))
+            # If param name unknown, return default (second operand) if available
+            if len(inst.operands) >= 2:
+                return self.ctx.get_operand(inst.operands[1])
+            return self.ctx.zero()
+
+        # SimParamStr - string $simparam (rare)
+        if 'simparam_str' in func_name.lower():
+            # String simparams not supported - return 0
+            return self.ctx.zero()
+
+        # CollapseHint - node collapse hints (handled at model build time)
+        if 'collapse' in func_name.lower():
+            # No-op for eval - node collapse is structural
+            return self.ctx.zero()
+
+        # ParamInfo - parameter bounds validation (set_MinInclusive, etc.)
+        if func_name.lower().startswith('set_'):
+            # No-op for eval - parameter validation is done at model build
+            return self.ctx.zero()
+
+        # SetRetFlag - $finish, $stop, $abort
+        # These should terminate simulation but for eval we just continue
+        if 'setretflag' in func_name.lower():
+            # TODO: Track these and potentially stop iteration
+            return self.ctx.zero()
+
+        # Unknown function - log warning and return zero
+        # This helps identify new CallbackKind values we need to handle
+        import warnings
+        warnings.warn(f"Unknown MIR function '{func_name}' - returning zero", stacklevel=2)
         return self.ctx.zero()
 
     def _translate_copy(self, inst: MIRInstruction) -> ast.expr:
