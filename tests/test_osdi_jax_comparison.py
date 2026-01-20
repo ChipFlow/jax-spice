@@ -343,6 +343,20 @@ TRANSISTOR_CONFIGS = [
         "vgs_for_jacobian": 0.6,
         "xfail": False,  # Fixed by nested 2-way PHI resolution
     },
+    {
+        "name": "psp103",
+        "va_path": OPENVAF_INTEGRATION / "PSP103" / "psp103.va",
+        "params": {
+            "TYPE": 1,       # NMOS
+            "W": 1e-6,
+            "L": 100e-9,
+            "mfactor": 1.0,
+        },
+        "terminals": ["d", "g", "s", "b"],
+        "vds": 0.5,
+        "vgs_for_jacobian": 0.6,
+        "xfail": False,  # Ring oscillator uses PSP103 - need to verify
+    },
 ]
 
 

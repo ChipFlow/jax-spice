@@ -379,6 +379,17 @@ class FunctionBuilder:
             if not block:
                 continue
 
+            # Process PHIs for non-header blocks (header PHIs are the loop state)
+            # These are regular control flow PHIs within the loop body
+            if block_name != loop.header and block.phi_nodes:
+                self._emit_batched_phis(loop_body, ctx, translator, block.phi_nodes, loop)
+                # Add PHI results to defined_vars
+                for phi in block.phi_nodes:
+                    if phi.result:
+                        var_name = f"{ctx.var_prefix}{phi.result}"
+                        local_defined.add(var_name)
+                        ctx.defined_vars.add(var_name)
+
             for inst in block.instructions:
                 if inst.is_terminator or inst.is_phi:
                     continue
@@ -387,6 +398,8 @@ class FunctionBuilder:
                     var_name = f"{ctx.var_prefix}{inst.result}"
                     loop_body.append(assign(var_name, expr))
                     local_defined.add(var_name)
+                    # Also add to ctx.defined_vars so subsequent get_operand calls find it
+                    ctx.defined_vars.add(var_name)
 
         # Build return tuple with updated values
         # Cast all values to float32 to ensure type consistency with init values
