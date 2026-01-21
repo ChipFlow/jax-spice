@@ -1857,7 +1857,7 @@ class CircuitEngine:
                       use_while_loop: bool = True,
                       profile_config: Optional['ProfileConfig'] = None,
                       temperature: float = DEFAULT_TEMPERATURE_K,
-                      adaptive: bool = False,
+                      adaptive: bool = True,
                       adaptive_config: Optional['AdaptiveConfig'] = None) -> TransientResult:
         """Run transient analysis.
 
@@ -1876,8 +1876,9 @@ class CircuitEngine:
             use_while_loop: Use lax.while_loop for 2x faster per-step execution (default: True)
             profile_config: If provided, profile just the core simulation (not setup)
             temperature: Simulation temperature in Kelvin (default: 300.15K = 27°C)
-            adaptive: If True, use LTE-based adaptive timestep control. The timestep
+            adaptive: Use LTE-based adaptive timestep control (default: True). The timestep
                       will be automatically adjusted based on local truncation error.
+                      Set to False for fixed timestep mode.
             adaptive_config: Configuration for adaptive timestep control. If None,
                              uses default AdaptiveConfig. Only used when adaptive=True.
 
