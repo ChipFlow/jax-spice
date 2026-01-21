@@ -241,13 +241,23 @@ class AdaptiveStrategy(TransientStrategy):
                 isource_dc = jnp.array(isource_dc)
             else:
                 isource_dc = jnp.array([])
+            # Pass all arguments to match nr_solve's internal call signature
+            # This prevents JAX from recompiling due to different pytree structures
+            # nr_solve converts None to jnp.zeros, so we must pass arrays here too
             _, _, Q_prev, _ = self.runner._cached_build_system(
                 V,
                 vsource_dc,
                 isource_dc,
                 jnp.zeros(n_unknowns),
-                0.0,
+                0.0,  # integ_c0
                 self.runner._device_arrays,
+                1e-12,  # gmin
+                0.0,    # gshunt
+                0.0,    # integ_c1
+                0.0,    # integ_d1
+                jnp.zeros(n_unknowns, dtype=jnp.float64),  # dQdt_prev
+                0.0,    # integ_c2
+                jnp.zeros(n_unknowns, dtype=jnp.float64),  # Q_prev2
             )
             Q_prev.block_until_ready()
 
