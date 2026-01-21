@@ -10,7 +10,11 @@ for different backends:
 All factories return a JIT-compiled function with signature:
     (V, vsource_vals, isource_vals, Q_prev, integ_c0, device_arrays, gmin, gshunt,
      integ_c1, integ_d1, dQdt_prev)
-    -> (V_final, iterations, converged, max_residual, Q_final, dQdt_final)
+    -> (V_final, iterations, converged, max_residual, Q_final, dQdt_final, I_vsource)
+
+The I_vsource return value is the vsource current computed from KCL (device residuals)
+instead of the high-G formula I = G * (Vp - Vn - Vtarget). This provides smoother
+current derivatives (dI/dt) that match reference simulators like VACASK.
 
 Integration coefficient meanings:
     - integ_c0: Coefficient for Q_new (leading coefficient). 0 for DC.
@@ -131,7 +135,7 @@ def make_dense_solver(
     Args:
         build_system_jit: JIT-wrapped function
             (V, vsource_vals, isource_vals, Q_prev, integ_c0, device_arrays, gmin, gshunt,
-             integ_c1, integ_d1, dQdt_prev, integ_c2, Q_prev2) -> (J, f, Q)
+             integ_c1, integ_d1, dQdt_prev, integ_c2, Q_prev2) -> (J, f, Q, I_vsource)
         n_nodes: Total node count including ground
         noi_indices: Optional array of NOI node indices to constrain to 0V
         max_iterations: Maximum NR iterations
@@ -141,7 +145,7 @@ def make_dense_solver(
     Returns:
         JIT-compiled solver function with signature:
             (V, vsource_vals, isource_vals, Q_prev, integ_c0, device_arrays, gmin, gshunt,
-             integ_c1, integ_d1, dQdt_prev, integ_c2, Q_prev2) -> (V, iterations, converged, max_f, Q, dQdt)
+             integ_c1, integ_d1, dQdt_prev, integ_c2, Q_prev2) -> (V, iterations, converged, max_f, Q, dQdt, I_vsource)
     """
     n_unknowns = n_nodes - 1
     masks = _compute_noi_masks(noi_indices, n_nodes)
@@ -178,9 +182,9 @@ def make_dense_solver(
         def body_fn(state):
             V, iteration, _, _, _, _ = state
 
-            J, f, Q = build_system_jit(V, vsource_vals, isource_vals, Q_prev, integ_c0,
-                                       device_arrays_arg, gmin, gshunt,
-                                       integ_c1, integ_d1, _dQdt_prev, integ_c2, _Q_prev2)
+            J, f, Q, _ = build_system_jit(V, vsource_vals, isource_vals, Q_prev, integ_c0,
+                                          device_arrays_arg, gmin, gshunt,
+                                          integ_c1, integ_d1, _dQdt_prev, integ_c2, _Q_prev2)
 
             # Check residual convergence (mask NOI nodes)
             if residual_mask is not None:
@@ -221,16 +225,16 @@ def make_dense_solver(
             cond_fn, body_fn, init_state
         )
 
-        # Recompute Q from converged voltage
-        _, _, Q_final = build_system_jit(V_final, vsource_vals, isource_vals, Q_prev,
-                                         integ_c0, device_arrays_arg, gmin, gshunt,
-                                         integ_c1, integ_d1, _dQdt_prev, integ_c2, _Q_prev2)
+        # Recompute Q and I_vsource from converged voltage
+        _, _, Q_final, I_vsource = build_system_jit(V_final, vsource_vals, isource_vals, Q_prev,
+                                                    integ_c0, device_arrays_arg, gmin, gshunt,
+                                                    integ_c1, integ_d1, _dQdt_prev, integ_c2, _Q_prev2)
 
         # Compute dQdt for next timestep (needed for trapezoidal and Gear2 methods)
         # dQdt = c0 * Q + c1 * Q_prev + d1 * dQdt_prev + c2 * Q_prev2
         dQdt_final = integ_c0 * Q_final + integ_c1 * Q_prev + integ_d1 * _dQdt_prev + integ_c2 * _Q_prev2
 
-        return V_final, iterations, converged, max_f, Q_final, dQdt_final
+        return V_final, iterations, converged, max_f, Q_final, dQdt_final, I_vsource
 
     logger.info(f"Creating dense NR solver: V({n_nodes}), NOI: {noi_indices is not None}")
     return jax.jit(nr_solve)
@@ -313,9 +317,9 @@ def make_sparse_solver(
         def body_fn(state):
             V, iteration, _, _, _, _ = state
 
-            J_bcoo, f, Q = build_system_jit(V, vsource_vals, isource_vals, Q_prev,
-                                            integ_c0, device_arrays_arg, gmin, gshunt,
-                                            integ_c1, integ_d1, _dQdt_prev, integ_c2, _Q_prev2)
+            J_bcoo, f, Q, _ = build_system_jit(V, vsource_vals, isource_vals, Q_prev,
+                                               integ_c0, device_arrays_arg, gmin, gshunt,
+                                               integ_c1, integ_d1, _dQdt_prev, integ_c2, _Q_prev2)
 
             # Check residual convergence
             if residual_mask is not None:
@@ -373,14 +377,14 @@ def make_sparse_solver(
             cond_fn, body_fn, init_state
         )
 
-        _, _, Q_final = build_system_jit(V_final, vsource_vals, isource_vals, Q_prev,
-                                         integ_c0, device_arrays_arg, gmin, gshunt,
-                                         integ_c1, integ_d1, _dQdt_prev, integ_c2, _Q_prev2)
+        _, _, Q_final, I_vsource = build_system_jit(V_final, vsource_vals, isource_vals, Q_prev,
+                                                    integ_c0, device_arrays_arg, gmin, gshunt,
+                                                    integ_c1, integ_d1, _dQdt_prev, integ_c2, _Q_prev2)
 
         # Compute dQdt for next timestep
         dQdt_final = integ_c0 * Q_final + integ_c1 * Q_prev + integ_d1 * _dQdt_prev + integ_c2 * _Q_prev2
 
-        return V_final, iterations, converged, max_f, Q_final, dQdt_final
+        return V_final, iterations, converged, max_f, Q_final, dQdt_final, I_vsource
 
     logger.info(f"Creating sparse NR solver: V({n_nodes}), precomputed={use_precomputed}")
     return jax.jit(nr_solve)
@@ -473,9 +477,9 @@ def make_spineax_solver(
         def body_fn(state):
             V, iteration, _, _, _, _ = state
 
-            J_bcoo, f, Q = build_system_jit(V, vsource_vals, isource_vals, Q_prev,
-                                            integ_c0, device_arrays_arg, gmin, gshunt,
-                                            integ_c1, integ_d1, _dQdt_prev, integ_c2, _Q_prev2)
+            J_bcoo, f, Q, _ = build_system_jit(V, vsource_vals, isource_vals, Q_prev,
+                                              integ_c0, device_arrays_arg, gmin, gshunt,
+                                              integ_c1, integ_d1, _dQdt_prev, integ_c2, _Q_prev2)
 
             if residual_mask is not None:
                 f_masked = jnp.where(residual_mask, f, 0.0)
@@ -520,14 +524,14 @@ def make_spineax_solver(
             cond_fn, body_fn, init_state
         )
 
-        _, _, Q_final = build_system_jit(V_final, vsource_vals, isource_vals, Q_prev,
-                                         integ_c0, device_arrays_arg, gmin, gshunt,
-                                         integ_c1, integ_d1, _dQdt_prev, integ_c2, _Q_prev2)
+        _, _, Q_final, I_vsource = build_system_jit(V_final, vsource_vals, isource_vals, Q_prev,
+                                                    integ_c0, device_arrays_arg, gmin, gshunt,
+                                                    integ_c1, integ_d1, _dQdt_prev, integ_c2, _Q_prev2)
 
         # Compute dQdt for next timestep
         dQdt_final = integ_c0 * Q_final + integ_c1 * Q_prev + integ_d1 * _dQdt_prev + integ_c2 * _Q_prev2
 
-        return V_final, iterations, converged, max_f, Q_final, dQdt_final
+        return V_final, iterations, converged, max_f, Q_final, dQdt_final, I_vsource
 
     logger.info(f"Creating Spineax NR solver: V({n_nodes})")
     return jax.jit(nr_solve)
@@ -614,9 +618,9 @@ def make_umfpack_solver(
         def body_fn(state):
             V, iteration, _, _, _, _ = state
 
-            J_bcoo, f, Q = build_system_jit(V, vsource_vals, isource_vals, Q_prev,
-                                            integ_c0, device_arrays_arg, gmin, gshunt,
-                                            integ_c1, integ_d1, _dQdt_prev, integ_c2, _Q_prev2)
+            J_bcoo, f, Q, _ = build_system_jit(V, vsource_vals, isource_vals, Q_prev,
+                                              integ_c0, device_arrays_arg, gmin, gshunt,
+                                              integ_c1, integ_d1, _dQdt_prev, integ_c2, _Q_prev2)
 
             if residual_mask is not None:
                 f_masked = jnp.where(residual_mask, f, 0.0)
@@ -661,14 +665,14 @@ def make_umfpack_solver(
             cond_fn, body_fn, init_state
         )
 
-        _, _, Q_final = build_system_jit(V_final, vsource_vals, isource_vals, Q_prev,
-                                         integ_c0, device_arrays_arg, gmin, gshunt,
-                                         integ_c1, integ_d1, _dQdt_prev, integ_c2, _Q_prev2)
+        _, _, Q_final, I_vsource = build_system_jit(V_final, vsource_vals, isource_vals, Q_prev,
+                                                    integ_c0, device_arrays_arg, gmin, gshunt,
+                                                    integ_c1, integ_d1, _dQdt_prev, integ_c2, _Q_prev2)
 
         # Compute dQdt for next timestep
         dQdt_final = integ_c0 * Q_final + integ_c1 * Q_prev + integ_d1 * _dQdt_prev + integ_c2 * _Q_prev2
 
-        return V_final, iterations, converged, max_f, Q_final, dQdt_final
+        return V_final, iterations, converged, max_f, Q_final, dQdt_final, I_vsource
 
     logger.info(f"Creating UMFPACK NR solver: V({n_nodes})")
     return jax.jit(nr_solve)

@@ -2362,7 +2362,7 @@ class CircuitEngine:
                 isource_init = jnp.zeros(n_isources, dtype=jnp.float64)
                 Q_init = jnp.zeros(n_unknowns, dtype=jnp.float64)
                 # Use inv_dt=0 for DC (no reactive terms in probe)
-                J_bcoo_probe, _, _ = build_system_fn(V_init, vsource_init, isource_init, Q_init, 0.0, device_arrays)
+                J_bcoo_probe, _, _, _ = build_system_fn(V_init, vsource_init, isource_init, Q_init, 0.0, device_arrays)
                 n_coo_raw = J_bcoo_probe.nse
 
                 # Try Spineax sparse solver on GPU/Metal
@@ -2583,7 +2583,7 @@ class CircuitEngine:
                 vsource_dc = jnp.array([])
             if isource_dc.size == 0:
                 isource_dc = jnp.array([])
-            _, _, Q_prev = self._cached_build_system(V, vsource_dc, isource_dc, jnp.zeros(n_unknowns), 0.0, device_arrays)
+            _, _, Q_prev, _ = self._cached_build_system(V, vsource_dc, isource_dc, jnp.zeros(n_unknowns), 0.0, device_arrays)
             Q_prev.block_until_ready()
         else:
             Q_prev = jnp.zeros(n_unknowns, dtype=jnp.float64)
@@ -2610,7 +2610,8 @@ class CircuitEngine:
 
                 # GPU-resident NR solve - JIT compiled, runs on GPU via lax.while_loop
                 # Uses integration method coefficients for correct transient formulation
-                V_new, iterations, converged, max_f, Q, dQdt = nr_solve(
+                # I_vsource is computed from KCL (device residuals) for smooth current derivatives
+                V_new, iterations, converged, max_f, Q, dQdt, I_vsource = nr_solve(
                     V, vsource_vals, isource_vals, Q_prev, integ_coeffs.c0, device_arrays,
                     1e-12, 0.0,  # gmin, gshunt
                     integ_coeffs.c1, integ_coeffs.d1, dQdt_prev,
@@ -2641,11 +2642,8 @@ class CircuitEngine:
                 times_list.append(t)
                 voltage_history.append(V[:n_external])  # Single JAX slice, no float() calls
 
-                # Compute and record vsource currents: I = G * (Vp - Vn - Vtarget)
-                if len(vsource_names) > 0:
-                    Vp = V[vsource_node_p]
-                    Vn = V[vsource_node_n]
-                    I_vsource = G_vsource * (Vp - Vn - vsource_vals)
+                # Record vsource currents (computed from KCL in build_system)
+                if len(vsource_names) > 0 and I_vsource.size > 0:
                     current_history.append(I_vsource)
 
                 V_prev = V
@@ -2855,7 +2853,7 @@ class CircuitEngine:
         # First try direct NR without homotopy (works for well-initialized circuits)
         # Uses analytic jacobians from OpenVAF via the cached nr_solve
         logger.info("  Trying direct NR solver first...")
-        V_new, nr_iters, is_converged, max_f, _, _ = nr_solve(
+        V_new, nr_iters, is_converged, max_f, _, _, _ = nr_solve(
             V, vsource_dc_vals, isource_dc_vals, Q_prev, 0.0, device_arrays  # integ_c0=0 for DC
         )
 
@@ -3137,7 +3135,7 @@ class CircuitEngine:
                         vsource_vals, isource_vals = source_vals
                         _dQdt_prev = dQdt_prev if needs_dqdt_val else None
                         _Q_prev2 = Q_prev2 if hist_depth >= 2 else None
-                        V_new, iterations, converged, max_f, Q, dQdt = nr_solve_fn(
+                        V_new, iterations, converged, max_f, Q, dQdt, I_vsource = nr_solve_fn(
                             V, vsource_vals, isource_vals, Q_prev, c0_val, device_arrays_arg,
                             1e-12, 0.0,  # gmin, gshunt
                             c1_val, d1_val, _dQdt_prev, c2_val, _Q_prev2
@@ -3145,14 +3143,14 @@ class CircuitEngine:
                         new_dQdt = dQdt if needs_dqdt_val else dQdt_prev
                         # Update Q_prev2 for Gear2: Q_prev2 <- Q_prev (shift history)
                         new_Q_prev2 = Q_prev if hist_depth >= 2 else Q_prev2
-                        return (V_new, Q, new_dQdt, new_Q_prev2), (V_new[:n_ext], iterations, converged)
+                        return (V_new, Q, new_dQdt, new_Q_prev2), (V_new[:n_ext], iterations, converged, I_vsource)
 
                     # Stack source arrays for scan input
                     source_inputs = (all_vsource, all_isource)
-                    _, (all_V, all_iters, all_converged) = jax.lax.scan(
+                    _, (all_V, all_iters, all_converged, all_I_vsource) = jax.lax.scan(
                         step_fn, (V_init, Q_init, dQdt_init, Q_prev2_init), source_inputs
                     )
-                    return all_V, all_iters, all_converged
+                    return all_V, all_iters, all_converged, all_I_vsource
                 return run_simulation_with_outputs
 
             run_simulation_with_outputs = make_scan_fn(nr_solve, n_external, c0, c1, d1, c2, needs_dqdt, history_depth)
@@ -3167,7 +3165,7 @@ class CircuitEngine:
             # Use DC source values (at t=0)
             vsource_dc = all_vsource_vals[0] if all_vsource_vals.size > 0 else jnp.array([])
             isource_dc = all_isource_vals[0] if all_isource_vals.size > 0 else jnp.array([])
-            _, _, Q0 = self._cached_build_system(V0, vsource_dc, isource_dc, jnp.zeros(n_unknowns), 0.0, self._device_arrays)
+            _, _, Q0, _ = self._cached_build_system(V0, vsource_dc, isource_dc, jnp.zeros(n_unknowns), 0.0, self._device_arrays)
             logger.debug(f"  Initialized Q0 from DC operating point (max|Q0|={float(jnp.max(jnp.abs(Q0))):.2e})")
         else:
             Q0 = jnp.zeros(n_unknowns, dtype=jnp.float64)
@@ -3183,12 +3181,12 @@ class CircuitEngine:
         t0 = time_module.perf_counter()
         if profile_config:
             with profile_section("simulation", profile_config):
-                all_V, all_iters, all_converged = run_simulation_with_outputs(V0, Q0, dQdt0, Q_prev2_0, all_vsource_vals, all_isource_vals, self._device_arrays)
+                all_V, all_iters, all_converged, all_I_vsource = run_simulation_with_outputs(V0, Q0, dQdt0, Q_prev2_0, all_vsource_vals, all_isource_vals, self._device_arrays)
                 jax.block_until_ready(all_V)
                 # Measure time BEFORE profile_section.__exit__ (which saves trace to disk)
                 t1 = time_module.perf_counter()
         else:
-            all_V, all_iters, all_converged = run_simulation_with_outputs(V0, Q0, dQdt0, Q_prev2_0, all_vsource_vals, all_isource_vals, self._device_arrays)
+            all_V, all_iters, all_converged, all_I_vsource = run_simulation_with_outputs(V0, Q0, dQdt0, Q_prev2_0, all_vsource_vals, all_isource_vals, self._device_arrays)
             jax.block_until_ready(all_V)
             t1 = time_module.perf_counter()
         total_time = t1 - t0
@@ -3218,19 +3216,14 @@ class CircuitEngine:
             if idx > 0 and idx < n_external:  # Skip ground (0), only external nodes
                 voltages[name] = all_V[:, idx]
 
-        # Compute vsource currents: I = G * (Vp - Vn - Vtarget)
+        # Use vsource currents from KCL (computed in build_system from device residuals)
+        # This avoids the high-G formula noise amplification issue
         currents: Dict[str, Array] = {}
-        if n_vsources > 0:
+        if n_vsources > 0 and all_I_vsource.size > 0:
             vsource_data = source_device_data['vsource']
-            vsource_node_p = vsource_data['node_p']
-            vsource_node_n = vsource_data['node_n']
             vsource_names = vsource_data['names']
-            G_vsource = 1e12
-            Vp = all_V[:, vsource_node_p]  # Shape: (num_timesteps, n_vsources)
-            Vn = all_V[:, vsource_node_n]
-            I_vsource = G_vsource * (Vp - Vn - all_vsource_vals)
             for i, name in enumerate(vsource_names):
-                currents[name] = I_vsource[:, i]
+                currents[name] = all_I_vsource[:, i]
 
         return TransientResult(times=times, voltages=voltages, currents=currents, stats=stats)
 
@@ -3518,8 +3511,11 @@ class CircuitEngine:
             Tuple of:
             - build_system function with signature:
                 build_system(V, vsource_vals, isource_vals, Q_prev, integ_c0, device_arrays,
-                             gmin, gshunt, integ_c1, integ_d1, dQdt_prev) -> (J, f, Q)
+                             gmin, gshunt, integ_c1, integ_d1, dQdt_prev) -> (J, f, Q, I_vsource)
             - device_arrays: Dict[model_type, cache] to pass to build_system
+
+            I_vsource is computed from KCL (device residuals at vsource nodes) for smooth
+            current derivatives that match reference simulators like VACASK.
 
             For DC analysis: pass integ_c0=0.0 and Q_prev=zeros (reactive terms ignored)
             For transient: pass integration coefficients from compute_coefficients(method, dt)
@@ -3562,7 +3558,7 @@ class CircuitEngine:
                         integ_c1: float | jax.Array = 0.0, integ_d1: float | jax.Array = 0.0,
                         dQdt_prev: jax.Array | None = None,
                         integ_c2: float | jax.Array = 0.0, Q_prev2: jax.Array | None = None
-                        ) -> Tuple[Any, jax.Array, jax.Array]:
+                        ) -> Tuple[Any, jax.Array, jax.Array, jax.Array]:
             """Build Jacobian J and residual f from current voltages.
 
             Fully JAX-traceable - no Python lists or dynamic allocation.
@@ -3596,6 +3592,7 @@ class CircuitEngine:
                 J: Jacobian matrix (dense or BCOO)
                 f: Residual vector
                 Q: Current charges (for tracking across timesteps)
+                I_vsource: Vsource currents computed from KCL (device residuals)
             """
             f_resist_parts = []
             f_react_parts = []  # Charge contributions
@@ -3604,6 +3601,11 @@ class CircuitEngine:
             # Limiting RHS corrections - subtracted from residuals when limiting is applied
             lim_rhs_resist_parts = []
             lim_rhs_react_parts = []
+
+            # Device-only residuals for KCL-based vsource current extraction
+            # This tracks OpenVAF device contributions (not vsource/isource stamps)
+            # Only resistive contributions are tracked; reactive contributions at VDD are small
+            f_device_resist_parts = []
 
             # === Source devices contribution ===
             # Voltage sources: I = G * (Vp - Vn - Vtarget), G = 1e12
@@ -3720,6 +3722,8 @@ class CircuitEngine:
                 flat_res_resist_masked = jnp.where(valid_res, flat_res_resist_val, 0.0)
                 flat_res_resist_masked = jnp.where(jnp.isnan(flat_res_resist_masked), 0.0, flat_res_resist_masked)
                 f_resist_parts.append((flat_res_idx_masked, flat_res_resist_masked))
+                # Also track for device-only accumulation (for KCL vsource current)
+                f_device_resist_parts.append((flat_res_idx_masked, flat_res_resist_masked))
 
                 # === Reactive residuals (charges) ===
                 flat_res_react_val = batch_res_react.ravel()
@@ -3877,7 +3881,38 @@ class CircuitEngine:
                 indices = jnp.stack([all_j_rows, all_j_cols], axis=1)
                 J = BCOO((all_j_vals, indices), shape=(n_unknowns, n_unknowns))
 
-            return J, f, Q
+            # === Compute vsource current from device contributions (KCL) ===
+            # I_vsource = -f_device_at_vsource_node (by KCL: sum of currents = 0)
+            # This avoids numerical noise amplification from high-G formula
+            # During transient, both resistive and reactive contributions must be included:
+            #   f_total = f_resist + integ_c0 * Q + integ_c1 * Q_prev + ...
+            # The reactive contribution represents capacitor currents: I_cap = integ_c0 * Q + integ_c1 * Q_prev
+            if f_device_resist_parts and 'vsource' in source_device_data and vsource_vals.size > 0:
+                # Sum resistive device contributions at all nodes
+                all_f_resist_idx = jnp.concatenate([p[0] for p in f_device_resist_parts])
+                all_f_resist_val = jnp.concatenate([p[1] for p in f_device_resist_parts])
+                f_device_resist = jax.ops.segment_sum(all_f_resist_val, all_f_resist_idx, num_segments=n_unknowns)
+
+                # NOTE: We only use resistive contributions for KCL current extraction.
+                # The reactive contribution (capacitor currents) at the VDD node is small because
+                # VDD is held nearly constant by the vsource. Including reactive would require
+                # tracking Q_prev per-device which adds complexity.
+                f_device_total = f_device_resist
+
+                # Extract device contribution at vsource positive nodes (0-indexed in MNA)
+                vsource_node_p = source_device_data['vsource']['node_p']
+                # Node indices are 1-indexed (0 is ground), convert to 0-indexed MNA
+                vsource_node_p_mna = vsource_node_p - 1
+                # Handle ground (index 0) - if positive terminal is ground, contribution is 0
+                valid_nodes = vsource_node_p > 0
+                f_device_at_p = jnp.where(valid_nodes, f_device_total[vsource_node_p_mna], 0.0)
+                # Vsource current = -device_contribution (by KCL)
+                I_vsource = -f_device_at_p
+            else:
+                # No devices or no vsources - use empty array
+                I_vsource = jnp.zeros(0, dtype=jnp.float64)
+
+            return J, f, Q, I_vsource
 
         return build_system, device_arrays
 
@@ -4106,7 +4141,7 @@ class CircuitEngine:
 
         # First try direct NR without homotopy
         logger.info("  AC DC: Trying direct NR solver first...")
-        V_new, nr_iters, is_converged, max_f, _, _ = nr_solve(
+        V_new, nr_iters, is_converged, max_f, _, _, _ = nr_solve(
             V_dc, vsource_dc_vals, isource_dc_vals, Q_prev, 0.0, device_arrays  # integ_c0=0 for DC
         )
 

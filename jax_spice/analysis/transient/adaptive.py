@@ -236,7 +236,7 @@ class AdaptiveStrategy(TransientStrategy):
                 isource_dc = jnp.array(isource_dc)
             else:
                 isource_dc = jnp.array([])
-            _, _, Q_prev = self.runner._cached_build_system(
+            _, _, Q_prev, _ = self.runner._cached_build_system(
                 V,
                 vsource_dc,
                 isource_dc,
@@ -317,7 +317,8 @@ class AdaptiveStrategy(TransientStrategy):
                     pred_coeffs = None
 
             # Corrector step: Newton-Raphson solve
-            V_new, iterations, converged, max_f, Q, dQdt = nr_solve(
+            # Note: nr_solve returns 7 values, but adaptive mode doesn't track currents yet
+            V_new, iterations, converged, max_f, Q, dQdt, _ = nr_solve(
                 V_init,
                 vsource_vals,
                 isource_vals,
