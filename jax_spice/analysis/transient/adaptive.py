@@ -580,3 +580,962 @@ class AdaptiveStrategy(TransientStrategy):
         )
 
         return times, voltages, currents, stats_dict
+
+
+# =============================================================================
+# Scan-based adaptive strategy (fully JIT-compiled)
+# =============================================================================
+
+from typing import NamedTuple, Callable
+from jax import lax
+
+from jax_spice import get_float_dtype
+
+
+def _make_jit_source_evaluator(
+    source_fn: Callable,
+    vsource_names: list,
+    vsource_dc: jax.Array,
+    isource_names: list,
+    isource_dc: jax.Array,
+) -> Callable:
+    """Create a JIT-compatible source evaluator that returns arrays.
+
+    Instead of returning a dict that requires Python loops to convert to arrays,
+    this returns (vsource_vals, isource_vals) directly using JAX operations.
+
+    Args:
+        source_fn: Original source function returning dict
+        vsource_names: List of voltage source names
+        vsource_dc: DC values for voltage sources (fallback)
+        isource_names: List of current source names
+        isource_dc: DC values for current sources (fallback)
+
+    Returns:
+        Function t -> (vsource_vals, isource_vals) that is JIT-compatible
+    """
+    n_vsources = len(vsource_names)
+    n_isources = len(isource_names)
+    dtype = get_float_dtype()
+
+    # Build vectorized evaluator by calling each source function
+    # Note: source_fn internally calls jnp.where, so individual evaluations are JIT-safe
+
+    def jit_source_eval(t: jax.Array) -> tuple:
+        source_values = source_fn(t)  # Returns dict - OK as long as inner fns are JAX
+
+        # Build vsource array using pure JAX operations
+        if n_vsources == 0:
+            vsource_vals = jnp.array([], dtype=dtype)
+        elif n_vsources == 1:
+            val = source_values.get(vsource_names[0], vsource_dc[0])
+            vsource_vals = jnp.array([val], dtype=dtype)
+        else:
+            # For multiple sources, we need to stack values
+            # This works because source_values dict values are already JAX arrays/scalars
+            vals = [source_values.get(name, dc)
+                    for name, dc in zip(vsource_names, vsource_dc)]
+            vsource_vals = jnp.stack(vals)
+
+        if n_isources == 0:
+            isource_vals = jnp.array([], dtype=dtype)
+        elif n_isources == 1:
+            val = source_values.get(isource_names[0], isource_dc[0])
+            isource_vals = jnp.array([val], dtype=dtype)
+        else:
+            vals = [source_values.get(name, dc)
+                    for name, dc in zip(isource_names, isource_dc)]
+            isource_vals = jnp.stack(vals)
+
+        return vsource_vals, isource_vals
+
+    return jit_source_eval
+
+
+class AdaptiveLoopState(NamedTuple):
+    """State for scan-based adaptive loop. All arrays are fixed size."""
+    # Current simulation state
+    t: jax.Array                    # Scalar: current time
+    dt: jax.Array                   # Scalar: current timestep
+    V: jax.Array                    # (n_total,): current voltage
+    Q_prev: jax.Array               # (n_unknowns,): previous charge
+    dQdt_prev: jax.Array            # (n_unknowns,): previous dQ/dt
+    Q_prev2: jax.Array              # (n_unknowns,): charge 2 steps ago
+
+    # History buffer (fixed size ring buffer)
+    V_history: jax.Array            # (max_history, n_total): past voltages
+    dt_history: jax.Array           # (max_history,): past timesteps
+    history_count: jax.Array        # Scalar: number of valid entries (0 to max_history)
+
+    # Loop control
+    step_idx: jax.Array             # Scalar: current output index
+    warmup_count: jax.Array         # Scalar: steps completed in warmup
+    done: jax.Array                 # Scalar bool: early termination flag
+
+    # Statistics
+    total_nr_iters: jax.Array       # Scalar: total NR iterations
+    rejected_steps: jax.Array       # Scalar: number of rejected steps
+    min_dt_used: jax.Array          # Scalar: minimum dt used
+    max_dt_used: jax.Array          # Scalar: maximum dt used
+
+
+class AdaptiveLoopOutputs(NamedTuple):
+    """Per-step outputs from scan loop."""
+    t: jax.Array                    # Scalar: time at this step
+    V: jax.Array                    # (n_external,): voltages at external nodes
+    I_vsource: jax.Array            # (n_vsources,): vsource currents
+    accepted: jax.Array             # Scalar bool: was this step accepted
+
+
+def _predict_fixed_order(
+    V_history: jax.Array,           # (max_history, n_total)
+    dt_history: jax.Array,          # (max_history,)
+    history_count: jax.Array,       # Scalar
+    new_dt: jax.Array,              # Scalar
+    max_order: int,
+) -> Tuple[jax.Array, jax.Array]:
+    """Compute predictor using fixed-size arrays.
+
+    Returns:
+        Tuple of (V_predicted, error_coeff)
+    """
+    # Compute actual order to use (min of history_count-1 and max_order)
+    order = jnp.minimum(history_count - 1, max_order)
+    order = jnp.maximum(order, 0)  # At least 0
+
+    # Compute normalized timepoints: tau_k = (t_{n-k} - t_{n+1}) / h_n
+    # t_n is at -new_dt, t_{n-1} is at -(new_dt + dt_history[0]), etc.
+    cumsum_dt = jnp.cumsum(dt_history)  # Cumulative sum of past timesteps
+    tau = -(new_dt + jnp.concatenate([jnp.array([0.0]), cumsum_dt[:-1]])) / new_dt
+
+    # Build Vandermonde-like matrix for polynomial interpolation
+    # For order p, we need p+1 points and solve for coefficients
+    # Use order=2 (quadratic) as max, pad smaller orders with zeros
+
+    # Simple approach: compute coefficients for each possible order
+    # and select based on actual order
+
+    # Order 0 (constant): a = [1]
+    a0 = jnp.array([1.0, 0.0, 0.0])
+    err0 = 1.0
+
+    # Order 1 (linear): V_pred = V_n + (V_n - V_{n-1}) * new_dt / dt_{n-1}
+    # Coefficients: a_0 = 1 + new_dt/dt_0, a_1 = -new_dt/dt_0
+    ratio1 = new_dt / jnp.maximum(dt_history[0], 1e-30)
+    a1 = jnp.array([1.0 + ratio1, -ratio1, 0.0])
+    err1 = -ratio1 * (1 + ratio1) / 2  # Approximate error coefficient
+
+    # Order 2 (quadratic): more complex, use Lagrange interpolation
+    # tau values for 3 points
+    tau0 = -1.0  # t_n relative to t_{n+1}, normalized
+    tau1 = tau[0]  # t_{n-1}
+    tau2 = tau[1]  # t_{n-2}
+
+    # Lagrange coefficients for interpolating to tau=0 (t_{n+1})
+    denom0 = (tau0 - tau1) * (tau0 - tau2)
+    denom1 = (tau1 - tau0) * (tau1 - tau2)
+    denom2 = (tau2 - tau0) * (tau2 - tau1)
+
+    # Avoid division by zero
+    denom0 = jnp.where(jnp.abs(denom0) < 1e-30, 1e-30, denom0)
+    denom1 = jnp.where(jnp.abs(denom1) < 1e-30, 1e-30, denom1)
+    denom2 = jnp.where(jnp.abs(denom2) < 1e-30, 1e-30, denom2)
+
+    l0 = (0 - tau1) * (0 - tau2) / denom0  # For V_n
+    l1 = (0 - tau0) * (0 - tau2) / denom1  # For V_{n-1}
+    l2 = (0 - tau0) * (0 - tau1) / denom2  # For V_{n-2}
+
+    a2 = jnp.array([l0, l1, l2])
+    err2 = -tau0 * tau1 * tau2 / 6  # Third derivative contribution
+
+    # Select coefficients based on order
+    a = jnp.where(order == 0, a0, jnp.where(order == 1, a1, a2))
+    err_coeff = jnp.where(order == 0, err0, jnp.where(order == 1, err1, err2))
+
+    # Compute prediction: V_pred = sum_i a_i * V_history[i]
+    # Only use valid entries based on order
+    mask = jnp.arange(3) <= order
+    a_masked = jnp.where(mask, a, 0.0)
+
+    # V_history is (max_history, n_total), we need first 3 rows
+    V_pred = jnp.einsum('i,ij->j', a_masked[:3], V_history[:3])
+
+    return V_pred, err_coeff
+
+
+def _make_adaptive_scan_fn(
+    nr_solve,
+    jit_source_eval: Callable,
+    device_arrays,
+    config: AdaptiveConfig,
+    n_total: int,
+    n_unknowns: int,
+    n_external: int,
+    n_vsources: int,
+    t_stop: float,
+    warmup_steps: int,
+    tran_method: IntegrationMethod,
+    dtype,
+):
+    """Create the scan body function for adaptive timestep.
+
+    This function is JIT-compiled and handles one potential timestep.
+
+    Args:
+        nr_solve: Newton-Raphson solver function
+        jit_source_eval: JIT-compatible source evaluator: t -> (vsource_vals, isource_vals)
+        device_arrays: Device parameter arrays
+        config: Adaptive timestep configuration
+        n_total: Total number of nodes
+        n_unknowns: Number of unknown node voltages
+        n_external: Number of external (user-visible) nodes
+        n_vsources: Number of voltage sources
+        t_stop: Simulation stop time
+        warmup_steps: Number of warmup steps before enabling LTE control
+        tran_method: Integration method
+        dtype: Float dtype to use (float32 or float64)
+    """
+
+    max_history = config.max_order + 2  # Need order+1 points for predictor
+
+    def scan_body(carry: AdaptiveLoopState, _) -> Tuple[AdaptiveLoopState, AdaptiveLoopOutputs]:
+        """One iteration of adaptive timestep loop."""
+
+        # Unpack state
+        t = carry.t
+        dt = carry.dt
+        V = carry.V
+        Q_prev = carry.Q_prev
+        dQdt_prev = carry.dQdt_prev
+        Q_prev2 = carry.Q_prev2
+        V_history = carry.V_history
+        dt_history = carry.dt_history
+        history_count = carry.history_count
+        step_idx = carry.step_idx
+        warmup_count = carry.warmup_count
+        done = carry.done
+        total_nr_iters = carry.total_nr_iters
+        rejected_steps = carry.rejected_steps
+        min_dt_used = carry.min_dt_used
+        max_dt_used = carry.max_dt_used
+
+        # If already done, return no-op
+        def done_branch():
+            return carry, AdaptiveLoopOutputs(
+                t=t,
+                V=V[:n_external],
+                I_vsource=jnp.zeros(n_vsources, dtype=dtype),
+                accepted=jnp.array(False),
+            )
+
+        def continue_branch():
+            # Compute integration coefficients
+            c0 = 1.0 / dt
+            c1 = -1.0 / dt
+            d1 = 0.0
+            c2 = 0.0
+            error_coeff_integ = -0.5  # BE error coefficient
+
+            # Get source values at next time using JIT-compatible evaluator
+            t_next = t + dt
+            vsource_vals, isource_vals = jit_source_eval(t_next)
+
+            # Prediction step (if we have enough history and warmup is complete)
+            warmup_complete = warmup_count >= warmup_steps
+            can_predict = warmup_complete & (history_count >= 2)
+
+            V_pred, pred_err_coeff = _predict_fixed_order(
+                V_history, dt_history, history_count, dt, config.max_order
+            )
+            V_init = jnp.where(can_predict, V_pred, V)
+
+            # Newton-Raphson solve
+            V_new, iterations, converged, max_f, Q, dQdt_out, I_vsource = nr_solve(
+                V_init,
+                vsource_vals,
+                isource_vals,
+                Q_prev,
+                c0,
+                device_arrays,
+                1e-12,  # gmin
+                0.0,    # gshunt
+                c1,
+                d1,
+                dQdt_prev,
+                c2,
+                Q_prev2,
+            )
+
+            # Update NR iteration count (ensure int32 to match state dtype)
+            new_total_nr_iters = total_nr_iters + jnp.int32(iterations)
+
+            # Handle NR convergence failure
+            def nr_failed():
+                new_dt = jnp.maximum(dt / 2, config.min_dt)
+                at_min = dt <= config.min_dt
+                # If at minimum dt, accept anyway; otherwise retry
+                # Use jnp.where for all selections to be JIT-compatible
+                return (
+                    new_dt,
+                    rejected_steps + jnp.where(at_min, 0, 1),
+                    at_min,  # accept_step
+                    jnp.where(at_min, V_new, V),
+                    jnp.where(at_min, Q, Q_prev),
+                    jnp.where(at_min, dQdt_out, dQdt_prev),
+                )
+
+            def nr_succeeded():
+                return (
+                    dt,
+                    rejected_steps,
+                    jnp.array(True),
+                    V_new,
+                    Q,
+                    dQdt_out,
+                )
+
+            dt_after_nr, new_rejected, nr_accept, V_after_nr, Q_after_nr, dQdt_after_nr = lax.cond(
+                converged, nr_succeeded, nr_failed
+            )
+
+            # LTE estimation (only if warmup complete and predictor was used)
+            def compute_lte_dt():
+                # Estimate LTE
+                lte = (V_new - V_pred) * (error_coeff_integ / (error_coeff_integ - pred_err_coeff))
+                lte_norm = jnp.max(jnp.abs(lte) / (config.reltol * jnp.abs(V_new) + config.abstol))
+
+                # Compute new timestep
+                # dt_new = dt * (lte_ratio / lte_norm)^(1/(order+1))
+                order = jnp.minimum(history_count - 1, config.max_order)
+                factor = jnp.power(config.lte_ratio / jnp.maximum(lte_norm, 1e-10), 1.0 / (order + 2))
+                factor = jnp.clip(factor, 0.1, config.grow_factor)
+                return dt * factor, lte_norm
+
+            def no_lte_dt():
+                return dt, jnp.array(0.0)
+
+            dt_lte, lte_ratio = lax.cond(
+                can_predict & nr_accept,
+                compute_lte_dt,
+                no_lte_dt,
+            )
+
+            # Check if LTE requires step rejection
+            lte_reject = (dt / dt_lte > config.redo_factor) & can_predict & nr_accept
+
+            def lte_rejected():
+                return (
+                    dt_lte,
+                    new_rejected + 1,
+                    jnp.array(False),
+                )
+
+            def lte_accepted():
+                return dt_lte, new_rejected, nr_accept
+
+            final_dt, final_rejected, accept_step = lax.cond(
+                lte_reject, lte_rejected, lte_accepted
+            )
+
+            # Update state for accepted step
+            def accepted_update():
+                # Update history (shift and insert new values)
+                new_V_history = jnp.roll(V_history, 1, axis=0)
+                new_V_history = new_V_history.at[0].set(V_after_nr)
+
+                new_dt_history = jnp.roll(dt_history, 1)
+                new_dt_history = new_dt_history.at[0].set(dt)
+
+                new_history_count = jnp.minimum(history_count + 1, max_history)
+                new_warmup = warmup_count + 1
+
+                # Clip dt to not overshoot
+                next_dt = jnp.minimum(final_dt, t_stop - t_next)
+                next_dt = jnp.clip(next_dt, config.min_dt, config.max_dt)
+
+                new_done = t_next >= t_stop
+
+                return AdaptiveLoopState(
+                    t=t_next,
+                    dt=next_dt,
+                    V=V_after_nr,
+                    Q_prev=Q_after_nr,
+                    dQdt_prev=dQdt_after_nr,
+                    Q_prev2=Q_prev,  # Shift Q history
+                    V_history=new_V_history,
+                    dt_history=new_dt_history,
+                    history_count=new_history_count,
+                    step_idx=step_idx + 1,
+                    warmup_count=new_warmup,
+                    done=new_done,
+                    total_nr_iters=new_total_nr_iters,
+                    rejected_steps=final_rejected,
+                    min_dt_used=jnp.minimum(min_dt_used, dt),
+                    max_dt_used=jnp.maximum(max_dt_used, dt),
+                )
+
+            def rejected_update():
+                # Just update dt for retry, don't advance time
+                next_dt = jnp.clip(final_dt, config.min_dt, config.max_dt)
+                return AdaptiveLoopState(
+                    t=t,
+                    dt=next_dt,
+                    V=V,
+                    Q_prev=Q_prev,
+                    dQdt_prev=dQdt_prev,
+                    Q_prev2=Q_prev2,
+                    V_history=V_history,
+                    dt_history=dt_history,
+                    history_count=history_count,
+                    step_idx=step_idx,
+                    warmup_count=warmup_count,
+                    done=done,
+                    total_nr_iters=new_total_nr_iters,
+                    rejected_steps=final_rejected,
+                    min_dt_used=min_dt_used,
+                    max_dt_used=max_dt_used,
+                )
+
+            new_state = lax.cond(accept_step, accepted_update, rejected_update)
+
+            outputs = AdaptiveLoopOutputs(
+                t=jnp.where(accept_step, t_next, t),
+                V=V_after_nr[:n_external],
+                I_vsource=I_vsource if n_vsources > 0 else jnp.zeros(max(n_vsources, 1), dtype=dtype),
+                accepted=accept_step,
+            )
+
+            return new_state, outputs
+
+        return lax.cond(done, done_branch, continue_branch)
+
+    return scan_body
+
+
+class AdaptiveScanStrategy(TransientStrategy):
+    """Adaptive timestep strategy using lax.scan for full JIT compilation.
+
+    This is a faster version of AdaptiveStrategy that uses fixed-size arrays
+    and lax.scan instead of a Python loop. This enables full JIT compilation
+    of the entire simulation loop.
+    """
+
+    name = "adaptive_scan"
+
+    def __init__(
+        self,
+        runner: 'CircuitEngine',
+        use_sparse: bool = False,
+        backend: str = "cpu",
+        config: Optional[AdaptiveConfig] = None,
+    ):
+        super().__init__(runner, use_sparse=use_sparse, backend=backend)
+        self.config = config or AdaptiveConfig()
+
+    def run(
+        self, t_stop: float, dt: float, max_steps: int = 100000
+    ) -> Tuple[jax.Array, Dict[str, jax.Array], Dict[str, jax.Array], Dict]:
+        """Run adaptive transient analysis using lax.scan.
+
+        Args:
+            t_stop: Simulation stop time in seconds
+            dt: Initial timestep in seconds (will be adapted)
+            max_steps: Maximum number of iterations (including rejected steps)
+
+        Returns:
+            Tuple of (times, voltages, currents, stats)
+        """
+        setup = self.ensure_setup()
+        nr_solve = self.ensure_solver()
+
+        n_total = setup.n_total
+        n_unknowns = setup.n_unknowns
+        n_external = setup.n_external
+        source_fn = setup.source_fn
+        config = self.config
+
+        # Get integration method
+        tran_method = self.runner.analysis_params.get(
+            "tran_method", IntegrationMethod.BACKWARD_EULER
+        )
+
+        # Get dtype based on x64 configuration
+        dtype = get_float_dtype()
+
+        # Get source info for JIT-compatible evaluator
+        vsource_data = setup.source_device_data.get('vsource', {})
+        isource_data = setup.source_device_data.get('isource', {})
+        vsource_names = vsource_data.get('names', [])
+        isource_names = isource_data.get('names', [])
+        vsource_dc = jnp.asarray(vsource_data.get('dc', []), dtype=dtype)
+        isource_dc = jnp.asarray(isource_data.get('dc', []), dtype=dtype)
+        n_vsources = len(vsource_names)
+
+        device_arrays = self.runner._device_arrays
+
+        max_history = config.max_order + 2
+
+        # Create JIT-compatible source evaluator
+        jit_source_eval = _make_jit_source_evaluator(
+            source_fn=source_fn,
+            vsource_names=vsource_names,
+            vsource_dc=vsource_dc,
+            isource_names=isource_names,
+            isource_dc=isource_dc,
+        )
+
+        # Initialize state
+        V = jnp.zeros(n_total, dtype=dtype)
+
+        # Initialize Q from build_system at DC
+        Q_init = jnp.zeros(n_unknowns, dtype=dtype)
+        if hasattr(self.runner, "_cached_build_system"):
+            vsource_dc_init = vsource_dc if len(vsource_dc) > 0 else jnp.array([], dtype=dtype)
+            isource_dc_init = isource_dc if len(isource_dc) > 0 else jnp.array([], dtype=dtype)
+            _, _, Q_init, _ = self.runner._cached_build_system(
+                V, vsource_dc_init, isource_dc_init,
+                jnp.zeros(n_unknowns, dtype=dtype),
+                0.0,
+                device_arrays,
+                1e-12, 0.0, 0.0, 0.0,
+                jnp.zeros(n_unknowns, dtype=dtype),
+                0.0,
+                jnp.zeros(n_unknowns, dtype=dtype),
+            )
+
+        initial_dt = jnp.minimum(jnp.array(dt), jnp.array(config.max_dt))
+        initial_dt = jnp.maximum(initial_dt, jnp.array(config.min_dt))
+
+        init_state = AdaptiveLoopState(
+            t=jnp.array(0.0, dtype=dtype),
+            dt=initial_dt,
+            V=V,
+            Q_prev=Q_init,
+            dQdt_prev=jnp.zeros(n_unknowns, dtype=dtype),
+            Q_prev2=jnp.zeros(n_unknowns, dtype=dtype),
+            V_history=jnp.zeros((max_history, n_total), dtype=dtype),
+            dt_history=jnp.full(max_history, dt, dtype=dtype),
+            history_count=jnp.array(0, dtype=jnp.int32),
+            step_idx=jnp.array(0, dtype=jnp.int32),
+            warmup_count=jnp.array(0, dtype=jnp.int32),
+            done=jnp.array(False, dtype=jnp.bool_),
+            total_nr_iters=jnp.array(0, dtype=jnp.int32),
+            rejected_steps=jnp.array(0, dtype=jnp.int32),
+            min_dt_used=jnp.array(jnp.inf, dtype=dtype),
+            max_dt_used=jnp.array(0.0, dtype=dtype),
+        )
+
+        # Create scan function
+        scan_fn = _make_adaptive_scan_fn(
+            nr_solve=nr_solve,
+            jit_source_eval=jit_source_eval,
+            device_arrays=device_arrays,
+            config=config,
+            n_total=n_total,
+            n_unknowns=n_unknowns,
+            n_external=n_external,
+            n_vsources=max(n_vsources, 1),  # At least 1 to avoid empty arrays
+            t_stop=t_stop,
+            warmup_steps=config.warmup_steps,
+            tran_method=tran_method,
+            dtype=dtype,
+        )
+
+        logger.info(
+            f"{self.name}: Starting scan-based adaptive simulation to t={t_stop:.2e}s, "
+            f"initial dt={dt:.2e}s, max_steps={max_steps}"
+        )
+        t_start = time_module.perf_counter()
+
+        # Run scan
+        final_state, outputs = lax.scan(scan_fn, init_state, None, length=max_steps)
+
+        # Wait for computation
+        jax.block_until_ready(final_state)
+
+        wall_time = time_module.perf_counter() - t_start
+
+        # Extract accepted steps
+        accepted_mask = outputs.accepted
+        n_accepted = int(jnp.sum(accepted_mask))
+
+        # Filter outputs to only accepted steps
+        times = outputs.t[accepted_mask]
+        V_out = outputs.V[accepted_mask]  # (n_accepted, n_external)
+        I_out = outputs.I_vsource[accepted_mask]  # (n_accepted, n_vsources)
+
+        # Build voltage dict with node names
+        voltages: Dict[str, jax.Array] = {}
+        for name, idx in self.runner.node_names.items():
+            if 0 < idx < n_external:
+                voltages[name] = V_out[:, idx]
+
+        # Build current dict
+        currents: Dict[str, jax.Array] = {}
+        for i, name in enumerate(vsource_names):
+            currents[name] = I_out[:, i]
+
+        stats_dict = {
+            "total_timesteps": n_accepted,
+            "accepted_steps": n_accepted,
+            "rejected_steps": int(final_state.rejected_steps),
+            "total_nr_iterations": int(final_state.total_nr_iters),
+            "avg_nr_iterations": float(final_state.total_nr_iters) / max(n_accepted, 1),
+            "min_dt_used": float(final_state.min_dt_used),
+            "max_dt_used": float(final_state.max_dt_used),
+            "wall_time": wall_time,
+            "time_per_step_ms": wall_time / max(n_accepted, 1) * 1000,
+            "strategy": "adaptive_scan",
+            "solver": "sparse" if self.use_sparse else "dense",
+            "convergence_rate": n_accepted / max(n_accepted + int(final_state.rejected_steps), 1),
+        }
+
+        logger.info(
+            f"{self.name}: Completed {n_accepted} steps in {wall_time:.3f}s "
+            f"({stats_dict['time_per_step_ms']:.2f}ms/step, "
+            f"{int(final_state.rejected_steps)} rejected)"
+        )
+
+        return times, voltages, currents, stats_dict
+
+
+# =============================================================================
+# While-loop based adaptive strategy (JIT-compiled with early termination)
+# =============================================================================
+
+class WhileLoopState(NamedTuple):
+    """State for while-loop based adaptive timestep."""
+    # Current simulation state
+    t: jax.Array                    # Scalar: current time
+    dt: jax.Array                   # Scalar: current timestep
+    V: jax.Array                    # (n_total,): current voltage
+    Q_prev: jax.Array               # (n_unknowns,): previous charge
+    dQdt_prev: jax.Array            # (n_unknowns,): previous dQ/dt
+    Q_prev2: jax.Array              # (n_unknowns,): charge 2 steps ago
+
+    # History buffer (fixed size ring buffer)
+    V_history: jax.Array            # (max_history, n_total): past voltages
+    dt_history: jax.Array           # (max_history,): past timesteps
+    history_count: jax.Array        # Scalar: number of valid entries
+
+    # Output arrays (pre-allocated, filled up to step_idx)
+    times_out: jax.Array            # (max_steps,): output times
+    V_out: jax.Array                # (max_steps, n_external): output voltages
+    I_out: jax.Array                # (max_steps, n_vsources): output currents
+
+    # Loop control
+    step_idx: jax.Array             # Scalar: current output index
+    warmup_count: jax.Array         # Scalar: steps completed in warmup
+
+    # Statistics
+    total_nr_iters: jax.Array       # Scalar: total NR iterations
+    rejected_steps: jax.Array       # Scalar: number of rejected steps
+    min_dt_used: jax.Array          # Scalar: minimum dt used
+    max_dt_used: jax.Array          # Scalar: maximum dt used
+
+
+def _make_while_loop_fns(
+    nr_solve,
+    jit_source_eval: Callable,
+    device_arrays,
+    config: AdaptiveConfig,
+    n_total: int,
+    n_unknowns: int,
+    n_external: int,
+    n_vsources: int,
+    max_steps: int,
+    t_stop: float,
+    warmup_steps: int,
+    dtype,
+):
+    """Create cond and body functions for while_loop adaptive timestep."""
+
+    max_history = config.max_order + 2
+
+    def cond_fn(state: WhileLoopState) -> jax.Array:
+        """Continue while t < t_stop and step_idx < max_steps."""
+        return (state.t < t_stop) & (state.step_idx < max_steps)
+
+    def body_fn(state: WhileLoopState) -> WhileLoopState:
+        """One iteration of adaptive timestep loop."""
+        t = state.t
+        dt = state.dt
+        V = state.V
+        Q_prev = state.Q_prev
+        dQdt_prev = state.dQdt_prev
+        Q_prev2 = state.Q_prev2
+        V_history = state.V_history
+        dt_history = state.dt_history
+        history_count = state.history_count
+        step_idx = state.step_idx
+        warmup_count = state.warmup_count
+
+        # Integration coefficients (Backward Euler)
+        c0 = 1.0 / dt
+        c1 = -1.0 / dt
+        error_coeff_integ = -0.5
+
+        # Get source values at next time
+        t_next = t + dt
+        vsource_vals, isource_vals = jit_source_eval(t_next)
+
+        # Prediction step
+        warmup_complete = warmup_count >= warmup_steps
+        can_predict = warmup_complete & (history_count >= 2)
+
+        V_pred, pred_err_coeff = _predict_fixed_order(
+            V_history, dt_history, history_count, dt, config.max_order
+        )
+        V_init = jnp.where(can_predict, V_pred, V)
+
+        # Newton-Raphson solve
+        V_new, iterations, converged, max_f, Q, dQdt_out, I_vsource = nr_solve(
+            V_init, vsource_vals, isource_vals, Q_prev, c0, device_arrays,
+            1e-12, 0.0, c1, 0.0, dQdt_prev, 0.0, Q_prev2,
+        )
+
+        new_total_nr_iters = state.total_nr_iters + jnp.int32(iterations)
+
+        # Handle NR failure
+        nr_failed = ~converged
+        at_min_dt = dt <= config.min_dt
+        force_accept_nr = nr_failed & at_min_dt
+
+        # LTE estimation
+        lte = (V_new - V_pred) * (error_coeff_integ / (error_coeff_integ - pred_err_coeff))
+        lte_norm = jnp.max(jnp.abs(lte) / (config.reltol * jnp.abs(V_new) + config.abstol))
+        order = jnp.minimum(history_count - 1, config.max_order)
+        factor = jnp.power(config.lte_ratio / jnp.maximum(lte_norm, 1e-10), 1.0 / (order + 2))
+        factor = jnp.clip(factor, 0.1, config.grow_factor)
+        dt_lte = dt * factor
+
+        # Decision: accept or reject
+        lte_reject = (dt / dt_lte > config.redo_factor) & can_predict & converged
+        nr_reject = nr_failed & ~at_min_dt
+
+        reject_step = lte_reject | nr_reject
+        accept_step = ~reject_step
+
+        # Compute new dt
+        new_dt = jnp.where(nr_failed, jnp.maximum(dt / 2, config.min_dt), dt_lte)
+        new_dt = jnp.clip(new_dt, config.min_dt, config.max_dt)
+        new_dt = jnp.minimum(new_dt, t_stop - t_next)  # Don't overshoot
+
+        # Update state based on accept/reject
+        new_t = jnp.where(accept_step, t_next, t)
+        new_V = jnp.where(accept_step, V_new, V)
+        new_Q_prev = jnp.where(accept_step, Q, Q_prev)
+        new_dQdt_prev = jnp.where(accept_step, dQdt_out, dQdt_prev)
+        new_Q_prev2 = jnp.where(accept_step, Q_prev, Q_prev2)
+
+        # Update history on accept
+        new_V_history = jnp.where(
+            accept_step,
+            jnp.roll(V_history, 1, axis=0).at[0].set(V_new),
+            V_history
+        )
+        new_dt_history = jnp.where(
+            accept_step,
+            jnp.roll(dt_history, 1).at[0].set(dt),
+            dt_history
+        )
+        new_history_count = jnp.where(
+            accept_step,
+            jnp.minimum(history_count + 1, max_history),
+            history_count
+        )
+        new_warmup_count = jnp.where(accept_step, warmup_count + 1, warmup_count)
+
+        # Update output arrays on accept
+        new_times_out = jnp.where(
+            accept_step,
+            state.times_out.at[step_idx].set(t_next),
+            state.times_out
+        )
+        new_V_out = jnp.where(
+            accept_step,
+            state.V_out.at[step_idx].set(V_new[:n_external]),
+            state.V_out
+        )
+        new_I_out = jnp.where(
+            accept_step,
+            state.I_out.at[step_idx].set(I_vsource[:n_vsources] if n_vsources > 0 else jnp.zeros(1, dtype=dtype)),
+            state.I_out
+        )
+        new_step_idx = jnp.where(accept_step, step_idx + 1, step_idx)
+
+        # Update statistics
+        new_rejected = state.rejected_steps + jnp.where(reject_step, 1, 0)
+        new_min_dt = jnp.where(accept_step, jnp.minimum(state.min_dt_used, dt), state.min_dt_used)
+        new_max_dt = jnp.where(accept_step, jnp.maximum(state.max_dt_used, dt), state.max_dt_used)
+
+        return WhileLoopState(
+            t=new_t,
+            dt=new_dt,
+            V=new_V,
+            Q_prev=new_Q_prev,
+            dQdt_prev=new_dQdt_prev,
+            Q_prev2=new_Q_prev2,
+            V_history=new_V_history,
+            dt_history=new_dt_history,
+            history_count=new_history_count,
+            times_out=new_times_out,
+            V_out=new_V_out,
+            I_out=new_I_out,
+            step_idx=new_step_idx,
+            warmup_count=new_warmup_count,
+            total_nr_iters=new_total_nr_iters,
+            rejected_steps=new_rejected,
+            min_dt_used=new_min_dt,
+            max_dt_used=new_max_dt,
+        )
+
+    return cond_fn, body_fn
+
+
+class AdaptiveWhileLoopStrategy(TransientStrategy):
+    """Adaptive timestep using lax.while_loop for early termination.
+
+    This strategy uses while_loop instead of scan, which allows genuine
+    early termination when t >= t_stop, rather than running all max_steps
+    iterations with a done flag.
+    """
+
+    name = "adaptive_while"
+
+    def __init__(
+        self,
+        runner: 'CircuitEngine',
+        use_sparse: bool = False,
+        backend: str = "cpu",
+        config: Optional[AdaptiveConfig] = None,
+    ):
+        super().__init__(runner, use_sparse=use_sparse, backend=backend)
+        self.config = config or AdaptiveConfig()
+
+    def run(
+        self, t_stop: float, dt: float, max_steps: int = 100000
+    ) -> Tuple[jax.Array, Dict[str, jax.Array], Dict[str, jax.Array], Dict]:
+        """Run adaptive transient analysis using lax.while_loop."""
+        setup = self.ensure_setup()
+        nr_solve = self.ensure_solver()
+
+        n_total = setup.n_total
+        n_unknowns = setup.n_unknowns
+        n_external = setup.n_external
+        source_fn = setup.source_fn
+        config = self.config
+
+        tran_method = self.runner.analysis_params.get(
+            "tran_method", IntegrationMethod.BACKWARD_EULER
+        )
+
+        dtype = get_float_dtype()
+
+        vsource_data = setup.source_device_data.get('vsource', {})
+        isource_data = setup.source_device_data.get('isource', {})
+        vsource_names = vsource_data.get('names', [])
+        isource_names = isource_data.get('names', [])
+        vsource_dc = jnp.asarray(vsource_data.get('dc', []), dtype=dtype)
+        isource_dc = jnp.asarray(isource_data.get('dc', []), dtype=dtype)
+        n_vsources = max(len(vsource_names), 1)
+
+        device_arrays = self.runner._device_arrays
+        max_history = config.max_order + 2
+
+        jit_source_eval = _make_jit_source_evaluator(
+            source_fn, vsource_names, vsource_dc, isource_names, isource_dc
+        )
+
+        # Initialize state
+        V = jnp.zeros(n_total, dtype=dtype)
+        Q_init = jnp.zeros(n_unknowns, dtype=dtype)
+        if hasattr(self.runner, "_cached_build_system"):
+            vsource_dc_init = vsource_dc if len(vsource_dc) > 0 else jnp.array([], dtype=dtype)
+            isource_dc_init = isource_dc if len(isource_dc) > 0 else jnp.array([], dtype=dtype)
+            _, _, Q_init, _ = self.runner._cached_build_system(
+                V, vsource_dc_init, isource_dc_init,
+                jnp.zeros(n_unknowns, dtype=dtype), 0.0, device_arrays,
+                1e-12, 0.0, 0.0, 0.0, jnp.zeros(n_unknowns, dtype=dtype),
+                0.0, jnp.zeros(n_unknowns, dtype=dtype),
+            )
+
+        initial_dt = jnp.clip(jnp.array(dt, dtype=dtype), config.min_dt, config.max_dt)
+
+        init_state = WhileLoopState(
+            t=jnp.array(0.0, dtype=dtype),
+            dt=initial_dt,
+            V=V,
+            Q_prev=Q_init,
+            dQdt_prev=jnp.zeros(n_unknowns, dtype=dtype),
+            Q_prev2=jnp.zeros(n_unknowns, dtype=dtype),
+            V_history=jnp.zeros((max_history, n_total), dtype=dtype),
+            dt_history=jnp.full(max_history, dt, dtype=dtype),
+            history_count=jnp.array(0, dtype=jnp.int32),
+            times_out=jnp.zeros(max_steps, dtype=dtype),
+            V_out=jnp.zeros((max_steps, n_external), dtype=dtype),
+            I_out=jnp.zeros((max_steps, n_vsources), dtype=dtype),
+            step_idx=jnp.array(0, dtype=jnp.int32),
+            warmup_count=jnp.array(0, dtype=jnp.int32),
+            total_nr_iters=jnp.array(0, dtype=jnp.int32),
+            rejected_steps=jnp.array(0, dtype=jnp.int32),
+            min_dt_used=jnp.array(jnp.inf, dtype=dtype),
+            max_dt_used=jnp.array(0.0, dtype=dtype),
+        )
+
+        cond_fn, body_fn = _make_while_loop_fns(
+            nr_solve, jit_source_eval, device_arrays, config,
+            n_total, n_unknowns, n_external, n_vsources, max_steps,
+            t_stop, config.warmup_steps, dtype,
+        )
+
+        logger.info(
+            f"{self.name}: Starting while-loop adaptive simulation to t={t_stop:.2e}s, "
+            f"initial dt={dt:.2e}s, max_steps={max_steps}"
+        )
+        t_start = time_module.perf_counter()
+
+        # Run while loop
+        final_state = lax.while_loop(cond_fn, body_fn, init_state)
+        jax.block_until_ready(final_state)
+
+        wall_time = time_module.perf_counter() - t_start
+
+        # Extract valid outputs
+        n_steps = int(final_state.step_idx)
+        times = final_state.times_out[:n_steps]
+        V_out = final_state.V_out[:n_steps]
+        I_out = final_state.I_out[:n_steps]
+
+        # Build voltage dict
+        voltages: Dict[str, jax.Array] = {}
+        for name, idx in self.runner.node_names.items():
+            if 0 < idx < n_external:
+                voltages[name] = V_out[:, idx]
+
+        # Build current dict
+        currents: Dict[str, jax.Array] = {}
+        for i, name in enumerate(vsource_names):
+            currents[name] = I_out[:, i]
+
+        stats_dict = {
+            "total_timesteps": n_steps,
+            "accepted_steps": n_steps,
+            "rejected_steps": int(final_state.rejected_steps),
+            "total_nr_iterations": int(final_state.total_nr_iters),
+            "avg_nr_iterations": float(final_state.total_nr_iters) / max(n_steps, 1),
+            "min_dt_used": float(final_state.min_dt_used),
+            "max_dt_used": float(final_state.max_dt_used),
+            "wall_time": wall_time,
+            "time_per_step_ms": wall_time / max(n_steps, 1) * 1000,
+            "strategy": "adaptive_while",
+            "solver": "sparse" if self.use_sparse else "dense",
+        }
+
+        logger.info(
+            f"{self.name}: Completed {n_steps} steps in {wall_time:.3f}s "
+            f"({stats_dict['time_per_step_ms']:.2f}ms/step, "
+            f"{int(final_state.rejected_steps)} rejected)"
+        )
+
+        return times, voltages, currents, stats_dict

@@ -10,20 +10,37 @@ Strategy classes for transient simulation:
   - Moderate performance (~0.5ms/step)
 
 - ScanStrategy: Fully JIT-compiled using lax.scan
-  - Best performance (~0.1ms/step on CPU)
+  - Best performance (~0.1ms/step on CPU) for fixed timestep
   - 5x+ speedup over Python loop
   - Limited per-step debugging
 
-- AdaptiveStrategy: LTE-based adaptive timestep control
+- AdaptiveStrategy: LTE-based adaptive timestep control (RECOMMENDED)
   - Automatically adjusts timestep based on solution accuracy
   - Smaller steps during fast transients, larger steps during slow evolution
   - Uses predictor-corrector scheme with polynomial extrapolation
   - Compatible with VACASK for validation
+  - Python loop with JIT-compiled NR solver (~1.7ms/step)
+
+- AdaptiveScanStrategy: Adaptive timestep using lax.scan (SLOWER - for reference)
+  - Full JIT compilation with lax.scan
+  - Much slower than Python loop (~170ms/step) due to nested lax.cond overhead
+  - Kept for completeness but NOT recommended for production use
+
+- AdaptiveWhileLoopStrategy: Adaptive timestep using lax.while_loop (SLOWER - for reference)
+  - Full JIT compilation with lax.while_loop
+  - Much slower than Python loop (~250ms/step) due to jnp.where tracing overhead
+  - Kept for completeness but NOT recommended for production use
 
 - FullMNAStrategy: Full Modified Nodal Analysis with explicit branch currents
   - True MNA formulation (not high-G approximation)
   - More accurate current extraction
   - Smoother dI/dt matching VACASK reference
+
+Performance Notes:
+  For adaptive timestep, the Python loop approach is fastest because:
+  - The heavy computation (Newton-Raphson) is JIT-compiled
+  - Python handles dynamic control flow naturally
+  - lax.scan/while_loop incur massive tracing overhead for complex bodies
 
 Strategy Usage:
     from jax_spice.analysis.transient import PythonLoopStrategy, ScanStrategy
@@ -50,7 +67,12 @@ Strategy Usage:
 """
 
 # Strategy classes for OpenVAF-based transient
-from .adaptive import AdaptiveConfig, AdaptiveStrategy
+from .adaptive import (
+    AdaptiveConfig,
+    AdaptiveScanStrategy,
+    AdaptiveStrategy,
+    AdaptiveWhileLoopStrategy,
+)
 from .base import TransientSetup, TransientStrategy
 from .full_mna import FullMNAStrategy
 from .python_loop import PythonLoopStrategy
@@ -63,6 +85,8 @@ __all__ = [
     "PythonLoopStrategy",
     "ScanStrategy",
     "AdaptiveStrategy",
+    "AdaptiveScanStrategy",
+    "AdaptiveWhileLoopStrategy",
     "AdaptiveConfig",
     "FullMNAStrategy",
 ]
