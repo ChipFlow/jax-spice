@@ -20,6 +20,11 @@ Strategy classes for transient simulation:
   - Uses predictor-corrector scheme with polynomial extrapolation
   - Compatible with VACASK for validation
 
+- FullMNAStrategy: Full Modified Nodal Analysis with explicit branch currents
+  - True MNA formulation (not high-G approximation)
+  - More accurate current extraction
+  - Smoother dI/dt matching VACASK reference
+
 Strategy Usage:
     from jax_spice.analysis.transient import PythonLoopStrategy, ScanStrategy
 
@@ -36,11 +41,18 @@ Strategy Usage:
     config = AdaptiveConfig(lte_ratio=3.5, redo_factor=2.5)
     strategy = AdaptiveStrategy(runner, config=config)
     times, voltages, stats = strategy.run(t_stop=1e-6, dt=1e-9)
+
+    # Using full MNA for accurate current extraction
+    from jax_spice.analysis.transient import FullMNAStrategy
+    strategy = FullMNAStrategy(runner, use_sparse=False)
+    times, voltages, stats = strategy.run(t_stop=1e-6, dt=1e-9)
+    I_VDD = stats['currents']['vdd']  # Direct branch current from solution
 """
 
 # Strategy classes for OpenVAF-based transient
 from .adaptive import AdaptiveConfig, AdaptiveStrategy
 from .base import TransientSetup, TransientStrategy
+from .full_mna import FullMNAStrategy
 from .python_loop import PythonLoopStrategy
 from .scan import ScanStrategy
 
@@ -52,4 +64,5 @@ __all__ = [
     "ScanStrategy",
     "AdaptiveStrategy",
     "AdaptiveConfig",
+    "FullMNAStrategy",
 ]

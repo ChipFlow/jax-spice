@@ -5,7 +5,7 @@ for running transient analysis with OpenVAF-compiled devices.
 """
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple
 
 import jax
@@ -15,6 +15,7 @@ from jax_spice._logging import logger
 
 if TYPE_CHECKING:
     from jax_spice.analysis.engine import CircuitEngine
+    from jax_spice.analysis.mna import MNABranchData
 
 
 @dataclass
@@ -26,7 +27,7 @@ class TransientSetup:
 
     Attributes:
         n_total: Total number of nodes (external + internal)
-        n_unknowns: Number of unknowns (n_total - 1, excluding ground)
+        n_unknowns: Number of node voltage unknowns (n_total - 1, excluding ground)
         n_external: Number of external (user-visible) nodes
         device_internal_nodes: Mapping of device names to internal node indices
         source_fn: Function that evaluates time-varying sources at time t
@@ -34,6 +35,14 @@ class TransientSetup:
         openvaf_by_type: Devices grouped by OpenVAF model type
         vmapped_fns: Vmapped evaluation functions for each model type
         static_inputs_cache: Cached static inputs for each model type
+
+        # Full MNA branch current fields
+        n_branches: Number of branch current unknowns (= number of vsources)
+        n_augmented: Total augmented system size (n_unknowns + n_branches)
+        use_full_mna: Whether to use full MNA (True) or high-G approximation (False)
+        branch_data: MNABranchData with vsource branch current info
+        branch_node_p: JAX array of positive terminal indices for vsources
+        branch_node_n: JAX array of negative terminal indices for vsources
     """
     n_total: int
     n_unknowns: int
@@ -44,6 +53,19 @@ class TransientSetup:
     openvaf_by_type: Dict[str, List[Dict]]
     vmapped_fns: Dict[str, Callable]
     static_inputs_cache: Dict[str, Tuple]
+
+    # Full MNA branch current fields (optional, default to high-G mode)
+    n_branches: int = 0
+    n_augmented: int = 0
+    use_full_mna: bool = False
+    branch_data: Optional['MNABranchData'] = None
+    branch_node_p: Optional[jax.Array] = None
+    branch_node_n: Optional[jax.Array] = None
+
+    def __post_init__(self):
+        """Compute derived fields after initialization."""
+        if self.n_augmented == 0:
+            self.n_augmented = self.n_unknowns + self.n_branches
 
 
 class TransientStrategy(ABC):

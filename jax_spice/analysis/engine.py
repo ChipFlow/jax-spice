@@ -1609,13 +1609,13 @@ class CircuitEngine:
         falls back to regex parsing for backwards compatibility.
         """
         # Default values
-        # icmode='uic' skips DC operating point solve, matching VACASK behavior
-        # Models with correct VA defaults converge fine starting from mid-rail init
+        # icmode='op' computes DC operating point before transient (VACASK default)
+        # icmode='uic' skips DC solve - only use when explicitly specified
         self.analysis_params = {
             'type': 'tran',
             'step': 1e-6,
             'stop': 1e-3,
-            'icmode': 'uic',
+            'icmode': 'op',
             'tran_method': IntegrationMethod.BACKWARD_EULER,
         }
 
@@ -3915,6 +3915,425 @@ class CircuitEngine:
             return J, f, Q, I_vsource
 
         return build_system, device_arrays
+
+    def _make_full_mna_build_system_fn(
+        self,
+        source_device_data: Dict,
+        vmapped_fns: Dict,
+        static_inputs_cache: Dict,
+        n_unknowns: int,
+        use_dense: bool = True,
+    ) -> Tuple[Callable, Dict]:
+        """Create GPU-resident build_system function for full MNA formulation.
+
+        This is an alternative to _make_gpu_resident_build_system_fn that uses
+        true Modified Nodal Analysis with branch currents as explicit unknowns,
+        instead of the high-G (G=1e12) voltage source approximation.
+
+        Full MNA augments the system from n×n to (n+m)×(n+m) where m = number
+        of voltage sources. The branch currents become primary unknowns:
+
+            ┌───────────────┐   ┌───┐   ┌───────┐
+            │  G + c0*C   B │   │ V │   │ f_node│
+            │               │ × │   │ = │       │
+            │    B^T      0 │   │ J │   │ E - V │
+            └───────────────┘   └───┘   └───────┘
+
+        Where:
+        - G = device conductance matrix (n×n)
+        - C = device capacitance matrix (n×n)
+        - B = incidence matrix mapping currents to nodes (n×m)
+        - V = node voltages (n×1)
+        - J = branch currents (m×1) - these are the primary unknowns for vsources
+        - f_node = device current contributions
+        - E = voltage source values (m×1)
+
+        Benefits over high-G approximation:
+        - More accurate current extraction (no numerical noise from G=1e12)
+        - Smoother dI/dt transitions matching VACASK reference
+        - Better conditioned matrices for ill-conditioned circuits
+
+        Args:
+            source_device_data: Pre-computed source device stamp templates
+            vmapped_fns: Dict of vmapped OpenVAF functions per model type
+            static_inputs_cache: Dict of static inputs per model type
+            n_unknowns: Number of node voltage unknowns (n_total - 1)
+            use_dense: Whether to use dense or sparse matrix assembly
+
+        Returns:
+            Tuple of:
+            - build_system function with signature:
+                build_system(X, vsource_vals, isource_vals, Q_prev, integ_c0, device_arrays,
+                             gmin, gshunt, ...) -> (J, f, Q, I_vsource)
+              where X = [V; I_branch] is the augmented solution vector
+            - device_arrays: Dict[model_type, cache] to pass to build_system
+        """
+        # Get number of voltage sources for augmentation
+        n_vsources = len(source_device_data.get('vsource', {}).get('names', []))
+        n_augmented = n_unknowns + n_vsources
+
+        # Capture model types as static list (unrolled at trace time)
+        model_types = list(static_inputs_cache.keys())
+
+        # Split cache into metadata (captured) and arrays (passed as argument)
+        static_metadata = {}
+        device_arrays = {}
+        split_eval_info = {}
+        for model_type in model_types:
+            voltage_indices, stamp_indices, voltage_node1, voltage_node2, cache, _ = \
+                static_inputs_cache[model_type]
+            static_metadata[model_type] = (voltage_indices, stamp_indices, voltage_node1, voltage_node2)
+
+            compiled = self._compiled_models.get(model_type, {})
+            if compiled.get('use_split_eval', False):
+                use_cache_split = compiled.get('use_cache_split', False)
+                split_eval_info[model_type] = {
+                    'vmapped_split_eval': compiled['vmapped_split_eval'],
+                    'shared_params': compiled['shared_params'],
+                    'device_params': compiled['device_params'],
+                    'voltage_positions': compiled['voltage_positions_in_varying'],
+                    'use_cache_split': use_cache_split,
+                    'shared_cache': compiled.get('shared_cache'),
+                    'default_simparams': compiled.get('default_simparams', jnp.array([0.0, 1.0, 1e-12])),
+                }
+            device_arrays[model_type] = compiled.get('device_cache', cache)
+
+        # Pre-compute vsource node indices as JAX arrays (captured in closure)
+        if n_vsources > 0:
+            vsource_node_p = jnp.array(source_device_data['vsource']['node_p'], dtype=jnp.int32)
+            vsource_node_n = jnp.array(source_device_data['vsource']['node_n'], dtype=jnp.int32)
+        else:
+            vsource_node_p = jnp.zeros(0, dtype=jnp.int32)
+            vsource_node_n = jnp.zeros(0, dtype=jnp.int32)
+
+        def build_system_full_mna(
+            X: jax.Array,  # Augmented solution: [V; I_branch] of size n_total + n_vsources
+            vsource_vals: jax.Array,
+            isource_vals: jax.Array,
+            Q_prev: jax.Array,
+            integ_c0: float | jax.Array,
+            device_arrays_arg: Dict[str, jax.Array],
+            gmin: float | jax.Array = 1e-12,
+            gshunt: float | jax.Array = 0.0,
+            integ_c1: float | jax.Array = 0.0,
+            integ_d1: float | jax.Array = 0.0,
+            dQdt_prev: jax.Array | None = None,
+            integ_c2: float | jax.Array = 0.0,
+            Q_prev2: jax.Array | None = None
+        ) -> Tuple[Any, jax.Array, jax.Array, jax.Array]:
+            """Build augmented Jacobian J and residual f for full MNA.
+
+            The solution vector X has structure: [V1, V2, ..., Vn, I_vs1, I_vs2, ..., I_vsm]
+            where V are node voltages (ground excluded) and I_vs are branch currents.
+
+            Args:
+                X: Augmented solution vector of size n_total + n_vsources
+                   X[:n_total] = node voltages (including ground at index 0)
+                   X[n_total:] = branch currents for voltage sources
+                vsource_vals: Voltage source target values
+                isource_vals: Current source values
+                Q_prev: Charges from previous timestep
+                integ_c0: Integration coefficient for current charges
+                device_arrays_arg: Device cache arrays
+                gmin, gshunt: Regularization parameters
+                integ_c1, integ_d1, dQdt_prev, integ_c2, Q_prev2: Integration history
+
+            Returns:
+                J: Augmented Jacobian matrix of size (n_unknowns+n_vsources) × (n_unknowns+n_vsources)
+                f: Augmented residual vector of size (n_unknowns+n_vsources)
+                Q: Current charges (size n_unknowns)
+                I_vsource: Branch currents (extracted directly from X)
+            """
+            # Extract voltage and current parts from augmented solution
+            # X has structure: [V_ground=0, V_1, ..., V_n, I_vs1, ..., I_vsm]
+            n_total = n_unknowns + 1  # Total nodes including ground
+            V = X[:n_total]
+            I_branch = X[n_total:] if n_vsources > 0 else jnp.zeros(0, dtype=jnp.float64)
+
+            # =====================================================================
+            # Device contributions (same as high-G version, but without vsource stamps)
+            # =====================================================================
+            f_resist_parts = []
+            f_react_parts = []
+            j_resist_parts = []
+            j_react_parts = []
+            lim_rhs_resist_parts = []
+            lim_rhs_react_parts = []
+
+            # Current sources (residual only, no Jacobian)
+            if 'isource' in source_device_data and isource_vals.size > 0:
+                d = source_device_data['isource']
+                f_vals = isource_vals[:, None] * jnp.array([1.0, -1.0])[None, :]
+                f_idx = d['f_indices'].ravel()
+                f_val = f_vals.ravel()
+                f_valid = f_idx >= 0
+                f_resist_parts.append((jnp.where(f_valid, f_idx, 0), jnp.where(f_valid, f_val, 0.0)))
+
+            # OpenVAF devices (same as before)
+            for model_type in model_types:
+                voltage_indices, stamp_indices, voltage_node1, voltage_node2 = static_metadata[model_type]
+                cache = device_arrays_arg[model_type]
+
+                voltage_updates = V[voltage_node1] - V[voltage_node2]
+
+                uses_analysis = self._compiled_models.get(model_type, {}).get('uses_analysis', False)
+                uses_simparam_gmin = self._compiled_models.get(model_type, {}).get('uses_simparam_gmin', False)
+
+                split_info = split_eval_info[model_type]
+                shared_params = split_info['shared_params']
+                device_params = split_info['device_params']
+                voltage_positions = split_info['voltage_positions']
+                use_cache_split = split_info['use_cache_split']
+                shared_cache = split_info['shared_cache']
+
+                device_params_updated = device_params.at[:, voltage_positions].set(voltage_updates)
+
+                if uses_analysis:
+                    analysis_type_val = jnp.where(integ_c0 > 0, 2.0, 0.0)
+                    device_params_updated = device_params_updated.at[:, -2].set(analysis_type_val)
+                    device_params_updated = device_params_updated.at[:, -1].set(gmin)
+                elif uses_simparam_gmin:
+                    device_params_updated = device_params_updated.at[:, -1].set(gmin)
+
+                vmapped_split_eval = split_info['vmapped_split_eval']
+                default_simparams = split_info['default_simparams']
+
+                analysis_type_val = jnp.where(integ_c0 > 0, 2.0, 0.0)
+                simparams = default_simparams.at[0].set(analysis_type_val).at[2].set(gmin)
+
+                if use_cache_split:
+                    batch_res_resist, batch_res_react, batch_jac_resist, batch_jac_react, \
+                        batch_lim_rhs_resist, batch_lim_rhs_react, _, _ = \
+                        vmapped_split_eval(shared_params, device_params_updated, shared_cache, cache, simparams)
+                else:
+                    batch_res_resist, batch_res_react, batch_jac_resist, batch_jac_react, \
+                        batch_lim_rhs_resist, batch_lim_rhs_react, _, _ = \
+                        vmapped_split_eval(shared_params, device_params_updated, cache, simparams)
+
+                res_idx = stamp_indices['res_indices']
+                jac_row_idx = stamp_indices['jac_row_indices']
+                jac_col_idx = stamp_indices['jac_col_indices']
+
+                flat_res_idx = res_idx.ravel()
+                flat_res_resist_val = batch_res_resist.ravel()
+                valid_res = flat_res_idx >= 0
+                flat_res_idx_masked = jnp.where(valid_res, flat_res_idx, 0)
+                flat_res_resist_masked = jnp.where(valid_res, flat_res_resist_val, 0.0)
+                flat_res_resist_masked = jnp.where(jnp.isnan(flat_res_resist_masked), 0.0, flat_res_resist_masked)
+                f_resist_parts.append((flat_res_idx_masked, flat_res_resist_masked))
+
+                flat_res_react_val = batch_res_react.ravel()
+                flat_res_react_masked = jnp.where(valid_res, flat_res_react_val, 0.0)
+                flat_res_react_masked = jnp.where(jnp.isnan(flat_res_react_masked), 0.0, flat_res_react_masked)
+                f_react_parts.append((flat_res_idx_masked, flat_res_react_masked))
+
+                flat_jac_rows = jac_row_idx.ravel()
+                flat_jac_cols = jac_col_idx.ravel()
+                flat_jac_resist_vals = batch_jac_resist.ravel()
+                valid_jac = (flat_jac_rows >= 0) & (flat_jac_cols >= 0)
+                flat_jac_rows_masked = jnp.where(valid_jac, flat_jac_rows, 0)
+                flat_jac_cols_masked = jnp.where(valid_jac, flat_jac_cols, 0)
+                flat_jac_resist_masked = jnp.where(valid_jac, flat_jac_resist_vals, 0.0)
+                flat_jac_resist_masked = jnp.where(jnp.isnan(flat_jac_resist_masked), 0.0, flat_jac_resist_masked)
+                j_resist_parts.append((flat_jac_rows_masked, flat_jac_cols_masked, flat_jac_resist_masked))
+
+                flat_jac_react_vals = batch_jac_react.ravel()
+                flat_jac_react_masked = jnp.where(valid_jac, flat_jac_react_vals, 0.0)
+                flat_jac_react_masked = jnp.where(jnp.isnan(flat_jac_react_masked), 0.0, flat_jac_react_masked)
+                j_react_parts.append((flat_jac_rows_masked, flat_jac_cols_masked, flat_jac_react_masked))
+
+                flat_lim_rhs_resist_val = batch_lim_rhs_resist.ravel()
+                flat_lim_rhs_resist_masked = jnp.where(valid_res, flat_lim_rhs_resist_val, 0.0)
+                flat_lim_rhs_resist_masked = jnp.where(jnp.isnan(flat_lim_rhs_resist_masked), 0.0, flat_lim_rhs_resist_masked)
+                lim_rhs_resist_parts.append((flat_res_idx_masked, flat_lim_rhs_resist_masked))
+
+                flat_lim_rhs_react_val = batch_lim_rhs_react.ravel()
+                flat_lim_rhs_react_masked = jnp.where(valid_res, flat_lim_rhs_react_val, 0.0)
+                flat_lim_rhs_react_masked = jnp.where(jnp.isnan(flat_lim_rhs_react_masked), 0.0, flat_lim_rhs_react_masked)
+                lim_rhs_react_parts.append((flat_res_idx_masked, flat_lim_rhs_react_masked))
+
+            # Build device contribution vectors (size n_unknowns)
+            if f_resist_parts:
+                all_f_resist_idx = jnp.concatenate([p[0] for p in f_resist_parts])
+                all_f_resist_val = jnp.concatenate([p[1] for p in f_resist_parts])
+                f_resist = jax.ops.segment_sum(all_f_resist_val, all_f_resist_idx, num_segments=n_unknowns)
+            else:
+                f_resist = jnp.zeros(n_unknowns, dtype=jnp.float64)
+
+            if f_react_parts:
+                all_f_react_idx = jnp.concatenate([p[0] for p in f_react_parts])
+                all_f_react_val = jnp.concatenate([p[1] for p in f_react_parts])
+                Q = jax.ops.segment_sum(all_f_react_val, all_f_react_idx, num_segments=n_unknowns)
+            else:
+                Q = jnp.zeros(n_unknowns, dtype=jnp.float64)
+
+            if lim_rhs_resist_parts:
+                all_lim_rhs_resist_idx = jnp.concatenate([p[0] for p in lim_rhs_resist_parts])
+                all_lim_rhs_resist_val = jnp.concatenate([p[1] for p in lim_rhs_resist_parts])
+                lim_rhs_resist = jax.ops.segment_sum(all_lim_rhs_resist_val, all_lim_rhs_resist_idx, num_segments=n_unknowns)
+            else:
+                lim_rhs_resist = jnp.zeros(n_unknowns, dtype=jnp.float64)
+
+            if lim_rhs_react_parts:
+                all_lim_rhs_react_idx = jnp.concatenate([p[0] for p in lim_rhs_react_parts])
+                all_lim_rhs_react_val = jnp.concatenate([p[1] for p in lim_rhs_react_parts])
+                lim_rhs_react = jax.ops.segment_sum(all_lim_rhs_react_val, all_lim_rhs_react_idx, num_segments=n_unknowns)
+            else:
+                lim_rhs_react = jnp.zeros(n_unknowns, dtype=jnp.float64)
+
+            f_resist = f_resist - lim_rhs_resist
+
+            _dQdt_prev = dQdt_prev if dQdt_prev is not None else jnp.zeros(n_unknowns, dtype=jnp.float64)
+            _Q_prev2 = Q_prev2 if Q_prev2 is not None else jnp.zeros(n_unknowns, dtype=jnp.float64)
+
+            # =====================================================================
+            # Full MNA: Add branch current contribution to KCL at vsource nodes
+            # =====================================================================
+            # For each vsource i connecting nodes p and n:
+            # - At node p: add +I_branch[i] to residual
+            # - At node n: add -I_branch[i] to residual
+            if n_vsources > 0:
+                # Build B @ I_branch contribution to node residuals
+                # B has shape (n_unknowns, n_vsources) with ±1 at (p-1, i) and (n-1, i)
+                # We use scatter to add I_branch to the appropriate nodes
+
+                # Positive terminals (add +I_branch)
+                p_mna = vsource_node_p - 1  # Convert to 0-indexed MNA
+                valid_p = vsource_node_p > 0  # Ground (0) doesn't contribute
+
+                # Negative terminals (add -I_branch)
+                n_mna = vsource_node_n - 1
+                valid_n = vsource_node_n > 0
+
+                # Create index and value arrays for both terminals
+                all_b_idx = jnp.concatenate([
+                    jnp.where(valid_p, p_mna, 0),
+                    jnp.where(valid_n, n_mna, 0)
+                ])
+                all_b_val = jnp.concatenate([
+                    jnp.where(valid_p, I_branch, 0.0),
+                    jnp.where(valid_n, -I_branch, 0.0)
+                ])
+
+                # Add B @ I_branch to node residuals
+                f_branch_contrib = jax.ops.segment_sum(all_b_val, all_b_idx, num_segments=n_unknowns)
+                f_resist = f_resist + f_branch_contrib
+
+            # Combine for transient
+            f_node = f_resist + integ_c0 * (Q - lim_rhs_react) + integ_c1 * Q_prev + integ_d1 * _dQdt_prev + integ_c2 * _Q_prev2
+            f_node = f_node + gshunt * V[1:]
+
+            # =====================================================================
+            # Voltage source equations (rows n_unknowns to n_augmented-1)
+            # For each vsource i: V_p - V_n - E_i = 0
+            # =====================================================================
+            if n_vsources > 0:
+                Vp = V[vsource_node_p]
+                Vn = V[vsource_node_n]
+                f_branch = Vp - Vn - vsource_vals
+            else:
+                f_branch = jnp.zeros(0, dtype=jnp.float64)
+
+            # Combine node and branch residuals
+            f_augmented = jnp.concatenate([f_node, f_branch])
+
+            # =====================================================================
+            # Build augmented Jacobian
+            # =====================================================================
+            # Device contributions to upper-left G block
+            if j_resist_parts:
+                all_j_resist_rows = jnp.concatenate([p[0] for p in j_resist_parts])
+                all_j_resist_cols = jnp.concatenate([p[1] for p in j_resist_parts])
+                all_j_resist_vals = jnp.concatenate([p[2] for p in j_resist_parts])
+            else:
+                all_j_resist_rows = jnp.zeros(0, dtype=jnp.int32)
+                all_j_resist_cols = jnp.zeros(0, dtype=jnp.int32)
+                all_j_resist_vals = jnp.zeros(0, dtype=jnp.float64)
+
+            if j_react_parts:
+                all_j_react_rows = jnp.concatenate([p[0] for p in j_react_parts])
+                all_j_react_cols = jnp.concatenate([p[1] for p in j_react_parts])
+                all_j_react_vals = jnp.concatenate([p[2] for p in j_react_parts])
+            else:
+                all_j_react_rows = jnp.zeros(0, dtype=jnp.int32)
+                all_j_react_cols = jnp.zeros(0, dtype=jnp.int32)
+                all_j_react_vals = jnp.zeros(0, dtype=jnp.float64)
+
+            # Combine G and c0*C contributions
+            all_j_rows = jnp.concatenate([all_j_resist_rows, all_j_react_rows])
+            all_j_cols = jnp.concatenate([all_j_resist_cols, all_j_react_cols])
+            all_j_vals = jnp.concatenate([all_j_resist_vals, integ_c0 * all_j_react_vals])
+
+            if n_vsources > 0:
+                # =====================================================================
+                # B block: df_node/dI_branch = B (incidence matrix)
+                # At node p: df/dI = +1
+                # At node n: df/dI = -1
+                # =====================================================================
+                valid_p = vsource_node_p > 0
+                valid_n = vsource_node_n > 0
+
+                branch_indices = jnp.arange(n_vsources, dtype=jnp.int32)
+
+                # B block entries
+                b_rows_p = jnp.where(valid_p, vsource_node_p - 1, 0)  # node index (0-indexed)
+                b_cols_p = jnp.where(valid_p, n_unknowns + branch_indices, 0)  # branch column
+                b_vals_p = jnp.where(valid_p, 1.0, 0.0)
+
+                b_rows_n = jnp.where(valid_n, vsource_node_n - 1, 0)
+                b_cols_n = jnp.where(valid_n, n_unknowns + branch_indices, 0)
+                b_vals_n = jnp.where(valid_n, -1.0, 0.0)
+
+                # =====================================================================
+                # B^T block: df_branch/dV = B^T
+                # For vsource i: df_i/dV_p = +1, df_i/dV_n = -1
+                # =====================================================================
+                bt_rows_p = jnp.where(valid_p, n_unknowns + branch_indices, 0)  # branch row
+                bt_cols_p = jnp.where(valid_p, vsource_node_p - 1, 0)  # node column
+                bt_vals_p = jnp.where(valid_p, 1.0, 0.0)
+
+                bt_rows_n = jnp.where(valid_n, n_unknowns + branch_indices, 0)
+                bt_cols_n = jnp.where(valid_n, vsource_node_n - 1, 0)
+                bt_vals_n = jnp.where(valid_n, -1.0, 0.0)
+
+                # Append B and B^T entries
+                all_j_rows = jnp.concatenate([all_j_rows, b_rows_p, b_rows_n, bt_rows_p, bt_rows_n])
+                all_j_cols = jnp.concatenate([all_j_cols, b_cols_p, b_cols_n, bt_cols_p, bt_cols_n])
+                all_j_vals = jnp.concatenate([all_j_vals, b_vals_p, b_vals_n, bt_vals_p, bt_vals_n])
+
+            if use_dense:
+                # Dense: COO -> dense matrix via segment_sum
+                flat_indices = all_j_rows * n_augmented + all_j_cols
+                J_flat = jax.ops.segment_sum(
+                    all_j_vals, flat_indices, num_segments=n_augmented * n_augmented
+                )
+                J = J_flat.reshape((n_augmented, n_augmented))
+                # Add regularization to node equations (upper-left block)
+                # Note: branch equations should NOT have diagonal regularization (they're exact)
+                diag_reg = jnp.concatenate([
+                    jnp.full(n_unknowns, 1e-6 + gshunt),
+                    jnp.zeros(n_vsources)
+                ])
+                J = J + jnp.diag(diag_reg)
+            else:
+                # Sparse path - build BCOO sparse matrix
+                from jax.experimental.sparse import BCOO
+
+                # Add diagonal regularization for node equations only
+                diag_idx = jnp.arange(n_unknowns, dtype=jnp.int32)
+                all_j_rows = jnp.concatenate([all_j_rows, diag_idx])
+                all_j_cols = jnp.concatenate([all_j_cols, diag_idx])
+                all_j_vals = jnp.concatenate([all_j_vals, jnp.full(n_unknowns, 1e-6 + gshunt)])
+
+                indices = jnp.stack([all_j_rows, all_j_cols], axis=1)
+                J = BCOO((all_j_vals, indices), shape=(n_augmented, n_augmented))
+
+            # Branch currents are directly available from solution
+            I_vsource = I_branch
+
+            return J, f_augmented, Q, I_vsource
+
+        return build_system_full_mna, device_arrays
 
     def _compute_voltage_param(self, name: str, V: jax.Array,
                                 node_map: Dict[str, int],

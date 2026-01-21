@@ -119,6 +119,150 @@ def _compute_noi_masks(
     return result
 
 
+def make_dense_full_mna_solver(
+    build_system_jit: Callable,
+    n_nodes: int,
+    n_vsources: int,
+    noi_indices: Optional[Array] = None,
+    max_iterations: int = MAX_NR_ITERATIONS,
+    abstol: float = DEFAULT_ABSTOL,
+    max_step: float = 1.0,
+) -> Callable:
+    """Create a JIT-compiled dense NR solver for full MNA formulation.
+
+    This solver handles the augmented system where voltage source currents
+    are explicit unknowns:
+
+        X = [V_ground, V_1, ..., V_n, I_vs1, ..., I_vsm]
+
+    The Jacobian has size (n_unknowns + n_vsources) × (n_unknowns + n_vsources).
+
+    Args:
+        build_system_jit: JIT-wrapped full MNA function
+            (X, vsource_vals, isource_vals, Q_prev, integ_c0, device_arrays, ...)
+            -> (J_augmented, f_augmented, Q, I_vsource)
+        n_nodes: Total node count including ground
+        n_vsources: Number of voltage sources (branch currents)
+        noi_indices: Optional array of NOI node indices to constrain to 0V
+        max_iterations: Maximum NR iterations
+        abstol: Absolute tolerance for convergence
+        max_step: Maximum voltage/current step per iteration
+
+    Returns:
+        JIT-compiled solver function with signature:
+            (X, vsource_vals, isource_vals, Q_prev, integ_c0, device_arrays, ...)
+            -> (X, iterations, converged, max_f, Q, dQdt, I_vsource)
+    """
+    n_unknowns = n_nodes - 1
+    n_augmented = n_unknowns + n_vsources
+    n_total = n_nodes  # Size of voltage part of X
+
+    # Compute NOI masks for node equations only
+    masks = _compute_noi_masks(noi_indices, n_nodes)
+    noi_res_idx = masks['noi_res_idx']
+
+    # Create augmented residual mask (node equations + branch equations)
+    if masks['residual_mask'] is not None:
+        # NOI nodes should be masked in residual convergence check
+        # Branch equations (vsource voltages) are always checked
+        residual_mask = jnp.concatenate([
+            masks['residual_mask'],
+            jnp.ones(n_vsources, dtype=jnp.bool_)
+        ])
+    else:
+        residual_mask = None
+
+    def nr_solve(X_init: Array, vsource_vals: Array, isource_vals: Array,
+                 Q_prev: Array, integ_c0: float | Array,
+                 device_arrays_arg: Dict[str, Array],
+                 gmin: float | Array = 1e-12, gshunt: float | Array = 0.0,
+                 integ_c1: float | Array = 0.0, integ_d1: float | Array = 0.0,
+                 dQdt_prev: Array | None = None,
+                 integ_c2: float | Array = 0.0, Q_prev2: Array | None = None):
+
+        # Ensure dQdt_prev is a proper array for JIT tracing
+        _dQdt_prev = dQdt_prev if dQdt_prev is not None else jnp.zeros(n_unknowns, dtype=jnp.float64)
+        # Ensure Q_prev2 is a proper array for JIT tracing (Gear2 method)
+        _Q_prev2 = Q_prev2 if Q_prev2 is not None else jnp.zeros(n_unknowns, dtype=jnp.float64)
+
+        init_Q = jnp.zeros(n_unknowns, dtype=jnp.float64)
+        init_state = (
+            X_init,
+            jnp.array(0, dtype=jnp.int32),
+            jnp.array(False),
+            jnp.array(jnp.inf),
+            jnp.array(jnp.inf),
+            init_Q,
+        )
+
+        def cond_fn(state):
+            X, iteration, converged, max_f, max_delta, Q = state
+            return jnp.logical_and(~converged, iteration < max_iterations)
+
+        def body_fn(state):
+            X, iteration, _, _, _, _ = state
+
+            J, f, Q, _ = build_system_jit(X, vsource_vals, isource_vals, Q_prev, integ_c0,
+                                          device_arrays_arg, gmin, gshunt,
+                                          integ_c1, integ_d1, _dQdt_prev, integ_c2, _Q_prev2)
+
+            # Check residual convergence (mask NOI nodes)
+            if residual_mask is not None:
+                f_masked = jnp.where(residual_mask, f, 0.0)
+                max_f = jnp.max(jnp.abs(f_masked))
+            else:
+                max_f = jnp.max(jnp.abs(f))
+            residual_converged = max_f < abstol
+
+            # Enforce NOI constraints on node equations only
+            if noi_res_idx is not None:
+                # Zero out NOI rows and columns in the node block
+                J = J.at[noi_res_idx, :].set(0.0)
+                J = J.at[:, noi_res_idx].set(0.0)
+                J = J.at[noi_res_idx, noi_res_idx].set(1.0)
+                f = f.at[noi_res_idx].set(0.0)
+
+            # Solve linear system J @ delta = -f
+            delta = jax.scipy.linalg.solve(J, -f)
+
+            # Step limiting
+            max_delta = jnp.max(jnp.abs(delta))
+            scale = jnp.where(max_delta > max_step, max_step / max_delta, 1.0)
+            delta = delta * scale
+
+            # Update X: skip ground (index 0), update node voltages and branch currents
+            # X has structure: [V_ground, V_1, ..., V_n, I_vs1, ..., I_vsm]
+            # delta has structure: [delta_V_1, ..., delta_V_n, delta_I_vs1, ..., delta_I_vsm]
+            X_new = X.at[1:n_total].add(delta[:n_unknowns])  # Update node voltages
+            X_new = X_new.at[n_total:].add(delta[n_unknowns:])  # Update branch currents
+
+            # Clamp NOI nodes to 0V
+            if noi_indices is not None and len(noi_indices) > 0:
+                X_new = X_new.at[noi_indices].set(0.0)
+
+            delta_converged = max_delta < 1e-12
+            converged = jnp.logical_or(residual_converged, delta_converged)
+
+            return (X_new, iteration + 1, converged, max_f, max_delta, Q)
+
+        X_final, iterations, converged, max_f, max_delta, _ = lax.while_loop(
+            cond_fn, body_fn, init_state
+        )
+
+        # Recompute Q and I_vsource from converged solution
+        _, _, Q_final, I_vsource = build_system_jit(X_final, vsource_vals, isource_vals, Q_prev,
+                                                    integ_c0, device_arrays_arg, gmin, gshunt,
+                                                    integ_c1, integ_d1, _dQdt_prev, integ_c2, _Q_prev2)
+
+        # Compute dQdt for next timestep (needed for trapezoidal and Gear2 methods)
+        dQdt_final = integ_c0 * Q_final + integ_c1 * Q_prev + integ_d1 * _dQdt_prev + integ_c2 * _Q_prev2
+
+        return X_final, iterations, converged, max_f, Q_final, dQdt_final, I_vsource
+
+    logger.info(f"Creating dense full MNA solver: V({n_nodes}) + I({n_vsources}), NOI: {noi_indices is not None}")
+    return jax.jit(nr_solve)
+
+
 def make_dense_solver(
     build_system_jit: Callable,
     n_nodes: int,
