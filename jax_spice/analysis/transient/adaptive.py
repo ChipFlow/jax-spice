@@ -24,6 +24,7 @@ from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
 
 import jax
 import jax.numpy as jnp
+import numpy as np
 
 from jax_spice._logging import logger
 from jax_spice.analysis.integration import IntegrationMethod, compute_coefficients
@@ -73,51 +74,133 @@ class AdaptiveConfig:
 
 @dataclass
 class SolutionHistory:
-    """Circular buffer for past solutions and timesteps.
+    """Circular buffer for past solutions and timesteps using JAX arrays.
 
-    Stores the most recent solutions for polynomial extrapolation predictor.
-    Elements are stored most-recent-first: V[0] = V_n, V[1] = V_{n-1}, etc.
+    Uses fixed-size arrays with a write index for efficient updates without
+    causing JAX recompilation. Elements are accessed most-recent-first via
+    get_V(), get_dt() methods that handle the circular indexing.
 
     Attributes:
-        V: List of past voltage vectors, most recent first
-        Q: List of past charge vectors, most recent first
-        dt: List of past timesteps, most recent first
+        V_buffer: Fixed-size buffer for voltage vectors (max_depth, n_total)
+        Q_buffer: Fixed-size buffer for charge vectors (max_depth, n_unknowns)
+        dt_buffer: Fixed-size buffer for timesteps (max_depth,)
+        write_idx: Next write position in circular buffer
+        count: Number of valid entries (0 to max_depth)
         max_depth: Maximum number of history entries to keep
     """
 
-    V: List[jax.Array] = field(default_factory=list)
-    Q: List[jax.Array] = field(default_factory=list)
-    dt: List[float] = field(default_factory=list)
+    V_buffer: jax.Array  # Shape: (max_depth, n_total)
+    Q_buffer: jax.Array  # Shape: (max_depth, n_unknowns)
+    dt_buffer: jax.Array  # Shape: (max_depth,)
+    write_idx: int = 0  # Next write position
+    count: int = 0  # Number of valid entries
     max_depth: int = 4
 
-    def push(self, V_new: jax.Array, Q_new: jax.Array, dt_new: float) -> None:
-        """Add new solution to history, evicting oldest if necessary.
+    @classmethod
+    def create(
+        cls, n_total: int, n_unknowns: int, max_depth: int = 4
+    ) -> "SolutionHistory":
+        """Create a new empty history buffer.
+
+        Args:
+            n_total: Size of voltage vectors (all nodes including ground)
+            n_unknowns: Size of charge vectors (non-ground nodes)
+            max_depth: Maximum history entries to keep
+
+        Returns:
+            Initialized SolutionHistory with zero-filled buffers
+        """
+        return cls(
+            V_buffer=jnp.zeros((max_depth, n_total), dtype=jnp.float64),
+            Q_buffer=jnp.zeros((max_depth, n_unknowns), dtype=jnp.float64),
+            dt_buffer=jnp.zeros(max_depth, dtype=jnp.float64),
+            write_idx=0,
+            count=0,
+            max_depth=max_depth,
+        )
+
+    def push(self, V_new: jax.Array, Q_new: jax.Array, dt_new: float) -> "SolutionHistory":
+        """Add new solution to history, returning updated history.
 
         Args:
             V_new: Voltage vector for accepted timestep
             Q_new: Charge vector for accepted timestep
             dt_new: Timestep that was used
+
+        Returns:
+            New SolutionHistory with updated buffers
         """
-        self.V.insert(0, V_new)
-        self.Q.insert(0, Q_new)
-        self.dt.insert(0, dt_new)
+        # Write to current position
+        new_V = self.V_buffer.at[self.write_idx].set(V_new)
+        new_Q = self.Q_buffer.at[self.write_idx].set(Q_new)
+        new_dt = self.dt_buffer.at[self.write_idx].set(dt_new)
 
-        # Maintain max depth
-        if len(self.V) > self.max_depth:
-            self.V.pop()
-            self.Q.pop()
-            self.dt.pop()
+        # Advance write index (circular)
+        new_write_idx = (self.write_idx + 1) % self.max_depth
+        new_count = min(self.count + 1, self.max_depth)
 
-    def clear(self) -> None:
-        """Clear all history."""
-        self.V.clear()
-        self.Q.clear()
-        self.dt.clear()
+        return SolutionHistory(
+            V_buffer=new_V,
+            Q_buffer=new_Q,
+            dt_buffer=new_dt,
+            write_idx=new_write_idx,
+            count=new_count,
+            max_depth=self.max_depth,
+        )
+
+    def get_V(self, i: int) -> jax.Array:
+        """Get voltage vector at history position i (0 = most recent).
+
+        Args:
+            i: History index (0 = most recent, 1 = second most recent, etc.)
+
+        Returns:
+            Voltage vector at position i
+        """
+        # Most recent is at (write_idx - 1), second most recent at (write_idx - 2), etc.
+        idx = (self.write_idx - 1 - i) % self.max_depth
+        return self.V_buffer[idx]
+
+    def get_dt(self, i: int) -> jax.Array:
+        """Get timestep at history position i (0 = most recent).
+
+        Args:
+            i: History index (0 = most recent, 1 = second most recent, etc.)
+
+        Returns:
+            Timestep value at position i
+        """
+        idx = (self.write_idx - 1 - i) % self.max_depth
+        return self.dt_buffer[idx]
+
+    def get_V_list(self, n: int) -> List[jax.Array]:
+        """Get list of n most recent voltage vectors (for predictor compatibility).
+
+        Args:
+            n: Number of entries to retrieve
+
+        Returns:
+            List of voltage vectors, most recent first
+        """
+        n = min(n, self.count)
+        return [self.get_V(i) for i in range(n)]
+
+    def get_dt_list(self, n: int) -> List[float]:
+        """Get list of n most recent timesteps (for predictor compatibility).
+
+        Args:
+            n: Number of entries to retrieve
+
+        Returns:
+            List of timesteps, most recent first
+        """
+        n = min(n, self.count)
+        return [float(self.get_dt(i)) for i in range(n)]
 
     @property
     def depth(self) -> int:
         """Number of valid history entries."""
-        return len(self.V)
+        return self.count
 
 
 @dataclass
@@ -211,7 +294,8 @@ class AdaptiveStrategy(TransientStrategy):
 
         # Initialize state
         V = jnp.zeros(n_total, dtype=jnp.float64)
-        history = SolutionHistory(max_depth=config.max_order + 2)
+        # V_buffer stores n_total (full voltage), Q_buffer stores n_unknowns (charges)
+        history = SolutionHistory.create(n_total, n_unknowns, max_depth=config.max_order + 2)
         stats = AdaptiveStats()
 
         # Result accumulators (Python lists for dynamic sizing)
@@ -220,7 +304,12 @@ class AdaptiveStrategy(TransientStrategy):
 
         # Get vsource names for current tracking
         vsource_names = setup.source_device_data.get('vsource', {}).get('names', [])
-        current_history: List[jax.Array] = []
+        n_vsources = len(vsource_names)
+
+        # Pre-allocate currents buffer (fixed size to avoid recompilation)
+        # Use max_steps + 1 for initial state at t=0
+        currents_buffer = jnp.zeros((max_steps + 1, max(n_vsources, 1)), dtype=jnp.float64)
+        current_write_idx = 0
 
         # Initialize charge state from DC operating point
         Q_prev = jnp.zeros(n_unknowns, dtype=jnp.float64)
@@ -299,8 +388,8 @@ class AdaptiveStrategy(TransientStrategy):
             voltages_dict[i].append(float(V[i]))
 
         # Record initial current (zeros at t=0 before simulation starts)
-        if len(vsource_names) > 0:
-            current_history.append(jnp.zeros(len(vsource_names), dtype=jnp.float64))
+        # currents_buffer[0] is already zeros from initialization
+        current_write_idx = 1  # Next write position after initial zeros
 
         # Main simulation loop
         t = 0.0
@@ -326,11 +415,14 @@ class AdaptiveStrategy(TransientStrategy):
                 # Compute predictor coefficients
                 order = min(history.depth - 1, config.max_order)
                 try:
+                    # Get history as lists for predictor (fixed depth, no recompilation)
+                    past_dt = history.get_dt_list(order + 1)
+                    past_V = history.get_V_list(order + 1)
                     pred_coeffs = compute_predictor_coeffs(
-                        history.dt, current_dt, order
+                        past_dt, current_dt, order
                     )
                     # Predict solution
-                    V_init = predict(pred_coeffs, history.V)
+                    V_init = predict(pred_coeffs, past_V)
                 except Exception as e:
                     logger.warning(f"Predictor failed: {e}, using previous solution")
                     pred_coeffs = None
@@ -413,8 +505,8 @@ class AdaptiveStrategy(TransientStrategy):
             stats.min_dt_used = min(stats.min_dt_used, current_dt)
             stats.max_dt_used = max(stats.max_dt_used, current_dt)
 
-            # Update history
-            history.push(V_new, Q, current_dt)
+            # Update history (immutable update)
+            history = history.push(V_new, Q, current_dt)
 
             # Update charge state for next step
             if integ_coeffs.history_depth >= 2:
@@ -433,8 +525,9 @@ class AdaptiveStrategy(TransientStrategy):
                 voltages_dict[i].append(float(V[i]))
 
             # Record vsource currents (computed from KCL in build_system)
-            if len(vsource_names) > 0 and I_vsource.size > 0:
-                current_history.append(I_vsource)
+            if n_vsources > 0 and I_vsource.size > 0:
+                currents_buffer = currents_buffer.at[current_write_idx].set(I_vsource)
+                current_write_idx += 1
 
             # Check if warmup is complete
             if not warmup_complete and history.depth >= config.warmup_steps:
@@ -457,19 +550,22 @@ class AdaptiveStrategy(TransientStrategy):
         stats.wall_time = wall_time
 
         # Build results with string node names
-        times = jnp.array(times_list)
-        idx_to_voltage = {i: jnp.array(v) for i, v in voltages_dict.items()}
+        # Use numpy for construction to avoid JIT recompilation for different output sizes
+        times = jnp.asarray(np.array(times_list))
+        idx_to_voltage = {i: jnp.asarray(np.array(v)) for i, v in voltages_dict.items()}
         voltages: Dict[str, jax.Array] = {}
         for name, idx in self.runner.node_names.items():
             if 0 < idx < n_external:
                 voltages[name] = idx_to_voltage[idx]
 
-        # Build currents dictionary from current history
+        # Build currents dictionary from pre-allocated buffer
+        # Use numpy slicing to avoid JIT recompilation for different output sizes
         currents: Dict[str, jax.Array] = {}
-        if current_history and len(vsource_names) > 0:
-            I_stacked = jnp.stack(current_history)  # Shape: (n_timesteps, n_vsources)
+        if n_vsources > 0 and current_write_idx > 0:
+            # Convert to numpy for slicing, then back to JAX for consistent return type
+            I_np = np.asarray(currents_buffer)[:current_write_idx]  # Shape: (n_timesteps, n_vsources)
             for i, name in enumerate(vsource_names):
-                currents[name] = I_stacked[:, i]
+                currents[name] = jnp.asarray(I_np[:, i])
 
         # Build stats dict
         stats_dict = {
