@@ -1,0 +1,4 @@
+  File "<stdin>", line 7
+    import jax_spice
+                    ^
+SyntaxError: invalid non-printable character U+0016

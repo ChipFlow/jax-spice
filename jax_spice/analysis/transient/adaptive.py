@@ -298,16 +298,15 @@ class AdaptiveStrategy(TransientStrategy):
         history = SolutionHistory.create(n_total, n_unknowns, max_depth=config.max_order + 2)
         stats = AdaptiveStats()
 
-        # Result accumulators (Python lists for dynamic sizing)
+        # Result accumulators - use Python lists (faster than JAX .at[].set() in loop)
         times_list: List[float] = []
-        voltages_dict: Dict[int, List[float]] = {i: [] for i in range(n_external)}
+        voltages_list: List[jax.Array] = []  # Store V arrays directly, convert at end
 
         # Get vsource names for current tracking
         vsource_names = setup.source_device_data.get('vsource', {}).get('names', [])
         n_vsources = len(vsource_names)
 
-        # Pre-allocate currents buffer (fixed size to avoid recompilation)
-        # Use max_steps + 1 for initial state at t=0
+        # Pre-allocate currents buffer (vsource currents need JAX buffer for .at[].set())
         currents_buffer = jnp.zeros((max_steps + 1, max(n_vsources, 1)), dtype=jnp.float64)
         current_write_idx = 0
 
@@ -376,10 +375,7 @@ class AdaptiveStrategy(TransientStrategy):
 
         # Record initial state at t=0
         times_list.append(0.0)
-        for i in range(n_external):
-            voltages_dict[i].append(float(V[i]))
-
-        # Record initial current (zeros at t=0 before simulation starts)
+        voltages_list.append(V[:n_external])
         # currents_buffer[0] is already zeros from initialization
         current_write_idx = 1  # Next write position after initial zeros
 
@@ -510,13 +506,12 @@ class AdaptiveStrategy(TransientStrategy):
             # Update voltage
             V = V_new
 
-            # Record accepted state
+            # Record accepted state - store JAX arrays directly (fast list append)
             t = t_next
             times_list.append(t)
-            for i in range(n_external):
-                voltages_dict[i].append(float(V[i]))
+            voltages_list.append(V[:n_external])
 
-            # Record vsource currents (computed from KCL in build_system)
+            # Record vsource currents
             if n_vsources > 0 and I_vsource.size > 0:
                 currents_buffer = currents_buffer.at[current_write_idx].set(I_vsource)
                 current_write_idx += 1
@@ -541,21 +536,19 @@ class AdaptiveStrategy(TransientStrategy):
         stats.total_timesteps = len(times_list)
         stats.wall_time = wall_time
 
-        # Build results with string node names
-        # Use numpy for construction to avoid JIT recompilation for different output sizes
+        # Build results - stack voltage arrays and convert to numpy for slicing
         times = jnp.asarray(np.array(times_list))
-        idx_to_voltage = {i: jnp.asarray(np.array(v)) for i, v in voltages_dict.items()}
+        # Stack all voltage snapshots and convert to numpy for indexing
+        V_stacked = np.asarray(jnp.stack(voltages_list))  # (n_timesteps, n_external)
         voltages: Dict[str, jax.Array] = {}
         for name, idx in self.runner.node_names.items():
             if 0 < idx < n_external:
-                voltages[name] = idx_to_voltage[idx]
+                voltages[name] = jnp.asarray(V_stacked[:, idx])
 
         # Build currents dictionary from pre-allocated buffer
-        # Use numpy slicing to avoid JIT recompilation for different output sizes
         currents: Dict[str, jax.Array] = {}
         if n_vsources > 0 and current_write_idx > 0:
-            # Convert to numpy for slicing, then back to JAX for consistent return type
-            I_np = np.asarray(currents_buffer)[:current_write_idx]  # Shape: (n_timesteps, n_vsources)
+            I_np = np.asarray(currents_buffer)[:current_write_idx]
             for i, name in enumerate(vsource_names):
                 currents[name] = jnp.asarray(I_np[:, i])
 
