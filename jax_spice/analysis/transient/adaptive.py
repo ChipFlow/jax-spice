@@ -382,7 +382,6 @@ class AdaptiveStrategy(TransientStrategy):
         # Main simulation loop
         t = 0.0
         step_count = 0
-        warmup_complete = False
 
         while t < t_stop and step_count < max_steps:
             step_count += 1
@@ -395,9 +394,11 @@ class AdaptiveStrategy(TransientStrategy):
             source_values = source_fn(t_next)
             vsource_vals, isource_vals = self._build_source_arrays(source_values)
 
-            # Prediction step (if we have enough history)
-            V_init = V  # Default: use previous solution
-            pred_coeffs: Optional[PredictorCoeffs] = None
+            # ================================================================
+            # Prediction step (unconditional - use jnp.where for selection)
+            # ================================================================
+            # Can predict when we have at least 2 history points
+            can_predict = history.depth >= 2
 
             if warmup_complete and history.depth >= 2:
                 # Compute predictor coefficients
@@ -464,6 +465,7 @@ class AdaptiveStrategy(TransientStrategy):
                     integ_coeffs.error_coeff,
                 )
 
+<<<<<<< HEAD
                 # Compute new timestep based on LTE
                 dt_new, max_lte_ratio = compute_new_timestep(
                     lte,
@@ -487,6 +489,39 @@ class AdaptiveStrategy(TransientStrategy):
                         f"reducing dt to {current_dt:.2e}"
                     )
                     continue  # Retry with smaller timestep
+=======
+            # LTE check: accept if can't predict (no history) OR ratio is acceptable
+            lte_ratio_ok = (dt_jax / dt_lte) <= cfg_redo_factor
+            lte_ok = ~can_predict | lte_ratio_ok
+
+            # Combined accept condition
+            accept = nr_ok & lte_ok
+
+            # ================================================================
+            # State updates using jnp.where (no Python branching)
+            # ================================================================
+
+            # Compute candidate values for accepted step
+            t_accepted = t_jax + dt_jax
+
+            # Compute dt for next iteration based on outcome:
+            # - If NR failed: halve dt
+            # - If LTE rejected: use dt_lte
+            # - If accepted: use min(dt_lte, dt * grow_factor)
+            dt_nr_failed = jnp.maximum(dt_jax / 2, cfg_min_dt)
+            dt_lte_capped = jnp.minimum(dt_lte, dt_jax * cfg_grow_factor)
+
+            # Select dt_next based on outcome
+            dt_next = jnp.where(
+                ~converged & ~at_min_dt,  # NR failed, not at min
+                dt_nr_failed,
+                jnp.where(
+                    ~lte_ok,  # LTE rejected
+                    dt_lte,
+                    dt_lte_capped,  # Accepted: use LTE-based dt capped by grow_factor
+                )
+            )
+>>>>>>> d41e44f (Remove warmup path from all adaptive timestep strategies)
 
             # Step accepted - update state
             stats.accepted_steps += 1
@@ -516,21 +551,9 @@ class AdaptiveStrategy(TransientStrategy):
                 currents_buffer = currents_buffer.at[current_write_idx].set(I_vsource)
                 current_write_idx += 1
 
-            # Check if warmup is complete
-            if not warmup_complete and history.depth >= config.warmup_steps:
-                warmup_complete = True
-                logger.debug(f"Warmup complete at t={t:.2e}s, enabling LTE control")
-
-            # Adjust timestep for next iteration (grow slowly)
-            if warmup_complete:
-                # Limit growth to grow_factor
-                dt_new = min(dt_new, current_dt * config.grow_factor)
-                # Apply bounds
-                dt_new = max(config.min_dt, min(config.max_dt, dt_new))
-                # Don't overshoot t_stop
-                if t + dt_new > t_stop:
-                    dt_new = t_stop - t
-                current_dt = dt_new
+            # Update dt for next iteration, clipped to not overshoot t_stop
+            t_remaining = jnp.array(t_stop, dtype=jnp.float64) - t_jax
+            dt_jax = jnp.clip(dt_next, cfg_min_dt, t_remaining)
 
         wall_time = time_module.perf_counter() - t_start
         stats.total_timesteps = len(times_list)
@@ -669,7 +692,6 @@ class AdaptiveLoopState(NamedTuple):
 
     # Loop control
     step_idx: jax.Array             # Scalar: current output index
-    warmup_count: jax.Array         # Scalar: steps completed in warmup
     done: jax.Array                 # Scalar bool: early termination flag
 
     # Statistics
@@ -773,8 +795,7 @@ def _make_adaptive_scan_fn(
     n_external: int,
     n_vsources: int,
     t_stop: float,
-    warmup_steps: int,
-    tran_method: IntegrationMethod,
+    method_idx: int,
     dtype,
 ):
     """Create the scan body function for adaptive timestep.
@@ -793,6 +814,9 @@ def _make_adaptive_scan_fn(
         t_stop: Simulation stop time
         warmup_steps: Number of warmup steps before enabling LTE control
         tran_method: Integration method
+=======
+        method_idx: Integration method index (0=BE, 1=TRAP, 2=GEAR2)
+>>>>>>> d41e44f (Remove warmup path from all adaptive timestep strategies)
         dtype: Float dtype to use (float32 or float64)
     """
 
@@ -812,7 +836,6 @@ def _make_adaptive_scan_fn(
         dt_history = carry.dt_history
         history_count = carry.history_count
         step_idx = carry.step_idx
-        warmup_count = carry.warmup_count
         done = carry.done
         total_nr_iters = carry.total_nr_iters
         rejected_steps = carry.rejected_steps
@@ -840,9 +863,8 @@ def _make_adaptive_scan_fn(
             t_next = t + dt
             vsource_vals, isource_vals = jit_source_eval(t_next)
 
-            # Prediction step (if we have enough history and warmup is complete)
-            warmup_complete = warmup_count >= warmup_steps
-            can_predict = warmup_complete & (history_count >= 2)
+            # Prediction step - can predict when we have at least 2 history points
+            can_predict = history_count >= 2
 
             V_pred, pred_err_coeff = _predict_fixed_order(
                 V_history, dt_history, history_count, dt, config.max_order
@@ -898,7 +920,7 @@ def _make_adaptive_scan_fn(
                 converged, nr_succeeded, nr_failed
             )
 
-            # LTE estimation (only if warmup complete and predictor was used)
+            # LTE estimation (only if predictor was used)
             def compute_lte_dt():
                 # Estimate LTE
                 lte = (V_new - V_pred) * (error_coeff_integ / (error_coeff_integ - pred_err_coeff))
@@ -947,7 +969,6 @@ def _make_adaptive_scan_fn(
                 new_dt_history = new_dt_history.at[0].set(dt)
 
                 new_history_count = jnp.minimum(history_count + 1, max_history)
-                new_warmup = warmup_count + 1
 
                 # Clip dt to not overshoot
                 next_dt = jnp.minimum(final_dt, t_stop - t_next)
@@ -966,7 +987,6 @@ def _make_adaptive_scan_fn(
                     dt_history=new_dt_history,
                     history_count=new_history_count,
                     step_idx=step_idx + 1,
-                    warmup_count=new_warmup,
                     done=new_done,
                     total_nr_iters=new_total_nr_iters,
                     rejected_steps=final_rejected,
@@ -988,7 +1008,6 @@ def _make_adaptive_scan_fn(
                     dt_history=dt_history,
                     history_count=history_count,
                     step_idx=step_idx,
-                    warmup_count=warmup_count,
                     done=done,
                     total_nr_iters=new_total_nr_iters,
                     rejected_steps=final_rejected,
@@ -1117,7 +1136,6 @@ class AdaptiveScanStrategy(TransientStrategy):
             dt_history=jnp.full(max_history, dt, dtype=dtype),
             history_count=jnp.array(0, dtype=jnp.int32),
             step_idx=jnp.array(0, dtype=jnp.int32),
-            warmup_count=jnp.array(0, dtype=jnp.int32),
             done=jnp.array(False, dtype=jnp.bool_),
             total_nr_iters=jnp.array(0, dtype=jnp.int32),
             rejected_steps=jnp.array(0, dtype=jnp.int32),
@@ -1136,8 +1154,7 @@ class AdaptiveScanStrategy(TransientStrategy):
             n_external=n_external,
             n_vsources=max(n_vsources, 1),  # At least 1 to avoid empty arrays
             t_stop=t_stop,
-            warmup_steps=config.warmup_steps,
-            tran_method=tran_method,
+            method_idx=method_to_index(tran_method),
             dtype=dtype,
         )
 
@@ -1225,7 +1242,6 @@ class WhileLoopState(NamedTuple):
 
     # Loop control
     step_idx: jax.Array             # Scalar: current output index
-    warmup_count: jax.Array         # Scalar: steps completed in warmup
 
     # Statistics
     total_nr_iters: jax.Array       # Scalar: total NR iterations
@@ -1245,7 +1261,11 @@ def _make_while_loop_fns(
     n_vsources: int,
     max_steps: int,
     t_stop: float,
+<<<<<<< HEAD
     warmup_steps: int,
+=======
+    method_idx: int,
+>>>>>>> d41e44f (Remove warmup path from all adaptive timestep strategies)
     dtype,
 ):
     """Create cond and body functions for while_loop adaptive timestep."""
@@ -1268,7 +1288,6 @@ def _make_while_loop_fns(
         dt_history = state.dt_history
         history_count = state.history_count
         step_idx = state.step_idx
-        warmup_count = state.warmup_count
 
         # Integration coefficients (Backward Euler)
         c0 = 1.0 / dt
@@ -1279,9 +1298,8 @@ def _make_while_loop_fns(
         t_next = t + dt
         vsource_vals, isource_vals = jit_source_eval(t_next)
 
-        # Prediction step
-        warmup_complete = warmup_count >= warmup_steps
-        can_predict = warmup_complete & (history_count >= 2)
+        # Prediction step - can predict when we have at least 2 history points
+        can_predict = history_count >= 2
 
         V_pred, pred_err_coeff = _predict_fixed_order(
             V_history, dt_history, history_count, dt, config.max_order
@@ -1296,30 +1314,45 @@ def _make_while_loop_fns(
 
         new_total_nr_iters = state.total_nr_iters + jnp.int32(iterations)
 
-        # Handle NR failure
-        nr_failed = ~converged
+        # Handle NR failure - match Python loop logic exactly
         at_min_dt = dt <= config.min_dt
-        force_accept_nr = nr_failed & at_min_dt
+        nr_ok = converged | at_min_dt
 
         # LTE estimation
-        lte = (V_new - V_pred) * (error_coeff_integ / (error_coeff_integ - pred_err_coeff))
+        lte = (V_new - V_pred) * (error_coeff_integ / (error_coeff_integ - pred_err_coeff + 1e-30))
         lte_norm = jnp.max(jnp.abs(lte) / (config.reltol * jnp.abs(V_new) + config.abstol))
         order = jnp.minimum(history_count - 1, config.max_order)
         factor = jnp.power(config.lte_ratio / jnp.maximum(lte_norm, 1e-10), 1.0 / (order + 2))
         factor = jnp.clip(factor, 0.1, config.grow_factor)
         dt_lte = dt * factor
 
-        # Decision: accept or reject
-        lte_reject = (dt / dt_lte > config.redo_factor) & can_predict & converged
-        nr_reject = nr_failed & ~at_min_dt
+        # Decision: accept or reject - simplified logic (no warmup)
+        # lte_ok = ~can_predict | (dt/dt_lte <= redo_factor)
+        # accept = nr_ok & lte_ok
+        lte_ratio_ok = (dt / dt_lte) <= config.redo_factor
+        lte_ok = ~can_predict | lte_ratio_ok
+        accept_step = nr_ok & lte_ok
 
-        reject_step = lte_reject | nr_reject
-        accept_step = ~reject_step
+        # Compute new dt - simplified logic (no warmup)
+        # If NR failed and not at min: halve dt
+        # If LTE rejected: use dt_lte
+        # If accepted: use min(dt_lte, dt * grow_factor)
+        nr_failed = ~converged
+        dt_nr_failed = jnp.maximum(dt / 2, config.min_dt)
+        dt_lte_capped = jnp.minimum(dt_lte, dt * config.grow_factor)
 
-        # Compute new dt
-        new_dt = jnp.where(nr_failed, jnp.maximum(dt / 2, config.min_dt), dt_lte)
-        new_dt = jnp.clip(new_dt, config.min_dt, config.max_dt)
-        new_dt = jnp.minimum(new_dt, t_stop - t_next)  # Don't overshoot
+        new_dt = jnp.where(
+            nr_failed & ~at_min_dt,  # NR failed, not at min
+            dt_nr_failed,
+            jnp.where(
+                ~lte_ok,  # LTE rejected
+                dt_lte,
+                dt_lte_capped,  # Accepted: use LTE-based dt capped by grow_factor
+            )
+        )
+        # Clip and don't overshoot
+        t_remaining = t_stop - t_next
+        new_dt = jnp.clip(new_dt, config.min_dt, jnp.maximum(t_remaining, config.min_dt))
 
         # Update state based on accept/reject
         new_t = jnp.where(accept_step, t_next, t)
@@ -1344,7 +1377,6 @@ def _make_while_loop_fns(
             jnp.minimum(history_count + 1, max_history),
             history_count
         )
-        new_warmup_count = jnp.where(accept_step, warmup_count + 1, warmup_count)
 
         # Update output arrays on accept
         new_times_out = jnp.where(
@@ -1365,7 +1397,7 @@ def _make_while_loop_fns(
         new_step_idx = jnp.where(accept_step, step_idx + 1, step_idx)
 
         # Update statistics
-        new_rejected = state.rejected_steps + jnp.where(reject_step, 1, 0)
+        new_rejected = state.rejected_steps + jnp.where(~accept_step, 1, 0)
         new_min_dt = jnp.where(accept_step, jnp.minimum(state.min_dt_used, dt), state.min_dt_used)
         new_max_dt = jnp.where(accept_step, jnp.maximum(state.max_dt_used, dt), state.max_dt_used)
 
@@ -1383,7 +1415,6 @@ def _make_while_loop_fns(
             V_out=new_V_out,
             I_out=new_I_out,
             step_idx=new_step_idx,
-            warmup_count=new_warmup_count,
             total_nr_iters=new_total_nr_iters,
             rejected_steps=new_rejected,
             min_dt_used=new_min_dt,
@@ -1476,7 +1507,6 @@ class AdaptiveWhileLoopStrategy(TransientStrategy):
             V_out=jnp.zeros((max_steps, n_external), dtype=dtype),
             I_out=jnp.zeros((max_steps, n_vsources), dtype=dtype),
             step_idx=jnp.array(0, dtype=jnp.int32),
-            warmup_count=jnp.array(0, dtype=jnp.int32),
             total_nr_iters=jnp.array(0, dtype=jnp.int32),
             rejected_steps=jnp.array(0, dtype=jnp.int32),
             min_dt_used=jnp.array(jnp.inf, dtype=dtype),
@@ -1486,7 +1516,7 @@ class AdaptiveWhileLoopStrategy(TransientStrategy):
         cond_fn, body_fn = _make_while_loop_fns(
             nr_solve, jit_source_eval, device_arrays, config,
             n_total, n_unknowns, n_external, n_vsources, max_steps,
-            t_stop, config.warmup_steps, dtype,
+            t_stop, method_to_index(tran_method), dtype,
         )
 
         logger.info(
