@@ -350,20 +350,12 @@ class AdaptiveStrategy(TransientStrategy):
             )
             Q_prev.block_until_ready()
 
-        # Initialize dQdt_prev for trapezoidal method
+        # Initialize dQdt_prev and Q_prev2
+        # Always use arrays (not None) to ensure consistent nr_solve signature
+        # and avoid JIT recompilation when switching integration methods
         integ_coeffs = compute_coefficients(tran_method, dt)
-        dQdt_prev = (
-            jnp.zeros(n_unknowns, dtype=jnp.float64)
-            if integ_coeffs.needs_dqdt_history
-            else None
-        )
-
-        # Initialize Q_prev2 for Gear2 method
-        Q_prev2 = (
-            jnp.zeros(n_unknowns, dtype=jnp.float64)
-            if integ_coeffs.history_depth >= 2
-            else None
-        )
+        dQdt_prev = jnp.zeros(n_unknowns, dtype=jnp.float64)
+        Q_prev2 = jnp.zeros(n_unknowns, dtype=jnp.float64)
 
         # Get device_arrays for nr_solve
         device_arrays = (
