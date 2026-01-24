@@ -2035,7 +2035,7 @@ class CircuitEngine:
 
         # Adaptive timestep mode
         if adaptive:
-            from jax_spice.analysis.transient import AdaptiveConfig, AdaptiveWhileLoopStrategy
+            from jax_spice.analysis.transient import AdaptiveConfig, AdaptiveStrategy
 
             # Use provided config or create default
             config = adaptive_config or AdaptiveConfig()
@@ -2063,8 +2063,10 @@ class CircuitEngine:
             logger.info(f"Using adaptive timestep solver ({self.num_nodes} nodes, "
                        f"lte_ratio={config.lte_ratio}, redo_factor={config.redo_factor})")
 
-            strategy = AdaptiveWhileLoopStrategy(self, use_sparse=use_sparse,
-                                                  backend=backend, config=config)
+            # Use AdaptiveStrategy (Python loop) as default - it's more reliable than
+            # lax.while_loop for complex circuits due to JIT compilation overhead
+            strategy = AdaptiveStrategy(self, use_sparse=use_sparse,
+                                        backend=backend, config=config)
             times, voltages, currents, stats = strategy.run(t_stop, dt, max_steps)
 
             # Convert to TransientResult
