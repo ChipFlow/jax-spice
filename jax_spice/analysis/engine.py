@@ -34,6 +34,8 @@ warnings.filterwarnings('ignore', category=MatrixRankWarning)
 # Note: solver.py contains standalone NR solvers (newton_solve) used by tests
 # The engine uses its own nr_solve with analytic jacobians from OpenVAF
 from jax_spice._logging import logger
+from jax_spice import get_float_dtype
+
 from jax_spice.analysis.homotopy import (
     HomotopyConfig,
     run_homotopy_chain,
@@ -856,7 +858,7 @@ class CircuitEngine:
                 try:
                     # Single init_fn call for this parameter combination
                     with jax.default_device(cpu_device):
-                        init_inputs = jnp.array(param_key, dtype=jnp.float64)
+                        init_inputs = jnp.array(param_key, dtype=get_float_dtype())
                         _, collapse_decisions = init_fn(init_inputs)
 
                     # Convert to pairs
@@ -1098,7 +1100,7 @@ class CircuitEngine:
                     shared_params_list.append(float(val[0]))
                 else:
                     shared_params_list.append(float(val))
-            shared_params = jnp.array(shared_params_list, dtype=jnp.float64)
+            shared_params = jnp.array(shared_params_list, dtype=get_float_dtype())
 
             # Build device_params from varying columns in col_values
             if n_varying > 0:
@@ -1107,15 +1109,15 @@ class CircuitEngine:
                     val = col_values.get(col)
                     if val is None:
                         # Voltage column not yet filled - use zeros
-                        device_params_cols.append(np.zeros(n_devices, dtype=np.float64))
+                        device_params_cols.append(np.zeros(n_devices, dtype=get_float_dtype()))
                     elif isinstance(val, np.ndarray):
                         device_params_cols.append(val)
                     else:
                         # Scalar that ended up in varying (shouldn't happen often)
-                        device_params_cols.append(np.full(n_devices, float(val), dtype=np.float64))
-                device_params = jnp.array(np.column_stack(device_params_cols), dtype=jnp.float64)
+                        device_params_cols.append(np.full(n_devices, float(val), dtype=get_float_dtype()))
+                device_params = jnp.array(np.column_stack(device_params_cols), dtype=get_float_dtype())
             else:
-                device_params = jnp.empty((n_devices, 0), dtype=jnp.float64)
+                device_params = jnp.empty((n_devices, 0), dtype=get_float_dtype())
 
             # Free col_values - we've extracted shared_params and device_params
             del col_values
@@ -1175,7 +1177,7 @@ class CircuitEngine:
             else:
                 # Fallback for models without init function
                 logger.debug("Model has no init function")
-                cache = jnp.empty((n_devices, 0), dtype=jnp.float64)
+                cache = jnp.empty((n_devices, 0), dtype=get_float_dtype())
                 collapse_decisions = jnp.empty((n_devices, 0), dtype=jnp.float32)
                 shared_cache_indices = []
                 varying_cache_indices = []
@@ -1207,7 +1209,7 @@ class CircuitEngine:
             # simparams[0] = analysis_type (0=DC, 1=AC, 2=transient, 3=noise)
             # simparams[1+] = other simparams as registered by the model (gmin, etc.)
             # For now, use defaults - DC analysis with gmin=1e-12, mfactor=1.0
-            default_simparams = jnp.array([0.0, 1.0, 1e-12], dtype=jnp.float64)  # [analysis_type, mfactor, gmin]
+            default_simparams = jnp.array([0.0, 1.0, 1e-12], dtype=get_float_dtype())  # [analysis_type, mfactor, gmin]
 
             # Compute voltage positions within device_params (varying indices)
             varying_idx_to_pos = {orig_idx: pos for pos, orig_idx in enumerate(varying_indices_list)}
@@ -1248,10 +1250,67 @@ class CircuitEngine:
             # small (~MB) compared to circuit data.
         else:
             compiled['use_split_eval'] = False
-            cache = jnp.empty((n_devices, 0), dtype=jnp.float64)
+            cache = jnp.empty((n_devices, 0), dtype=get_float_dtype())
             collapse_decisions = jnp.empty((n_devices, 0), dtype=jnp.float32)
 
         return voltage_indices, device_contexts, cache, collapse_decisions
+
+    def warmup_device_models(self, static_inputs_cache: Dict[str, Tuple]) -> None:
+        """Trigger XLA compilation of vmapped device functions.
+
+        This method calls each vmapped_split_eval function with actual inputs
+        to trigger XLA compilation. The compiled artifacts are stored in JAX's
+        persistent cache (if configured) and can be reused across sessions.
+
+        This separates device model compilation from main loop compilation,
+        allowing device models to be pre-compiled during setup while the main
+        loop is compiled later.
+
+        Args:
+            static_inputs_cache: Dict mapping model_type to cached static inputs:
+                (voltage_indices, stamp_indices, voltage_node1, voltage_node2, cache, collapse_decisions)
+        """
+        import time
+
+        for model_type, compiled in self._compiled_models.items():
+            if not compiled.get('use_split_eval', False):
+                continue
+
+            if model_type not in static_inputs_cache:
+                continue
+
+            t0 = time.perf_counter()
+            logger.info(f"Warming up device model: {model_type}...")
+
+            # Get the vmapped function and inputs
+            vmapped_split_eval = compiled['vmapped_split_eval']
+            shared_params = compiled['shared_params']
+            device_params = compiled['device_params']
+            use_cache_split = compiled.get('use_cache_split', False)
+            shared_cache = compiled.get('shared_cache')
+            device_cache = compiled.get('device_cache')
+            default_simparams = compiled.get('default_simparams', jnp.array([0.0, 1.0, 1e-12]))
+
+            # Get cache from static_inputs if device_cache is None
+            if device_cache is None:
+                _, _, _, _, cache, _ = static_inputs_cache[model_type]
+                device_cache = cache
+
+            # Call the function with actual inputs to trigger XLA compilation
+            # This will trace the function and compile it for the given shapes
+            try:
+                if use_cache_split:
+                    _ = vmapped_split_eval(shared_params, device_params, shared_cache, device_cache, default_simparams)
+                else:
+                    _ = vmapped_split_eval(shared_params, device_params, device_cache, default_simparams)
+
+                # Block until compilation completes
+                jax.block_until_ready(_)
+
+                t1 = time.perf_counter()
+                logger.info(f"  {model_type}: XLA compilation complete ({t1-t0:.2f}s)")
+            except Exception as e:
+                logger.warning(f"  {model_type}: warmup failed: {e}")
 
     def _build_stamp_index_mapping(
         self,
@@ -1414,7 +1473,7 @@ class CircuitEngine:
         n_entries = len(merged_rows)
 
         # Build BCOO with dummy values to get structure
-        dummy_vals = np.ones(n_entries, dtype=np.float64)
+        dummy_vals = np.ones(n_entries, dtype=get_float_dtype())
         indices = np.stack([merged_rows, merged_cols], axis=1)
 
         J_bcoo = BCOO((jnp.array(dummy_vals), jnp.array(indices)), shape=(n_unknowns, n_unknowns))
@@ -1762,7 +1821,7 @@ class CircuitEngine:
                         raise ValueError(f"Invalid PWL wave format '{wave}': {e}") from e
 
                 # Convert wave to JAX arrays
-                wave_arr = jnp.array(wave, dtype=jnp.float64)
+                wave_arr = jnp.array(wave, dtype=get_float_dtype())
                 times = wave_arr[0::2] * stretch
                 values = wave_arr[1::2] * scale + offset
 
@@ -1923,7 +1982,7 @@ class CircuitEngine:
 
         # Adaptive timestep mode
         if adaptive:
-            from jax_spice.analysis.transient import AdaptiveConfig, AdaptiveStrategy
+            from jax_spice.analysis.transient import AdaptiveConfig, AdaptiveWhileLoopStrategy
 
             # Use provided config or create default
             config = adaptive_config or AdaptiveConfig()
@@ -1951,8 +2010,8 @@ class CircuitEngine:
             logger.info(f"Using adaptive timestep solver ({self.num_nodes} nodes, "
                        f"lte_ratio={config.lte_ratio}, redo_factor={config.redo_factor})")
 
-            strategy = AdaptiveStrategy(self, use_sparse=use_sparse,
-                                        backend=backend, config=config)
+            strategy = AdaptiveWhileLoopStrategy(self, use_sparse=use_sparse,
+                                                  backend=backend, config=config)
             times, voltages, currents, stats = strategy.run(t_stop, dt, max_steps)
 
             # Convert to TransientResult
@@ -2247,7 +2306,7 @@ class CircuitEngine:
                         with jax.default_device(device):
                             cache = jnp.array(cache, dtype=dtype)
                     else:
-                        cache = jnp.array(cache, dtype=jnp.float64)
+                        cache = jnp.array(cache, dtype=get_float_dtype())
                     # Note: static_inputs removed - data is in shared_params/device_params in compiled dict
                     static_inputs_cache[model_type] = (
                         voltage_indices, stamp_indices, voltage_node1, voltage_node2, cache, collapse_decisions
@@ -2272,6 +2331,10 @@ class CircuitEngine:
             self._transient_setup_key = setup_cache_key
             logger.info("Cached transient setup for reuse")
 
+            # Warm up device models: trigger XLA compilation of vmapped functions
+            # This separates device model compilation from main loop compilation
+            self.warmup_device_models(static_inputs_cache)
+
         # Variables used outside the cached setup block
         n_external = self.num_nodes
         solver_type = "dense batched scatter" if use_dense else "COO sparse"
@@ -2280,8 +2343,8 @@ class CircuitEngine:
         logger.info(f"Using {solver_type} solver")
 
         # Initialize voltages
-        V = jnp.zeros(n_total, dtype=jnp.float64)
-        V_prev = jnp.zeros(n_total, dtype=jnp.float64)
+        V = jnp.zeros(n_total, dtype=get_float_dtype())
+        V_prev = jnp.zeros(n_total, dtype=get_float_dtype())
 
         # Helper to build source value arrays from dict (called once per timestep)
         def build_source_arrays(source_values: Dict) -> Tuple[jax.Array, jax.Array]:
@@ -2358,10 +2421,10 @@ class CircuitEngine:
                 # Sparse solver for large circuits
                 # Pre-compute nse by running build_system once to get sparsity pattern
                 logger.info("Pre-computing sparse matrix nse...")
-                V_init = jnp.zeros(n_nodes, dtype=jnp.float64)
-                vsource_init = jnp.zeros(n_vsources, dtype=jnp.float64)
-                isource_init = jnp.zeros(n_isources, dtype=jnp.float64)
-                Q_init = jnp.zeros(n_unknowns, dtype=jnp.float64)
+                V_init = jnp.zeros(n_nodes, dtype=get_float_dtype())
+                vsource_init = jnp.zeros(n_vsources, dtype=get_float_dtype())
+                isource_init = jnp.zeros(n_isources, dtype=get_float_dtype())
+                Q_init = jnp.zeros(n_unknowns, dtype=get_float_dtype())
                 # Use inv_dt=0 for DC (no reactive terms in probe)
                 J_bcoo_probe, _, _, _ = build_system_fn(V_init, vsource_init, isource_init, Q_init, 0.0, device_arrays)
                 n_coo_raw = J_bcoo_probe.nse
@@ -2541,7 +2604,7 @@ class CircuitEngine:
             )
         else:
             # icmode='uic' - initialize VDD nodes to supply voltage
-            V = jnp.zeros(n_nodes, dtype=jnp.float64)
+            V = jnp.zeros(n_nodes, dtype=get_float_dtype())
             vdd_value = 0.0
             for dev in self.devices:
                 if dev['model'] == 'vsource':
@@ -2587,13 +2650,13 @@ class CircuitEngine:
             _, _, Q_prev, _ = self._cached_build_system(V, vsource_dc, isource_dc, jnp.zeros(n_unknowns), 0.0, device_arrays)
             Q_prev.block_until_ready()
         else:
-            Q_prev = jnp.zeros(n_unknowns, dtype=jnp.float64)
+            Q_prev = jnp.zeros(n_unknowns, dtype=get_float_dtype())
 
         # Initialize dQdt_prev for trapezoidal method (None uses zeros internally)
-        dQdt_prev = jnp.zeros(n_unknowns, dtype=jnp.float64) if integ_coeffs.needs_dqdt_history else None
+        dQdt_prev = jnp.zeros(n_unknowns, dtype=get_float_dtype()) if integ_coeffs.needs_dqdt_history else None
 
         # Initialize Q_prev2 for Gear2 method (history_depth >= 2)
-        Q_prev2 = jnp.zeros(n_unknowns, dtype=jnp.float64) if integ_coeffs.history_depth >= 2 else None
+        Q_prev2 = jnp.zeros(n_unknowns, dtype=get_float_dtype()) if integ_coeffs.history_depth >= 2 else None
 
         # Use integer-based iteration to avoid floating-point comparison issues
         # This ensures Python loop and lax.scan produce the same number of timesteps
@@ -2706,8 +2769,8 @@ class CircuitEngine:
         Returns:
             Tuple of (vsource_dc_vals, isource_dc_vals) as JAX arrays
         """
-        vsource_dc_vals = jnp.zeros(n_vsources, dtype=jnp.float64)
-        isource_dc_vals = jnp.zeros(n_isources, dtype=jnp.float64)
+        vsource_dc_vals = jnp.zeros(n_vsources, dtype=get_float_dtype())
+        isource_dc_vals = jnp.zeros(n_isources, dtype=get_float_dtype())
 
         vsource_idx = 0
         isource_idx = 0
@@ -2774,7 +2837,7 @@ class CircuitEngine:
 
         # Initialize V with a good starting point for convergence
         mid_rail = vdd_value / 2.0
-        V = jnp.full(n_nodes, mid_rail, dtype=jnp.float64)
+        V = jnp.full(n_nodes, mid_rail, dtype=get_float_dtype())
         V = V.at[0].set(0.0)  # Ground is always 0
 
         # Set VDD nodes to full supply voltage (name-based heuristic)
@@ -2849,7 +2912,7 @@ class CircuitEngine:
         vsource_dc_vals, isource_dc_vals = self._get_dc_source_values(n_vsources, n_isources)
 
         n_unknowns = n_nodes - 1
-        Q_prev = jnp.zeros(n_unknowns, dtype=jnp.float64)
+        Q_prev = jnp.zeros(n_unknowns, dtype=get_float_dtype())
 
         # First try direct NR without homotopy (works for well-initialized circuits)
         # Uses analytic jacobians from OpenVAF via the cached nr_solve
@@ -3054,7 +3117,7 @@ class CircuitEngine:
             # Similar to DC operating point init but without solving
             vdd_value = self._get_vdd_value()
             mid_rail = vdd_value / 2.0
-            V0 = jnp.full(n_nodes, mid_rail, dtype=jnp.float64)
+            V0 = jnp.full(n_nodes, mid_rail, dtype=get_float_dtype())
             V0 = V0.at[0].set(0.0)  # Ground is always 0
 
             # Set VDD/VCC nodes to supply voltage, GND/VSS to 0
@@ -3169,13 +3232,13 @@ class CircuitEngine:
             _, _, Q0, _ = self._cached_build_system(V0, vsource_dc, isource_dc, jnp.zeros(n_unknowns), 0.0, self._device_arrays)
             logger.debug(f"  Initialized Q0 from DC operating point (max|Q0|={float(jnp.max(jnp.abs(Q0))):.2e})")
         else:
-            Q0 = jnp.zeros(n_unknowns, dtype=jnp.float64)
+            Q0 = jnp.zeros(n_unknowns, dtype=get_float_dtype())
 
         # Initialize dQdt_prev for trapezoidal method
-        dQdt0 = jnp.zeros(n_unknowns, dtype=jnp.float64)
+        dQdt0 = jnp.zeros(n_unknowns, dtype=get_float_dtype())
 
         # Initialize Q_prev2 for Gear2 method (history_depth >= 2)
-        Q_prev2_0 = jnp.zeros(n_unknowns, dtype=jnp.float64)
+        Q_prev2_0 = jnp.zeros(n_unknowns, dtype=get_float_dtype())
 
         # Run the simulation (with optional profiling of just the core loop)
         logger.info("Running lax.scan simulation...")
@@ -3356,10 +3419,10 @@ class CircuitEngine:
             }
 
             if model == 'vsource':
-                dc = jnp.array([d['params'].get('dc', 0.0) for d in devs], dtype=jnp.float64)
+                dc = jnp.array([d['params'].get('dc', 0.0) for d in devs], dtype=get_float_dtype())
                 result['vsource'] = {**base_data, 'dc': dc, 'names': names}
             elif model == 'isource':
-                dc = jnp.array([d['params'].get('dc', 0.0) for d in devs], dtype=jnp.float64)
+                dc = jnp.array([d['params'].get('dc', 0.0) for d in devs], dtype=get_float_dtype())
                 # Current sources have no Jacobian contribution
                 result['isource'] = {
                     'node_p': node_p, 'node_n': node_n, 'n': n, 'names': names,
@@ -3777,7 +3840,7 @@ class CircuitEngine:
                 all_f_resist_val = jnp.concatenate([p[1] for p in f_resist_parts])
                 f_resist = jax.ops.segment_sum(all_f_resist_val, all_f_resist_idx, num_segments=n_unknowns)
             else:
-                f_resist = jnp.zeros(n_unknowns, dtype=jnp.float64)
+                f_resist = jnp.zeros(n_unknowns, dtype=get_float_dtype())
 
             # === Build reactive residual vector Q (charges) ===
             if f_react_parts:
@@ -3785,7 +3848,7 @@ class CircuitEngine:
                 all_f_react_val = jnp.concatenate([p[1] for p in f_react_parts])
                 Q = jax.ops.segment_sum(all_f_react_val, all_f_react_idx, num_segments=n_unknowns)
             else:
-                Q = jnp.zeros(n_unknowns, dtype=jnp.float64)
+                Q = jnp.zeros(n_unknowns, dtype=get_float_dtype())
 
             # === Build limiting RHS correction vectors ===
             # lim_rhs = J(lim_x) * (lim_x - x) is subtracted from residuals
@@ -3794,14 +3857,14 @@ class CircuitEngine:
                 all_lim_rhs_resist_val = jnp.concatenate([p[1] for p in lim_rhs_resist_parts])
                 lim_rhs_resist = jax.ops.segment_sum(all_lim_rhs_resist_val, all_lim_rhs_resist_idx, num_segments=n_unknowns)
             else:
-                lim_rhs_resist = jnp.zeros(n_unknowns, dtype=jnp.float64)
+                lim_rhs_resist = jnp.zeros(n_unknowns, dtype=get_float_dtype())
 
             if lim_rhs_react_parts:
                 all_lim_rhs_react_idx = jnp.concatenate([p[0] for p in lim_rhs_react_parts])
                 all_lim_rhs_react_val = jnp.concatenate([p[1] for p in lim_rhs_react_parts])
                 lim_rhs_react = jax.ops.segment_sum(all_lim_rhs_react_val, all_lim_rhs_react_idx, num_segments=n_unknowns)
             else:
-                lim_rhs_react = jnp.zeros(n_unknowns, dtype=jnp.float64)
+                lim_rhs_react = jnp.zeros(n_unknowns, dtype=get_float_dtype())
 
             # === Apply limiting corrections ===
             # f_corrected = f_computed - lim_rhs
@@ -3816,9 +3879,9 @@ class CircuitEngine:
             # General: f = f_resist + c0*(Q - lim_rhs_react) + c1*Q_prev + d1*dQdt_prev + c2*Q_prev2
             #
             # Handle dQdt_prev: if None, use zeros (for BE or first trap step)
-            _dQdt_prev = dQdt_prev if dQdt_prev is not None else jnp.zeros(n_unknowns, dtype=jnp.float64)
+            _dQdt_prev = dQdt_prev if dQdt_prev is not None else jnp.zeros(n_unknowns, dtype=get_float_dtype())
             # Handle Q_prev2: if None, use zeros (for BE, trap, or first Gear2 steps)
-            _Q_prev2 = Q_prev2 if Q_prev2 is not None else jnp.zeros(n_unknowns, dtype=jnp.float64)
+            _Q_prev2 = Q_prev2 if Q_prev2 is not None else jnp.zeros(n_unknowns, dtype=get_float_dtype())
             f = f_resist + integ_c0 * (Q - lim_rhs_react) + integ_c1 * Q_prev + integ_d1 * _dQdt_prev + integ_c2 * _Q_prev2
 
             # === Add GSHUNT contribution to residual ===
@@ -3834,7 +3897,7 @@ class CircuitEngine:
             else:
                 all_j_resist_rows = jnp.zeros(0, dtype=jnp.int32)
                 all_j_resist_cols = jnp.zeros(0, dtype=jnp.int32)
-                all_j_resist_vals = jnp.zeros(0, dtype=jnp.float64)
+                all_j_resist_vals = jnp.zeros(0, dtype=get_float_dtype())
 
             # === Build reactive Jacobian C (capacitances) ===
             if j_react_parts:
@@ -3844,7 +3907,7 @@ class CircuitEngine:
             else:
                 all_j_react_rows = jnp.zeros(0, dtype=jnp.int32)
                 all_j_react_cols = jnp.zeros(0, dtype=jnp.int32)
-                all_j_react_vals = jnp.zeros(0, dtype=jnp.float64)
+                all_j_react_vals = jnp.zeros(0, dtype=get_float_dtype())
 
             # === Combine Jacobians: J = J_resist + integ_c0 * C ===
             # Concatenate COO triplets and scale reactive by integ_c0
@@ -3865,7 +3928,7 @@ class CircuitEngine:
                 # circuits with floating capacitors (like Graetz bridge at off-state).
                 # Smaller values (1e-9) leave the matrix rank-deficient, causing
                 # scipy spsolve and numpy solve to find different solutions.
-                J = J + (1e-6 + gshunt) * jnp.eye(n_unknowns, dtype=jnp.float64)
+                J = J + (1e-6 + gshunt) * jnp.eye(n_unknowns, dtype=get_float_dtype())
             else:
                 # Sparse path - build BCOO sparse matrix
                 from jax.experimental.sparse import BCOO
@@ -3911,7 +3974,7 @@ class CircuitEngine:
                 I_vsource = -f_device_at_p
             else:
                 # No devices or no vsources - use empty array
-                I_vsource = jnp.zeros(0, dtype=jnp.float64)
+                I_vsource = jnp.zeros(0, dtype=get_float_dtype())
 
             return J, f, Q, I_vsource
 
@@ -4049,7 +4112,7 @@ class CircuitEngine:
             # X has structure: [V_ground=0, V_1, ..., V_n, I_vs1, ..., I_vsm]
             n_total = n_unknowns + 1  # Total nodes including ground
             V = X[:n_total]
-            I_branch = X[n_total:] if n_vsources > 0 else jnp.zeros(0, dtype=jnp.float64)
+            I_branch = X[n_total:] if n_vsources > 0 else jnp.zeros(0, dtype=get_float_dtype())
 
             # =====================================================================
             # Device contributions (same as high-G version, but without vsource stamps)
@@ -4159,33 +4222,33 @@ class CircuitEngine:
                 all_f_resist_val = jnp.concatenate([p[1] for p in f_resist_parts])
                 f_resist = jax.ops.segment_sum(all_f_resist_val, all_f_resist_idx, num_segments=n_unknowns)
             else:
-                f_resist = jnp.zeros(n_unknowns, dtype=jnp.float64)
+                f_resist = jnp.zeros(n_unknowns, dtype=get_float_dtype())
 
             if f_react_parts:
                 all_f_react_idx = jnp.concatenate([p[0] for p in f_react_parts])
                 all_f_react_val = jnp.concatenate([p[1] for p in f_react_parts])
                 Q = jax.ops.segment_sum(all_f_react_val, all_f_react_idx, num_segments=n_unknowns)
             else:
-                Q = jnp.zeros(n_unknowns, dtype=jnp.float64)
+                Q = jnp.zeros(n_unknowns, dtype=get_float_dtype())
 
             if lim_rhs_resist_parts:
                 all_lim_rhs_resist_idx = jnp.concatenate([p[0] for p in lim_rhs_resist_parts])
                 all_lim_rhs_resist_val = jnp.concatenate([p[1] for p in lim_rhs_resist_parts])
                 lim_rhs_resist = jax.ops.segment_sum(all_lim_rhs_resist_val, all_lim_rhs_resist_idx, num_segments=n_unknowns)
             else:
-                lim_rhs_resist = jnp.zeros(n_unknowns, dtype=jnp.float64)
+                lim_rhs_resist = jnp.zeros(n_unknowns, dtype=get_float_dtype())
 
             if lim_rhs_react_parts:
                 all_lim_rhs_react_idx = jnp.concatenate([p[0] for p in lim_rhs_react_parts])
                 all_lim_rhs_react_val = jnp.concatenate([p[1] for p in lim_rhs_react_parts])
                 lim_rhs_react = jax.ops.segment_sum(all_lim_rhs_react_val, all_lim_rhs_react_idx, num_segments=n_unknowns)
             else:
-                lim_rhs_react = jnp.zeros(n_unknowns, dtype=jnp.float64)
+                lim_rhs_react = jnp.zeros(n_unknowns, dtype=get_float_dtype())
 
             f_resist = f_resist - lim_rhs_resist
 
-            _dQdt_prev = dQdt_prev if dQdt_prev is not None else jnp.zeros(n_unknowns, dtype=jnp.float64)
-            _Q_prev2 = Q_prev2 if Q_prev2 is not None else jnp.zeros(n_unknowns, dtype=jnp.float64)
+            _dQdt_prev = dQdt_prev if dQdt_prev is not None else jnp.zeros(n_unknowns, dtype=get_float_dtype())
+            _Q_prev2 = Q_prev2 if Q_prev2 is not None else jnp.zeros(n_unknowns, dtype=get_float_dtype())
 
             # =====================================================================
             # Full MNA: Add branch current contribution to KCL at vsource nodes
@@ -4233,7 +4296,7 @@ class CircuitEngine:
                 Vn = V[vsource_node_n]
                 f_branch = Vp - Vn - vsource_vals
             else:
-                f_branch = jnp.zeros(0, dtype=jnp.float64)
+                f_branch = jnp.zeros(0, dtype=get_float_dtype())
 
             # Combine node and branch residuals
             f_augmented = jnp.concatenate([f_node, f_branch])
@@ -4249,7 +4312,7 @@ class CircuitEngine:
             else:
                 all_j_resist_rows = jnp.zeros(0, dtype=jnp.int32)
                 all_j_resist_cols = jnp.zeros(0, dtype=jnp.int32)
-                all_j_resist_vals = jnp.zeros(0, dtype=jnp.float64)
+                all_j_resist_vals = jnp.zeros(0, dtype=get_float_dtype())
 
             if j_react_parts:
                 all_j_react_rows = jnp.concatenate([p[0] for p in j_react_parts])
@@ -4258,7 +4321,7 @@ class CircuitEngine:
             else:
                 all_j_react_rows = jnp.zeros(0, dtype=jnp.int32)
                 all_j_react_cols = jnp.zeros(0, dtype=jnp.int32)
-                all_j_react_vals = jnp.zeros(0, dtype=jnp.float64)
+                all_j_react_vals = jnp.zeros(0, dtype=get_float_dtype())
 
             # Combine G and c0*C contributions
             all_j_rows = jnp.concatenate([all_j_resist_rows, all_j_react_rows])
@@ -4511,9 +4574,9 @@ class CircuitEngine:
                 # Use device_cache if available (from split cache optimization)
                 device_cache = compiled.get('device_cache', cache)
                 if device_cache is None:
-                    device_cache = jnp.array(cache, dtype=jnp.float64)
+                    device_cache = jnp.array(cache, dtype=get_float_dtype())
                 else:
-                    device_cache = jnp.array(device_cache, dtype=jnp.float64)
+                    device_cache = jnp.array(device_cache, dtype=get_float_dtype())
                 # Note: static_inputs removed - data is in shared_params/device_params in compiled dict
                 static_inputs_cache[model_type] = (
                     voltage_indices, stamp_indices, voltage_node1, voltage_node2, device_cache, collapse_decisions
@@ -4554,10 +4617,10 @@ class CircuitEngine:
         # Initialize V (including internal nodes)
         vdd_value = self._get_vdd_value() or 1.0  # Default to 1.0 if no vsources
         mid_rail = vdd_value / 2.0
-        V_dc = jnp.full(n_total, mid_rail, dtype=jnp.float64)
+        V_dc = jnp.full(n_total, mid_rail, dtype=get_float_dtype())
         V_dc = V_dc.at[0].set(0.0)
 
-        Q_prev = jnp.zeros(n_unknowns, dtype=jnp.float64)
+        Q_prev = jnp.zeros(n_unknowns, dtype=get_float_dtype())
 
         # First try direct NR without homotopy
         logger.info("  AC DC: Trying direct NR solver first...")
@@ -4741,7 +4804,7 @@ class CircuitEngine:
                                           num_segments=n_unknowns * n_unknowns)
             Jr = Jr_flat.reshape((n_unknowns, n_unknowns))
         else:
-            Jr = jnp.zeros((n_unknowns, n_unknowns), dtype=jnp.float64)
+            Jr = jnp.zeros((n_unknowns, n_unknowns), dtype=get_float_dtype())
 
         # Reactive Jacobian Jc
         if j_react_parts:
@@ -4753,10 +4816,10 @@ class CircuitEngine:
                                           num_segments=n_unknowns * n_unknowns)
             Jc = Jc_flat.reshape((n_unknowns, n_unknowns))
         else:
-            Jc = jnp.zeros((n_unknowns, n_unknowns), dtype=jnp.float64)
+            Jc = jnp.zeros((n_unknowns, n_unknowns), dtype=get_float_dtype())
 
         # Add regularization
-        Jr = Jr + 1e-12 * jnp.eye(n_unknowns, dtype=jnp.float64)
+        Jr = Jr + 1e-12 * jnp.eye(n_unknowns, dtype=get_float_dtype())
 
         return Jr, Jc
 
