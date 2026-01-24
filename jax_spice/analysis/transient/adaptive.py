@@ -1339,6 +1339,7 @@ class WhileLoopState(NamedTuple):
     # Loop control
     step_idx: jax.Array             # Scalar: current output index
     warmup_count: jax.Array         # Scalar: steps completed in warmup
+    t_stop: jax.Array               # Scalar: simulation end time (dynamic, not baked in)
 
     # Statistics
     total_nr_iters: jax.Array       # Scalar: total NR iterations
@@ -1357,17 +1358,20 @@ def _make_while_loop_fns(
     n_external: int,
     n_vsources: int,
     max_steps: int,
-    t_stop: float,
     warmup_steps: int,
     dtype,
 ):
-    """Create cond and body functions for while_loop adaptive timestep."""
+    """Create cond and body functions for while_loop adaptive timestep.
+
+    Note: t_stop is passed dynamically via state.t_stop, not baked into closure.
+    This allows reusing the JIT-compiled function for different t_stop values.
+    """
 
     max_history = config.max_order + 2
 
     def cond_fn(state: WhileLoopState) -> jax.Array:
         """Continue while t < t_stop and step_idx < max_steps."""
-        return (state.t < t_stop) & (state.step_idx < max_steps)
+        return (state.t < state.t_stop) & (state.step_idx < max_steps)
 
     def body_fn(state: WhileLoopState) -> WhileLoopState:
         """One iteration of adaptive timestep loop."""
@@ -1432,7 +1436,7 @@ def _make_while_loop_fns(
         # Compute new dt
         new_dt = jnp.where(nr_failed, jnp.maximum(dt / 2, config.min_dt), dt_lte)
         new_dt = jnp.clip(new_dt, config.min_dt, config.max_dt)
-        new_dt = jnp.minimum(new_dt, t_stop - t_next)  # Don't overshoot
+        new_dt = jnp.minimum(new_dt, state.t_stop - t_next)  # Don't overshoot
 
         # Update state based on accept/reject
         new_t = jnp.where(accept_step, t_next, t)
@@ -1497,6 +1501,7 @@ def _make_while_loop_fns(
             I_out=new_I_out,
             step_idx=new_step_idx,
             warmup_count=new_warmup_count,
+            t_stop=state.t_stop,  # Pass through unchanged
             total_nr_iters=new_total_nr_iters,
             rejected_steps=new_rejected,
             min_dt_used=new_min_dt,
@@ -1622,20 +1627,21 @@ class AdaptiveWhileLoopStrategy(TransientStrategy):
             I_out=jnp.zeros((max_steps, n_vsources), dtype=dtype),
             step_idx=jnp.array(0, dtype=jnp.int32),
             warmup_count=jnp.array(0, dtype=jnp.int32),
+            t_stop=jnp.array(t_stop, dtype=dtype),  # Dynamic: passed via state
             total_nr_iters=jnp.array(0, dtype=jnp.int32),
             rejected_steps=jnp.array(0, dtype=jnp.int32),
             min_dt_used=jnp.array(jnp.inf, dtype=dtype),
             max_dt_used=jnp.array(0.0, dtype=dtype),
         )
 
-        # Cache key includes t_stop since it's baked into cond_fn
-        cache_key = (t_stop, max_steps, n_total, n_unknowns, n_external, n_vsources, dtype)
+        # Cache key does NOT include t_stop since it's passed dynamically via state
+        cache_key = (max_steps, n_total, n_unknowns, n_external, n_vsources, dtype)
 
         if cache_key not in self._jit_run_while_cache:
             cond_fn, body_fn = _make_while_loop_fns(
                 nr_solve, jit_source_eval, device_arrays, config,
                 n_total, n_unknowns, n_external, n_vsources, max_steps,
-                t_stop, config.warmup_steps, dtype,
+                config.warmup_steps, dtype,
             )
 
             # JIT-compile the while_loop for performance
@@ -1644,7 +1650,7 @@ class AdaptiveWhileLoopStrategy(TransientStrategy):
                 return lax.while_loop(cond_fn, body_fn, state)
 
             self._jit_run_while_cache[cache_key] = run_while
-            logger.debug(f"{self.name}: Created JIT runner for t_stop={t_stop}, max_steps={max_steps}")
+            logger.debug(f"{self.name}: Created JIT runner for max_steps={max_steps} (t_stop is dynamic)")
 
         run_while = self._jit_run_while_cache[cache_key]
 
