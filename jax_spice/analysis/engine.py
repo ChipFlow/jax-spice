@@ -1970,7 +1970,8 @@ class CircuitEngine:
                       profile_config: Optional['ProfileConfig'] = None,
                       temperature: float = DEFAULT_TEMPERATURE_K,
                       adaptive: bool = True,
-                      adaptive_config: Optional['AdaptiveConfig'] = None) -> TransientResult:
+                      adaptive_config: Optional['AdaptiveConfig'] = None,
+                      full_mna: bool = True) -> TransientResult:
         """Run transient analysis.
 
         All computation is JIT-compiled. Automatically uses sparse matrices
@@ -1990,9 +1991,12 @@ class CircuitEngine:
             temperature: Simulation temperature in Kelvin (default: 300.15K = 27°C)
             adaptive: Use LTE-based adaptive timestep control (default: True). The timestep
                       will be automatically adjusted based on local truncation error.
-                      Set to False for fixed timestep mode.
+                      Set to False for fixed timestep mode. Note: ignored when full_mna=True.
             adaptive_config: Configuration for adaptive timestep control. If None,
                              uses default AdaptiveConfig. Only used when adaptive=True.
+            full_mna: Use full Modified Nodal Analysis with explicit branch currents (default: True).
+                      This provides better numerical conditioning (no G=1e12 approximation)
+                      and more accurate current extraction. Currently uses fixed timestep.
 
         Returns:
             TransientResult with times, voltages, and stats
@@ -2033,7 +2037,34 @@ class CircuitEngine:
 
         use_dense = not use_sparse
 
-        # Adaptive timestep mode
+        # Full MNA mode - better numerical conditioning, accurate currents
+        if full_mna:
+            from jax_spice.analysis.transient import FullMNAStrategy
+
+            logger.info(f"Using FullMNAStrategy ({self.num_nodes} nodes, "
+                       f"{'sparse' if use_sparse else 'dense'})")
+            strategy = FullMNAStrategy(self, use_sparse=use_sparse, backend=backend)
+            times, voltages_by_name, stats = strategy.run(t_stop, dt, max_steps)
+
+            # Convert voltages dict {name: array} to 2D array format
+            # FullMNAStrategy returns {node_name: voltage_array}
+            n_steps = len(times)
+            n_nodes = self.num_nodes
+            voltages_array = jnp.zeros((n_steps, n_nodes), dtype=jnp.float64)
+            for name, values in voltages_by_name.items():
+                node_idx = self.node_names.get(name, -1)
+                if 0 < node_idx < n_nodes:
+                    voltages_array = voltages_array.at[:, node_idx].set(values)
+
+            # Add currents to stats if available
+            return TransientResult(
+                times=times if isinstance(times, jnp.ndarray) else jnp.array(times),
+                voltages=voltages_array,
+                currents=stats.get('currents', {}),
+                stats=stats,
+            )
+
+        # Adaptive timestep mode (high-G approximation)
         if adaptive:
             from jax_spice.analysis.transient import (
                 AdaptiveConfig, AdaptiveStrategy, AdaptiveWhileLoopStrategy
