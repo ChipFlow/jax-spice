@@ -12,6 +12,8 @@ import matplotlib.pyplot as plt
 
 from jax_spice.analysis.engine import CircuitEngine
 from jax_spice.analysis.transient import AdaptiveConfig, FullMNAStrategy
+from jax_spice._logging import logger, enable_performance_logging
+enable_performance_logging()
 
 
 def read_spice_raw(filename):
@@ -71,26 +73,31 @@ def main():
     vacask_raw = 'vendor/VACASK/tran1.raw'
     ngspice_data_file = 'vendor/VACASK/benchmark/ring/ngspice/ring_with_current.txt'
 
-    print("Loading VACASK data...")
+    logger.info("Loading VACASK data...")
     vacask = read_spice_raw(vacask_raw)
     t_vac = vacask['time']
     V1_vac = vacask['1']
     V2_vac = vacask['2']
     I_vac = vacask.get('vdd:flow(br)')
 
-    print("Loading ngspice data...")
+    logger.info("Loading ngspice data...")
     ng = read_ngspice_wrdata(ngspice_data_file)
     t_ng = ng['time']
     V1_ng = ng['1']
     V2_ng = ng['2']
     I_ng = ng['i_vdd']
 
-    print("Running Full MNA (20ns)...")
+    logger.info("Preparing Full MNA (20ns)...")
     runner = CircuitEngine(ring_sim)
     runner.parse()
     # max_dt must be less than oscillation period (~3.5ns) to capture dynamics
     config = AdaptiveConfig(max_dt=50e-12, min_dt=1e-15)
     full_mna = FullMNAStrategy(runner, use_sparse=False, config=config)
+
+    logger.info("Running warmup..") 
+    _  = full_mna.warmup(dt=1e-12)
+
+    logger.info("Running Full MNA (20ns)...")
     times_mna, voltages_mna, stats_mna = full_mna.run(t_stop=20e-9, dt=1e-12)
 
     t_mna = np.asarray(times_mna)
@@ -162,27 +169,27 @@ def main():
     plt.tight_layout()
     output_file = 'ring_three_way_comparison.png'
     plt.savefig(output_file, dpi=150, bbox_inches='tight')
-    print(f"Saved: {output_file}")
+    logger.info(f"Saved: {output_file}")
 
     # Metrics
-    print("\n" + "=" * 70)
-    print("Comparison Metrics (2-15ns window):")
-    print("=" * 70)
+    logger.info("\n" + "=" * 70)
+    logger.info("Comparison Metrics (2-15ns window):")
+    logger.info("=" * 70)
 
     t_common = np.linspace(t_start, t_end, 2000)
     I_vac_i = np.interp(t_common, t_vac, I_vac)
     I_ng_i = np.interp(t_common, t_ng, I_ng)
     I_mna_i = np.interp(t_common, t_mna, I_mna)
 
-    print(f"\nMean current:")
-    print(f"  VACASK:   {I_vac_i.mean()*1e6:.1f} µA")
-    print(f"  ngspice:  {I_ng_i.mean()*1e6:.1f} µA")
-    print(f"  Full MNA: {I_mna_i.mean()*1e6:.1f} µA")
+    logger.info(f"\nMean current:")
+    logger.info(f"  VACASK:   {I_vac_i.mean()*1e6:.1f} µA")
+    logger.info(f"  ngspice:  {I_ng_i.mean()*1e6:.1f} µA")
+    logger.info(f"  Full MNA: {I_mna_i.mean()*1e6:.1f} µA")
 
-    print(f"\nMax |dI/dt|:")
-    print(f"  VACASK:   {np.max(np.abs(dIdt_vac[mask_didt_vac]))*1e-6:.2f} mA/ns")
-    print(f"  ngspice:  {np.max(np.abs(dIdt_ng[mask_didt_ng]))*1e-6:.2f} mA/ns")
-    print(f"  Full MNA: {np.max(np.abs(dIdt_mna[mask_didt_mna]))*1e-6:.2f} mA/ns")
+    logger.info(f"\nMax |dI/dt|:")
+    logger.info(f"  VACASK:   {np.max(np.abs(dIdt_vac[mask_didt_vac]))*1e-6:.2f} mA/ns")
+    logger.info(f"  ngspice:  {np.max(np.abs(dIdt_ng[mask_didt_ng]))*1e-6:.2f} mA/ns")
+    logger.info(f"  Full MNA: {np.max(np.abs(dIdt_mna[mask_didt_mna]))*1e-6:.2f} mA/ns")
 
     return 0
 

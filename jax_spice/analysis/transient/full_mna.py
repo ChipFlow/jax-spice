@@ -47,6 +47,9 @@ from .adaptive import AdaptiveConfig, compute_lte_timestep_jax, predict_voltage_
 from .base import TransientSetup, TransientStrategy
 
 
+DEFAULT_MAX_STEPS = 10000
+
+
 class _FullMNABase(TransientStrategy):
     """Base class for full MNA strategies.
 
@@ -257,8 +260,34 @@ class _FullMNABase(TransientStrategy):
 
         return V
 
+    def warmup(self, dt: float = 1e-12, max_steps: int = DEFAULT_MAX_STEPS) -> float:
+        """Pre-compile the JIT function by running a minimal simulation.
+
+        This triggers JIT compilation so subsequent run() calls are fast.
+
+        Args:
+            dt: Timestep to use (should match expected run() calls)
+            max_steps: Max steps to compile for (default: DEFAULT_MAX_STEPS).
+                       Use the same value in subsequent run() calls for cache hits.
+
+        Returns:
+            Wall time for warmup (compilation + execution)
+        """
+        self.max_steps = max_steps
+
+        logger.info(f"{self.name}: Starting warmup")
+
+        t_start = time_module.perf_counter()
+        # Run tiny simulation - just enough to trigger compilation
+        self.run(t_stop=dt, dt=dt, max_steps=max_steps)
+        wall_time = time_module.perf_counter() - t_start
+
+        logger.info(f"{self.name}: Warmup complete in {wall_time:.2f}s (max_steps={max_steps})")
+        return wall_time
+
+
     def run(self, t_stop: float, dt: float,
-            max_steps: int = 10000) -> Tuple[jax.Array, Dict[str, jax.Array], Dict]:
+            max_steps: int = DEFAULT_MAX_STEPS) -> Tuple[jax.Array, Dict[str, jax.Array], Dict]:
         """Run transient analysis with full MNA.
 
         Args:
@@ -272,6 +301,7 @@ class _FullMNABase(TransientStrategy):
             - voltages: Dict mapping node name to voltage array
             - stats: Dict with statistics including 'currents' dict
         """
+
         # Ensure setup is ready
         setup = self.ensure_setup()
         nr_solve = self._ensure_full_mna_solver(setup)
