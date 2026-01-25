@@ -1662,16 +1662,21 @@ class AdaptiveWhileLoopStrategy(TransientStrategy):
         t_start = time_module.perf_counter()
 
         # Run while loop
+        logger.info("Running while loop")
         final_state = run_while(init_state)
+        logger.info("Block until ready")
         jax.block_until_ready(final_state)
 
         wall_time = time_module.perf_counter() - t_start
 
+        logger.info("Extracting outputs")
         # Extract valid outputs
         n_steps = int(final_state.step_idx)
         times = final_state.times_out[:n_steps]
         V_out = final_state.V_out[:n_steps]
         I_out = final_state.I_out[:n_steps]
+
+        logger.info("Building dicts")
 
         # Build voltage dict
         voltages: Dict[str, jax.Array] = {}
@@ -1705,4 +1710,5 @@ class AdaptiveWhileLoopStrategy(TransientStrategy):
             f"{int(final_state.rejected_steps)} rejected)"
         )
 
+        logger.info("Returning")
         return times, voltages, currents, stats_dict

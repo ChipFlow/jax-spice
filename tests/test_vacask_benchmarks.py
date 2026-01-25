@@ -20,6 +20,7 @@ import jax
 import numpy as np
 import pytest
 
+import jax_spice
 from jax_spice.analysis import CircuitEngine
 from jax_spice.benchmarks.registry import (
     BENCHMARKS,
@@ -30,6 +31,8 @@ from jax_spice.benchmarks.registry import (
 )
 from jax_spice.utils import find_vacask_binary, rawread
 
+from jax_spice._logging import logger, enable_performance_logging
+enable_performance_logging()
 
 # =============================================================================
 # Basic Benchmark Tests (parse, dense/sparse transient)
@@ -58,10 +61,10 @@ class TestBenchmarkParsing:
         assert len(engine.devices) > 0, "No devices parsed"
 
         device_types = {d['model'] for d in engine.devices}
-        print(f"\n{benchmark_name}: {engine.num_nodes} nodes, {len(engine.devices)} devices")
-        print(f"  Title: {info.title}")
-        print(f"  Devices: {device_types}")
-        print(f"  dt={info.dt:.2e}, t_stop={info.t_stop:.2e}")
+        logger.info(f"\n{benchmark_name}: {engine.num_nodes} nodes, {len(engine.devices)} devices")
+        logger.info(f"  Title: {info.title}")
+        logger.info(f"  Devices: {device_types}")
+        logger.info(f"  dt={info.dt:.2e}, t_stop={info.t_stop:.2e}")
 
 
 class TestBenchmarkTransient:
@@ -92,16 +95,18 @@ class TestBenchmarkTransient:
         engine.parse()
 
         # Run short transient with adaptive timestep
+        logger.info(f"running transient dense, adaptive=True")
         result = engine.run_transient(
             t_stop=info.dt * 10,
             dt=info.dt,
             use_sparse=False,
             adaptive=True,
         )
+        logger.info("transient finished")
 
         assert result.num_steps > 0, "No timesteps returned"
         converged = result.stats.get('convergence_rate', 0)
-        print(f"\n{benchmark_name} dense: {result.num_steps} steps, {converged*100:.0f}% converged")
+        logger.info(f"\n{benchmark_name} dense: {result.num_steps} steps, {converged*100:.0f}% converged")
         assert converged > 0.5, f"Poor convergence: {converged*100:.0f}%"
 
     @pytest.mark.parametrize("benchmark_name", get_runnable_benchmarks())
@@ -131,7 +136,7 @@ class TestBenchmarkTransient:
 
         assert result.num_steps > 0, "No timesteps returned"
         converged = result.stats.get('convergence_rate', 0)
-        print(f"\n{benchmark_name} sparse: {result.num_steps} steps, {converged*100:.0f}% converged")
+        logger.info(f"\n{benchmark_name} sparse: {result.num_steps} steps, {converged*100:.0f}% converged")
         assert converged > 0.5, f"Poor convergence: {converged*100:.0f}%"
 
 
@@ -167,7 +172,7 @@ class TestRCTimeConstant:
         v_cap_np = np.array(v_cap)
         v_final = v_cap_np[-1] if len(v_cap_np) > 0 else 0
 
-        print(f"\nRC response: V_final = {v_final:.3f}V after {np.array(result.times)[-1]*1000:.1f}ms")
+        logger.info(f"\nRC response: V_final = {v_final:.3f}V after {np.array(result.times)[-1]*1000:.1f}ms")
         assert result.num_steps > 10, "Not enough timesteps for RC analysis"
 
 
@@ -177,7 +182,7 @@ class TestRCTimeConstant:
 
 
 def get_vacask_node_count(vacask_bin: Path, benchmark_name: str, timeout: int = 600) -> dict:
-    """Run VACASK on benchmark and extract node count from 'print stats'."""
+    """Run VACASK on benchmark and extract node count from 'logger.info stats'."""
     info = get_benchmark(benchmark_name)
     if info is None:
         raise FileNotFoundError(f"Benchmark {benchmark_name} not found")
@@ -227,9 +232,9 @@ class TestNodeCountComparison:
         engine.parse()
         n_total, _ = engine._setup_internal_nodes()
 
-        print(f"\n{benchmark_name}:")
-        print(f"  VACASK: nodes={vacask_counts['nodes']}, unknowns={vacask_unknowns}")
-        print(f"  JAX-SPICE: external={engine.num_nodes}, total={n_total}")
+        logger.info(f"\n{benchmark_name}:")
+        logger.info(f"  VACASK: nodes={vacask_counts['nodes']}, unknowns={vacask_unknowns}")
+        logger.info(f"  JAX-SPICE: external={engine.num_nodes}, total={n_total}")
 
         diff_total = abs(n_total - vacask_unknowns)
         assert diff_total <= 1, \
@@ -248,9 +253,9 @@ class TestNodeCountComparison:
         engine.parse()
         n_total, _ = engine._setup_internal_nodes()
 
-        print(f"\nc6288:")
-        print(f"  VACASK: nodes={vacask_counts['nodes']}, unknowns={vacask_unknowns}")
-        print(f"  JAX-SPICE: external={engine.num_nodes}, total={n_total}")
+        logger.info(f"\nc6288:")
+        logger.info(f"  VACASK: nodes={vacask_counts['nodes']}, unknowns={vacask_unknowns}")
+        logger.info(f"  JAX-SPICE: external={engine.num_nodes}, total={n_total}")
 
         expected = vacask_unknowns + 1
         ratio = abs(n_total - expected) / expected
@@ -273,9 +278,9 @@ class TestNodeCollapseStandalone:
         n_internal = n_total - engine.num_nodes
         n_psp103 = sum(1 for d in engine.devices if d.get('model') == 'psp103')
 
-        print(f"\nc6288 node collapse:")
-        print(f"  External: {engine.num_nodes}, Internal: {n_internal}, Total: {n_total}")
-        print(f"  PSP103 devices: {n_psp103}")
+        logger.info(f"\nc6288 node collapse:")
+        logger.info(f"  External: {engine.num_nodes}, Internal: {n_internal}, Total: {n_total}")
+        logger.info(f"  PSP103 devices: {n_psp103}")
 
         # With collapse, each PSP103 needs 2 internal nodes
         expected_internal = n_psp103 * 2
@@ -298,9 +303,9 @@ class TestNodeCollapseStandalone:
         n_total, _ = engine._setup_internal_nodes()
         n_psp103 = sum(1 for d in engine.devices if d.get('model') == 'psp103')
 
-        print(f"\nring node collapse:")
-        print(f"  External: {engine.num_nodes}, Total: {n_total}")
-        print(f"  PSP103 devices: {n_psp103}")
+        logger.info(f"\nring node collapse:")
+        logger.info(f"  External: {engine.num_nodes}, Total: {n_total}")
+        logger.info(f"  PSP103 devices: {n_psp103}")
 
         # Ring: 18 PSP103 devices * 2 internal nodes each + 11 external = 47
         assert n_total == 47, f"Expected 47 total nodes, got {n_total}"
@@ -525,7 +530,9 @@ class TestVACASKResultComparison:
         # Run JAX-SPICE (adaptive timestep matches VACASK behavior for most circuits)
         engine = CircuitEngine(info.sim_path)
         engine.parse()
+        logger.info(f"running transient, adaptive={spec.use_adaptive}")
         result = engine.run_transient(t_stop=spec.t_stop, dt=spec.dt, adaptive=spec.use_adaptive)
+        logger.info("transient finished")
         jax_voltage = np.array(result.voltages.get(jax_node_idx, []))
 
         # Apply transform if specified
@@ -540,11 +547,11 @@ class TestVACASKResultComparison:
             align_after_time=spec.align_after_time,
         )
 
-        print(f"\n{benchmark_name.upper()} comparison:")
-        print(f"  Voltage range: {comparison['v_range']:.4f}V")
-        print(f"  RMS error: {comparison['rel_rms']*100:.2f}%")
+        logger.info(f"\n{benchmark_name.upper()} comparison:")
+        logger.info(f"  Voltage range: {comparison['v_range']:.4f}V")
+        logger.info(f"  RMS error: {comparison['rel_rms']*100:.2f}%")
         if spec.align_on_rising_edge:
-            print(f"  Time shift (aligned): {comparison['time_shift']*1e9:.3f} ns")
+            logger.info(f"  Time shift (aligned): {comparison['time_shift']*1e9:.3f} ns")
 
         assert comparison['rel_rms'] < spec.max_rel_error, \
             f"RMS error too high: {comparison['rel_rms']*100:.2f}% > {spec.max_rel_error*100:.0f}%"
@@ -572,8 +579,8 @@ class TestTbDpBenchmark:
         engine.parse()
 
         assert len(engine.devices) > 100
-        print(f"\ntb_dp512x8: {len(engine.devices)} devices, {engine.num_nodes} nodes")
-        print(f"  dt={info.dt:.2e}, t_stop={info.t_stop:.2e}")
+        logger.info(f"\ntb_dp512x8: {len(engine.devices)} devices, {engine.num_nodes} nodes")
+        logger.info(f"  dt={info.dt:.2e}, t_stop={info.t_stop:.2e}")
 
     def test_transient_sparse(self):
         """Test tb_dp512x8 transient with sparse solver (5 steps)."""
@@ -586,7 +593,7 @@ class TestTbDpBenchmark:
 
         result = engine.run_transient(t_stop=info.dt * 5, dt=info.dt, use_sparse=True)
 
-        print(f"\ntb_dp512x8: {result.num_steps} steps, {result.stats.get('convergence_rate', 0)*100:.1f}% converged")
+        logger.info(f"\ntb_dp512x8: {result.num_steps} steps, {result.stats.get('convergence_rate', 0)*100:.1f}% converged")
         assert result.stats.get('convergence_rate', 0) > 0.5
 
 

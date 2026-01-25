@@ -2035,7 +2035,9 @@ class CircuitEngine:
 
         # Adaptive timestep mode
         if adaptive:
-            from jax_spice.analysis.transient import AdaptiveConfig, AdaptiveWhileLoopStrategy
+            from jax_spice.analysis.transient import (
+                AdaptiveConfig, AdaptiveStrategy, AdaptiveWhileLoopStrategy
+            )
 
             # Use provided config or create default
             config = adaptive_config or AdaptiveConfig()
@@ -2060,11 +2062,24 @@ class CircuitEngine:
                     max_dt=config.max_dt,
                 )
 
-            logger.info(f"Using adaptive timestep solver ({self.num_nodes} nodes, "
-                       f"lte_ratio={config.lte_ratio}, redo_factor={config.redo_factor})")
+            # Check if circuit uses diodes - these cause very slow JIT compilation
+            # in AdaptiveWhileLoopStrategy, so use AdaptiveStrategy (Python loop) instead
+            uses_diode = any(
+                'diode' in device_type.lower()
+                for device_type in self._device_type_cache.values()
+            )
 
-            strategy = AdaptiveWhileLoopStrategy(self, use_sparse=use_sparse,
-                                                  backend=backend, config=config)
+            if uses_diode:
+                logger.info(f"Using AdaptiveStrategy (Python loop) for diode circuit "
+                           f"({self.num_nodes} nodes, lte_ratio={config.lte_ratio})")
+                strategy = AdaptiveStrategy(self, use_sparse=use_sparse,
+                                            backend=backend, config=config)
+            else:
+                logger.info(f"Using AdaptiveWhileLoopStrategy ({self.num_nodes} nodes, "
+                           f"lte_ratio={config.lte_ratio}, redo_factor={config.redo_factor})")
+                strategy = AdaptiveWhileLoopStrategy(self, use_sparse=use_sparse,
+                                                      backend=backend, config=config)
+
             times, voltages, currents, stats = strategy.run(t_stop, dt, max_steps)
 
             # Convert to TransientResult
