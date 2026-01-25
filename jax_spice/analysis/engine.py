@@ -1969,13 +1969,16 @@ class CircuitEngine:
                       use_while_loop: bool = True,
                       profile_config: Optional['ProfileConfig'] = None,
                       temperature: float = DEFAULT_TEMPERATURE_K,
-                      adaptive: bool = True,
-                      adaptive_config: Optional['AdaptiveConfig'] = None,
-                      full_mna: bool = True) -> TransientResult:
-        """Run transient analysis.
+                      adaptive_config: Optional['AdaptiveConfig'] = None) -> TransientResult:
+        """Run transient analysis using full Modified Nodal Analysis.
 
         All computation is JIT-compiled. Automatically uses sparse matrices
         for large circuits (>1000 nodes).
+
+        Uses full MNA with explicit branch currents for voltage sources, providing:
+        - Better numerical conditioning (no G=1e12 high-G approximation)
+        - More accurate current extraction (branch currents are primary unknowns)
+        - Smoother dI/dt transitions
 
         Args:
             t_stop: Stop time (default: from analysis params or 1ms)
@@ -1985,18 +1988,12 @@ class CircuitEngine:
             use_sparse: Force sparse (True) or dense (False) solver. If None, auto-detect.
             backend: 'gpu', 'cpu', or None (auto-select based on circuit size).
                      For circuits >500 nodes with GPU available, uses GPU acceleration.
-            use_scan: If True, use lax.scan (pre-computes all source values)
-            use_while_loop: Use lax.while_loop for 2x faster per-step execution (default: True)
+            use_scan: DEPRECATED - ignored
+            use_while_loop: DEPRECATED - ignored
             profile_config: If provided, profile just the core simulation (not setup)
             temperature: Simulation temperature in Kelvin (default: 300.15K = 27°C)
-            adaptive: Use LTE-based adaptive timestep control (default: True). The timestep
-                      will be automatically adjusted based on local truncation error.
-                      Set to False for fixed timestep mode. Note: ignored when full_mna=True.
             adaptive_config: Configuration for adaptive timestep control. If None,
-                             uses default AdaptiveConfig. Only used when adaptive=True.
-            full_mna: Use full Modified Nodal Analysis with explicit branch currents (default: True).
-                      This provides better numerical conditioning (no G=1e12 approximation)
-                      and more accurate current extraction. Currently uses fixed timestep.
+                             uses default AdaptiveConfig with LTE-based timestep adjustment.
 
         Returns:
             TransientResult with times, voltages, and stats
@@ -2035,98 +2032,44 @@ class CircuitEngine:
         if use_sparse is None:
             use_sparse = False
 
-        use_dense = not use_sparse
+        from jax_spice.analysis.transient import AdaptiveConfig, FullMNAStrategy
 
-        # Full MNA mode - better numerical conditioning, accurate currents
-        if full_mna:
-            from jax_spice.analysis.transient import FullMNAStrategy
+        # Use provided config or create default
+        config = adaptive_config or AdaptiveConfig()
 
-            logger.info(f"Using FullMNAStrategy ({self.num_nodes} nodes, "
-                       f"{'sparse' if use_sparse else 'dense'})")
-            strategy = FullMNAStrategy(self, use_sparse=use_sparse, backend=backend)
-            times, voltages_by_name, stats = strategy.run(t_stop, dt, max_steps)
-
-            # FullMNAStrategy returns {node_name: voltage_array} which is the format
-            # expected by TransientResult.voltages
-            return TransientResult(
-                times=times if isinstance(times, jnp.ndarray) else jnp.array(times),
-                voltages=voltages_by_name,
-                currents=stats.get('currents', {}),
-                stats=stats,
+        # Override config from analysis_params if not explicitly set
+        if 'tran_lteratio' in self.analysis_params and adaptive_config is None:
+            config = AdaptiveConfig(
+                lte_ratio=float(self.analysis_params['tran_lteratio']),
+                redo_factor=config.redo_factor,
+                reltol=config.reltol,
+                abstol=config.abstol,
+                min_dt=config.min_dt,
+                max_dt=config.max_dt,
+            )
+        if 'tran_redofactor' in self.analysis_params and adaptive_config is None:
+            config = AdaptiveConfig(
+                lte_ratio=config.lte_ratio,
+                redo_factor=float(self.analysis_params['tran_redofactor']),
+                reltol=config.reltol,
+                abstol=config.abstol,
+                min_dt=config.min_dt,
+                max_dt=config.max_dt,
             )
 
-        # Adaptive timestep mode (high-G approximation)
-        if adaptive:
-            from jax_spice.analysis.transient import (
-                AdaptiveConfig, AdaptiveStrategy, AdaptiveWhileLoopStrategy
-            )
+        logger.info(f"Using FullMNAStrategy ({self.num_nodes} nodes, "
+                   f"{'sparse' if use_sparse else 'dense'}, "
+                   f"lte_ratio={config.lte_ratio}, redo_factor={config.redo_factor})")
+        strategy = FullMNAStrategy(self, use_sparse=use_sparse,
+                                   backend=backend, config=config)
+        times, voltages, stats = strategy.run(t_stop, dt, max_steps)
 
-            # Use provided config or create default
-            config = adaptive_config or AdaptiveConfig()
-
-            # Override config from analysis_params if not explicitly set
-            if 'tran_lteratio' in self.analysis_params and adaptive_config is None:
-                config = AdaptiveConfig(
-                    lte_ratio=float(self.analysis_params['tran_lteratio']),
-                    redo_factor=config.redo_factor,
-                    reltol=config.reltol,
-                    abstol=config.abstol,
-                    min_dt=config.min_dt,
-                    max_dt=config.max_dt,
-                )
-            if 'tran_redofactor' in self.analysis_params and adaptive_config is None:
-                config = AdaptiveConfig(
-                    lte_ratio=config.lte_ratio,
-                    redo_factor=float(self.analysis_params['tran_redofactor']),
-                    reltol=config.reltol,
-                    abstol=config.abstol,
-                    min_dt=config.min_dt,
-                    max_dt=config.max_dt,
-                )
-
-            # Check if circuit uses diodes - these cause very slow JIT compilation
-            # in AdaptiveWhileLoopStrategy, so use AdaptiveStrategy (Python loop) instead
-            uses_diode = any(
-                'diode' in device_type.lower()
-                for device_type in self._device_type_cache.values()
-            )
-
-            if uses_diode:
-                logger.info(f"Using AdaptiveStrategy (Python loop) for diode circuit "
-                           f"({self.num_nodes} nodes, lte_ratio={config.lte_ratio})")
-                strategy = AdaptiveStrategy(self, use_sparse=use_sparse,
-                                            backend=backend, config=config)
-            else:
-                logger.info(f"Using AdaptiveWhileLoopStrategy ({self.num_nodes} nodes, "
-                           f"lte_ratio={config.lte_ratio}, redo_factor={config.redo_factor})")
-                strategy = AdaptiveWhileLoopStrategy(self, use_sparse=use_sparse,
-                                                      backend=backend, config=config)
-
-            times, voltages, currents, stats = strategy.run(t_stop, dt, max_steps)
-
-            # Convert to TransientResult
-            return TransientResult(
-                times=times,
-                voltages=voltages,
-                currents=currents,
-                stats=stats,
-            )
-
-        if use_while_loop:
-            # lax.while_loop version - computes sources on-the-fly
-            logger.info(f"Using lax.while_loop solver ({self.num_nodes} nodes, "
-                       f"{'sparse' if use_sparse else 'dense'})")
-            return self._run_transient_while_loop(t_stop, dt, backend=backend, use_dense=use_dense,
-                                                   profile_config=profile_config)
-
-        if use_sparse:
-            logger.info(f"Using BCOO/BCSR sparse solver ({self.num_nodes} nodes)")
-            return self._run_transient_hybrid(t_stop, dt, backend=backend, use_dense=False,
-                                               profile_config=profile_config)
-        else:
-            logger.info(f"Using dense solver ({self.num_nodes} nodes)")
-            return self._run_transient_hybrid(t_stop, dt, backend=backend, use_dense=True,
-                                               profile_config=profile_config)
+        return TransientResult(
+            times=times if isinstance(times, jnp.ndarray) else jnp.array(times),
+            voltages=voltages,
+            currents=stats.get('currents', {}),
+            stats=stats,
+        )
 
     # =========================================================================
     # Node Collapse Implementation

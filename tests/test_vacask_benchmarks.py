@@ -95,12 +95,11 @@ class TestBenchmarkTransient:
         engine.parse()
 
         # Run short transient with adaptive timestep
-        logger.info(f"running transient dense, adaptive=True")
+        logger.info("running transient dense")
         result = engine.run_transient(
             t_stop=info.dt * 10,
             dt=info.dt,
             use_sparse=False,
-            adaptive=True,
         )
         logger.info("transient finished")
 
@@ -331,7 +330,7 @@ class ComparisonSpec:
     align_on_rising_edge: bool = False  # Align waveforms on rising edge before comparison
     align_threshold: float = 0.6  # Voltage threshold for rising edge detection
     align_after_time: float = 0.0  # Only use edges after this time (skip startup)
-    use_adaptive: bool = True  # Use adaptive timestep (matches VACASK behavior)
+    # Adaptive timestep is always used (matches VACASK behavior)
 
 
 # Comparison specifications - extended from registry info
@@ -352,7 +351,7 @@ COMPARISON_SPECS = {
         vacask_nodes=['outp'],
         jax_nodes=['outp'],
         node_transform=lambda v: v.get('outp', np.zeros(1)) - v.get('outn', np.zeros(1)),
-        use_adaptive=False,  # Diode bridge has sharp IV curves that cause adaptive issues
+        # Diode bridge has sharp IV curves - adaptive handles this well
     ),
     'ring': ComparisonSpec(
         benchmark_name='ring',
@@ -363,7 +362,7 @@ COMPARISON_SPECS = {
         align_on_rising_edge=True,
         align_threshold=0.6,
         align_after_time=10e-9,  # Skip first 10ns startup
-        use_adaptive=False,  # Waveform comparison needs uniform timesteps; period validated separately
+        # Period validated separately in test_adaptive_ring_validation.py
     ),
     'mul': ComparisonSpec(
         benchmark_name='mul',
@@ -527,11 +526,11 @@ class TestVACASKResultComparison:
 
         jax_node_idx = spec.jax_nodes[spec.vacask_nodes.index(vacask_node_used) % len(spec.jax_nodes)]
 
-        # Run JAX-SPICE (adaptive timestep matches VACASK behavior for most circuits)
+        # Run JAX-SPICE (adaptive timestep matches VACASK behavior)
         engine = CircuitEngine(info.sim_path)
         engine.parse()
-        logger.info(f"running transient, adaptive={spec.use_adaptive}")
-        result = engine.run_transient(t_stop=spec.t_stop, dt=spec.dt, adaptive=spec.use_adaptive)
+        logger.info("running transient")
+        result = engine.run_transient(t_stop=spec.t_stop, dt=spec.dt)
         logger.info("transient finished")
         jax_voltage = np.array(result.voltages.get(jax_node_idx, []))
 

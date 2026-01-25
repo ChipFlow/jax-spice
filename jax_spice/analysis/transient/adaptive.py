@@ -720,14 +720,24 @@ class AdaptiveLoopOutputs(NamedTuple):
     accepted: jax.Array             # Scalar bool: was this step accepted
 
 
-def _predict_fixed_order(
+def predict_voltage_jax(
     V_history: jax.Array,           # (max_history, n_total)
     dt_history: jax.Array,          # (max_history,)
     history_count: jax.Array,       # Scalar
     new_dt: jax.Array,              # Scalar
     max_order: int,
 ) -> Tuple[jax.Array, jax.Array]:
-    """Compute predictor using fixed-size arrays.
+    """Compute predictor using fixed-size arrays (JAX-compatible).
+
+    This is the shared predictor function used by both AdaptiveWhileLoopStrategy
+    and AdaptiveFullMNAStrategy.
+
+    Args:
+        V_history: Ring buffer of past voltage vectors (max_history, n_total)
+        dt_history: Ring buffer of past timesteps (max_history,)
+        history_count: Number of valid history entries
+        new_dt: Timestep to predict for
+        max_order: Maximum polynomial order (0=constant, 1=linear, 2=quadratic)
 
     Returns:
         Tuple of (V_predicted, error_coeff)
@@ -794,6 +804,49 @@ def _predict_fixed_order(
     V_pred = jnp.einsum('i,ij->j', a_masked[:3], V_history[:3])
 
     return V_pred, err_coeff
+
+
+def compute_lte_timestep_jax(
+    V_new: jax.Array,
+    V_pred: jax.Array,
+    pred_err_coeff: jax.Array,
+    dt: jax.Array,
+    history_count: jax.Array,
+    config: AdaptiveConfig,
+    error_coeff_integ: float = -0.5,
+) -> Tuple[jax.Array, jax.Array]:
+    """Compute LTE-based new timestep (JAX-compatible).
+
+    This is the shared LTE calculation used by both AdaptiveWhileLoopStrategy
+    and AdaptiveFullMNAStrategy.
+
+    Args:
+        V_new: Corrected solution from Newton-Raphson
+        V_pred: Predicted solution from extrapolation
+        pred_err_coeff: Predictor error coefficient
+        dt: Current timestep
+        history_count: Number of valid history entries
+        config: Adaptive timestep configuration
+        error_coeff_integ: Integration method error coefficient (default -0.5 for BE)
+
+    Returns:
+        Tuple of (dt_new, lte_norm)
+    """
+    # Estimate LTE from predictor-corrector difference
+    lte = (V_new - V_pred) * (error_coeff_integ / (error_coeff_integ - pred_err_coeff))
+    lte_norm = jnp.max(jnp.abs(lte) / (config.reltol * jnp.abs(V_new) + config.abstol))
+
+    # Compute new timestep: dt_new = dt * (lte_ratio / lte_norm)^(1/(order+2))
+    order = jnp.minimum(history_count - 1, config.max_order)
+    factor = jnp.power(config.lte_ratio / jnp.maximum(lte_norm, 1e-10), 1.0 / (order + 2))
+    factor = jnp.clip(factor, 0.1, config.grow_factor)
+    dt_new = dt * factor
+
+    return dt_new, lte_norm
+
+
+# Alias for backwards compatibility
+_predict_fixed_order = predict_voltage_jax
 
 
 def _make_adaptive_scan_fn(
@@ -933,16 +986,9 @@ def _make_adaptive_scan_fn(
 
             # LTE estimation (only if warmup complete and predictor was used)
             def compute_lte_dt():
-                # Estimate LTE
-                lte = (V_new - V_pred) * (error_coeff_integ / (error_coeff_integ - pred_err_coeff))
-                lte_norm = jnp.max(jnp.abs(lte) / (config.reltol * jnp.abs(V_new) + config.abstol))
-
-                # Compute new timestep
-                # dt_new = dt * (lte_ratio / lte_norm)^(1/(order+1))
-                order = jnp.minimum(history_count - 1, config.max_order)
-                factor = jnp.power(config.lte_ratio / jnp.maximum(lte_norm, 1e-10), 1.0 / (order + 2))
-                factor = jnp.clip(factor, 0.1, config.grow_factor)
-                return dt * factor, lte_norm
+                return compute_lte_timestep_jax(
+                    V_new, V_pred, pred_err_coeff, dt, history_count, config, error_coeff_integ
+                )
 
             def no_lte_dt():
                 return dt, jnp.array(0.0)
@@ -1419,13 +1465,10 @@ def _make_while_loop_fns(
         at_min_dt = dt <= config.min_dt
         force_accept_nr = nr_failed & at_min_dt
 
-        # LTE estimation
-        lte = (V_new - V_pred) * (error_coeff_integ / (error_coeff_integ - pred_err_coeff))
-        lte_norm = jnp.max(jnp.abs(lte) / (config.reltol * jnp.abs(V_new) + config.abstol))
-        order = jnp.minimum(history_count - 1, config.max_order)
-        factor = jnp.power(config.lte_ratio / jnp.maximum(lte_norm, 1e-10), 1.0 / (order + 2))
-        factor = jnp.clip(factor, 0.1, config.grow_factor)
-        dt_lte = dt * factor
+        # LTE estimation using shared function
+        dt_lte, lte_norm = compute_lte_timestep_jax(
+            V_new, V_pred, pred_err_coeff, dt, history_count, config, error_coeff_integ
+        )
 
         # Decision: accept or reject
         lte_reject = (dt / dt_lte > config.redo_factor) & can_predict & converged

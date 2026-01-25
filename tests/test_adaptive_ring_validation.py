@@ -19,7 +19,7 @@ import numpy as np
 import pytest
 
 from jax_spice.analysis import CircuitEngine
-from jax_spice.analysis.transient import AdaptiveConfig, AdaptiveStrategy
+from jax_spice.analysis.transient import AdaptiveConfig
 from jax_spice.benchmarks.registry import get_benchmark
 from jax_spice.utils import find_vacask_binary, rawread
 
@@ -156,19 +156,26 @@ class TestRingPeriodWithAdaptive:
             pytest.skip("Ring benchmark not found")
         return info
 
-    def test_fixed_timestep_period(self, ring_info):
-        """Test ring period with fixed timestep (baseline).
+    def test_adaptive_timestep_basic(self, ring_info):
+        """Test ring period with adaptive timestep (basic config).
 
-        Measures the period with fixed timestep for comparison with adaptive.
+        Measures the period with a basic adaptive config. Note that
+        max_dt must be set appropriately for the oscillation period
+        (~3.5ns for the ring oscillator), otherwise the adaptive algorithm
+        will grow dt too large and miss oscillations.
         """
         engine = CircuitEngine(ring_info.sim_path)
         engine.parse()
 
-        # Run with fixed 10ps timestep for 50ns
+        # Run with adaptive timestep for 50ns
+        # max_dt must be less than the oscillation period (~3.5ns)
+        config = AdaptiveConfig(max_dt=100e-12)  # 100ps max allows ~35 samples/period
+
         result = engine.run_transient(
             t_stop=50e-9,
             dt=10e-12,
             use_sparse=False,
+            adaptive_config=config,
         )
 
         time = np.array(result.times)
@@ -181,14 +188,14 @@ class TestRingPeriodWithAdaptive:
         period_ns = period * 1e9
         error_pct = (period_ns - VACASK_PERIOD_NS) / VACASK_PERIOD_NS * 100
 
-        print(f"\nFixed timestep (10ps):")
+        print(f"\nAdaptive timestep (default config):")
         print(f"  Measured period: {period_ns:.3f} ns")
         print(f"  VACASK reference: {VACASK_PERIOD_NS:.3f} ns")
         print(f"  Error: {error_pct:+.2f}%")
         print(f"  Timesteps: {len(time)}")
 
         # Verify the period is within reasonable range (< 5% error)
-        assert abs(error_pct) < 5.0, f"Error {error_pct:.2f}% exceeds 5% with fixed timestep"
+        assert abs(error_pct) < 5.0, f"Error {error_pct:.2f}% exceeds 5%"
 
     def test_adaptive_timestep_period(self, ring_info):
         """Test ring period with adaptive timestep.
@@ -215,7 +222,6 @@ class TestRingPeriodWithAdaptive:
             t_stop=50e-9,
             dt=10e-12,  # Initial timestep
             use_sparse=False,
-            adaptive=True,
             adaptive_config=config,
         )
 
@@ -267,7 +273,6 @@ class TestRingPeriodWithAdaptive:
             t_stop=50e-9,
             dt=10e-12,
             use_sparse=False,
-            adaptive=True,
             adaptive_config=config,
         )
 
@@ -328,7 +333,6 @@ class TestAdaptiveVsVACASK:
             t_stop=50e-9,
             dt=10e-12,
             use_sparse=False,
-            adaptive=True,
             adaptive_config=config,
         )
 

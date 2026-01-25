@@ -62,8 +62,8 @@ from jax_spice.analysis.solver import (
 )
 from jax_spice.analysis.sparse import sparse_solve, sparse_solve_csr
 from jax_spice.analysis.transient import (
-    PythonLoopStrategy,
-    ScanStrategy,
+    AdaptiveConfig,
+    FullMNAStrategy,
     TransientSetup,
     TransientStrategy,
 )
@@ -94,8 +94,8 @@ __all__ = [
     # Transient strategies
     "TransientStrategy",
     "TransientSetup",
-    "PythonLoopStrategy",
-    "ScanStrategy",
+    "FullMNAStrategy",
+    "AdaptiveConfig",
     # AC analysis
     "ACConfig",
     "ACResult",
