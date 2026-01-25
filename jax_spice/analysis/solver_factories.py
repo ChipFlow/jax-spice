@@ -263,6 +263,339 @@ def make_dense_full_mna_solver(
     return jax.jit(nr_solve)
 
 
+def make_sparse_full_mna_solver(
+    build_system_jit: Callable,
+    n_nodes: int,
+    n_vsources: int,
+    nse: int,
+    noi_indices: Optional[Array] = None,
+    max_iterations: int = MAX_NR_ITERATIONS,
+    abstol: float = DEFAULT_ABSTOL,
+    max_step: float = 1.0,
+    coo_sort_perm: Optional[Array] = None,
+    csr_segment_ids: Optional[Array] = None,
+    bcsr_indices: Optional[Array] = None,
+    bcsr_indptr: Optional[Array] = None,
+) -> Callable:
+    """Create a JIT-compiled sparse NR solver for full MNA formulation.
+
+    This solver handles the augmented system where voltage source currents
+    are explicit unknowns, using sparse matrix operations.
+
+        X = [V_ground, V_1, ..., V_n, I_vs1, ..., I_vsm]
+
+    The Jacobian has size (n_unknowns + n_vsources) × (n_unknowns + n_vsources).
+
+    Args:
+        build_system_jit: JIT-wrapped full MNA function returning (J_bcoo, f, Q, I_vsource)
+        n_nodes: Total node count including ground
+        n_vsources: Number of voltage sources (branch currents)
+        nse: Number of stored elements after summing duplicates
+        noi_indices: Optional array of NOI node indices to constrain to 0V
+        max_iterations: Maximum NR iterations
+        abstol: Absolute tolerance for convergence
+        max_step: Maximum voltage/current step per iteration
+        coo_sort_perm: Pre-computed COO→CSR permutation
+        csr_segment_ids: Pre-computed segment IDs for duplicate summing
+        bcsr_indices: Pre-computed CSR column indices
+        bcsr_indptr: Pre-computed CSR row pointers
+
+    Returns:
+        JIT-compiled solver function with same signature as make_dense_full_mna_solver
+    """
+    from jax.experimental.sparse import BCSR
+    from jax.experimental.sparse.linalg import spsolve
+
+    n_unknowns = n_nodes - 1
+    n_augmented = n_unknowns + n_vsources
+    n_total = n_nodes  # Size of voltage part of X
+
+    use_precomputed = (coo_sort_perm is not None and csr_segment_ids is not None
+                       and bcsr_indices is not None and bcsr_indptr is not None)
+
+    # Compute NOI masks for node equations only (branch equations are not masked)
+    masks = _compute_noi_masks(noi_indices, n_nodes, bcsr_indptr, bcsr_indices)
+    noi_row_mask = masks['noi_row_mask']
+    noi_col_mask = masks['noi_col_mask']
+    noi_diag_indices = masks['noi_diag_indices']
+    noi_res_indices_arr = masks['noi_res_indices_arr']
+
+    # Create augmented residual mask (node equations + branch equations)
+    if masks['residual_mask'] is not None:
+        # NOI nodes should be masked in residual convergence check
+        # Branch equations (vsource voltages) are always checked
+        residual_mask = jnp.concatenate([
+            masks['residual_mask'],
+            jnp.ones(n_vsources, dtype=jnp.bool_)
+        ])
+    else:
+        residual_mask = None
+
+    def nr_solve(X_init: Array, vsource_vals: Array, isource_vals: Array,
+                 Q_prev: Array, integ_c0: float | Array,
+                 device_arrays_arg: Dict[str, Array],
+                 gmin: float | Array = 1e-12, gshunt: float | Array = 0.0,
+                 integ_c1: float | Array = 0.0, integ_d1: float | Array = 0.0,
+                 dQdt_prev: Array | None = None,
+                 integ_c2: float | Array = 0.0, Q_prev2: Array | None = None):
+
+        # Ensure dQdt_prev is a proper array for JIT tracing
+        _dQdt_prev = dQdt_prev if dQdt_prev is not None else jnp.zeros(n_unknowns, dtype=jnp.float64)
+        _Q_prev2 = Q_prev2 if Q_prev2 is not None else jnp.zeros(n_unknowns, dtype=jnp.float64)
+
+        init_Q = jnp.zeros(n_unknowns, dtype=jnp.float64)
+        init_state = (
+            X_init,
+            jnp.array(0, dtype=jnp.int32),
+            jnp.array(False),
+            jnp.array(jnp.inf),
+            jnp.array(jnp.inf),
+            init_Q,
+        )
+
+        def cond_fn(state):
+            X, iteration, converged, max_f, max_delta, Q = state
+            return jnp.logical_and(~converged, iteration < max_iterations)
+
+        def body_fn(state):
+            X, iteration, _, _, _, _ = state
+
+            J_bcoo, f, Q, _ = build_system_jit(X, vsource_vals, isource_vals, Q_prev,
+                                                integ_c0, device_arrays_arg, gmin, gshunt,
+                                                integ_c1, integ_d1, _dQdt_prev, integ_c2, _Q_prev2)
+
+            # Check residual convergence
+            if residual_mask is not None:
+                f_masked = jnp.where(residual_mask, f, 0.0)
+                max_f = jnp.max(jnp.abs(f_masked))
+            else:
+                max_f = jnp.max(jnp.abs(f))
+            residual_converged = max_f < abstol
+
+            if use_precomputed:
+                # Fast path: pre-computed COO→CSR
+                coo_vals = J_bcoo.data
+                sorted_vals = coo_vals[coo_sort_perm]
+                csr_data = jax.ops.segment_sum(sorted_vals, csr_segment_ids, num_segments=nse)
+
+                f_solve = f
+                if noi_row_mask is not None:
+                    csr_data = csr_data.at[noi_row_mask].set(0.0)
+                    csr_data = csr_data.at[noi_col_mask].set(0.0)
+                    csr_data = csr_data.at[noi_diag_indices].set(1.0)
+                    f_solve = f.at[noi_res_indices_arr].set(0.0)
+
+                delta = spsolve(csr_data, bcsr_indices, bcsr_indptr, -f_solve, tol=1e-6)
+            else:
+                # Fallback: sort each iteration
+                J_bcoo_dedup = J_bcoo.sum_duplicates(nse=nse)
+                J_bcsr = BCSR.from_bcoo(J_bcoo_dedup)
+
+                data = J_bcsr.data
+                f_solve = f
+                if noi_row_mask is not None:
+                    data = data.at[noi_row_mask].set(0.0)
+                    data = data.at[noi_col_mask].set(0.0)
+                    data = data.at[noi_diag_indices].set(1.0)
+                    f_solve = f.at[noi_res_indices_arr].set(0.0)
+
+                delta = spsolve(data, J_bcsr.indices, J_bcsr.indptr, -f_solve, tol=1e-6)
+
+            # Step limiting
+            max_delta = jnp.max(jnp.abs(delta))
+            scale = jnp.where(max_delta > max_step, max_step / max_delta, 1.0)
+            delta = delta * scale
+
+            # Update X: skip ground (index 0), update node voltages and branch currents
+            # X has structure: [V_ground, V_1, ..., V_n, I_vs1, ..., I_vsm]
+            # delta has structure: [delta_V_1, ..., delta_V_n, delta_I_vs1, ..., delta_I_vsm]
+            X_new = X.at[1:n_total].add(delta[:n_unknowns])  # Update node voltages
+            X_new = X_new.at[n_total:].add(delta[n_unknowns:])  # Update branch currents
+
+            # Clamp NOI nodes to 0V
+            if noi_indices is not None and len(noi_indices) > 0:
+                X_new = X_new.at[noi_indices].set(0.0)
+
+            delta_converged = max_delta < 1e-12
+            converged = jnp.logical_or(residual_converged, delta_converged)
+
+            return (X_new, iteration + 1, converged, max_f, max_delta, Q)
+
+        X_final, iterations, converged, max_f, max_delta, _ = lax.while_loop(
+            cond_fn, body_fn, init_state
+        )
+
+        # Recompute Q and I_vsource from converged solution
+        _, _, Q_final, I_vsource = build_system_jit(X_final, vsource_vals, isource_vals, Q_prev,
+                                                    integ_c0, device_arrays_arg, gmin, gshunt,
+                                                    integ_c1, integ_d1, _dQdt_prev, integ_c2, _Q_prev2)
+
+        # Compute dQdt for next timestep
+        dQdt_final = integ_c0 * Q_final + integ_c1 * Q_prev + integ_d1 * _dQdt_prev + integ_c2 * _Q_prev2
+
+        return X_final, iterations, converged, max_f, Q_final, dQdt_final, I_vsource
+
+    logger.info(f"Creating sparse full MNA solver: V({n_nodes}) + I({n_vsources}), nse={nse}, NOI: {noi_indices is not None}")
+    return jax.jit(nr_solve)
+
+
+def make_umfpack_full_mna_solver(
+    build_system_jit: Callable,
+    n_nodes: int,
+    n_vsources: int,
+    nse: int,
+    bcsr_indptr: Array,
+    bcsr_indices: Array,
+    noi_indices: Optional[Array] = None,
+    max_iterations: int = MAX_NR_ITERATIONS,
+    abstol: float = DEFAULT_ABSTOL,
+    max_step: float = 1.0,
+    coo_sort_perm: Optional[Array] = None,
+    csr_segment_ids: Optional[Array] = None,
+) -> Callable:
+    """Create a JIT-compiled UMFPACK NR solver for full MNA formulation.
+
+    Uses UMFPACK with cached symbolic factorization for fast CPU solving
+    with the augmented system where voltage source currents are explicit unknowns.
+
+    Args:
+        build_system_jit: JIT-wrapped full MNA function returning (J_bcoo, f, Q, I_vsource)
+        n_nodes: Total node count including ground
+        n_vsources: Number of voltage sources (branch currents)
+        nse: Number of stored elements after summing duplicates
+        bcsr_indptr: Pre-computed BCSR row pointers
+        bcsr_indices: Pre-computed BCSR column indices
+        noi_indices: Optional array of NOI node indices to constrain to 0V
+        max_iterations: Maximum NR iterations
+        abstol: Absolute tolerance for convergence
+        max_step: Maximum voltage/current step per iteration
+        coo_sort_perm: Pre-computed COO→CSR permutation
+        csr_segment_ids: Pre-computed segment IDs
+
+    Returns:
+        JIT-compiled UMFPACK solver function with full MNA augmented system
+    """
+    from jax.experimental.sparse import BCSR
+
+    from jax_spice.analysis.umfpack_solver import UMFPACKSolver
+
+    n_unknowns = n_nodes - 1
+    n_augmented = n_unknowns + n_vsources
+    n_total = n_nodes
+
+    use_precomputed = coo_sort_perm is not None and csr_segment_ids is not None
+
+    # Compute NOI masks for node equations only
+    masks = _compute_noi_masks(noi_indices, n_nodes, bcsr_indptr, bcsr_indices)
+    noi_row_mask = masks['noi_row_mask']
+    noi_col_mask = masks['noi_col_mask']
+    noi_diag_indices = masks['noi_diag_indices']
+    noi_res_indices_arr = masks['noi_res_indices_arr']
+
+    # Augmented residual mask
+    if masks['residual_mask'] is not None:
+        residual_mask = jnp.concatenate([
+            masks['residual_mask'],
+            jnp.ones(n_vsources, dtype=jnp.bool_)
+        ])
+    else:
+        residual_mask = None
+
+    # Create UMFPACK solver with cached symbolic factorization
+    umfpack_solver = UMFPACKSolver(bcsr_indptr, bcsr_indices)
+    logger.info("Created UMFPACK full MNA solver with cached symbolic factorization")
+
+    def nr_solve(X_init: Array, vsource_vals: Array, isource_vals: Array,
+                 Q_prev: Array, integ_c0: float | Array,
+                 device_arrays_arg: Dict[str, Array],
+                 gmin: float | Array = 1e-12, gshunt: float | Array = 0.0,
+                 integ_c1: float | Array = 0.0, integ_d1: float | Array = 0.0,
+                 dQdt_prev: Array | None = None,
+                 integ_c2: float | Array = 0.0, Q_prev2: Array | None = None):
+
+        _dQdt_prev = dQdt_prev if dQdt_prev is not None else jnp.zeros(n_unknowns, dtype=jnp.float64)
+        _Q_prev2 = Q_prev2 if Q_prev2 is not None else jnp.zeros(n_unknowns, dtype=jnp.float64)
+
+        init_Q = jnp.zeros(n_unknowns, dtype=jnp.float64)
+        init_state = (
+            X_init,
+            jnp.array(0, dtype=jnp.int32),
+            jnp.array(False),
+            jnp.array(jnp.inf),
+            jnp.array(jnp.inf),
+            init_Q,
+        )
+
+        def cond_fn(state):
+            X, iteration, converged, max_f, max_delta, Q = state
+            return jnp.logical_and(~converged, iteration < max_iterations)
+
+        def body_fn(state):
+            X, iteration, _, _, _, _ = state
+
+            J_bcoo, f, Q, _ = build_system_jit(X, vsource_vals, isource_vals, Q_prev,
+                                                integ_c0, device_arrays_arg, gmin, gshunt,
+                                                integ_c1, integ_d1, _dQdt_prev, integ_c2, _Q_prev2)
+
+            # Check residual convergence
+            if residual_mask is not None:
+                f_masked = jnp.where(residual_mask, f, 0.0)
+                max_f = jnp.max(jnp.abs(f_masked))
+            else:
+                max_f = jnp.max(jnp.abs(f))
+            residual_converged = max_f < abstol
+
+            if use_precomputed:
+                coo_vals = J_bcoo.data
+                sorted_vals = coo_vals[coo_sort_perm]
+                csr_data = jax.ops.segment_sum(sorted_vals, csr_segment_ids, num_segments=nse)
+            else:
+                J_bcoo_dedup = J_bcoo.sum_duplicates(nse=nse)
+                J_bcsr = BCSR.from_bcoo(J_bcoo_dedup)
+                csr_data = J_bcsr.data
+
+            f_solve = f
+            if noi_row_mask is not None:
+                csr_data = csr_data.at[noi_row_mask].set(0.0)
+                csr_data = csr_data.at[noi_col_mask].set(0.0)
+                csr_data = csr_data.at[noi_diag_indices].set(1.0)
+                f_solve = f.at[noi_res_indices_arr].set(0.0)
+
+            delta, _info = umfpack_solver(-f_solve, csr_data)
+
+            # Step limiting
+            max_delta = jnp.max(jnp.abs(delta))
+            scale = jnp.where(max_delta > max_step, max_step / max_delta, 1.0)
+            delta = delta * scale
+
+            # Update X: node voltages and branch currents
+            X_new = X.at[1:n_total].add(delta[:n_unknowns])
+            X_new = X_new.at[n_total:].add(delta[n_unknowns:])
+
+            if noi_indices is not None and len(noi_indices) > 0:
+                X_new = X_new.at[noi_indices].set(0.0)
+
+            delta_converged = max_delta < 1e-12
+            converged = jnp.logical_or(residual_converged, delta_converged)
+
+            return (X_new, iteration + 1, converged, max_f, max_delta, Q)
+
+        X_final, iterations, converged, max_f, max_delta, _ = lax.while_loop(
+            cond_fn, body_fn, init_state
+        )
+
+        _, _, Q_final, I_vsource = build_system_jit(X_final, vsource_vals, isource_vals, Q_prev,
+                                                    integ_c0, device_arrays_arg, gmin, gshunt,
+                                                    integ_c1, integ_d1, _dQdt_prev, integ_c2, _Q_prev2)
+
+        dQdt_final = integ_c0 * Q_final + integ_c1 * Q_prev + integ_d1 * _dQdt_prev + integ_c2 * _Q_prev2
+
+        return X_final, iterations, converged, max_f, Q_final, dQdt_final, I_vsource
+
+    logger.info(f"Creating UMFPACK full MNA solver: V({n_nodes}) + I({n_vsources})")
+    return jax.jit(nr_solve)
+
+
 def make_dense_solver(
     build_system_jit: Callable,
     n_nodes: int,

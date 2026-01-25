@@ -2046,20 +2046,11 @@ class CircuitEngine:
             strategy = FullMNAStrategy(self, use_sparse=use_sparse, backend=backend)
             times, voltages_by_name, stats = strategy.run(t_stop, dt, max_steps)
 
-            # Convert voltages dict {name: array} to 2D array format
-            # FullMNAStrategy returns {node_name: voltage_array}
-            n_steps = len(times)
-            n_nodes = self.num_nodes
-            voltages_array = jnp.zeros((n_steps, n_nodes), dtype=jnp.float64)
-            for name, values in voltages_by_name.items():
-                node_idx = self.node_names.get(name, -1)
-                if 0 < node_idx < n_nodes:
-                    voltages_array = voltages_array.at[:, node_idx].set(values)
-
-            # Add currents to stats if available
+            # FullMNAStrategy returns {node_name: voltage_array} which is the format
+            # expected by TransientResult.voltages
             return TransientResult(
                 times=times if isinstance(times, jnp.ndarray) else jnp.array(times),
-                voltages=voltages_array,
+                voltages=voltages_by_name,
                 currents=stats.get('currents', {}),
                 stats=stats,
             )

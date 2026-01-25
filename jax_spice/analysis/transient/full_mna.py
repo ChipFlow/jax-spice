@@ -31,9 +31,16 @@ from typing import Callable, Dict, Optional, Tuple
 import jax
 import jax.numpy as jnp
 
+import numpy as np
+
 from jax_spice._logging import logger
 from jax_spice.analysis.integration import IntegrationMethod, compute_coefficients
-from jax_spice.analysis.solver_factories import make_dense_full_mna_solver
+from jax_spice.analysis.solver_factories import (
+    make_dense_full_mna_solver,
+    make_sparse_full_mna_solver,
+    make_umfpack_full_mna_solver,
+)
+from jax_spice.analysis.umfpack_solver import is_umfpack_available
 
 from .base import TransientSetup, TransientStrategy
 
@@ -145,8 +152,75 @@ class FullMNAStrategy(TransientStrategy):
                 max_iterations=100, abstol=1e-6, max_step=1.0
             )
         else:
-            # TODO: Add sparse full MNA solver
-            raise NotImplementedError("Sparse full MNA solver not yet implemented")
+            # Sparse path: compute COO→CSR mapping from trial run
+            n_augmented = setup.n_unknowns + n_vsources
+
+            # Trial run to get sparse structure
+            X_trial = jnp.zeros(n_nodes + n_vsources, dtype=jnp.float64)
+            vsource_trial = jnp.zeros(n_vsources, dtype=jnp.float64) if n_vsources > 0 else jnp.zeros(0, dtype=jnp.float64)
+            isource_trial = jnp.zeros(0, dtype=jnp.float64)
+            Q_trial = jnp.zeros(setup.n_unknowns, dtype=jnp.float64)
+
+            J_bcoo_trial, _, _, _ = build_system_fn(
+                X_trial, vsource_trial, isource_trial, Q_trial, 0.0,
+                device_arrays, 1e-12, 0.0, 0.0, 0.0, None, 0.0, None
+            )
+
+            # Extract COO indices
+            coo_rows = np.array(J_bcoo_trial.indices[:, 0])
+            coo_cols = np.array(J_bcoo_trial.indices[:, 1])
+            n_coo = len(coo_rows)
+
+            # Compute linear indices for duplicate detection
+            linear_idx = coo_rows * n_augmented + coo_cols
+
+            # Sort COO by linear index (groups duplicates together)
+            coo_sort_perm = np.argsort(linear_idx)
+            sorted_linear = linear_idx[coo_sort_perm]
+            sorted_rows = coo_rows[coo_sort_perm]
+
+            # Find unique entries
+            unique_linear, coo_to_unique = np.unique(sorted_linear, return_inverse=True)
+            nse = len(unique_linear)
+
+            # Convert sorted unique linear indices back to row/col
+            unique_rows = unique_linear // n_augmented
+            unique_cols = unique_linear % n_augmented
+
+            # Build CSR indptr and indices
+            csr_indptr = np.zeros(n_augmented + 1, dtype=np.int32)
+            for row in unique_rows:
+                csr_indptr[row + 1] += 1
+            csr_indptr = np.cumsum(csr_indptr).astype(np.int32)
+            csr_indices = unique_cols.astype(np.int32)
+
+            # Segment IDs for summing duplicates
+            csr_segment_ids = coo_to_unique.astype(np.int32)
+
+            logger.info(f"Full MNA sparse: {n_coo} COO -> {nse} CSR entries")
+
+            # Use UMFPACK if available (better performance with cached symbolic factorization)
+            if is_umfpack_available():
+                nr_solve = make_umfpack_full_mna_solver(
+                    build_system_jit, n_nodes, n_vsources, nse,
+                    bcsr_indptr=jnp.array(csr_indptr, dtype=jnp.int32),
+                    bcsr_indices=jnp.array(csr_indices, dtype=jnp.int32),
+                    noi_indices=noi_indices,
+                    max_iterations=100, abstol=1e-6, max_step=1.0,
+                    coo_sort_perm=jnp.array(coo_sort_perm, dtype=jnp.int32),
+                    csr_segment_ids=jnp.array(csr_segment_ids, dtype=jnp.int32),
+                )
+            else:
+                # Fallback to JAX's spsolve
+                nr_solve = make_sparse_full_mna_solver(
+                    build_system_jit, n_nodes, n_vsources, nse,
+                    noi_indices=noi_indices,
+                    max_iterations=100, abstol=1e-6, max_step=1.0,
+                    coo_sort_perm=jnp.array(coo_sort_perm, dtype=jnp.int32),
+                    csr_segment_ids=jnp.array(csr_segment_ids, dtype=jnp.int32),
+                    bcsr_indices=jnp.array(csr_indices, dtype=jnp.int32),
+                    bcsr_indptr=jnp.array(csr_indptr, dtype=jnp.int32),
+                )
 
         self._cached_full_mna_solver = nr_solve
         self._cached_full_mna_key = cache_key
