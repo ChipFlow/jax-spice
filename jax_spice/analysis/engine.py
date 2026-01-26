@@ -2177,7 +2177,8 @@ class CircuitEngine:
                       use_while_loop: bool = True,
                       profile_config: Optional['ProfileConfig'] = None,
                       temperature: float = DEFAULT_TEMPERATURE_K,
-                      adaptive_config: Optional['AdaptiveConfig'] = None) -> TransientResult:
+                      adaptive_config: Optional['AdaptiveConfig'] = None,
+                      sparse_solver: str = "auto") -> TransientResult:
         """Run transient analysis using full Modified Nodal Analysis.
 
         All computation is JIT-compiled. Automatically uses sparse matrices
@@ -2202,6 +2203,10 @@ class CircuitEngine:
             temperature: Simulation temperature in Kelvin (default: 300.15K = 27°C)
             adaptive_config: Configuration for adaptive timestep control. If None,
                              uses default AdaptiveConfig with LTE-based timestep adjustment.
+            sparse_solver: Sparse solver to use when use_sparse=True:
+                - 'auto': Use UMFPACK if available, else JAX spsolve (default)
+                - 'umfpack': Force UMFPACK (requires scikit-umfpack)
+                - 'jax': Force JAX native spsolve (no Python callback overhead)
 
         Returns:
             TransientResult with times, voltages, and stats
@@ -2286,7 +2291,7 @@ class CircuitEngine:
 
         # Cache strategy instance for JIT reuse across calls
         # Key includes all parameters that affect strategy construction
-        cache_key = (use_sparse, backend,
+        cache_key = (use_sparse, backend, sparse_solver,
                      config.lte_ratio, config.redo_factor, config.reltol,
                      config.abstol, config.min_dt, config.max_dt)
 
@@ -2301,11 +2306,12 @@ class CircuitEngine:
                 del self._full_mna_strategy_cache[oldest_key]
                 logger.debug(f"Evicted oldest strategy cache entry")
 
-            logger.info(f"Using FullMNAStrategy ({self.num_nodes} nodes, "
-                       f"{'sparse' if use_sparse else 'dense'}, "
+            solver_info = f"sparse_solver={sparse_solver}" if use_sparse else "dense"
+            logger.info(f"Using FullMNAStrategy ({self.num_nodes} nodes, {solver_info}, "
                        f"lte_ratio={config.lte_ratio}, redo_factor={config.redo_factor})")
             strategy = FullMNAStrategy(self, use_sparse=use_sparse,
-                                       backend=backend, config=config)
+                                       backend=backend, config=config,
+                                       sparse_solver=sparse_solver)
             self._full_mna_strategy_cache[cache_key] = strategy
         else:
             strategy = self._full_mna_strategy_cache[cache_key]

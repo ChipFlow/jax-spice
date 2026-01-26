@@ -118,11 +118,25 @@ class FullMNAStrategy(TransientStrategy):
         return "full_mna"
 
     def __init__(self, runner, use_sparse: bool = False, backend: str = "cpu",
-                 config: Optional[AdaptiveConfig] = None):
+                 config: Optional[AdaptiveConfig] = None,
+                 sparse_solver: str = "auto"):
+        """Initialize FullMNAStrategy.
+
+        Args:
+            runner: CircuitEngine instance
+            use_sparse: Use sparse matrices (True) or dense (False)
+            backend: 'cpu' or 'gpu'
+            config: AdaptiveConfig for timestep control
+            sparse_solver: Sparse solver to use when use_sparse=True:
+                - 'auto': Use UMFPACK if available, else JAX spsolve (default)
+                - 'umfpack': Force UMFPACK (requires scikit-umfpack)
+                - 'jax': Force JAX native spsolve (no Python callback overhead)
+        """
         super().__init__(runner, use_sparse=use_sparse, backend=backend)
         self._cached_full_mna_solver: Optional[Callable] = None
         self._cached_full_mna_key: Optional[Tuple] = None
         self.config = config or AdaptiveConfig()
+        self.sparse_solver = sparse_solver
         self._warmup_steps = 5  # Steps before enabling LTE rejection
         # Cache JIT-compiled while_loop keyed by circuit structure
         # Note: Using Any since JIT-compiled functions have complex types
@@ -171,7 +185,7 @@ class FullMNAStrategy(TransientStrategy):
         n_nodes = setup.n_unknowns + 1
         n_vsources = setup.n_branches
 
-        cache_key = (n_nodes, n_vsources, self.use_dense)
+        cache_key = (n_nodes, n_vsources, self.use_dense, self.sparse_solver)
 
         if self._cached_full_mna_solver is not None and self._cached_full_mna_key == cache_key:
             return self._cached_full_mna_solver
@@ -260,8 +274,27 @@ class FullMNAStrategy(TransientStrategy):
 
             logger.info(f"Full MNA sparse: {n_coo} COO -> {nse} CSR entries")
 
-            # Use UMFPACK if available (better performance with cached symbolic factorization)
-            if is_umfpack_available():
+            # Select sparse solver based on sparse_solver parameter
+            use_umfpack = False
+            if self.sparse_solver == "auto":
+                use_umfpack = is_umfpack_available()
+            elif self.sparse_solver == "umfpack":
+                if not is_umfpack_available():
+                    raise RuntimeError(
+                        "sparse_solver='umfpack' requested but scikit-umfpack not installed. "
+                        "Install with: pip install scikit-umfpack"
+                    )
+                use_umfpack = True
+            elif self.sparse_solver == "jax":
+                use_umfpack = False
+            else:
+                raise ValueError(
+                    f"Unknown sparse_solver: {self.sparse_solver}. "
+                    "Use 'auto', 'umfpack', or 'jax'."
+                )
+
+            if use_umfpack:
+                logger.info("Using UMFPACK sparse solver (cached symbolic factorization)")
                 nr_solve = make_umfpack_full_mna_solver(
                     build_system_jit, n_nodes, n_vsources, nse,
                     bcsr_indptr=jnp.array(csr_indptr, dtype=jnp.int32),
@@ -272,7 +305,7 @@ class FullMNAStrategy(TransientStrategy):
                     csr_segment_ids=jnp.array(csr_segment_ids, dtype=jnp.int32),
                 )
             else:
-                # Fallback to JAX's spsolve
+                logger.info("Using JAX native spsolve (no Python callback overhead)")
                 nr_solve = make_sparse_full_mna_solver(
                     build_system_jit, n_nodes, n_vsources, nse,
                     noi_indices=noi_indices,
