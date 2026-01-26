@@ -1028,6 +1028,17 @@ def _make_full_mna_while_loop_fns(
     gshunt_target = config.gshunt_target
     gshunt_steps = config.gshunt_steps
 
+    # Progress reporting
+    progress_interval = config.progress_interval
+
+    def _progress_callback(step, t, t_stop, dt, rejected):
+        """Print progress during transient simulation."""
+        pct = 100.0 * float(t) / float(t_stop) if float(t_stop) > 0 else 0.0
+        print(
+            f"Step {int(step):6d}: t={float(t):.3e}s ({pct:5.1f}%), "
+            f"dt={float(dt):.2e}s, rejected={int(rejected)}"
+        )
+
     def cond_fn(state: FullMNAState) -> jax.Array:
         """Continue while t < t_stop and step_idx < max_steps."""
         return (state.t < state.t_stop) & (state.step_idx < max_steps)
@@ -1152,6 +1163,16 @@ def _make_full_mna_while_loop_fns(
         )
         new_max_dt = jnp.where(
             accept_step, jnp.maximum(state.max_dt_used, dt_cur), state.max_dt_used
+        )
+
+        # Progress reporting (every progress_interval steps)
+        should_report = (progress_interval > 0) & (new_step_idx % progress_interval == 0)
+        jax.lax.cond(
+            should_report,
+            lambda: jax.debug.callback(
+                _progress_callback, new_step_idx, new_t, state.t_stop, new_dt, new_rejected
+            ),
+            lambda: None,
         )
 
         return FullMNAState(

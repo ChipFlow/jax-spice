@@ -40,6 +40,8 @@ class AdaptiveConfig:
         gshunt_init: Initial gshunt value for convergence aid. Default 0.0.
         gshunt_steps: Number of steps to ramp gshunt from init to target. Default 5.
         gshunt_target: Final gshunt value after ramping. Default 0.0.
+        progress_interval: Report progress every N steps via jax.debug.callback. Default 100.
+            Set to 0 to disable progress reporting.
     """
 
     lte_ratio: float = 3.5
@@ -55,6 +57,7 @@ class AdaptiveConfig:
     gshunt_init: float = 0.0
     gshunt_steps: int = 5
     gshunt_target: float = 0.0
+    progress_interval: int = 100  # Report progress every N steps (0 to disable)
 
 
 def predict_voltage_jax(
