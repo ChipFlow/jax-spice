@@ -22,7 +22,7 @@ from jax_spice.analysis.corners import (
     create_pvt_corners,
     create_standard_corners,
 )
-from jax_spice.analysis.engine import CircuitEngine, TransientResult
+from jax_spice.analysis.engine import CircuitEngine, TransientResult, warmup_models
 from jax_spice.analysis.gpu_backend import (
     BackendConfig,
     is_gpu_available,
@@ -87,6 +87,7 @@ __all__ = [
     "AnalysisContext",
     "CircuitEngine",
     "TransientResult",
+    "warmup_models",
     # MNA types
     "DeviceInfo",
     "DeviceType",

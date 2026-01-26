@@ -34,7 +34,7 @@ warnings.filterwarnings('ignore', category=MatrixRankWarning)
 # Note: solver.py contains standalone NR solvers (newton_solve) used by tests
 # The engine uses its own nr_solve with analytic jacobians from OpenVAF
 from jax_spice._logging import logger
-from jax_spice import get_float_dtype
+from jax_spice import get_float_dtype, configure_xla_cache
 
 from jax_spice.analysis.homotopy import (
     HomotopyConfig,
@@ -87,6 +87,208 @@ MAX_NR_ITERATIONS = 100  # Maximum Newton-Raphson iterations per timestep
 # For 10nV voltage accuracy: abstol = 1e12 * 10e-9 = 1e4 (10kA)
 # Previous value of 1e-3 demanded femtovolt accuracy (unrealistic)
 DEFAULT_ABSTOL = 1e4  # 10kA - corresponds to ~10nV voltage accuracy with G=1e12
+
+
+# OpenVAF model sources (duplicated from CircuitEngine for standalone use)
+# Keys are device types, values are (base_path_key, relative_path) tuples
+_OPENVAF_MODEL_PATHS = {
+    'psp103': ('integration_tests', 'PSP103/psp103.va'),
+    'resistor': ('vacask', 'resistor.va'),
+    'capacitor': ('vacask', 'capacitor.va'),
+    'diode': ('vacask', 'diode.va'),
+    'sp_diode': ('vacask', 'spice/sn/diode.va'),
+}
+
+
+def warmup_models(
+    model_types: List[str] | None = None,
+    trigger_xla: bool = True,
+    log_fn: Callable[[str], None] | None = None,
+) -> Dict[str, Any]:
+    """Pre-compile OpenVAF models and optionally trigger XLA compilation.
+
+    This function compiles device models ahead of time and caches them,
+    reducing startup time for subsequent simulations. When trigger_xla=True,
+    it also runs dummy evaluations to trigger XLA compilation, which is
+    cached to disk via JAX_COMPILATION_CACHE_DIR.
+
+    Args:
+        model_types: List of model types to compile (e.g., ['psp103', 'resistor']).
+            If None, compiles all available models.
+        trigger_xla: If True, run dummy evaluations to trigger XLA compilation.
+            This takes longer but gives fastest subsequent simulation startup.
+        log_fn: Optional logging function for progress output.
+
+    Returns:
+        Dict mapping model_type to compiled model info dict.
+
+    Example:
+        >>> from jax_spice.analysis.engine import warmup_models
+        >>> # Warmup specific models
+        >>> warmup_models(['psp103', 'resistor'])
+        >>> # Warmup all models
+        >>> warmup_models()
+
+    Note:
+        This function automatically configures the XLA compilation cache
+        if not already set.
+    """
+    global _COMPILED_MODEL_CACHE
+
+    if not HAS_OPENVAF:
+        raise ImportError("OpenVAF support required but openvaf_py not available")
+
+    # Configure XLA cache
+    configure_xla_cache()
+
+    def log(msg: str):
+        if log_fn:
+            log_fn(msg)
+        else:
+            print(msg)
+
+    # Determine which models to compile
+    if model_types is None:
+        model_types = list(_OPENVAF_MODEL_PATHS.keys())
+
+    # Base paths for VA model sources
+    project_root = Path(__file__).parent.parent.parent
+    base_paths = {
+        'integration_tests': project_root / "vendor" / "OpenVAF" / "integration_tests",
+        'vacask': project_root / "vendor" / "VACASK" / "devices",
+    }
+
+    log(f"Warming up models: {model_types}")
+    results = {}
+
+    for model_type in model_types:
+        import time
+        import pickle
+
+        # Check if already cached
+        if model_type in _COMPILED_MODEL_CACHE:
+            cached = _COMPILED_MODEL_CACHE[model_type]
+            log(f"  {model_type}: already cached ({len(cached['param_names'])} params)")
+            results[model_type] = cached
+            continue
+
+        model_info = _OPENVAF_MODEL_PATHS.get(model_type)
+        if not model_info:
+            log(f"  {model_type}: unknown model type, skipping")
+            continue
+
+        base_key, va_path = model_info
+        base_path = base_paths.get(base_key)
+        if not base_path:
+            log(f"  {model_type}: unknown base path key {base_key}, skipping")
+            continue
+
+        full_path = base_path / va_path
+        if not full_path.exists():
+            log(f"  {model_type}: VA file not found at {full_path}, skipping")
+            continue
+
+        t0 = time.perf_counter()
+
+        from openvaf_jax.cache import compute_va_hash, get_model_cache_path
+
+        # Try to load from persistent MIR cache
+        va_hash = compute_va_hash(full_path)
+        cache_path = get_model_cache_path(model_type, va_hash)
+        mir_cache_file = cache_path / 'mir_data.pkl'
+
+        translator = None
+
+        if mir_cache_file.exists():
+            try:
+                log(f"  {model_type}: loading from MIR cache...")
+                with open(mir_cache_file, 'rb') as f:
+                    cached_data = pickle.load(f)
+                translator = openvaf_jax.OpenVAFToJAX.from_cache(cached_data)
+                t1 = time.perf_counter()
+                log(f"  {model_type}: loaded from cache in {t1-t0:.1f}s")
+            except Exception as e:
+                log(f"  {model_type}: cache load failed ({e}), recompiling...")
+                translator = None
+
+        if translator is None:
+            # Compile from scratch
+            log(f"  {model_type}: compiling VA...")
+            modules = openvaf_py.compile_va(str(full_path))
+            t1 = time.perf_counter()
+            log(f"  {model_type}: VA compiled in {t1-t0:.1f}s")
+
+            if not modules:
+                log(f"  {model_type}: compilation failed, skipping")
+                continue
+
+            module = modules[0]
+            translator = openvaf_jax.OpenVAFToJAX(module)
+
+            # Save to MIR cache
+            try:
+                cache_path.mkdir(parents=True, exist_ok=True)
+                cache_data = translator.to_cache()
+                with open(mir_cache_file, 'wb') as f:
+                    pickle.dump(cache_data, f)
+                log(f"  {model_type}: saved MIR cache")
+            except Exception as e:
+                log(f"  {model_type}: failed to save cache: {e}")
+
+        # Generate init function
+        t2 = time.perf_counter()
+        init_fn, init_meta = translator.translate_init_array()
+        t3 = time.perf_counter()
+        log(f"  {model_type}: init_fn generated in {t3-t2:.1f}s")
+
+        # Generate eval function with simple split (all shared, voltage varying)
+        # This is the same split used by _prepare_transient_setup
+        n_eval_params = len(translator.params)
+        eval_param_kinds = list(translator.module.param_kinds)
+        shared_indices = list(range(n_eval_params))
+        varying_indices = [i for i, kind in enumerate(eval_param_kinds) if kind == 'voltage']
+
+        eval_fn, eval_meta = translator.translate_eval_array_with_cache_split(
+            shared_indices, varying_indices
+        )
+        t4 = time.perf_counter()
+        log(f"  {model_type}: eval_fn generated in {t4-t3:.1f}s")
+
+        # Cache the compiled model
+        compiled = {
+            'translator': translator,
+            'init_fn': init_fn,
+            'init_meta': init_meta,
+            'eval_fn': eval_fn,
+            'eval_meta': eval_meta,
+            'param_names': init_meta['param_names'],
+            'nodes': translator.module.nodes,
+        }
+        _COMPILED_MODEL_CACHE[model_type] = compiled
+        results[model_type] = compiled
+
+        # Trigger XLA compilation with dummy data
+        if trigger_xla:
+            log(f"  {model_type}: triggering XLA compilation...")
+            try:
+                n_devices = 1
+                n_init_params = len(init_meta['param_names'])
+                n_cache = init_meta['cache_size']
+
+                # Dummy init call to trigger XLA compilation
+                dummy_init_inputs = jnp.zeros((n_devices, n_init_params))
+                vmapped_init = jax.jit(jax.vmap(init_fn))
+                _ = vmapped_init(dummy_init_inputs)
+
+                t5 = time.perf_counter()
+                log(f"  {model_type}: XLA warmup done in {t5-t4:.1f}s")
+            except Exception as e:
+                log(f"  {model_type}: XLA warmup failed: {e}")
+
+        t_total = time.perf_counter() - t0
+        log(f"  {model_type}: total warmup time {t_total:.1f}s")
+
+    return results
 
 
 @dataclass
@@ -245,6 +447,10 @@ class CircuitEngine:
     }
 
     def __init__(self, sim_path: Path):
+        # Configure XLA compilation cache (uses XDG cache dir by default)
+        # This enables caching compiled XLA programs across sessions
+        configure_xla_cache()
+
         self.sim_path = Path(sim_path)
         self.circuit = None
         self.devices = []
@@ -1346,6 +1552,7 @@ class CircuitEngine:
 
             # Get cache from static_inputs if device_cache is None
             if device_cache is None:
+                logger.info(f"No device cache for {model_type}, creating")
                 _, _, _, _, cache, _ = static_inputs_cache[model_type]
                 device_cache = cache
 
@@ -1364,6 +1571,7 @@ class CircuitEngine:
                 logger.info(f"  {model_type}: XLA compilation complete ({t1-t0:.2f}s)")
             except Exception as e:
                 logger.warning(f"  {model_type}: warmup failed: {e}")
+            logger.info(f"{model_type} device model ready")
 
     def _build_stamp_index_mapping(
         self,
@@ -2004,6 +2212,23 @@ class CircuitEngine:
             self._transient_setup_cache = None
             self._transient_setup_key = None
             logger.info(f"Temperature changed to {temperature}K ({temperature - 273.15:.1f}°C)")
+
+        # Emit deprecation warnings for ignored parameters
+        if use_scan:
+            warnings.warn(
+                "use_scan parameter is deprecated and ignored. "
+                "Use adaptive_config for timestep control.",
+                DeprecationWarning,
+                stacklevel=2
+            )
+        if use_while_loop is not True:  # Only warn if explicitly set to False
+            warnings.warn(
+                "use_while_loop parameter is deprecated and ignored. "
+                "Use adaptive_config for timestep control.",
+                DeprecationWarning,
+                stacklevel=2
+            )
+
         from jax_spice.analysis.gpu_backend import select_backend
 
         if t_stop is None:
@@ -2032,7 +2257,9 @@ class CircuitEngine:
         if use_sparse is None:
             use_sparse = False
 
-        from jax_spice.analysis.transient import AdaptiveConfig, FullMNAStrategy
+        from jax_spice.analysis.transient import (
+            AdaptiveConfig, FullMNAStrategy, extract_results
+        )
 
         # Use provided config or create default
         config = adaptive_config or AdaptiveConfig()
@@ -2067,6 +2294,13 @@ class CircuitEngine:
             self._full_mna_strategy_cache = {}
 
         if cache_key not in self._full_mna_strategy_cache:
+            # LRU eviction: limit cache size to prevent unbounded growth
+            MAX_STRATEGY_CACHE_SIZE = 8
+            if len(self._full_mna_strategy_cache) >= MAX_STRATEGY_CACHE_SIZE:
+                oldest_key = next(iter(self._full_mna_strategy_cache))
+                del self._full_mna_strategy_cache[oldest_key]
+                logger.debug(f"Evicted oldest strategy cache entry")
+
             logger.info(f"Using FullMNAStrategy ({self.num_nodes} nodes, "
                        f"{'sparse' if use_sparse else 'dense'}, "
                        f"lte_ratio={config.lte_ratio}, redo_factor={config.redo_factor})")
@@ -2077,12 +2311,15 @@ class CircuitEngine:
             strategy = self._full_mna_strategy_cache[cache_key]
             logger.debug(f"Reusing cached FullMNAStrategy")
 
-        times, voltages, stats = strategy.run(t_stop, dt, max_steps)
+        times_full, V_out, stats = strategy.run(t_stop, dt, max_steps)
+
+        # Extract sliced numpy results for TransientResult
+        times_np, voltages, currents = extract_results(times_full, V_out, stats)
 
         return TransientResult(
-            times=times if isinstance(times, jnp.ndarray) else jnp.array(times),
-            voltages=voltages,
-            currents=stats.get('currents', {}),
+            times=jnp.asarray(times_np),
+            voltages={k: jnp.asarray(v) for k, v in voltages.items()},
+            currents={k: jnp.asarray(v) for k, v in currents.items()},
             stats=stats,
         )
 

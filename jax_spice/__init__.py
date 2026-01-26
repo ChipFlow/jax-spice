@@ -1,5 +1,7 @@
 """JAX-SPICE: GPU-Accelerated Analog Circuit Simulator"""
 import logging
+import os
+from pathlib import Path
 
 import jax
 
@@ -7,6 +9,71 @@ __version__ = "0.1.0"
 
 
 logger = logging.getLogger("jax_spice")
+
+
+def _get_xdg_cache_dir() -> Path:
+    """Get XDG cache directory, following XDG Base Directory Specification.
+
+    Returns:
+        Path to cache directory ($XDG_CACHE_HOME or ~/.cache)
+    """
+    xdg_cache = os.environ.get("XDG_CACHE_HOME")
+    if xdg_cache:
+        return Path(xdg_cache)
+    return Path.home() / ".cache"
+
+
+def configure_xla_cache(cache_dir: Path | str | None = None) -> Path | None:
+    """Configure JAX XLA compilation cache directory.
+
+    This enables caching of compiled XLA programs across Python sessions,
+    providing significant speedup for repeated simulations with the same
+    circuit/model configurations.
+
+    Args:
+        cache_dir: Cache directory path. If None (default), uses
+            $XDG_CACHE_HOME/jax_spice/xla or ~/.cache/jax_spice/xla.
+            Set to empty string "" to disable caching.
+
+    Returns:
+        Path to the cache directory, or None if caching is disabled.
+
+    Note:
+        This must be called before any JAX compilation occurs.
+        It's called automatically on import with default settings.
+    """
+    # Check if user has already set the cache dir
+    if "JAX_COMPILATION_CACHE_DIR" in os.environ:
+        existing = os.environ["JAX_COMPILATION_CACHE_DIR"]
+        if existing:
+            logger.debug(f"Using existing JAX_COMPILATION_CACHE_DIR: {existing}")
+            return Path(existing)
+        return None
+
+    # Disable caching if explicitly requested
+    if cache_dir == "":
+        logger.debug("XLA compilation caching disabled")
+        return None
+
+    # Use provided path or default XDG location
+    if cache_dir is None:
+        cache_path = _get_xdg_cache_dir() / "jax_spice" / "xla"
+    else:
+        cache_path = Path(cache_dir)
+
+    # Create directory if it doesn't exist
+    cache_path.mkdir(parents=True, exist_ok=True)
+
+    # Set environment variable for JAX
+    os.environ["JAX_COMPILATION_CACHE_DIR"] = str(cache_path)
+    logger.debug(f"XLA compilation cache: {cache_path}")
+
+    return cache_path
+
+
+# Note: XLA cache is configured lazily in CircuitEngine.__init__
+# to avoid side effects on import. Call configure_xla_cache() explicitly
+# if you need caching without using CircuitEngine.
 
 def _backend_supports_x64() -> bool:
     """Check if the current JAX backend supports 64-bit floats.
@@ -162,7 +229,7 @@ def build_simparams(metadata: dict, values: dict | None = None) -> list:
 
 
 # Core simulation API
-from jax_spice.analysis import CircuitEngine, TransientResult
+from jax_spice.analysis import CircuitEngine, TransientResult, warmup_models
 
 # Profiling utilities (lazy import to avoid loading unless needed)
 from jax_spice.profiling import (
@@ -178,9 +245,12 @@ __all__ = [
     # Core API
     "CircuitEngine",
     "TransientResult",
+    "warmup_models",
     # Precision configuration
     "configure_precision",
     "get_precision_info",
+    # XLA cache configuration
+    "configure_xla_cache",
     # Simparam helpers
     "build_simparams",
     "SIMPARAM_DEFAULTS",
