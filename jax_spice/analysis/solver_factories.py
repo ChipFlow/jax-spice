@@ -226,8 +226,12 @@ def make_dense_full_mna_solver(
                 J = J.at[noi_res_idx, noi_res_idx].set(1.0)
                 f = f.at[noi_res_idx].set(0.0)
 
+            # Add regularization for numerical stability (prevents singular matrix errors)
+            reg = 1e-14 * jnp.eye(J.shape[0], dtype=J.dtype)
+            J_reg = J + reg
+
             # Solve linear system J @ delta = -f
-            delta = jax.scipy.linalg.solve(J, -f)
+            delta = jax.scipy.linalg.solve(J_reg, -f)
 
             # Step limiting
             max_delta = jnp.max(jnp.abs(delta))
@@ -686,8 +690,12 @@ def make_dense_solver(
                 J = J.at[noi_res_idx, noi_res_idx].set(1.0)
                 f = f.at[noi_res_idx].set(0.0)
 
+            # Add regularization for numerical stability (prevents singular matrix errors)
+            reg = 1e-14 * jnp.eye(J.shape[0], dtype=J.dtype)
+            J_reg = J + reg
+
             # Solve linear system
-            delta = jax.scipy.linalg.solve(J, -f)
+            delta = jax.scipy.linalg.solve(J_reg, -f)
 
             # Step limiting
             max_delta = jnp.max(jnp.abs(delta))
