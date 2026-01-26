@@ -2204,9 +2204,10 @@ class CircuitEngine:
             adaptive_config: Configuration for adaptive timestep control. If None,
                              uses default AdaptiveConfig with LTE-based timestep adjustment.
             sparse_solver: Sparse solver to use when use_sparse=True:
-                - 'auto': Use UMFPACK if available, else JAX spsolve (default)
-                - 'umfpack': Force UMFPACK (requires scikit-umfpack)
-                - 'jax': Force JAX native spsolve (no Python callback overhead)
+                - 'auto': Use klujax if available, else UMFPACK, else JAX spsolve (default)
+                - 'klujax': Use klujax (SuiteSparse KLU) - fastest, no callback overhead
+                - 'umfpack': Use UMFPACK via pure_callback (requires scikit-umfpack)
+                - 'jax': Use JAX spsolve (falls back to scipy on CPU)
 
         Returns:
             TransientResult with times, voltages, and stats

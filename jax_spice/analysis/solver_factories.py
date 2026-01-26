@@ -596,6 +596,159 @@ def make_umfpack_full_mna_solver(
     return jax.jit(nr_solve)
 
 
+def is_klujax_available() -> bool:
+    """Check if klujax is available for use."""
+    try:
+        import klujax
+        return True
+    except ImportError:
+        return False
+
+
+def make_klujax_full_mna_solver(
+    build_system_jit: Callable,
+    n_nodes: int,
+    n_vsources: int,
+    nse: int,
+    coo_rows: Array,
+    coo_cols: Array,
+    coo_sort_perm: Array,
+    csr_segment_ids: Array,
+    noi_indices: Optional[Array] = None,
+    max_iterations: int = MAX_NR_ITERATIONS,
+    abstol: float = DEFAULT_ABSTOL,
+    max_step: float = 1.0,
+) -> Callable:
+    """Create a JIT-compiled KLU NR solver for full MNA formulation.
+
+    Uses klujax (SuiteSparse KLU) for fast CPU solving without Python callback
+    overhead. KLU is specifically optimized for circuit simulation matrices.
+
+    Args:
+        build_system_jit: JIT-wrapped full MNA function returning (J_bcoo, f, Q, I_vsource)
+        n_nodes: Total node count including ground
+        n_vsources: Number of voltage sources (branch currents)
+        nse: Number of stored elements after summing duplicates
+        coo_rows: Pre-computed unique COO row indices
+        coo_cols: Pre-computed unique COO column indices
+        coo_sort_perm: Pre-computed COO→sorted permutation
+        csr_segment_ids: Pre-computed segment IDs for duplicate summing
+        noi_indices: Optional array of NOI node indices to constrain to 0V
+        max_iterations: Maximum NR iterations
+        abstol: Absolute tolerance for convergence
+        max_step: Maximum voltage/current step per iteration
+
+    Returns:
+        JIT-compiled KLU solver function with full MNA augmented system
+    """
+    import klujax
+
+    n_unknowns = n_nodes - 1
+    n_augmented = n_unknowns + n_vsources
+    n_total = n_nodes
+
+    # Compute NOI masks - for klujax we use simpler masking since we work with COO
+    # We mask residuals but let KLU handle the matrix structure
+    if noi_indices is not None and len(noi_indices) > 0:
+        noi_res_idx = noi_indices - 1  # Convert to residual indices
+        noi_res_idx = jnp.clip(noi_res_idx, 0, n_unknowns - 1)
+        residual_mask = jnp.ones(n_augmented, dtype=jnp.bool_)
+        residual_mask = residual_mask.at[noi_res_idx].set(False)
+    else:
+        noi_res_idx = None
+        residual_mask = None
+
+    # Convert COO indices to int32 for klujax
+    coo_rows_i32 = coo_rows.astype(jnp.int32)
+    coo_cols_i32 = coo_cols.astype(jnp.int32)
+
+    def nr_solve(X_init: Array, vsource_vals: Array, isource_vals: Array,
+                 Q_prev: Array, integ_c0: float | Array,
+                 device_arrays_arg: Dict[str, Array],
+                 gmin: float | Array = 1e-12, gshunt: float | Array = 0.0,
+                 integ_c1: float | Array = 0.0, integ_d1: float | Array = 0.0,
+                 dQdt_prev: Array | None = None,
+                 integ_c2: float | Array = 0.0, Q_prev2: Array | None = None):
+
+        _dQdt_prev = dQdt_prev if dQdt_prev is not None else jnp.zeros(n_unknowns, dtype=jnp.float64)
+        _Q_prev2 = Q_prev2 if Q_prev2 is not None else jnp.zeros(n_unknowns, dtype=jnp.float64)
+
+        init_Q = jnp.zeros(n_unknowns, dtype=jnp.float64)
+        init_state = (
+            X_init,
+            jnp.array(0, dtype=jnp.int32),
+            jnp.array(False),
+            jnp.array(jnp.inf),
+            jnp.array(jnp.inf),
+            init_Q,
+        )
+
+        def cond_fn(state):
+            X, iteration, converged, max_f, max_delta, Q = state
+            return jnp.logical_and(~converged, iteration < max_iterations)
+
+        def body_fn(state):
+            X, iteration, _, _, _, _ = state
+
+            J_bcoo, f, Q, _ = build_system_jit(X, vsource_vals, isource_vals, Q_prev,
+                                                integ_c0, device_arrays_arg, gmin, gshunt,
+                                                integ_c1, integ_d1, _dQdt_prev, integ_c2, _Q_prev2)
+
+            # Check residual convergence
+            if residual_mask is not None:
+                f_masked = jnp.where(residual_mask, f, 0.0)
+                max_f = jnp.max(jnp.abs(f_masked))
+            else:
+                max_f = jnp.max(jnp.abs(f))
+            residual_converged = max_f < abstol
+
+            # Sum duplicates using pre-computed permutation (same as UMFPACK solver)
+            coo_vals = J_bcoo.data
+            sorted_vals = coo_vals[coo_sort_perm]
+            coo_data = jax.ops.segment_sum(sorted_vals, csr_segment_ids, num_segments=nse)
+
+            # Handle NOI constraints by modifying f
+            f_solve = f
+            if noi_res_idx is not None:
+                f_solve = f.at[noi_res_idx].set(0.0)
+
+            # Solve using klujax (COO format)
+            # Note: klujax expects row/col indices in int32 and data/rhs in float64
+            delta = klujax.solve(coo_rows_i32, coo_cols_i32, coo_data, -f_solve)
+
+            # Step limiting
+            max_delta = jnp.max(jnp.abs(delta))
+            scale = jnp.where(max_delta > max_step, max_step / max_delta, 1.0)
+            delta = delta * scale
+
+            # Update X: node voltages and branch currents
+            X_new = X.at[1:n_total].add(delta[:n_unknowns])
+            X_new = X_new.at[n_total:].add(delta[n_unknowns:])
+
+            if noi_indices is not None and len(noi_indices) > 0:
+                X_new = X_new.at[noi_indices].set(0.0)
+
+            delta_converged = max_delta < 1e-12
+            converged = jnp.logical_or(residual_converged, delta_converged)
+
+            return (X_new, iteration + 1, converged, max_f, max_delta, Q)
+
+        X_final, iterations, converged, max_f, max_delta, _ = lax.while_loop(
+            cond_fn, body_fn, init_state
+        )
+
+        _, _, Q_final, I_vsource = build_system_jit(X_final, vsource_vals, isource_vals, Q_prev,
+                                                    integ_c0, device_arrays_arg, gmin, gshunt,
+                                                    integ_c1, integ_d1, _dQdt_prev, integ_c2, _Q_prev2)
+
+        dQdt_final = integ_c0 * Q_final + integ_c1 * Q_prev + integ_d1 * _dQdt_prev + integ_c2 * _Q_prev2
+
+        return X_final, iterations, converged, max_f, Q_final, dQdt_final, I_vsource
+
+    logger.info(f"Creating klujax full MNA solver: V({n_nodes}) + I({n_vsources}), nse={nse}")
+    return jax.jit(nr_solve)
+
+
 def make_dense_solver(
     build_system_jit: Callable,
     n_nodes: int,

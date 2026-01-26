@@ -38,6 +38,8 @@ from jax_spice.analysis.solver_factories import (
     make_dense_full_mna_solver,
     make_sparse_full_mna_solver,
     make_umfpack_full_mna_solver,
+    make_klujax_full_mna_solver,
+    is_klujax_available,
 )
 from jax_spice.analysis.umfpack_solver import is_umfpack_available
 
@@ -128,9 +130,10 @@ class FullMNAStrategy(TransientStrategy):
             backend: 'cpu' or 'gpu'
             config: AdaptiveConfig for timestep control
             sparse_solver: Sparse solver to use when use_sparse=True:
-                - 'auto': Use UMFPACK if available, else JAX spsolve (default)
-                - 'umfpack': Force UMFPACK (requires scikit-umfpack)
-                - 'jax': Force JAX native spsolve (no Python callback overhead)
+                - 'auto': Use klujax if available, else UMFPACK, else JAX spsolve (default)
+                - 'klujax': Use klujax (SuiteSparse KLU) - fastest, no callback overhead
+                - 'umfpack': Use UMFPACK via pure_callback (requires scikit-umfpack)
+                - 'jax': Use JAX spsolve (falls back to scipy on CPU)
         """
         super().__init__(runner, use_sparse=use_sparse, backend=backend)
         self._cached_full_mna_solver: Optional[Callable] = None
@@ -275,25 +278,41 @@ class FullMNAStrategy(TransientStrategy):
             logger.info(f"Full MNA sparse: {n_coo} COO -> {nse} CSR entries")
 
             # Select sparse solver based on sparse_solver parameter
-            use_umfpack = False
-            if self.sparse_solver == "auto":
-                use_umfpack = is_umfpack_available()
-            elif self.sparse_solver == "umfpack":
+            # Priority: klujax (fastest, no callback) > umfpack > jax spsolve
+            solver_choice = self.sparse_solver
+
+            if solver_choice == "auto":
+                # Prefer klujax if available (fastest), else UMFPACK, else JAX spsolve
+                if is_klujax_available():
+                    solver_choice = "klujax"
+                elif is_umfpack_available():
+                    solver_choice = "umfpack"
+                else:
+                    solver_choice = "jax"
+
+            if solver_choice == "klujax":
+                if not is_klujax_available():
+                    raise RuntimeError(
+                        "sparse_solver='klujax' requested but klujax not installed. "
+                        "Install with: pip install klujax"
+                    )
+                logger.info("Using klujax sparse solver (SuiteSparse KLU, no Python callback)")
+                # klujax needs the unique COO indices and the same permutation/segment data as UMFPACK
+                nr_solve = make_klujax_full_mna_solver(
+                    build_system_jit, n_nodes, n_vsources, nse,
+                    coo_rows=jnp.array(unique_rows, dtype=jnp.int32),
+                    coo_cols=jnp.array(unique_cols, dtype=jnp.int32),
+                    coo_sort_perm=jnp.array(coo_sort_perm, dtype=jnp.int32),
+                    csr_segment_ids=jnp.array(csr_segment_ids, dtype=jnp.int32),
+                    noi_indices=noi_indices,
+                    max_iterations=100, abstol=1e-6, max_step=1.0,
+                )
+            elif solver_choice == "umfpack":
                 if not is_umfpack_available():
                     raise RuntimeError(
                         "sparse_solver='umfpack' requested but scikit-umfpack not installed. "
                         "Install with: pip install scikit-umfpack"
                     )
-                use_umfpack = True
-            elif self.sparse_solver == "jax":
-                use_umfpack = False
-            else:
-                raise ValueError(
-                    f"Unknown sparse_solver: {self.sparse_solver}. "
-                    "Use 'auto', 'umfpack', or 'jax'."
-                )
-
-            if use_umfpack:
                 logger.info("Using UMFPACK sparse solver (cached symbolic factorization)")
                 nr_solve = make_umfpack_full_mna_solver(
                     build_system_jit, n_nodes, n_vsources, nse,
@@ -304,8 +323,8 @@ class FullMNAStrategy(TransientStrategy):
                     coo_sort_perm=jnp.array(coo_sort_perm, dtype=jnp.int32),
                     csr_segment_ids=jnp.array(csr_segment_ids, dtype=jnp.int32),
                 )
-            else:
-                logger.info("Using JAX native spsolve (no Python callback overhead)")
+            elif solver_choice == "jax":
+                logger.info("Using JAX native spsolve (scipy fallback on CPU)")
                 nr_solve = make_sparse_full_mna_solver(
                     build_system_jit, n_nodes, n_vsources, nse,
                     noi_indices=noi_indices,
@@ -314,6 +333,11 @@ class FullMNAStrategy(TransientStrategy):
                     csr_segment_ids=jnp.array(csr_segment_ids, dtype=jnp.int32),
                     bcsr_indices=jnp.array(csr_indices, dtype=jnp.int32),
                     bcsr_indptr=jnp.array(csr_indptr, dtype=jnp.int32),
+                )
+            else:
+                raise ValueError(
+                    f"Unknown sparse_solver: {self.sparse_solver}. "
+                    "Use 'auto', 'klujax', 'umfpack', or 'jax'."
                 )
 
         self._cached_full_mna_solver = nr_solve
