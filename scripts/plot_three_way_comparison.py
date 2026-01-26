@@ -11,9 +11,9 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 from jax_spice.analysis.engine import CircuitEngine
-from jax_spice.analysis.transient import AdaptiveConfig, FullMNAStrategy
+from jax_spice.analysis.transient import AdaptiveConfig, FullMNAStrategy, extract_results
 from jax_spice._logging import logger, enable_performance_logging
-enable_performance_logging()
+enable_performance_logging(with_memory=True, with_perf_counter=True)
 
 
 def read_spice_raw(filename):
@@ -98,12 +98,13 @@ def main():
     _  = full_mna.warmup(dt=1e-12)
 
     logger.info("Running Full MNA (20ns)...")
-    times_mna, voltages_mna, stats_mna = full_mna.run(t_stop=20e-9, dt=1e-12)
+    times_mna, V_out, stats_mna = full_mna.run(t_stop=20e-9, dt=1e-12)
 
-    t_mna = np.asarray(times_mna)
-    V1_mna = np.asarray(voltages_mna['1'])
-    V2_mna = np.asarray(voltages_mna['2'])
-    I_mna = np.asarray(stats_mna['currents']['vdd'])
+    # Extract sliced results for plotting
+    t_mna, voltages_mna, currents_mna = extract_results(times_mna, V_out, stats_mna)
+    V1_mna = voltages_mna['1']
+    V2_mna = voltages_mna['2']
+    I_mna = currents_mna['vdd']
 
     # Compute dI/dt for all three
     def compute_didt(t, I):

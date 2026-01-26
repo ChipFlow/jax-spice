@@ -26,16 +26,14 @@ Where:
 """
 
 import time as time_module
-from typing import Callable, Dict, List, Optional, Tuple, NamedTuple
+from typing import Any, Callable, Dict, NamedTuple, Optional, Tuple
 
 import jax
 import jax.numpy as jnp
+import numpy as np
 from jax import lax
 
-import numpy as np
-
 from jax_spice._logging import logger
-from jax_spice.analysis.integration import IntegrationMethod, compute_coefficients
 from jax_spice.analysis.solver_factories import (
     make_dense_full_mna_solver,
     make_sparse_full_mna_solver,
@@ -46,21 +44,89 @@ from jax_spice.analysis.umfpack_solver import is_umfpack_available
 from .adaptive import AdaptiveConfig, compute_lte_timestep_jax, predict_voltage_jax
 from .base import TransientSetup, TransientStrategy
 
-
 DEFAULT_MAX_STEPS = 10000
 
 
-class _FullMNABase(TransientStrategy):
-    """Base class for full MNA strategies.
+def extract_results(
+    times: jax.Array, V_out: jax.Array, stats: Dict
+) -> Tuple[np.ndarray, Dict[str, np.ndarray], Dict[str, np.ndarray]]:
+    """Extract sliced results from run() output.
 
-    Provides setup and solver creation for full MNA formulation.
-    Not intended to be used directly - use FullMNAStrategy instead.
+    Converts full JAX arrays to sliced numpy arrays for plotting/analysis.
+    This performs host transfer and slicing, so call after simulation is complete.
+
+    Args:
+        times: Full time array from run()
+        V_out: Full voltage array from run()
+        stats: Stats dict from run()
+
+    Returns:
+        Tuple of (times, voltages, currents) where:
+        - times: numpy array of valid time points
+        - voltages: Dict mapping node name to numpy voltage array
+        - currents: Dict mapping source name to numpy current array
+    """
+    n = stats['n_steps']
+
+    # Convert to numpy and slice
+    times_np = np.asarray(times)[:n]
+    V_np = np.asarray(V_out)[:n]
+
+    voltages = {
+        name: V_np[:, idx] for name, idx in stats['node_indices'].items()
+    }
+
+    currents = {}
+    if 'I_out' in stats and stats['current_indices']:
+        I_np = np.asarray(stats['I_out'])[:n]
+        currents = {
+            name: I_np[:, idx] for name, idx in stats['current_indices'].items()
+        }
+
+    return times_np, voltages, currents
+
+
+class FullMNAStrategy(TransientStrategy):
+    """Full MNA transient with LTE-based adaptive timestep control.
+
+    Uses true Modified Nodal Analysis (MNA) with branch currents as explicit
+    unknowns, combined with adaptive timestep control for efficiency.
+
+    Benefits:
+    - Better numerical conditioning (no G=1e12 high-G approximation)
+    - More accurate current extraction (branch currents are primary unknowns)
+    - Smoother dI/dt transitions matching VACASK reference
+    - Automatic timestep adjustment based on local truncation error
+
+    Uses lax.while_loop for early termination when t >= t_stop.
+
+    Example:
+        runner = CircuitEngine(sim_path)
+        runner.parse()
+
+        config = AdaptiveConfig(lte_ratio=0.5, min_dt=1e-15, max_dt=1e-9)
+        strategy = FullMNAStrategy(runner, use_sparse=False, config=config)
+
+        times, voltages, stats = strategy.run(t_stop=1e-6, dt=1e-9)
+        print(f"Accepted: {stats['accepted_steps']}, Rejected: {stats['rejected_steps']}")
+        print(f"I_VDD: {stats['currents']['vdd']}")  # Direct branch current
     """
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
+    @property
+    def name(self) -> str:
+        """Human-readable strategy name for logging."""
+        return "full_mna"
+
+    def __init__(self, runner, use_sparse: bool = False, backend: str = "cpu",
+                 config: Optional[AdaptiveConfig] = None):
+        super().__init__(runner, use_sparse=use_sparse, backend=backend)
         self._cached_full_mna_solver: Optional[Callable] = None
         self._cached_full_mna_key: Optional[Tuple] = None
+        self.config = config or AdaptiveConfig()
+        self._warmup_steps = 5  # Steps before enabling LTE rejection
+        # Cache JIT-compiled while_loop keyed by circuit structure
+        # Note: Using Any since JIT-compiled functions have complex types
+        self._jit_run_while_cache: Dict[tuple, Any] = {}
 
     def ensure_setup(self) -> TransientSetup:
         """Ensure transient setup is initialized with full MNA data.
@@ -91,8 +157,12 @@ class _FullMNABase(TransientStrategy):
             n_augmented=base_setup.n_unknowns + branch_data.n_branches,
             use_full_mna=True,
             branch_data=branch_data,
-            branch_node_p=jnp.array(branch_data.node_p, dtype=jnp.int32) if branch_data.node_p else None,
-            branch_node_n=jnp.array(branch_data.node_n, dtype=jnp.int32) if branch_data.node_n else None,
+            branch_node_p=(
+                jnp.array(branch_data.node_p, dtype=jnp.int32) if branch_data.node_p else None
+            ),
+            branch_node_n=(
+                jnp.array(branch_data.node_n, dtype=jnp.int32) if branch_data.node_n else None
+            ),
         )
         return self._setup
 
@@ -145,7 +215,11 @@ class _FullMNABase(TransientStrategy):
 
             # Trial run to get sparse structure
             X_trial = jnp.zeros(n_nodes + n_vsources, dtype=jnp.float64)
-            vsource_trial = jnp.zeros(n_vsources, dtype=jnp.float64) if n_vsources > 0 else jnp.zeros(0, dtype=jnp.float64)
+            vsource_trial = (
+                jnp.zeros(n_vsources, dtype=jnp.float64)
+                if n_vsources > 0
+                else jnp.zeros(0, dtype=jnp.float64)
+            )
             isource_trial = jnp.zeros(0, dtype=jnp.float64)
             Q_trial = jnp.zeros(setup.n_unknowns, dtype=jnp.float64)
 
@@ -165,7 +239,6 @@ class _FullMNABase(TransientStrategy):
             # Sort COO by linear index (groups duplicates together)
             coo_sort_perm = np.argsort(linear_idx)
             sorted_linear = linear_idx[coo_sort_perm]
-            sorted_rows = coo_rows[coo_sort_perm]
 
             # Find unique entries
             unique_linear, coo_to_unique = np.unique(sorted_linear, return_inverse=True)
@@ -285,24 +358,32 @@ class _FullMNABase(TransientStrategy):
         logger.info(f"{self.name}: Warmup complete in {wall_time:.2f}s (max_steps={max_steps})")
         return wall_time
 
-
     def run(self, t_stop: float, dt: float,
-            max_steps: int = DEFAULT_MAX_STEPS) -> Tuple[jax.Array, Dict[str, jax.Array], Dict]:
-        """Run transient analysis with full MNA.
+            max_steps: int = DEFAULT_MAX_STEPS) -> Tuple[jax.Array, jax.Array, Dict]:
+        """Run adaptive transient analysis with full MNA.
 
         Args:
             t_stop: Simulation stop time in seconds
-            dt: Time step in seconds
+            dt: Initial time step in seconds
             max_steps: Maximum number of time steps
 
         Returns:
-            Tuple of (times, voltages, stats) where:
-            - times: JAX array of time points
-            - voltages: Dict mapping node name to voltage array
-            - stats: Dict with statistics including 'currents' dict
-        """
+            Tuple of (times, V_out, stats) where:
+            - times: Full time array [max_steps] - valid data is [:n_steps]
+            - V_out: Full voltage array [max_steps, n_nodes] - valid data is [:n_steps]
+            - stats: Dict with:
+                - n_steps: Number of valid timesteps
+                - I_out: Full current array [max_steps, n_vsources]
+                - node_indices: Dict mapping node name -> column index in V_out
+                - current_indices: Dict mapping source name -> column index in I_out
+                - Other statistics (wall_time, rejected_steps, etc.)
 
-        # Ensure setup is ready
+        Example:
+            times, V_out, stats = strategy.run(t_stop=1e-6, dt=1e-9)
+            n = stats['n_steps']
+            # Get voltage at node 'out': V_out[:n, stats['node_indices']['out']]
+            # Or use helper: extract_voltages(times, V_out, stats)
+        """
         setup = self.ensure_setup()
         nr_solve = self._ensure_full_mna_solver(setup)
 
@@ -311,163 +392,214 @@ class _FullMNABase(TransientStrategy):
         n_vsources = setup.n_branches
         n_external = setup.n_external
         source_fn = setup.source_fn
-        source_device_data = setup.source_device_data
+        config = self.config
 
-        # Compute number of timesteps
-        num_timesteps = self._compute_num_timesteps(t_stop, dt)
-        if num_timesteps > max_steps:
-            num_timesteps = max_steps
-            dt = t_stop / (max_steps - 1) if max_steps > 1 else t_stop
-            logger.info(f"{self.name}: Limiting to {max_steps} steps, dt={dt:.2e}s")
-
-        # Get integration method
-        # NOTE: Full MNA with trapezoidal integration can exhibit numerical oscillation
-        # (2*dt period) due to the algebraic branch equations. Force backward Euler
-        # for stability unless a more sophisticated stabilization is implemented.
-        tran_method = IntegrationMethod.BACKWARD_EULER
-        integ_coeffs = compute_coefficients(tran_method, dt)
-        logger.info(f"{self.name}: Using integration method: {tran_method.value} (forced for MNA stability)")
-
-        # Initialize voltage vector with mid-rail values (good starting point for DC convergence)
-        icmode = self.runner.analysis_params.get('icmode', 'op')
-        V0 = self._init_mid_rail(setup, n_total)
-        logger.info(f"{self.name}: Initialized with mid-rail values, icmode={icmode}")
-
-        # Initialize augmented solution vector: [V; I_branch]
-        X = jnp.zeros(n_total + n_vsources, dtype=jnp.float64)
-        X = X.at[:n_total].set(V0)  # Use DC operating point for voltages
-
-        # Initialize branch currents to 0 (will converge in first iteration)
-        # Could estimate from DC, but 0 is safe starting point
-
-        # Initialize charge state from DC operating point
-        Q_prev = jnp.zeros(n_unknowns, dtype=jnp.float64)
-        dQdt_prev = jnp.zeros(n_unknowns, dtype=jnp.float64) if integ_coeffs.needs_dqdt_history else None
-        Q_prev2 = jnp.zeros(n_unknowns, dtype=jnp.float64) if integ_coeffs.history_depth >= 2 else None
-
-        # Get device arrays
         device_arrays = self._device_arrays_full_mna
+        dtype = jnp.float64
 
-        # Result storage
-        times_list = []
-        voltages_dict = {i: [] for i in range(n_external)}
-        currents_dict = {name: [] for name in setup.branch_data.name_to_idx.keys()} if setup.branch_data else {}
+        # Build JIT-compatible source evaluator
+        jit_source_eval = self._make_jit_source_eval(setup, source_fn)
 
-        total_nr_iters = 0
-        non_converged_steps = []
+        # Initialize solution
+        X0 = jnp.zeros(n_total + n_vsources, dtype=dtype)
+        X0 = X0.at[:n_total].set(self._init_mid_rail(setup, n_total))
 
-        logger.info(f"{self.name}: Starting simulation ({num_timesteps} timesteps, "
-                   f"{n_total} nodes, {n_vsources} vsources, full MNA)")
+        # DC operating point
+        vsource_vals_init, isource_vals_init = self._build_source_arrays(source_fn(0.0))
+        X_dc, _, dc_converged, dc_residual, Q_dc, _, I_vsource_dc = nr_solve(
+            X0, vsource_vals_init, isource_vals_init,
+            jnp.zeros(n_unknowns, dtype=dtype), 0.0, device_arrays,
+            1e-12, 0.0, 0.0, 0.0, None, 0.0, None
+        )
+
+        if dc_converged:
+            X0 = X_dc
+            Q_init = Q_dc
+            logger.info(f"{self.name}: DC converged, V[1]={float(X0[1]):.4f}V")
+        else:
+            Q_init = jnp.zeros(n_unknowns, dtype=dtype)
+            logger.warning(f"{self.name}: DC did not converge (residual={dc_residual:.2e})")
+
+        # History buffers
+        max_history = config.max_order + 2
+        V_history = jnp.zeros((max_history, n_total), dtype=dtype)
+        V_history = V_history.at[0].set(X0[:n_total])
+        dt_history = jnp.full(max_history, dt, dtype=dtype)
+
+        # Output arrays
+        times_out = jnp.zeros(max_steps, dtype=dtype)
+        times_out = times_out.at[0].set(0.0)
+        V_out = jnp.zeros((max_steps, n_external), dtype=dtype)
+        V_out = V_out.at[0].set(X0[:n_external])
+        I_out = jnp.zeros((max_steps, max(n_vsources, 1)), dtype=dtype)
+        if n_vsources > 0:
+            I_out = I_out.at[0].set(I_vsource_dc[:n_vsources])
+
+        # Initial state
+        init_state = FullMNAState(
+            t=jnp.array(0.0, dtype=dtype),
+            dt=jnp.array(dt, dtype=dtype),
+            X=X0,
+            Q_prev=Q_init,
+            dQdt_prev=jnp.zeros(n_unknowns, dtype=dtype),
+            Q_prev2=jnp.zeros(n_unknowns, dtype=dtype),
+            V_history=V_history,
+            dt_history=dt_history,
+            history_count=jnp.array(1, dtype=jnp.int32),
+            times_out=times_out,
+            V_out=V_out,
+            I_out=I_out,
+            step_idx=jnp.array(1, dtype=jnp.int32),  # Start at 1 (0 is initial)
+            warmup_count=jnp.array(0, dtype=jnp.int32),
+            t_stop=jnp.array(t_stop, dtype=dtype),
+            total_nr_iters=jnp.array(0, dtype=jnp.int32),
+            rejected_steps=jnp.array(0, dtype=jnp.int32),
+            min_dt_used=jnp.array(dt, dtype=dtype),
+            max_dt_used=jnp.array(dt, dtype=dtype),
+        )
+
+        # Cache key does NOT include t_stop since it's passed dynamically via state
+        cache_key = (max_steps, n_total, n_unknowns, n_external, n_vsources, dtype)
+
+        if cache_key not in self._jit_run_while_cache:
+            # LRU eviction: limit cache size to prevent unbounded growth
+            MAX_JIT_CACHE_SIZE = 8
+            if len(self._jit_run_while_cache) >= MAX_JIT_CACHE_SIZE:
+                oldest_key = next(iter(self._jit_run_while_cache))
+                del self._jit_run_while_cache[oldest_key]
+                logger.debug(f"{self.name}: Evicted oldest JIT cache entry")
+
+            # Create while_loop functions using module-level function
+            cond_fn, body_fn = _make_full_mna_while_loop_fns(
+                nr_solve, jit_source_eval, device_arrays, config,
+                n_total, n_unknowns, n_external, n_vsources,
+                max_steps, self._warmup_steps, dtype,
+            )
+
+            # JIT-compile the while_loop for performance
+            @jax.jit
+            def run_while(state):
+                return lax.while_loop(cond_fn, body_fn, state)
+
+            self._jit_run_while_cache[cache_key] = run_while
+            logger.debug(
+                f"{self.name}: Created JIT runner for max_steps={max_steps} (t_stop is dynamic)"
+            )
+
+        run_while = self._jit_run_while_cache[cache_key]
+
+        # Run simulation
+        logger.info(f"{self.name}: Starting simulation (t_stop={t_stop:.2e}s, dt={dt:.2e}s, "
+                   f"max_steps={max_steps}, {'sparse' if self.use_sparse else 'dense'})")
         t_start = time_module.perf_counter()
 
-        # Compute DC operating point using Full MNA solver (c0=0) if icmode=='op'
-        source_values = source_fn(0.0)
-        vsource_vals_init, isource_vals_init = self._build_source_arrays(source_values)
+        final_state = run_while(init_state)
 
-        if icmode == 'op':
-            # Solve DC operating point - this ensures consistent initial state
-            X_dc, _, dc_converged, dc_residual, Q_dc, _, I_vsource_dc = nr_solve(
-                X, vsource_vals_init, isource_vals_init, Q_prev, 0.0, device_arrays,  # c0=0 for DC
-                1e-12, 0.0, integ_coeffs.c1, integ_coeffs.d1, dQdt_prev,
-                integ_coeffs.c2, Q_prev2
-            )
-
-            if dc_converged:
-                X = X_dc  # Use Full MNA DC solution as starting point
-                Q_prev = Q_dc  # Update charge state
-                logger.info(f"{self.name}: Full MNA DC converged, V[1]={float(X[1]):.4f}V")
-            else:
-                logger.warning(f"{self.name}: Full MNA DC did not converge (residual={dc_residual:.2e})")
-        else:
-            # UIC mode - use mid-rail initialization without DC solve
-            logger.info(f"{self.name}: UIC mode - skipping DC solve, using initial conditions")
-            I_vsource_dc = jnp.zeros(n_vsources, dtype=jnp.float64)
-
-        # Record initial state at t=0
-        times_list.append(0.0)
-        for i in range(n_external):
-            voltages_dict[i].append(float(X[i]))
-        if setup.branch_data:
-            for name, idx in setup.branch_data.name_to_idx.items():
-                currents_dict[name].append(float(I_vsource_dc[idx]))
-
-        for step_idx in range(1, num_timesteps):  # Start from step 1, not 0
-            t = step_idx * dt
-
-            # Evaluate sources at time t
-            source_values = source_fn(t)
-            vsource_vals, isource_vals = self._build_source_arrays(source_values)
-
-            # Solve with full MNA
-            X_new, iterations, converged, max_f, Q, dQdt, I_vsource = nr_solve(
-                X, vsource_vals, isource_vals, Q_prev, integ_coeffs.c0, device_arrays,
-                1e-12, 0.0,  # gmin, gshunt
-                integ_coeffs.c1, integ_coeffs.d1, dQdt_prev,
-                integ_coeffs.c2, Q_prev2
-            )
-
-            # Extract Python values for tracking
-            nr_iters = int(iterations)
-            is_converged = bool(converged)
-            residual = float(max_f)
-
-            X = X_new
-            # Update charge history
-            if integ_coeffs.history_depth >= 2:
-                Q_prev2 = Q_prev
-            Q_prev = Q
-            dQdt_prev = dQdt if integ_coeffs.needs_dqdt_history else None
-            total_nr_iters += nr_iters
-
-            if not is_converged:
-                non_converged_steps.append((t, residual))
-
-            # Record state
-            times_list.append(t)
-            for i in range(n_external):
-                voltages_dict[i].append(float(X[i]))
-
-            # Record branch currents (directly from solution!)
-            if setup.branch_data:
-                for name, idx in setup.branch_data.name_to_idx.items():
-                    currents_dict[name].append(float(I_vsource[idx]))
-
+        # Block until computation completes for accurate timing
+        final_state.step_idx.block_until_ready()
         wall_time = time_module.perf_counter() - t_start
 
-        # Build results
-        times = jnp.array(times_list)
+        # Return full arrays - users slice with [:n_steps] if needed
+        n_steps = int(final_state.step_idx)
+        times = final_state.times_out
+        V_out = final_state.V_out
+        I_out = final_state.I_out
 
-        # Build voltage arrays with string names
-        idx_to_voltage = {i: jnp.array(v) for i, v in voltages_dict.items()}
-        voltages: Dict[str, jax.Array] = {}
+        # Build node name -> column index mapping for V_out
+        node_indices: Dict[str, int] = {}
         for name, idx in self.runner.node_names.items():
-            if idx > 0 and idx < n_external:
-                voltages[name] = idx_to_voltage[idx]
+            if 0 < idx < n_external:
+                node_indices[name] = idx
 
-        # Build current arrays
-        currents = {name: jnp.array(vals) for name, vals in currents_dict.items()}
+        # Build current name -> column index mapping for I_out
+        current_indices: Dict[str, int] = {}
+        if setup.branch_data and n_vsources > 0:
+            current_indices = dict(setup.branch_data.name_to_idx)
 
+        rejected = int(final_state.rejected_steps)
         stats = {
-            'total_timesteps': len(times_list),
-            'total_nr_iterations': total_nr_iters,
-            'avg_nr_iterations': total_nr_iters / max(len(times_list), 1),
-            'non_converged_count': len(non_converged_steps),
-            'non_converged_steps': non_converged_steps,
-            'convergence_rate': 1.0 - len(non_converged_steps) / max(len(times_list), 1),
+            'n_steps': n_steps,  # Valid data is [:n_steps]
+            'total_timesteps': n_steps,
+            'accepted_steps': n_steps,
+            'rejected_steps': rejected,
+            'total_nr_iterations': int(final_state.total_nr_iters),
+            'avg_nr_iterations': float(final_state.total_nr_iters) / max(n_steps, 1),
             'wall_time': wall_time,
-            'time_per_step_ms': wall_time / len(times_list) * 1000 if times_list else 0,
-            'strategy': 'full_mna',
+            'time_per_step_ms': wall_time / n_steps * 1000 if n_steps > 0 else 0,
+            'min_dt_used': float(final_state.min_dt_used),
+            'max_dt_used': float(final_state.max_dt_used),
+            'convergence_rate': n_steps / max(n_steps + rejected, 1),
+            'strategy': 'adaptive_full_mna',
             'solver': 'sparse' if self.use_sparse else 'dense',
-            'integration_method': tran_method.value,
-            'currents': currents,  # Branch currents directly from solution
+            'V_out': V_out,  # Full voltage array [max_steps, n_nodes]
+            'I_out': I_out,  # Full current array [max_steps, n_vsources]
+            'node_indices': node_indices,  # name -> column index for V_out
+            'current_indices': current_indices,  # name -> column index for I_out
         }
 
-        logger.info(f"{self.name}: Completed {len(times_list)} steps in {wall_time:.3f}s "
-                   f"({stats['time_per_step_ms']:.2f}ms/step, "
-                   f"{total_nr_iters} NR iters, "
-                   f"{len(non_converged_steps)} non-converged)")
+        logger.info(
+            f"{self.name}: Completed {n_steps} steps in {wall_time:.3f}s "
+            f"({stats['time_per_step_ms']:.2f}ms/step, "
+            f"{int(final_state.rejected_steps)} rejected, "
+            f"dt range [{float(final_state.min_dt_used):.2e}, "
+            f"{float(final_state.max_dt_used):.2e}])"
+        )
 
-        return times, voltages, stats
+        return times, V_out, stats
+
+    def _make_jit_source_eval(self, setup: TransientSetup, source_fn: Callable) -> Callable:
+        """Create JIT-compatible source evaluator.
+
+        Uses jnp.stack instead of jnp.array to handle traced values properly.
+        """
+        source_data = setup.source_device_data
+        vsource_data = source_data.get('vsource', {'names': [], 'dc_values': []})
+        isource_data = source_data.get('isource', {'names': [], 'dc_values': []})
+
+        vsource_names = vsource_data.get('names', [])
+        isource_names = isource_data.get('names', [])
+        n_vsources = len(vsource_names)
+        n_isources = len(isource_names)
+
+        dtype = jnp.float64
+
+        if n_vsources == 0 and n_isources == 0:
+            def eval_sources(t):
+                return jnp.zeros(0, dtype=dtype), jnp.zeros(0, dtype=dtype)
+            return eval_sources
+
+        # Get DC values as JAX arrays for fallback
+        vsource_dc = jnp.array(vsource_data.get('dc_values', [0.0] * n_vsources), dtype=dtype)
+        isource_dc = jnp.array(isource_data.get('dc_values', [0.0] * n_isources), dtype=dtype)
+
+        def eval_sources(t):
+            source_values = source_fn(t)
+
+            # Build vsource array using jnp.stack (JIT-compatible)
+            if n_vsources == 0:
+                vsource_vals = jnp.zeros(0, dtype=dtype)
+            elif n_vsources == 1:
+                val = source_values.get(vsource_names[0], vsource_dc[0])
+                vsource_vals = jnp.array([val], dtype=dtype)
+            else:
+                vals = [source_values.get(name, dc)
+                        for name, dc in zip(vsource_names, vsource_dc)]
+                vsource_vals = jnp.stack(vals)
+
+            # Build isource array using jnp.stack (JIT-compatible)
+            if n_isources == 0:
+                isource_vals = jnp.zeros(0, dtype=dtype)
+            elif n_isources == 1:
+                val = source_values.get(isource_names[0], isource_dc[0])
+                isource_vals = jnp.array([val], dtype=dtype)
+            else:
+                vals = [source_values.get(name, dc)
+                        for name, dc in zip(isource_names, isource_dc)]
+                isource_vals = jnp.stack(vals)
+
+            return vsource_vals, isource_vals
+
+        return eval_sources
 
 
 class FullMNAState(NamedTuple):
@@ -558,7 +690,7 @@ def _make_full_mna_while_loop_fns(
         # Handle NR failure
         nr_failed = ~converged
         at_min_dt = dt_cur <= config.min_dt
-        force_accept_nr = nr_failed & at_min_dt
+        # Note: NR failure at min_dt is implicitly accepted since nr_reject = nr_failed & ~at_min_dt
 
         # LTE estimation (on voltage part only) using shared function
         V_new = X_new[:n_total]
@@ -625,15 +757,19 @@ def _make_full_mna_while_loop_fns(
 
         # Statistics
         new_rejected = state.rejected_steps + jnp.where(reject_step, 1, 0)
-        new_min_dt = jnp.where(accept_step, jnp.minimum(state.min_dt_used, dt_cur), state.min_dt_used)
-        new_max_dt = jnp.where(accept_step, jnp.maximum(state.max_dt_used, dt_cur), state.max_dt_used)
+        new_min_dt = jnp.where(
+            accept_step, jnp.minimum(state.min_dt_used, dt_cur), state.min_dt_used
+        )
+        new_max_dt = jnp.where(
+            accept_step, jnp.maximum(state.max_dt_used, dt_cur), state.max_dt_used
+        )
 
         return FullMNAState(
             t=new_t,
             dt=new_dt,
-            X=new_X,
-            Q_prev=new_Q_prev,
-            dQdt_prev=new_dQdt_prev,
+            X=new_X,  # pyright: ignore[reportArgumentType] - lax.cond typing
+            Q_prev=new_Q_prev,  # pyright: ignore[reportArgumentType] - lax.cond typing
+            dQdt_prev=new_dQdt_prev,  # pyright: ignore[reportArgumentType] - lax.cond typing
             Q_prev2=new_Q_prev2,
             V_history=new_V_history,
             dt_history=new_dt_history,
@@ -651,255 +787,3 @@ def _make_full_mna_while_loop_fns(
         )
 
     return cond_fn, body_fn
-
-
-class FullMNAStrategy(_FullMNABase):
-    """Full MNA transient with LTE-based adaptive timestep control.
-
-    Uses true Modified Nodal Analysis (MNA) with branch currents as explicit
-    unknowns, combined with adaptive timestep control for efficiency.
-
-    Benefits:
-    - Better numerical conditioning (no G=1e12 high-G approximation)
-    - More accurate current extraction (branch currents are primary unknowns)
-    - Smoother dI/dt transitions matching VACASK reference
-    - Automatic timestep adjustment based on local truncation error
-
-    Uses lax.while_loop for early termination when t >= t_stop.
-
-    Example:
-        runner = CircuitEngine(sim_path)
-        runner.parse()
-
-        config = AdaptiveConfig(lte_ratio=0.5, min_dt=1e-15, max_dt=1e-9)
-        strategy = FullMNAStrategy(runner, use_sparse=False, config=config)
-
-        times, voltages, stats = strategy.run(t_stop=1e-6, dt=1e-9)
-        print(f"Accepted: {stats['accepted_steps']}, Rejected: {stats['rejected_steps']}")
-        print(f"I_VDD: {stats['currents']['vdd']}")  # Direct branch current
-    """
-
-    name = "full_mna"
-
-    def __init__(self, runner, use_sparse: bool = False, backend: str = "cpu",
-                 config: Optional[AdaptiveConfig] = None):
-        super().__init__(runner, use_sparse=use_sparse, backend=backend)
-        self.config = config or AdaptiveConfig()
-        self._warmup_steps = 5  # Steps before enabling LTE rejection
-        # Cache JIT-compiled while_loop keyed by circuit structure
-        self._jit_run_while_cache: Dict[tuple, Callable] = {}
-
-    def run(self, t_stop: float, dt: float,
-            max_steps: int = 100000) -> Tuple[jax.Array, Dict[str, jax.Array], Dict]:
-        """Run adaptive transient analysis with full MNA.
-
-        Args:
-            t_stop: Simulation stop time in seconds
-            dt: Initial time step in seconds
-            max_steps: Maximum number of time steps
-
-        Returns:
-            Tuple of (times, voltages, stats) where:
-            - times: JAX array of time points
-            - voltages: Dict mapping node name to voltage array
-            - stats: Dict with statistics including 'currents' dict
-        """
-        setup = self.ensure_setup()
-        nr_solve = self._ensure_full_mna_solver(setup)
-
-        n_total = setup.n_total
-        n_unknowns = setup.n_unknowns
-        n_vsources = setup.n_branches
-        n_external = setup.n_external
-        source_fn = setup.source_fn
-        config = self.config
-
-        device_arrays = self._device_arrays_full_mna
-        dtype = jnp.float64
-
-        # Build JIT-compatible source evaluator
-        jit_source_eval = self._make_jit_source_eval(setup, source_fn)
-
-        # Initialize solution
-        X0 = jnp.zeros(n_total + n_vsources, dtype=dtype)
-        X0 = X0.at[:n_total].set(self._init_mid_rail(setup, n_total))
-
-        # DC operating point
-        vsource_vals_init, isource_vals_init = self._build_source_arrays(source_fn(0.0))
-        X_dc, _, dc_converged, dc_residual, Q_dc, _, I_vsource_dc = nr_solve(
-            X0, vsource_vals_init, isource_vals_init,
-            jnp.zeros(n_unknowns, dtype=dtype), 0.0, device_arrays,
-            1e-12, 0.0, 0.0, 0.0, None, 0.0, None
-        )
-
-        if dc_converged:
-            X0 = X_dc
-            Q_init = Q_dc
-            logger.info(f"{self.name}: DC converged, V[1]={float(X0[1]):.4f}V")
-        else:
-            Q_init = jnp.zeros(n_unknowns, dtype=dtype)
-            logger.warning(f"{self.name}: DC did not converge (residual={dc_residual:.2e})")
-
-        # History buffers
-        max_history = config.max_order + 2
-        V_history = jnp.zeros((max_history, n_total), dtype=dtype)
-        V_history = V_history.at[0].set(X0[:n_total])
-        dt_history = jnp.full(max_history, dt, dtype=dtype)
-
-        # Output arrays
-        times_out = jnp.zeros(max_steps, dtype=dtype)
-        times_out = times_out.at[0].set(0.0)
-        V_out = jnp.zeros((max_steps, n_external), dtype=dtype)
-        V_out = V_out.at[0].set(X0[:n_external])
-        I_out = jnp.zeros((max_steps, max(n_vsources, 1)), dtype=dtype)
-        if n_vsources > 0:
-            I_out = I_out.at[0].set(I_vsource_dc[:n_vsources])
-
-        # Initial state
-        init_state = FullMNAState(
-            t=jnp.array(0.0, dtype=dtype),
-            dt=jnp.array(dt, dtype=dtype),
-            X=X0,
-            Q_prev=Q_init,
-            dQdt_prev=jnp.zeros(n_unknowns, dtype=dtype),
-            Q_prev2=jnp.zeros(n_unknowns, dtype=dtype),
-            V_history=V_history,
-            dt_history=dt_history,
-            history_count=jnp.array(1, dtype=jnp.int32),
-            times_out=times_out,
-            V_out=V_out,
-            I_out=I_out,
-            step_idx=jnp.array(1, dtype=jnp.int32),  # Start at 1 (0 is initial)
-            warmup_count=jnp.array(0, dtype=jnp.int32),
-            t_stop=jnp.array(t_stop, dtype=dtype),
-            total_nr_iters=jnp.array(0, dtype=jnp.int32),
-            rejected_steps=jnp.array(0, dtype=jnp.int32),
-            min_dt_used=jnp.array(dt, dtype=dtype),
-            max_dt_used=jnp.array(dt, dtype=dtype),
-        )
-
-        # Cache key does NOT include t_stop since it's passed dynamically via state
-        cache_key = (max_steps, n_total, n_unknowns, n_external, n_vsources, dtype)
-
-        if cache_key not in self._jit_run_while_cache:
-            # Create while_loop functions using module-level function
-            cond_fn, body_fn = _make_full_mna_while_loop_fns(
-                nr_solve, jit_source_eval, device_arrays, config,
-                n_total, n_unknowns, n_external, n_vsources,
-                max_steps, self._warmup_steps, dtype,
-            )
-
-            # JIT-compile the while_loop for performance
-            @jax.jit
-            def run_while(state):
-                return lax.while_loop(cond_fn, body_fn, state)
-
-            self._jit_run_while_cache[cache_key] = run_while
-            logger.debug(f"{self.name}: Created JIT runner for max_steps={max_steps} (t_stop is dynamic)")
-
-        run_while = self._jit_run_while_cache[cache_key]
-
-        # Run simulation
-        logger.info(f"{self.name}: Starting simulation (t_stop={t_stop:.2e}s, dt={dt:.2e}s, "
-                   f"max_steps={max_steps}, {'sparse' if self.use_sparse else 'dense'})")
-        t_start = time_module.perf_counter()
-
-        final_state = run_while(init_state)
-
-        # Block until computation completes for accurate timing
-        final_state.step_idx.block_until_ready()
-        wall_time = time_module.perf_counter() - t_start
-
-        # Extract results
-        n_steps = int(final_state.step_idx)
-        times = final_state.times_out[:n_steps]
-
-        # Build voltage dict
-        voltages: Dict[str, jax.Array] = {}
-        for name, idx in self.runner.node_names.items():
-            if 0 < idx < n_external:
-                voltages[name] = final_state.V_out[:n_steps, idx]
-
-        # Build current dict
-        currents: Dict[str, jax.Array] = {}
-        if setup.branch_data and n_vsources > 0:
-            for name, idx in setup.branch_data.name_to_idx.items():
-                currents[name] = final_state.I_out[:n_steps, idx]
-
-        rejected = int(final_state.rejected_steps)
-        stats = {
-            'total_timesteps': n_steps,
-            'accepted_steps': n_steps,
-            'rejected_steps': rejected,
-            'total_nr_iterations': int(final_state.total_nr_iters),
-            'avg_nr_iterations': float(final_state.total_nr_iters) / max(n_steps, 1),
-            'wall_time': wall_time,
-            'time_per_step_ms': wall_time / n_steps * 1000 if n_steps > 0 else 0,
-            'min_dt_used': float(final_state.min_dt_used),
-            'max_dt_used': float(final_state.max_dt_used),
-            'convergence_rate': n_steps / max(n_steps + rejected, 1),
-            'strategy': 'adaptive_full_mna',
-            'solver': 'sparse' if self.use_sparse else 'dense',
-            'currents': currents,
-        }
-
-        logger.info(f"{self.name}: Completed {n_steps} steps in {wall_time:.3f}s "
-                   f"({stats['time_per_step_ms']:.2f}ms/step, "
-                   f"{int(final_state.rejected_steps)} rejected, "
-                   f"dt range [{float(final_state.min_dt_used):.2e}, {float(final_state.max_dt_used):.2e}])")
-
-        return times, voltages, stats
-
-    def _make_jit_source_eval(self, setup: TransientSetup, source_fn: Callable) -> Callable:
-        """Create JIT-compatible source evaluator.
-
-        Uses jnp.stack instead of jnp.array to handle traced values properly.
-        """
-        source_data = setup.source_device_data
-        vsource_data = source_data.get('vsource', {'names': [], 'dc_values': []})
-        isource_data = source_data.get('isource', {'names': [], 'dc_values': []})
-
-        vsource_names = vsource_data.get('names', [])
-        isource_names = isource_data.get('names', [])
-        n_vsources = len(vsource_names)
-        n_isources = len(isource_names)
-
-        dtype = jnp.float64
-
-        if n_vsources == 0 and n_isources == 0:
-            def eval_sources(t):
-                return jnp.zeros(0, dtype=dtype), jnp.zeros(0, dtype=dtype)
-            return eval_sources
-
-        # Get DC values as JAX arrays for fallback
-        vsource_dc = jnp.array(vsource_data.get('dc_values', [0.0] * n_vsources), dtype=dtype)
-        isource_dc = jnp.array(isource_data.get('dc_values', [0.0] * n_isources), dtype=dtype)
-
-        def eval_sources(t):
-            source_values = source_fn(t)
-
-            # Build vsource array using jnp.stack (JIT-compatible)
-            if n_vsources == 0:
-                vsource_vals = jnp.zeros(0, dtype=dtype)
-            elif n_vsources == 1:
-                val = source_values.get(vsource_names[0], vsource_dc[0])
-                vsource_vals = jnp.array([val], dtype=dtype)
-            else:
-                vals = [source_values.get(name, dc)
-                        for name, dc in zip(vsource_names, vsource_dc)]
-                vsource_vals = jnp.stack(vals)
-
-            # Build isource array using jnp.stack (JIT-compatible)
-            if n_isources == 0:
-                isource_vals = jnp.zeros(0, dtype=dtype)
-            elif n_isources == 1:
-                val = source_values.get(isource_names[0], isource_dc[0])
-                isource_vals = jnp.array([val], dtype=dtype)
-            else:
-                vals = [source_values.get(name, dc)
-                        for name, dc in zip(isource_names, isource_dc)]
-                isource_vals = jnp.stack(vals)
-
-            return vsource_vals, isource_vals
-
-        return eval_sources

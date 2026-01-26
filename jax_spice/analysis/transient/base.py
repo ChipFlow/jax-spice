@@ -5,7 +5,7 @@ for running transient analysis with OpenVAF-compiled devices.
 """
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple
 
 import jax
@@ -71,18 +71,10 @@ class TransientSetup:
 class TransientStrategy(ABC):
     """Abstract base class for transient analysis strategies.
 
-    Subclasses implement different approaches to the timestep loop:
-    - PythonLoopStrategy: Traditional Python for-loop with JIT-compiled NR solver
-    - ScanStrategy: Fully JIT-compiled using lax.scan
-
-    All strategies share:
-    - The same circuit setup process
-    - The same Newton-Raphson solver creation
-    - The same return value format
-
-    The key difference is how the timestep loop is implemented:
-    - Python loop: More debugging info, ~0.5ms/step
-    - lax.scan: Less debugging info, ~0.1ms/step (5x faster)
+    The primary implementation is FullMNAStrategy which provides:
+    - Full Modified Nodal Analysis with explicit branch currents
+    - Adaptive timestep control based on local truncation error
+    - JIT-compiled simulation loop using lax.while_loop
     """
 
     def __init__(self, runner: 'CircuitEngine',
@@ -144,10 +136,13 @@ class TransientStrategy(ABC):
 
         # Build new setup via runner's hybrid method (with 0 steps)
         logger.info(f"{self.name}: Building transient setup...")
-        self.runner._run_transient_hybrid(t_stop=0, dt=1e-12, backend=self.backend, use_dense=self.use_dense)
+        self.runner._run_transient_hybrid(
+            t_stop=0, dt=1e-12, backend=self.backend, use_dense=self.use_dense
+        )
 
         # Extract from runner's cache
         cache = self.runner._transient_setup_cache
+        assert cache is not None, "Transient setup cache not populated after _run_transient_hybrid"
         self._setup = TransientSetup(
             n_total=cache['n_total'],
             n_unknowns=cache['n_unknowns'],
@@ -186,7 +181,9 @@ class TransientStrategy(ABC):
 
         # Build solver via runner (will cache it)
         logger.info(f"{self.name}: Building NR solver...")
-        self.runner._run_transient_hybrid(t_stop=1e-12, dt=1e-12, backend=self.backend, use_dense=self.use_dense)
+        self.runner._run_transient_hybrid(
+            t_stop=1e-12, dt=1e-12, backend=self.backend, use_dense=self.use_dense
+        )
         self._nr_solve = self.runner._cached_nr_solve
         return self._nr_solve
 
@@ -218,6 +215,7 @@ class TransientStrategy(ABC):
             Tuple of (vsource_vals, isource_vals) as JAX arrays
         """
         setup = self._setup
+        assert setup is not None, "Setup not initialized - call ensure_setup() first"
         source_device_data = setup.source_device_data
 
         if 'vsource' in source_device_data:

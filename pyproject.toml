@@ -89,6 +89,11 @@ target-version = "py311"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "W"]
+# Ignore variable naming rules for uppercase matrix/vector names (common in numerical code)
+# N803: argument name should be lowercase (V_history, V_pred, etc.)
+# N806: variable in function should be lowercase (V_pred, Q_prev, etc.)
+# N815: variable in class scope should not be mixedCase (dQdt_prev)
+ignore = ["N803", "N806", "N815"]
 
 [tool.pyright]
 pythonVersion = "3.11"
