@@ -42,11 +42,14 @@ def configure_xla_cache(cache_dir: Path | str | None = None) -> Path | None:
         This must be called before any JAX compilation occurs.
         It's called automatically on import with default settings.
     """
-    # Check if user has already set the cache dir
+    # Check if user has already set the cache dir via environment
     if "JAX_COMPILATION_CACHE_DIR" in os.environ:
         existing = os.environ["JAX_COMPILATION_CACHE_DIR"]
         if existing:
             logger.debug(f"Using existing JAX_COMPILATION_CACHE_DIR: {existing}")
+            # Still configure JAX to use the cache
+            jax.config.update("jax_compilation_cache_dir", existing)
+            jax.config.update("jax_persistent_cache_min_compile_time_secs", 0)
             return Path(existing)
         return None
 
@@ -64,7 +67,13 @@ def configure_xla_cache(cache_dir: Path | str | None = None) -> Path | None:
     # Create directory if it doesn't exist
     cache_path.mkdir(parents=True, exist_ok=True)
 
-    # Set environment variable for JAX
+    # Configure JAX compilation cache via jax.config (required for persistence)
+    # Environment variable alone is not sufficient
+    jax.config.update("jax_compilation_cache_dir", str(cache_path))
+    # Cache all compilations, not just those taking >1 second
+    jax.config.update("jax_persistent_cache_min_compile_time_secs", 0)
+
+    # Also set environment variable for compatibility
     os.environ["JAX_COMPILATION_CACHE_DIR"] = str(cache_path)
     logger.debug(f"XLA compilation cache: {cache_path}")
 
