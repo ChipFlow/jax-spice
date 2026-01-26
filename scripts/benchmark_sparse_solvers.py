@@ -168,15 +168,20 @@ def main():
 
     results: List[Dict] = []
 
-    # Run JAX native spsolve
-    log(f"  Running with JAX native spsolve...")
-    jax_result = run_benchmark(sim_path, name, 'jax', args.timesteps)
-    results.append(jax_result)
-    if jax_result['error']:
-        log(f"    ERROR: {jax_result['error']}")
+    # Run klujax (if available)
+    from jax_spice.analysis.solver_factories import is_klujax_available
+    if is_klujax_available():
+        log(f"  Running with klujax (SuiteSparse KLU)...")
+        klu_result = run_benchmark(sim_path, name, 'klujax', args.timesteps)
+        results.append(klu_result)
+        if klu_result['error']:
+            log(f"    ERROR: {klu_result['error']}")
+        else:
+            log(f"    Done: {klu_result['time_per_step_ms']:.2f}ms/step")
+        log()
     else:
-        log(f"    Done: {jax_result['time_per_step_ms']:.2f}ms/step")
-    log()
+        log("  Skipping klujax (not available)")
+        log()
 
     # Run UMFPACK
     if is_umfpack_available():
@@ -209,22 +214,25 @@ def main():
                 f"{r['time_per_step_ms']:13.2f} |")
     log()
 
-    # Compare
-    if len(results) == 2 and all(r['converged'] for r in results):
-        jax_time = results[0]['time_per_step_ms']
-        umf_time = results[1]['time_per_step_ms']
+    # Compare klujax vs UMFPACK if both available
+    klu_result = next((r for r in results if r['solver'] == 'klujax' and r['converged']), None)
+    umf_result = next((r for r in results if r['solver'] == 'umfpack' and r['converged']), None)
 
-        if jax_time < umf_time:
-            speedup = umf_time / jax_time
-            log(f"JAX native spsolve is {speedup:.1f}x FASTER than UMFPACK")
+    if klu_result and umf_result:
+        klu_time = klu_result['time_per_step_ms']
+        umf_time = umf_result['time_per_step_ms']
+
+        if klu_time < umf_time:
+            speedup = umf_time / klu_time
+            log(f"klujax is {speedup:.1f}x FASTER than UMFPACK")
         else:
-            speedup = jax_time / umf_time
-            log(f"UMFPACK is {speedup:.1f}x faster than JAX native spsolve")
+            speedup = klu_time / umf_time
+            log(f"UMFPACK is {speedup:.1f}x faster than klujax")
 
         log()
         log("Breakdown:")
-        log(f"  JAX warmup:    {results[0]['warmup_time_s']:.2f}s (includes JIT compilation)")
-        log(f"  UMFPACK warmup: {results[1]['warmup_time_s']:.2f}s (includes symbolic factorization)")
+        log(f"  klujax warmup:  {klu_result['warmup_time_s']:.2f}s (includes JIT compilation)")
+        log(f"  UMFPACK warmup: {umf_result['warmup_time_s']:.2f}s (includes symbolic factorization)")
 
     log()
     log("=" * 70)
