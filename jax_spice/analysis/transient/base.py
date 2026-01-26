@@ -62,6 +62,9 @@ class TransientSetup:
     branch_node_p: Optional[jax.Array] = None
     branch_node_n: Optional[jax.Array] = None
 
+    # Initial condition mode: 'op' (compute DC) or 'uic' (use initial conditions)
+    icmode: str = 'op'
+
     def __post_init__(self):
         """Compute derived fields after initialization."""
         if self.n_augmented == 0:
@@ -116,6 +119,9 @@ class TransientStrategy(ABC):
         """
         setup_key = self._get_setup_key()
 
+        # Get icmode from analysis params (default 'op' = compute DC)
+        icmode = self.runner.analysis_params.get('icmode', 'op')
+
         # Check runner's cache first (shared across strategies)
         if (self.runner._transient_setup_cache is not None and
             self.runner._transient_setup_key == setup_key):
@@ -130,6 +136,7 @@ class TransientStrategy(ABC):
                 openvaf_by_type=cache['openvaf_by_type'],
                 vmapped_fns=cache['vmapped_fns'],
                 static_inputs_cache=cache['static_inputs_cache'],
+                icmode=icmode,
             )
             logger.debug(f"{self.name}: Reusing cached setup")
             return self._setup
@@ -153,6 +160,7 @@ class TransientStrategy(ABC):
             openvaf_by_type=cache['openvaf_by_type'],
             vmapped_fns=cache['vmapped_fns'],
             static_inputs_cache=cache['static_inputs_cache'],
+            icmode=icmode,
         )
         self._setup_key = setup_key
         return self._setup

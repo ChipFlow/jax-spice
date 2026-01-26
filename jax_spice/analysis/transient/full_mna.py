@@ -152,6 +152,7 @@ class FullMNAStrategy(TransientStrategy):
             openvaf_by_type=base_setup.openvaf_by_type,
             vmapped_fns=base_setup.vmapped_fns,
             static_inputs_cache=base_setup.static_inputs_cache,
+            icmode=base_setup.icmode,
             # Full MNA fields
             n_branches=branch_data.n_branches,
             n_augmented=base_setup.n_unknowns + branch_data.n_branches,
@@ -403,22 +404,29 @@ class FullMNAStrategy(TransientStrategy):
         # Initialize solution
         X0 = jnp.zeros(n_total + n_vsources, dtype=dtype)
         X0 = X0.at[:n_total].set(self._init_mid_rail(setup, n_total))
+        Q_init = jnp.zeros(n_unknowns, dtype=dtype)
+        I_vsource_dc = jnp.zeros(max(n_vsources, 1), dtype=dtype)
 
-        # DC operating point
+        # DC operating point (skip if icmode='uic')
         vsource_vals_init, isource_vals_init = self._build_source_arrays(source_fn(0.0))
-        X_dc, _, dc_converged, dc_residual, Q_dc, _, I_vsource_dc = nr_solve(
-            X0, vsource_vals_init, isource_vals_init,
-            jnp.zeros(n_unknowns, dtype=dtype), 0.0, device_arrays,
-            1e-12, 0.0, 0.0, 0.0, None, 0.0, None
-        )
 
-        if dc_converged:
-            X0 = X_dc
-            Q_init = Q_dc
-            logger.info(f"{self.name}: DC converged, V[1]={float(X0[1]):.4f}V")
+        if setup.icmode == 'uic':
+            # Use Initial Conditions - skip DC solve, start from mid-rail
+            logger.info(f"{self.name}: icmode='uic' - skipping DC solve, using initial conditions")
         else:
-            Q_init = jnp.zeros(n_unknowns, dtype=dtype)
-            logger.warning(f"{self.name}: DC did not converge (residual={dc_residual:.2e})")
+            # Compute DC operating point
+            X_dc, _, dc_converged, dc_residual, Q_dc, _, I_vsource_dc = nr_solve(
+                X0, vsource_vals_init, isource_vals_init,
+                jnp.zeros(n_unknowns, dtype=dtype), 0.0, device_arrays,
+                1e-12, 0.0, 0.0, 0.0, None, 0.0, None
+            )
+
+            if dc_converged:
+                X0 = X_dc
+                Q_init = Q_dc
+                logger.info(f"{self.name}: DC converged, V[1]={float(X0[1]):.4f}V")
+            else:
+                logger.warning(f"{self.name}: DC did not converge (residual={dc_residual:.2e})")
 
         # History buffers
         max_history = config.max_order + 2
