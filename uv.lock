@@ -471,7 +471,6 @@ dev = [
     { name = "pytest-cov" },
     { name = "ruff" },
     { name = "scikit-umfpack" },
-    { name = "umfpack-jax" },
 ]
 sax = [
     { name = "sax" },
@@ -519,7 +518,6 @@ requires-dist = [
     { name = "scipy", specifier = ">=1.11.0" },
     { name = "simpleeval", specifier = ">=1.0.0" },
     { name = "spineax", marker = "extra == 'cuda12'", git = "https://github.com/robtaylor/spineax.git" },
-    { name = "umfpack-jax", marker = "extra == 'dev'", editable = "jax_spice/sparse" },
     { name = "umfpack-jax", marker = "extra == 'umfpack-ffi'", editable = "jax_spice/sparse" },
 ]
 provides-extras = ["cuda12", "umfpack", "umfpack-ffi", "sax", "test", "dev"]
