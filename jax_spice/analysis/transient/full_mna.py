@@ -35,8 +35,10 @@ from jax import lax
 
 from jax_spice._logging import logger
 from jax_spice.analysis.solver_factories import (
+    is_umfpack_ffi_available,
     make_dense_full_mna_solver,
     make_sparse_full_mna_solver,
+    make_umfpack_ffi_full_mna_solver,
     make_umfpack_full_mna_solver,
 )
 from jax_spice.analysis.umfpack_solver import is_umfpack_available
@@ -261,27 +263,50 @@ class FullMNAStrategy(TransientStrategy):
 
             logger.info(f"Full MNA sparse: {n_coo} COO -> {nse} CSR entries")
 
-            # Use UMFPACK if available (better performance with cached symbolic factorization)
-            if is_umfpack_available():
-                nr_solve = make_umfpack_full_mna_solver(
+            # Solver selection hierarchy:
+            # 1. UMFPACK FFI (fastest - no pure_callback overhead)
+            # 2. UMFPACK with pure_callback (cached symbolic factorization)
+            # 3. JAX spsolve (no external dependencies)
+            bcsr_indptr_jax = jnp.array(csr_indptr, dtype=jnp.int32)
+            bcsr_indices_jax = jnp.array(csr_indices, dtype=jnp.int32)
+            coo_sort_perm_jax = jnp.array(coo_sort_perm, dtype=jnp.int32)
+            csr_segment_ids_jax = jnp.array(csr_segment_ids, dtype=jnp.int32)
+
+            if is_umfpack_ffi_available():
+                # Best performance: UMFPACK via XLA FFI (no callback overhead)
+                logger.info("Using UMFPACK FFI solver (zero callback overhead)")
+                nr_solve = make_umfpack_ffi_full_mna_solver(
                     build_system_jit, n_nodes, n_vsources, nse,
-                    bcsr_indptr=jnp.array(csr_indptr, dtype=jnp.int32),
-                    bcsr_indices=jnp.array(csr_indices, dtype=jnp.int32),
+                    bcsr_indptr=bcsr_indptr_jax,
+                    bcsr_indices=bcsr_indices_jax,
                     noi_indices=noi_indices,
                     max_iterations=100, abstol=1e-6, max_step=1.0,
-                    coo_sort_perm=jnp.array(coo_sort_perm, dtype=jnp.int32),
-                    csr_segment_ids=jnp.array(csr_segment_ids, dtype=jnp.int32),
+                    coo_sort_perm=coo_sort_perm_jax,
+                    csr_segment_ids=csr_segment_ids_jax,
+                )
+            elif is_umfpack_available():
+                # Good performance: UMFPACK via pure_callback (cached symbolic)
+                logger.info("Using UMFPACK solver (via pure_callback)")
+                nr_solve = make_umfpack_full_mna_solver(
+                    build_system_jit, n_nodes, n_vsources, nse,
+                    bcsr_indptr=bcsr_indptr_jax,
+                    bcsr_indices=bcsr_indices_jax,
+                    noi_indices=noi_indices,
+                    max_iterations=100, abstol=1e-6, max_step=1.0,
+                    coo_sort_perm=coo_sort_perm_jax,
+                    csr_segment_ids=csr_segment_ids_jax,
                 )
             else:
-                # Fallback to JAX's spsolve
+                # Fallback: JAX's spsolve (no external dependencies)
+                logger.info("Using JAX spsolve (no UMFPACK available)")
                 nr_solve = make_sparse_full_mna_solver(
                     build_system_jit, n_nodes, n_vsources, nse,
                     noi_indices=noi_indices,
                     max_iterations=100, abstol=1e-6, max_step=1.0,
-                    coo_sort_perm=jnp.array(coo_sort_perm, dtype=jnp.int32),
-                    csr_segment_ids=jnp.array(csr_segment_ids, dtype=jnp.int32),
-                    bcsr_indices=jnp.array(csr_indices, dtype=jnp.int32),
-                    bcsr_indptr=jnp.array(csr_indptr, dtype=jnp.int32),
+                    coo_sort_perm=coo_sort_perm_jax,
+                    csr_segment_ids=csr_segment_ids_jax,
+                    bcsr_indices=bcsr_indices_jax,
+                    bcsr_indptr=bcsr_indptr_jax,
                 )
 
         self._cached_full_mna_solver = nr_solve

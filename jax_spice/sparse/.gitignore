@@ -1,0 +1,19 @@
+# Build artifacts
+build/
+dist/
+*.egg-info/
+*.so
+*.dylib
+
+# Virtual environment
+.venv/
+
+# Cache
+__pycache__/
+*.pyc
+
+# Lock files (generated)
+uv.lock
+
+# IDE/Editor
+.claude/
