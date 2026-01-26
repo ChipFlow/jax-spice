@@ -27,7 +27,44 @@ if(APPLE)
     set(ENV{PKG_CONFIG_PATH} "/opt/homebrew/lib/pkgconfig:$ENV{PKG_CONFIG_PATH}")
 endif()
 
-pkg_check_modules(UMFPACK REQUIRED IMPORTED_TARGET umfpack)
+# Try pkg-config first (works on macOS Homebrew)
+pkg_check_modules(UMFPACK IMPORTED_TARGET umfpack)
+
+if(NOT UMFPACK_FOUND)
+    # Fall back to manual detection (Ubuntu/Debian)
+    # SuiteSparse on Ubuntu doesn't provide .pc files
+    find_path(UMFPACK_INCLUDE_DIR umfpack.h
+        PATHS /usr/include /usr/local/include /usr/include/suitesparse
+        PATH_SUFFIXES suitesparse
+    )
+    find_library(UMFPACK_LIBRARY umfpack
+        PATHS /usr/lib /usr/local/lib /usr/lib/x86_64-linux-gnu
+    )
+
+    if(UMFPACK_INCLUDE_DIR AND UMFPACK_LIBRARY)
+        message(STATUS "Found UMFPACK via manual search: ${UMFPACK_LIBRARY}")
+
+        # Also find dependencies (AMD, SuiteSparse_config)
+        find_library(AMD_LIBRARY amd
+            PATHS /usr/lib /usr/local/lib /usr/lib/x86_64-linux-gnu
+        )
+        find_library(SUITESPARSE_CONFIG_LIBRARY suitesparseconfig
+            PATHS /usr/lib /usr/local/lib /usr/lib/x86_64-linux-gnu
+        )
+
+        # Create imported target
+        add_library(PkgConfig::UMFPACK INTERFACE IMPORTED)
+        target_include_directories(PkgConfig::UMFPACK INTERFACE ${UMFPACK_INCLUDE_DIR})
+        target_link_libraries(PkgConfig::UMFPACK INTERFACE
+            ${UMFPACK_LIBRARY}
+            ${AMD_LIBRARY}
+            ${SUITESPARSE_CONFIG_LIBRARY}
+        )
+        set(UMFPACK_FOUND TRUE)
+    else()
+        message(FATAL_ERROR "UMFPACK not found. Install libsuitesparse-dev (Ubuntu) or suite-sparse (Homebrew)")
+    endif()
+endif()
 
 # Get jaxlib include path for XLA FFI headers
 execute_process(
