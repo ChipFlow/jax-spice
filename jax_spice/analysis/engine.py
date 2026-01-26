@@ -1943,12 +1943,31 @@ class CircuitEngine:
         if self.circuit and self.circuit.control:
             control = self.circuit.control
 
-            # Extract tran_method from options
+            # Extract options
             if control.options:
-                self.analysis_params['tran_method'] = get_method_from_options(
-                    control.options.params
-                )
+                opts = control.options.params
+
+                # Integration method
+                self.analysis_params['tran_method'] = get_method_from_options(opts)
                 logger.debug(f"Integration method: {self.analysis_params['tran_method']}")
+
+                # LTE control options
+                if 'tran_lteratio' in opts:
+                    self.analysis_params['tran_lteratio'] = float(opts['tran_lteratio'])
+                    logger.debug(f"tran_lteratio: {self.analysis_params['tran_lteratio']}")
+                if 'tran_redofactor' in opts:
+                    self.analysis_params['tran_redofactor'] = float(opts['tran_redofactor'])
+                    logger.debug(f"tran_redofactor: {self.analysis_params['tran_redofactor']}")
+
+                # NR tolerance option
+                if 'nr_convtol' in opts:
+                    self.analysis_params['nr_convtol'] = float(opts['nr_convtol'])
+                    logger.debug(f"nr_convtol: {self.analysis_params['nr_convtol']}")
+
+                # Transient gshunt options
+                if 'tran_gshunt' in opts:
+                    self.analysis_params['tran_gshunt'] = float(opts['tran_gshunt'])
+                    logger.debug(f"tran_gshunt: {self.analysis_params['tran_gshunt']}")
 
             # Extract analysis parameters from first tran analysis
             for analysis in control.analyses:
@@ -2266,34 +2285,35 @@ class CircuitEngine:
             AdaptiveConfig, FullMNAStrategy, extract_results
         )
 
-        # Use provided config or create default
-        config = adaptive_config or AdaptiveConfig()
+        # Build config from analysis_params or use provided config
+        if adaptive_config is None:
+            kwargs = {}
 
-        # Override config from analysis_params if not explicitly set
-        if 'tran_lteratio' in self.analysis_params and adaptive_config is None:
-            config = AdaptiveConfig(
-                lte_ratio=float(self.analysis_params['tran_lteratio']),
-                redo_factor=config.redo_factor,
-                reltol=config.reltol,
-                abstol=config.abstol,
-                min_dt=config.min_dt,
-                max_dt=config.max_dt,
-            )
-        if 'tran_redofactor' in self.analysis_params and adaptive_config is None:
-            config = AdaptiveConfig(
-                lte_ratio=config.lte_ratio,
-                redo_factor=float(self.analysis_params['tran_redofactor']),
-                reltol=config.reltol,
-                abstol=config.abstol,
-                min_dt=config.min_dt,
-                max_dt=config.max_dt,
-            )
+            # LTE options
+            if 'tran_lteratio' in self.analysis_params:
+                kwargs['lte_ratio'] = float(self.analysis_params['tran_lteratio'])
+            if 'tran_redofactor' in self.analysis_params:
+                kwargs['redo_factor'] = float(self.analysis_params['tran_redofactor'])
+
+            # NR options
+            if 'nr_convtol' in self.analysis_params:
+                kwargs['nr_convtol'] = float(self.analysis_params['nr_convtol'])
+
+            # GSHUNT options
+            if 'tran_gshunt' in self.analysis_params:
+                kwargs['gshunt_init'] = float(self.analysis_params['tran_gshunt'])
+
+            config = AdaptiveConfig(**kwargs)
+        else:
+            config = adaptive_config
 
         # Cache strategy instance for JIT reuse across calls
         # Key includes all parameters that affect strategy construction
         cache_key = (use_sparse, backend,
                      config.lte_ratio, config.redo_factor, config.reltol,
-                     config.abstol, config.min_dt, config.max_dt)
+                     config.abstol, config.min_dt, config.max_dt,
+                     config.nr_convtol, config.gshunt_init, config.gshunt_steps,
+                     config.gshunt_target)
 
         if not hasattr(self, '_full_mna_strategy_cache'):
             self._full_mna_strategy_cache = {}

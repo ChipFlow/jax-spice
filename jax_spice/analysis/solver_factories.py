@@ -126,6 +126,7 @@ def make_dense_full_mna_solver(
     noi_indices: Optional[Array] = None,
     max_iterations: int = MAX_NR_ITERATIONS,
     abstol: float = DEFAULT_ABSTOL,
+    nr_convtol: float = 1.0,
     max_step: float = 1.0,
 ) -> Callable:
     """Create a JIT-compiled dense NR solver for full MNA formulation.
@@ -146,6 +147,7 @@ def make_dense_full_mna_solver(
         noi_indices: Optional array of NOI node indices to constrain to 0V
         max_iterations: Maximum NR iterations
         abstol: Absolute tolerance for convergence
+        nr_convtol: NR convergence tolerance factor (multiplier on abstol). Default 1.0.
         max_step: Maximum voltage/current step per iteration
 
     Returns:
@@ -153,6 +155,8 @@ def make_dense_full_mna_solver(
             (X, vsource_vals, isource_vals, Q_prev, integ_c0, device_arrays, ...)
             -> (X, iterations, converged, max_f, Q, dQdt, I_vsource)
     """
+    # Apply tolerance factor
+    effective_abstol = abstol * nr_convtol
     n_unknowns = n_nodes - 1
     n_augmented = n_unknowns + n_vsources
     n_total = n_nodes  # Size of voltage part of X
@@ -212,7 +216,7 @@ def make_dense_full_mna_solver(
                 max_f = jnp.max(jnp.abs(f_masked))
             else:
                 max_f = jnp.max(jnp.abs(f))
-            residual_converged = max_f < abstol
+            residual_converged = max_f < effective_abstol
 
             # Enforce NOI constraints on node equations only
             if noi_res_idx is not None:
@@ -271,6 +275,7 @@ def make_sparse_full_mna_solver(
     noi_indices: Optional[Array] = None,
     max_iterations: int = MAX_NR_ITERATIONS,
     abstol: float = DEFAULT_ABSTOL,
+    nr_convtol: float = 1.0,
     max_step: float = 1.0,
     coo_sort_perm: Optional[Array] = None,
     csr_segment_ids: Optional[Array] = None,
@@ -294,6 +299,7 @@ def make_sparse_full_mna_solver(
         noi_indices: Optional array of NOI node indices to constrain to 0V
         max_iterations: Maximum NR iterations
         abstol: Absolute tolerance for convergence
+        nr_convtol: NR convergence tolerance factor (multiplier on abstol). Default 1.0.
         max_step: Maximum voltage/current step per iteration
         coo_sort_perm: Pre-computed COO→CSR permutation
         csr_segment_ids: Pre-computed segment IDs for duplicate summing
@@ -303,6 +309,8 @@ def make_sparse_full_mna_solver(
     Returns:
         JIT-compiled solver function with same signature as make_dense_full_mna_solver
     """
+    # Apply tolerance factor
+    effective_abstol = abstol * nr_convtol
     from jax.experimental.sparse import BCSR
     from jax.experimental.sparse.linalg import spsolve
 
@@ -370,7 +378,7 @@ def make_sparse_full_mna_solver(
                 max_f = jnp.max(jnp.abs(f_masked))
             else:
                 max_f = jnp.max(jnp.abs(f))
-            residual_converged = max_f < abstol
+            residual_converged = max_f < effective_abstol
 
             if use_precomputed:
                 # Fast path: pre-computed COO→CSR

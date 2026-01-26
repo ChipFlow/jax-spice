@@ -25,6 +25,7 @@ Where:
 - J = branch currents (m×1) - these are the primary unknowns for vsources
 """
 
+import dataclasses
 import time as time_module
 from typing import Any, Callable, Dict, NamedTuple, Optional, Tuple
 
@@ -518,6 +519,16 @@ class FullMNAStrategy(TransientStrategy):
         if setup.icmode == 'uic':
             # Use Initial Conditions - skip DC solve, start from mid-rail
             logger.info(f"{self.name}: icmode='uic' - skipping DC solve, using initial conditions")
+
+            # Auto-enable gshunt for UIC mode to prevent singular matrix
+            if config.gshunt_init == 0.0:
+                config = dataclasses.replace(
+                    config,
+                    gshunt_init=1e-9,
+                    gshunt_steps=5,
+                    gshunt_target=0.0,
+                )
+                logger.info(f"{self.name}: Auto-enabled gshunt={1e-9:.0e} for UIC mode")
         else:
             # Compute DC operating point
             X_dc, _, dc_converged, dc_residual, Q_dc, _, I_vsource_dc = nr_solve(
@@ -1012,6 +1023,11 @@ def _make_full_mna_while_loop_fns(
     """
     max_history = config.max_order + 2
 
+    # Extract gshunt config for ramping
+    gshunt_init = config.gshunt_init
+    gshunt_target = config.gshunt_target
+    gshunt_steps = config.gshunt_steps
+
     def cond_fn(state: FullMNAState) -> jax.Array:
         """Continue while t < t_stop and step_idx < max_steps."""
         return (state.t < state.t_stop) & (state.step_idx < max_steps)
@@ -1045,10 +1061,18 @@ def _make_full_mna_while_loop_fns(
         # Initialize X with predicted voltages
         X_init = jnp.where(can_predict, X.at[:n_total].set(V_pred), X)
 
+        # Compute current gshunt (linear ramp from init to target)
+        ramp_progress = jnp.where(
+            gshunt_steps > 0,
+            jnp.clip(state.step_idx / gshunt_steps, 0.0, 1.0),
+            1.0  # If no steps, use target immediately
+        )
+        current_gshunt = gshunt_init + ramp_progress * (gshunt_target - gshunt_init)
+
         # Newton-Raphson solve
         X_new, iterations, converged, max_f, Q, dQdt_out, I_vsource = nr_solve(
             X_init, vsource_vals, isource_vals, Q_prev, c0, device_arrays,
-            1e-12, 0.0, c1, 0.0, dQdt_prev, 0.0, Q_prev2,
+            1e-12, current_gshunt, c1, 0.0, dQdt_prev, 0.0, Q_prev2,
         )
 
         new_total_nr_iters = state.total_nr_iters + jnp.int32(iterations)

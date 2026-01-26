@@ -36,6 +36,10 @@ class AdaptiveConfig:
             Need at least 2 past solutions for linear extrapolation. Default 2.
         max_order: Maximum order for polynomial predictor. Default 2 (quadratic).
         grow_factor: Maximum factor by which timestep can grow per step. Default 2.0.
+        nr_convtol: NR convergence tolerance factor (multiplier on abstol). Default 1.0.
+        gshunt_init: Initial gshunt value for convergence aid. Default 0.0.
+        gshunt_steps: Number of steps to ramp gshunt from init to target. Default 5.
+        gshunt_target: Final gshunt value after ramping. Default 0.0.
     """
 
     lte_ratio: float = 3.5
@@ -47,6 +51,10 @@ class AdaptiveConfig:
     warmup_steps: int = 2
     max_order: int = 2
     grow_factor: float = 2.0
+    nr_convtol: float = 1.0
+    gshunt_init: float = 0.0
+    gshunt_steps: int = 5
+    gshunt_target: float = 0.0
 
 
 def predict_voltage_jax(
