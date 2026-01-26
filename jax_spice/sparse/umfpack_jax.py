@@ -260,7 +260,7 @@ if _UMFPACK_FFI_AVAILABLE:
 @dot_f64.def_abstract_eval
 @solve_transpose_f64.def_abstract_eval
 def general_abstract_eval(
-    indptr: Array, indices: Array, data: Array, x: Array
+    indptr: ShapedArray, indices: ShapedArray, data: ShapedArray, x: ShapedArray
 ) -> ShapedArray:
     """Abstract evaluation - returns shape/dtype info without computing."""
     return ShapedArray(x.shape, x.dtype)
