@@ -430,26 +430,27 @@ def plot_comparison(config: BenchmarkConfig, vacask_data: Optional[Dict],
 
     # Panel: Output Voltages
     ax = axes[panel_idx]
-    for v_node in config.voltage_nodes:
+    for i, v_node in enumerate(config.voltage_nodes):
         # VACASK uses short names (p0), JAX uses full names (top.p0)
         vac_node = v_node.split('.')[-1]  # Get short name for VACASK
+        offset = i * 1.5  # Offset each bit for visibility
 
         # Plot VACASK data
         if vacask_data and vac_node in vacask_data:
-            ax.plot(t_vac[mask_vac] * time_scale, vacask_data[vac_node][mask_vac],
-                    c_vac, lw=1.5, label=f'VACASK V({vac_node})', alpha=0.9)
+            ax.plot(t_vac[mask_vac] * time_scale, vacask_data[vac_node][mask_vac] + offset,
+                    c_vac, lw=0.8, alpha=0.8, label=f'VAC {vac_node}' if i < 2 else None)
 
         # Plot JAX-SPICE data - try both full name and short name
         jax_voltage = voltages_mna.get(v_node)
         if jax_voltage is None:
             jax_voltage = voltages_mna.get(vac_node)
         if jax_voltage is not None:
-            ax.plot(t_mna[mask_mna] * time_scale, jax_voltage[mask_mna],
-                    'red', lw=1.5, label=f'JAX V({vac_node})', alpha=0.9, linestyle=':')
+            ax.plot(t_mna[mask_mna] * time_scale, jax_voltage[mask_mna] + offset,
+                    'r:', lw=0.8, alpha=0.8, label=f'JAX {vac_node}' if i < 2 else None)
 
-    ax.set_ylabel('Output Voltage [V]', fontsize=11)
-    ax.set_title(f'Output Bits ({", ".join(config.voltage_nodes[:3])}...)', fontsize=12)
-    ax.legend(loc='upper right', fontsize=9, ncol=2)
+    ax.set_ylabel('Output [V + offset]', fontsize=11)
+    ax.set_title(f'Output Bits ({", ".join([n.split(".")[-1] for n in config.voltage_nodes[:3]])}...)', fontsize=12)
+    ax.legend(loc='upper right', fontsize=9, ncol=4)
     ax.grid(True, alpha=0.3)
     panel_idx += 1
 
