@@ -54,6 +54,8 @@ class BenchmarkConfig:
     current_source: str  # Name of vsource for current
     use_sparse: bool = False
     icmode: Optional[str] = None
+    input_nodes_a: Optional[list] = None  # Input bus A nodes (e.g., a0-a15)
+    input_nodes_b: Optional[list] = None  # Input bus B nodes (e.g., b0-b15)
 
 
 BENCHMARKS = {
@@ -75,11 +77,13 @@ BENCHMARKS = {
         t_stop=2e-11,
         dt=2e-15,
         max_dt=10e-14,
-        plot_window=(0.0, 2e-9),
+        plot_window=(0.0, 2e-11),
         voltage_nodes=['top.p0', 'top.p1'],  # Output bits
         current_source='vdd',
         use_sparse=True,
         icmode='uic',
+        input_nodes_a=[f'a{i}' for i in range(16)],  # a0-a15
+        input_nodes_b=[f'b{i}' for i in range(16)],  # b0-b15
     ),
 }
 
@@ -355,105 +359,95 @@ def plot_comparison(config: BenchmarkConfig, vacask_data: Optional[Dict],
     """Create comparison plot."""
     t_mna, voltages_mna, currents_mna = jax_data
 
-    # Setup figure
-    n_panels = 3 if vacask_data or ngspice_data else 2
-    fig, axes = plt.subplots(n_panels, 1, figsize=(14, 4 * n_panels), sharex=True)
+    # Determine number of panels
+    has_inputs = config.input_nodes_a or config.input_nodes_b
+    n_panels = 2  # Output voltage + current
+    if has_inputs:
+        n_panels += 2  # Add input A and input B panels
+
+    fig, axes = plt.subplots(n_panels, 1, figsize=(14, 3 * n_panels), sharex=True)
+    if n_panels == 1:
+        axes = [axes]
 
     t_start, t_end = config.plot_window
-    c_vac, c_ng, c_mna = 'blue', 'green', 'red'
+    # Use picoseconds for very short simulations
+    time_scale = 1e12 if t_end < 1e-9 else 1e9
+    time_unit = 'ps' if time_scale == 1e12 else 'ns'
 
-    # Get first voltage node for plotting
-    v_node = config.voltage_nodes[0]
+    c_vac = 'blue'
+    panel_idx = 0
 
-    # Panel 1: Voltages
-    ax1 = axes[0]
+    # Get time masks
     mask_mna = (t_mna >= t_start) & (t_mna <= t_end)
-
-    # Find voltage in JAX data (may have different naming)
-    V_mna = None
-    for key in voltages_mna:
-        if v_node in key or key == v_node:
-            V_mna = voltages_mna[key]
-            break
-    if V_mna is None and voltages_mna:
-        # Use first available
-        V_mna = list(voltages_mna.values())[0]
-        v_node = list(voltages_mna.keys())[0]
-
-    if V_mna is not None:
-        ax1.plot(t_mna[mask_mna] * 1e9, V_mna[mask_mna], c_mna, lw=1.5,
-                 label=f'JAX-SPICE V({v_node})', alpha=0.9, linestyle=':')
-
     if vacask_data:
         t_vac = vacask_data['time']
-        V_vac = vacask_data.get(v_node) or vacask_data.get(v_node.split('.')[-1])
-        if V_vac is not None:
-            mask_vac = (t_vac >= t_start) & (t_vac <= t_end)
-            ax1.plot(t_vac[mask_vac] * 1e9, V_vac[mask_vac], c_vac, lw=1.5,
-                     label=f'VACASK V({v_node})', alpha=0.9)
+        mask_vac = (t_vac >= t_start) & (t_vac <= t_end)
 
-    if ngspice_data:
-        t_ng = ngspice_data['time']
-        V_ng = ngspice_data.get(v_node) or ngspice_data.get(f'v({v_node})')
-        if V_ng is not None:
-            mask_ng = (t_ng >= t_start) & (t_ng <= t_end)
-            ax1.plot(t_ng[mask_ng] * 1e9, V_ng[mask_ng], c_ng, lw=1.5,
-                     label=f'ngspice V({v_node})', alpha=0.9, linestyle='--')
+    # Panel: Input A (if configured)
+    if config.input_nodes_a:
+        ax = axes[panel_idx]
+        # Plot each input bit with offset for visibility
+        for i, node in enumerate(config.input_nodes_a):
+            offset = i * 1.5  # Offset each bit for visibility
+            if vacask_data and node in vacask_data:
+                ax.plot(t_vac[mask_vac] * time_scale, vacask_data[node][mask_vac] + offset,
+                        lw=0.8, alpha=0.8, label=node if i < 4 else None)
+        ax.set_ylabel('Input A [V + offset]', fontsize=11)
+        ax.set_title(f'{config.name}: Input Bus A (a0-a15)', fontsize=12, fontweight='bold')
+        ax.grid(True, alpha=0.3)
+        if config.input_nodes_a[:4]:
+            ax.legend(loc='upper right', ncol=4, fontsize=8)
+        panel_idx += 1
 
-    ax1.set_ylabel('Voltage [V]', fontsize=11)
-    ax1.legend(loc='upper right', ncol=3, fontsize=9)
-    ax1.grid(True, alpha=0.3)
-    ax1.set_title(f'{config.name}: VACASK vs ngspice vs JAX-SPICE', fontsize=12, fontweight='bold')
+    # Panel: Input B (if configured)
+    if config.input_nodes_b:
+        ax = axes[panel_idx]
+        for i, node in enumerate(config.input_nodes_b):
+            offset = i * 1.5
+            if vacask_data and node in vacask_data:
+                ax.plot(t_vac[mask_vac] * time_scale, vacask_data[node][mask_vac] + offset,
+                        lw=0.8, alpha=0.8, label=node if i < 4 else None)
+        ax.set_ylabel('Input B [V + offset]', fontsize=11)
+        ax.set_title('Input Bus B (b0-b15)', fontsize=12)
+        ax.grid(True, alpha=0.3)
+        if config.input_nodes_b[:4]:
+            ax.legend(loc='upper right', ncol=4, fontsize=8)
+        panel_idx += 1
 
-    # Panel 2: Current
-    ax2 = axes[1]
-    I_mna = currents_mna.get(config.current_source)
+    # Panel: Output Voltages
+    ax = axes[panel_idx]
+    for v_node in config.voltage_nodes:
+        # VACASK uses short names (p0), JAX uses full names (top.p0)
+        vac_node = v_node.split('.')[-1]  # Get short name for VACASK
 
-    if I_mna is not None:
-        ax2.plot(t_mna[mask_mna] * 1e9, I_mna[mask_mna] * 1e6, c_mna, lw=1.5,
-                 label='JAX-SPICE', alpha=0.9, linestyle=':')
+        if vacask_data and vac_node in vacask_data:
+            ax.plot(t_vac[mask_vac] * time_scale, vacask_data[vac_node][mask_vac],
+                    c_vac, lw=1.5, label=f'VACASK V({vac_node})', alpha=0.9)
 
+    ax.set_ylabel('Output Voltage [V]', fontsize=11)
+    ax.set_title('Output Bits (p0, p1)', fontsize=12)
+    ax.legend(loc='upper right', fontsize=9)
+    ax.grid(True, alpha=0.3)
+    panel_idx += 1
+
+    # Panel: Current
+    ax = axes[panel_idx]
+    I_vac = None
     if vacask_data:
         I_vac = vacask_data.get(f'{config.current_source}:flow(br)')
         if I_vac is not None:
-            ax2.plot(t_vac[mask_vac] * 1e9, I_vac[mask_vac] * 1e6, c_vac, lw=1.5,
-                     label='VACASK', alpha=0.9)
+            ax.plot(t_vac[mask_vac] * time_scale, I_vac[mask_vac] * 1e6, c_vac, lw=1.5,
+                    label='VACASK', alpha=0.9)
 
-    if ngspice_data:
-        I_ng = ngspice_data.get(f'i({config.current_source})')
-        if I_ng is not None:
-            ax2.plot(t_ng[mask_ng] * 1e9, I_ng[mask_ng] * 1e6, c_ng, lw=1.5,
-                     label='ngspice', alpha=0.9, linestyle='--')
+    I_mna = currents_mna.get(config.current_source)
+    if I_mna is not None:
+        ax.plot(t_mna[mask_mna] * time_scale, I_mna[mask_mna] * 1e6, 'red', lw=1.5,
+                label='JAX-SPICE', alpha=0.9, linestyle=':')
 
-    ax2.set_ylabel(f'I({config.current_source}) [µA]', fontsize=11)
-    ax2.legend(loc='lower right', fontsize=9)
-    ax2.grid(True, alpha=0.3)
-
-    # Panel 3: dI/dt (if we have current data)
-    if n_panels > 2 and I_mna is not None:
-        ax3 = axes[2]
-        t_didt_mna, dIdt_mna = compute_didt(t_mna, I_mna)
-        mask_didt_mna = (t_didt_mna >= t_start) & (t_didt_mna <= t_end)
-        ax3.plot(t_didt_mna[mask_didt_mna] * 1e9, dIdt_mna[mask_didt_mna] * 1e-6, c_mna,
-                 lw=1, label='JAX-SPICE', alpha=0.8, linestyle=':')
-
-        if vacask_data and I_vac is not None:
-            t_didt_vac, dIdt_vac = compute_didt(t_vac, I_vac)
-            mask_didt_vac = (t_didt_vac >= t_start) & (t_didt_vac <= t_end)
-            ax3.plot(t_didt_vac[mask_didt_vac] * 1e9, dIdt_vac[mask_didt_vac] * 1e-6, c_vac,
-                     lw=1, label='VACASK', alpha=0.8)
-
-        if ngspice_data and I_ng is not None:
-            t_didt_ng, dIdt_ng = compute_didt(t_ng, I_ng)
-            mask_didt_ng = (t_didt_ng >= t_start) & (t_didt_ng <= t_end)
-            ax3.plot(t_didt_ng[mask_didt_ng] * 1e9, dIdt_ng[mask_didt_ng] * 1e-6, c_ng,
-                     lw=1, label='ngspice', alpha=0.8, linestyle='--')
-
-        ax3.set_ylabel('dI/dt [mA/ns]', fontsize=11)
-        ax3.legend(loc='upper right', fontsize=9)
-        ax3.grid(True, alpha=0.3)
-
-    axes[-1].set_xlabel('Time [ns]', fontsize=11)
+    ax.set_ylabel(f'I({config.current_source}) [µA]', fontsize=11)
+    ax.set_xlabel(f'Time [{time_unit}]', fontsize=11)
+    ax.legend(loc='lower right', fontsize=9)
+    ax.grid(True, alpha=0.3)
 
     plt.tight_layout()
     plt.savefig(output_file, dpi=150, bbox_inches='tight')
