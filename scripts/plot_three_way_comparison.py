@@ -35,6 +35,7 @@ import numpy as np
 from jax_spice._logging import enable_performance_logging, logger
 from jax_spice.analysis.engine import CircuitEngine
 from jax_spice.analysis.transient import AdaptiveConfig, FullMNAStrategy, extract_results
+from jax_spice.utils import find_ngspice_binary, run_ngspice as run_ngspice_util
 from jax_spice.utils import run_vacask as run_vacask_util
 
 enable_performance_logging(with_memory=True, with_perf_counter=True)
@@ -74,10 +75,10 @@ BENCHMARKS = {
         name='C6288 16x16 Multiplier',
         vacask_sim=Path('vendor/VACASK/benchmark/c6288/vacask/runme.sim'),
         ngspice_sim=Path('vendor/VACASK/benchmark/c6288/ngspice/runme.sim'),
-        t_stop=5e-14,
-        dt=1e-15,
-        max_dt=1e-10,
-        plot_window=(0.0, 5e-14),
+        t_stop=5e-11,
+        dt=1e-13,
+        max_dt=5e-13,
+        plot_window=(0.0, 5e-12),
         voltage_nodes=[ f'top.p{n}' for n in range(32) ],
         current_source='vdd',
         use_sparse=True,
@@ -232,10 +233,11 @@ def run_vacask(config: BenchmarkConfig, output_dir: Path, benchmark_key: str) ->
 
 def run_ngspice(config: BenchmarkConfig, output_dir: Path, benchmark_key: str) -> Optional[Path]:
     """Run ngspice and return path to raw file."""
+    import shutil
+    import tempfile
+
     # Check if ngspice is available
-    try:
-        subprocess.run(['ngspice', '--version'], capture_output=True, check=True)
-    except (subprocess.CalledProcessError, FileNotFoundError):
+    if find_ngspice_binary() is None:
         logger.warning("ngspice not found - skipping")
         return None
 
@@ -254,8 +256,6 @@ def run_ngspice(config: BenchmarkConfig, output_dir: Path, benchmark_key: str) -
         sim_content = f.read()
 
     # Copy OSDI files from vacask directory if needed
-    # Look for pre_osdi directives and copy the referenced files
-    import shutil
     osdi_files = re.findall(r'pre_osdi\s+(\S+)', sim_content)
     vacask_dir = config.vacask_sim.parent
     for osdi_file in osdi_files:
@@ -265,7 +265,7 @@ def run_ngspice(config: BenchmarkConfig, output_dir: Path, benchmark_key: str) -
             shutil.copy(osdi_src, osdi_dst)
             logger.info(f"Copied {osdi_file} from vacask to ngspice directory")
 
-    # Modify tran command to use our t_stop and write rawfile
+    # Modify tran command to use our t_stop
     # ngspice tran format: tran tstep tstop [tstart [tmax]] [uic]
     modified = re.sub(
         r'tran\s+[\d.]+[a-z]*\s+[\d.]+[a-z]*',
@@ -273,13 +273,7 @@ def run_ngspice(config: BenchmarkConfig, output_dir: Path, benchmark_key: str) -
         sim_content
     )
 
-    # Add wrdata command before quit
-    if 'wrdata' not in modified:
-        modified = modified.replace(
-            'quit',
-            f'write {raw_file.name}\n  quit'
-        )
-
+    # Write modified sim file to temp location
     temp_sim = sim_dir / 'plot_temp.sp'
     with open(temp_sim, 'w') as f:
         f.write(modified)
@@ -287,34 +281,25 @@ def run_ngspice(config: BenchmarkConfig, output_dir: Path, benchmark_key: str) -
     try:
         logger.info(f"Running ngspice ({config.name})...")
         start = time.perf_counter()
-        result = subprocess.run(
-            ['ngspice', '-b', 'plot_temp.sp'],
-            cwd=sim_dir,
-            capture_output=True,
-            text=True,
-            timeout=600
-        )
+
+        # Use utility function
+        temp_output = Path(tempfile.mkdtemp(prefix="ngspice_"))
+        result_raw, error = run_ngspice_util(temp_sim, output_dir=temp_output, timeout=600)
         elapsed = time.perf_counter() - start
 
-        # ngspice writes to cwd
-        ng_raw = sim_dir / raw_file.name
-        if ng_raw.exists():
-            import shutil
-            shutil.move(ng_raw, raw_file)
+        if error:
+            logger.error(f"ngspice failed: {error}")
+            return None
+
+        if result_raw and result_raw.exists():
+            shutil.copy(result_raw, raw_file)
             write_stamp(stamp_file, config_hash)
             logger.info(f"ngspice completed in {elapsed:.1f}s -> {raw_file}")
             return raw_file
         else:
-            # Check stderr for errors
-            if result.returncode != 0:
-                logger.error(f"ngspice failed: {result.stderr[:500]}")
-            else:
-                logger.warning("ngspice did not produce raw file")
+            logger.warning("ngspice did not produce raw file")
             return None
 
-    except subprocess.TimeoutExpired:
-        logger.error("ngspice timed out")
-        return None
     finally:
         if temp_sim.exists():
             temp_sim.unlink()
@@ -382,6 +367,9 @@ def plot_comparison(config: BenchmarkConfig, vacask_data: Optional[Dict],
     if vacask_data:
         t_vac = vacask_data['time']
         mask_vac = (t_vac >= t_start) & (t_vac <= t_end)
+    if ngspice_data:
+        t_ng = ngspice_data['time']
+        mask_ng = (t_ng >= t_start) & (t_ng <= t_end)
 
     # Panel: Input A (if configured)
     if config.input_nodes_a:
@@ -393,6 +381,10 @@ def plot_comparison(config: BenchmarkConfig, vacask_data: Optional[Dict],
             if vacask_data and node in vacask_data:
                 ax.plot(t_vac[mask_vac] * time_scale, vacask_data[node][mask_vac] + offset,
                         'b-', lw=0.8, alpha=0.8, label=f'VAC {node}' if i < 2 else None)
+            # Plot ngspice
+            if ngspice_data and node in ngspice_data:
+                ax.plot(t_ng[mask_ng] * time_scale, ngspice_data[node][mask_ng] + offset,
+                        'g--', lw=0.8, alpha=0.8, label=f'NG {node}' if i < 2 else None)
             # Plot JAX-SPICE - try with and without prefix
             jax_input = voltages_mna.get(node)
             if jax_input is None:
@@ -415,6 +407,10 @@ def plot_comparison(config: BenchmarkConfig, vacask_data: Optional[Dict],
             if vacask_data and node in vacask_data:
                 ax.plot(t_vac[mask_vac] * time_scale, vacask_data[node][mask_vac] + offset,
                         'b-', lw=0.8, alpha=0.8, label=f'VAC {node}' if i < 2 else None)
+            # Plot ngspice
+            if ngspice_data and node in ngspice_data:
+                ax.plot(t_ng[mask_ng] * time_scale, ngspice_data[node][mask_ng] + offset,
+                        'g--', lw=0.8, alpha=0.8, label=f'NG {node}' if i < 2 else None)
             # Plot JAX-SPICE
             jax_input = voltages_mna.get(node)
             if jax_input is None:
@@ -440,6 +436,11 @@ def plot_comparison(config: BenchmarkConfig, vacask_data: Optional[Dict],
             ax.plot(t_vac[mask_vac] * time_scale, vacask_data[vac_node][mask_vac] + offset,
                     c_vac, lw=0.8, alpha=0.8, label=f'VAC {vac_node}' if i < 2 else None)
 
+        # Plot ngspice data
+        if ngspice_data and vac_node in ngspice_data:
+            ax.plot(t_ng[mask_ng] * time_scale, ngspice_data[vac_node][mask_ng] + offset,
+                    'g--', lw=0.8, alpha=0.8, label=f'NG {vac_node}' if i < 2 else None)
+
         # Plot JAX-SPICE data - try both full name and short name
         jax_voltage = voltages_mna.get(v_node)
         if jax_voltage is None:
@@ -462,6 +463,17 @@ def plot_comparison(config: BenchmarkConfig, vacask_data: Optional[Dict],
         if I_vac is not None:
             ax.plot(t_vac[mask_vac] * time_scale, I_vac[mask_vac] * 1e6, c_vac, lw=1.5,
                     label='VACASK', alpha=0.9)
+
+    # ngspice current - try different naming conventions
+    if ngspice_data:
+        I_ng = ngspice_data.get(f'i({config.current_source})')
+        if I_ng is None:
+            I_ng = ngspice_data.get(f'{config.current_source}#branch')
+        if I_ng is None:
+            I_ng = ngspice_data.get(f'v{config.current_source}#branch')
+        if I_ng is not None:
+            ax.plot(t_ng[mask_ng] * time_scale, I_ng[mask_ng] * 1e6, 'green', lw=1.5,
+                    label='ngspice', alpha=0.9, linestyle='--')
 
     I_mna = currents_mna.get(config.current_source)
     if I_mna is not None:
