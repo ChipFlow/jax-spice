@@ -426,7 +426,7 @@ def _copy_includes(
     output_dir: Path,
     content: str
 ) -> None:
-    """Copy .include files to output directory.
+    """Copy .include files and OSDI model files to output directory.
 
     Only copies files that are within the source directory tree
     to prevent path traversal attacks.
@@ -438,31 +438,38 @@ def _copy_includes(
     """
     source_dir = netlist_path.parent.resolve()
 
-    # Find .include directives
-    for match in re.finditer(r'\.include\s+["\']?([^"\'\s]+)["\']?', content, re.IGNORECASE):
-        include_path = match.group(1)
-
+    def copy_referenced_file(file_path: str, file_type: str) -> None:
+        """Copy a referenced file to output directory."""
         # Resolve relative to source directory
-        if not Path(include_path).is_absolute():
-            src_file = source_dir / include_path
+        if not Path(file_path).is_absolute():
+            src_file = source_dir / file_path
         else:
-            src_file = Path(include_path)
+            src_file = Path(file_path)
 
         # Validate path is safe (within source directory or absolute path exists)
         if not validate_path_safe(src_file, allowed_parent=source_dir):
             # For absolute paths, just check they don't have traversal
-            if Path(include_path).is_absolute():
+            if Path(file_path).is_absolute():
                 if not validate_path_safe(src_file):
-                    logger.warning(f"Skipping unsafe include path: {include_path}")
-                    continue
+                    logger.warning(f"Skipping unsafe {file_type} path: {file_path}")
+                    return
             else:
-                logger.warning(f"Skipping include path outside source dir: {include_path}")
-                continue
+                logger.warning(f"Skipping {file_type} path outside source dir: {file_path}")
+                return
 
         if src_file.exists():
             dst_file = output_dir / src_file.name
             if not dst_file.exists():
                 try:
                     shutil.copy2(src_file, dst_file)
+                    logger.debug(f"Copied {file_type} file: {src_file.name}")
                 except Exception as e:
-                    logger.warning(f"Failed to copy include file {src_file}: {e}")
+                    logger.warning(f"Failed to copy {file_type} file {src_file}: {e}")
+
+    # Find .include directives
+    for match in re.finditer(r'\.include\s+["\']?([^"\'\s]+)["\']?', content, re.IGNORECASE):
+        copy_referenced_file(match.group(1), "include")
+
+    # Find pre_osdi directives (OSDI model loading)
+    for match in re.finditer(r'pre_osdi\s+["\']?([^"\'\s]+)["\']?', content, re.IGNORECASE):
+        copy_referenced_file(match.group(1), "OSDI")
