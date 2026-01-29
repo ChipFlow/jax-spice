@@ -1936,7 +1936,7 @@ class CircuitEngine:
             'step': 1e-6,
             'stop': 1e-3,
             'icmode': 'op',
-            'tran_method': IntegrationMethod.BACKWARD_EULER,
+            'tran_method': IntegrationMethod.TRAPEZOIDAL,  # VACASK default
         }
 
         # Try to use the parsed control block first
@@ -2303,6 +2303,10 @@ class CircuitEngine:
             if 'tran_gshunt' in self.analysis_params:
                 kwargs['gshunt_init'] = float(self.analysis_params['tran_gshunt'])
 
+            # Integration method
+            if 'tran_method' in self.analysis_params:
+                kwargs['integration_method'] = self.analysis_params['tran_method']
+
             config = AdaptiveConfig(**kwargs)
         else:
             config = adaptive_config
@@ -2313,7 +2317,7 @@ class CircuitEngine:
                      config.lte_ratio, config.redo_factor, config.reltol,
                      config.abstol, config.min_dt, config.max_dt,
                      config.nr_convtol, config.gshunt_init, config.gshunt_steps,
-                     config.gshunt_target)
+                     config.gshunt_target, config.integration_method)
 
         if not hasattr(self, '_full_mna_strategy_cache'):
             self._full_mna_strategy_cache = {}

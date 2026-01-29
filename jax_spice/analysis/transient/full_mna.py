@@ -44,6 +44,8 @@ from jax_spice.analysis.solver_factories import (
 )
 from jax_spice.analysis.umfpack_solver import is_umfpack_available
 
+from jax_spice.analysis.integration import IntegrationMethod
+
 from .adaptive import AdaptiveConfig, compute_lte_timestep_jax, predict_voltage_jax
 from .base import TransientSetup, TransientStrategy
 
@@ -201,10 +203,19 @@ class FullMNAStrategy(TransientStrategy):
         self._cached_full_mna_solver: Optional[Callable] = None
         self._cached_full_mna_key: Optional[Tuple] = None
         self.config = config or AdaptiveConfig()
-        self._warmup_steps = 5  # Steps before enabling LTE rejection
+        # Note: warmup_steps is now in config, not hardcoded
         # Cache JIT-compiled while_loop keyed by circuit structure
         # Note: Using Any since JIT-compiled functions have complex types
         self._jit_run_while_cache: Dict[tuple, Any] = {}
+        # Build reverse lookup for node names (index -> name)
+        self._idx_to_name: Dict[int, str] = {}
+
+    def _get_node_name(self, idx: int) -> str:
+        """Look up node name by index, with lazy initialization."""
+        if not self._idx_to_name:
+            for name, node_idx in self.runner.node_names.items():
+                self._idx_to_name[node_idx] = name
+        return self._idx_to_name.get(idx, f"node{idx}")
 
     def ensure_setup(self) -> TransientSetup:
         """Ensure transient setup is initialized with full MNA data.
@@ -502,6 +513,13 @@ class FullMNAStrategy(TransientStrategy):
         source_fn = setup.source_fn
         config = self.config
 
+        # Apply initial timestep scaling (VACASK uses tran_fs=0.25 by default)
+        # This helps with startup transients by using smaller initial steps
+        if config.tran_fs != 1.0:
+            dt_original = dt
+            dt = dt * config.tran_fs
+            logger.info(f"{self.name}: Applied tran_fs={config.tran_fs} scaling: dt={dt_original:.2e}s -> {dt:.2e}s")
+
         device_arrays = self._device_arrays_full_mna
         dtype = jnp.float64
 
@@ -518,38 +536,23 @@ class FullMNAStrategy(TransientStrategy):
         vsource_vals_init, isource_vals_init = self._build_source_arrays(source_fn(0.0))
 
         if setup.icmode == 'uic':
-            # Use Initial Conditions - skip DC solve, start from 0V (not mid-rail)
-            # This matches VACASK behavior where signal nodes start at 0V
+            # Use Initial Conditions - skip DC solve, start from 0V
+            # This matches VACASK behavior: all nodes start at 0V, voltage sources
+            # force their values. The initial state may be inconsistent (like SPICE3).
             logger.info(f"{self.name}: icmode='uic' - skipping DC solve, using initial conditions")
 
-            # Re-initialize X0 with zeros for signal nodes (keep VDD/VSS)
-            vdd_value = self.runner._get_vdd_value()
-            X0 = X0.at[:n_total].set(0.0)  # Reset all nodes to 0V
-            # Set VDD/VCC nodes to supply voltage
-            for name, idx in self.runner.node_names.items():
-                name_lower = name.lower()
-                if 'vdd' in name_lower or 'vcc' in name_lower:
-                    X0 = X0.at[idx].set(vdd_value)
+            # All nodes start at 0V (VACASK behavior)
+            X0 = X0.at[:n_total].set(0.0)
 
-            # Compute initial charges and currents consistent with initial voltages
-            # Call build_system with c0=0 (no dQ/dt contribution) to get Q and I at t=0
-            _, _, Q_init, I_vsource_init = self._cached_build_system_jit(
+            # Compute initial charges consistent with initial voltages
+            # Note: The state may not be at DC equilibrium - this is expected for UIC
+            _, _, Q_init, I_vsource_dc = self._cached_build_system_jit(
                 X0, vsource_vals_init, isource_vals_init,
                 jnp.zeros(n_unknowns, dtype=dtype), 0.0, device_arrays,
                 1e-12, 0.0, 0.0, 0.0, None, 0.0, None
             )
-            I_vsource_dc = I_vsource_init
-            logger.info(f"{self.name}: Computed initial state (Q_max={float(jnp.max(jnp.abs(Q_init))):.2e}, I_vdd={float(I_vsource_dc[0]) if len(I_vsource_dc) > 0 else 0:.2e}A)")
-
-            # Auto-enable gshunt for UIC mode to prevent singular matrix
-            if config.gshunt_init == 0.0:
-                config = dataclasses.replace(
-                    config,
-                    gshunt_init=1e-9,
-                    gshunt_steps=5,
-                    gshunt_target=0.0,
-                )
-                logger.info(f"{self.name}: Auto-enabled gshunt={1e-9:.0e} for UIC mode")
+            logger.info(f"{self.name}: Initial state - Q_max={float(jnp.max(jnp.abs(Q_init))):.2e}, "
+                       f"I_vdd={float(I_vsource_dc[0]) if len(I_vsource_dc) > 0 else 0:.2e}A")
         else:
             # Compute DC operating point
             X_dc, _, dc_converged, dc_residual, Q_dc, _, I_vsource_dc = nr_solve(
@@ -639,6 +642,7 @@ class FullMNAStrategy(TransientStrategy):
             rejected_steps=jnp.array(0, dtype=jnp.int32),
             min_dt_used=jnp.array(dt, dtype=dtype),
             max_dt_used=jnp.array(dt, dtype=dtype),
+            consecutive_rejects=jnp.array(0, dtype=jnp.int32),
         )
 
         # Cache key does NOT include t_stop since it's passed dynamically via state
@@ -656,7 +660,7 @@ class FullMNAStrategy(TransientStrategy):
             cond_fn, body_fn = _make_full_mna_while_loop_fns(
                 nr_solve, jit_source_eval, device_arrays, config,
                 n_total, n_unknowns, n_external, n_vsources,
-                max_steps, self._warmup_steps, dtype,
+                max_steps, config.warmup_steps, dtype,
             )
 
             # JIT-compile the while_loop for performance
@@ -778,7 +782,7 @@ class FullMNAStrategy(TransientStrategy):
             cond_fn, body_fn = _make_full_mna_while_loop_fns(
                 nr_solve, jit_source_eval, device_arrays, config,
                 n_total, n_unknowns, n_external, n_vsources,
-                checkpoint_interval, self._warmup_steps, dtype,
+                checkpoint_interval, config.warmup_steps, dtype,
             )
 
             @jax.jit
@@ -842,6 +846,7 @@ class FullMNAStrategy(TransientStrategy):
                 rejected_steps=jnp.array(0, dtype=jnp.int32),
                 min_dt_used=jnp.array(current_dt, dtype=dtype),
                 max_dt_used=jnp.array(current_dt, dtype=dtype),
+                consecutive_rejects=jnp.array(0, dtype=jnp.int32),
             )
 
             # Run while_loop for this checkpoint
@@ -1021,6 +1026,7 @@ class FullMNAState(NamedTuple):
     rejected_steps: jax.Array       # Number of rejected steps
     min_dt_used: jax.Array          # Minimum dt actually used
     max_dt_used: jax.Array          # Maximum dt actually used
+    consecutive_rejects: jax.Array  # Consecutive LTE rejections (reset on accept)
 
 
 def _make_full_mna_while_loop_fns(
@@ -1064,6 +1070,9 @@ def _make_full_mna_while_loop_fns(
         """Continue while t < t_stop and step_idx < max_steps."""
         return (state.t < state.t_stop) & (state.step_idx < max_steps)
 
+    # Extract integration method - compute coefficients in body_fn
+    integ_method = config.integration_method
+
     def body_fn(state: FullMNAState) -> FullMNAState:
         """One iteration of full MNA adaptive timestep loop."""
         t = state.t
@@ -1073,10 +1082,32 @@ def _make_full_mna_while_loop_fns(
         dQdt_prev = state.dQdt_prev
         Q_prev2 = state.Q_prev2
 
-        # Backward Euler coefficients
-        c0 = 1.0 / dt_cur
-        c1 = -1.0 / dt_cur
-        error_coeff_integ = -0.5
+        # Compute integration coefficients based on method
+        # Using compile-time constants since method is fixed per run
+        inv_dt = 1.0 / dt_cur
+        if integ_method == IntegrationMethod.BACKWARD_EULER:
+            # BE: dQ/dt = (Q_new - Q_prev) / dt
+            c0 = inv_dt
+            c1 = -inv_dt
+            d1 = 0.0
+            c2 = 0.0
+            error_coeff_integ = -0.5
+        elif integ_method == IntegrationMethod.TRAPEZOIDAL:
+            # Trap: dQ/dt = 2/dt * (Q_new - Q_prev) - dQdt_prev
+            c0 = 2.0 * inv_dt
+            c1 = -2.0 * inv_dt
+            d1 = -1.0
+            c2 = 0.0
+            # VACASK uses 1/24 (h^3/24 LTE coeff) which with pred_err_coeff~-1
+            # gives factor ~ 0.04, matching VACASK's LTE scaling
+            error_coeff_integ = 1.0 / 24.0
+        else:  # GEAR2/BDF2
+            # Gear2: dQ/dt = (3*Q_new - 4*Q_prev + Q_prev2) / (2*dt)
+            c0 = 1.5 * inv_dt
+            c1 = -2.0 * inv_dt
+            d1 = 0.0
+            c2 = 0.5 * inv_dt
+            error_coeff_integ = -2.0 / 9.0
 
         t_next = t + dt_cur
         vsource_vals, isource_vals = jit_source_eval(t_next)
@@ -1087,7 +1118,8 @@ def _make_full_mna_while_loop_fns(
 
         V_pred, pred_err_coeff = predict_voltage_jax(
             state.V_history, state.dt_history, state.history_count,
-            dt_cur, config.max_order
+            dt_cur, config.max_order,
+            debug=config.debug_lte, debug_node=24
         )
 
         # Initialize X with predicted voltages
@@ -1104,7 +1136,7 @@ def _make_full_mna_while_loop_fns(
         # Newton-Raphson solve
         X_new, iterations, converged, max_f, Q, dQdt_out, I_vsource = nr_solve(
             X_init, vsource_vals, isource_vals, Q_prev, c0, device_arrays,
-            1e-12, current_gshunt, c1, 0.0, dQdt_prev, 0.0, Q_prev2,
+            1e-12, current_gshunt, c1, d1, dQdt_prev, c2, Q_prev2,
         )
 
         new_total_nr_iters = state.total_nr_iters + jnp.int32(iterations)
@@ -1117,18 +1149,55 @@ def _make_full_mna_while_loop_fns(
         # LTE estimation (on voltage part only) using shared function
         V_new = X_new[:n_total]
         dt_lte, lte_norm = compute_lte_timestep_jax(
-            V_new, V_pred, pred_err_coeff, dt_cur, state.history_count, config, error_coeff_integ
+            V_new, V_pred, pred_err_coeff, dt_cur, state.history_count, config, error_coeff_integ,
+            debug_lte=config.debug_lte, step_idx=state.step_idx
         )
 
         # Accept/reject decision
         lte_reject = (dt_cur / dt_lte > config.redo_factor) & can_predict & converged
         nr_reject = nr_failed & ~at_min_dt
 
-        reject_step = lte_reject | nr_reject
+        # Check for forced acceptance after too many consecutive LTE rejects
+        # This prevents timestep from collapsing to femtoseconds
+        force_accept = state.consecutive_rejects >= config.max_consecutive_rejects
+
+        reject_step = (lte_reject | nr_reject) & ~force_accept
         accept_step = ~reject_step
 
+        # Track consecutive LTE rejects (reset on acceptance, increment on LTE reject)
+        new_consecutive_rejects = jnp.where(
+            accept_step,
+            jnp.array(0, dtype=jnp.int32),
+            jnp.where(lte_reject, state.consecutive_rejects + 1, state.consecutive_rejects)
+        )
+
+        # Debug per-step logging (for VACASK comparison)
+        if config.debug_steps:
+            def _debug_step_callback(step, t_next_val, dt_val, nr_iters, residual,
+                                     can_pred, lte_norm_val, lte_rej, nr_rej, accept):
+                t_ps = float(t_next_val) * 1e12
+                dt_ps = float(dt_val) * 1e12
+                lte_ratio = float(dt_val / (dt_val / max(float(lte_norm_val), 1e-30)))  # Approximate
+                if not can_pred:
+                    lte_status = "Cannot estimate"
+                elif lte_rej:
+                    lte_status = f"LTE/tol={float(lte_norm_val):.1f} → REJECT"
+                else:
+                    lte_status = f"LTE/tol={float(lte_norm_val):.2f}"
+                status = "REJECT" if not accept else "accept"
+                print(f"Step {int(step)+1:3d}: t={t_ps:8.3f}ps dt={dt_ps:8.4f}ps "
+                      f"NR={int(nr_iters):2d} res={float(residual):.2e} {lte_status:<20} [{status}]")
+            jax.debug.callback(
+                _debug_step_callback,
+                state.step_idx, t_next, dt_cur, iterations, max_f,
+                can_predict, lte_norm, lte_reject, nr_reject, accept_step
+            )
+
         # Compute new dt
-        new_dt = jnp.where(nr_failed, jnp.maximum(dt_cur / 2, config.min_dt), dt_lte)
+        # During warmup (can_predict=False), keep current dt to avoid LTE-driven timestep collapse
+        # Only use dt_lte once we have enough history for meaningful LTE estimates
+        dt_from_lte = jnp.where(can_predict, dt_lte, dt_cur)
+        new_dt = jnp.where(nr_failed, jnp.maximum(dt_cur / 2, config.min_dt), dt_from_lte)
         new_dt = jnp.clip(new_dt, config.min_dt, config.max_dt)
         new_dt = jnp.minimum(new_dt, state.t_stop - t_next)
 
@@ -1216,6 +1285,7 @@ def _make_full_mna_while_loop_fns(
             rejected_steps=new_rejected,
             min_dt_used=new_min_dt,
             max_dt_used=new_max_dt,
+            consecutive_rejects=new_consecutive_rejects,
         )
 
     return cond_fn, body_fn

@@ -220,9 +220,9 @@ def get_method_from_options(options_params: dict) -> IntegrationMethod:
         options_params: Dictionary from OptionsDirective.params
 
     Returns:
-        IntegrationMethod, defaults to BACKWARD_EULER if not specified
+        IntegrationMethod, defaults to TRAPEZOIDAL if not specified (VACASK default)
     """
-    tran_method = options_params.get("tran_method", "be")
+    tran_method = options_params.get("tran_method", "trap")
     # Strip quotes if present
     if isinstance(tran_method, str):
         tran_method = tran_method.strip('"\'')
