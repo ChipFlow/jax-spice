@@ -476,6 +476,10 @@ class CircuitEngine:
         # Simulation temperature in Kelvin (default room temperature)
         self._simulation_temperature: float = DEFAULT_TEMPERATURE_K
 
+        # Device-level voltage limiting (pnjlim/fetlim) - Phase 2 of damping implementation
+        # When True, generates calls to limit_funcs in device eval instead of passthrough
+        self.use_device_limiting: bool = False
+
     def clear_cache(self):
         """Clear all cached data to free memory.
 
@@ -1443,13 +1447,23 @@ class CircuitEngine:
                 use_cache_split = False
 
             # Generate eval function with param split and optional cache split
-            logger.info(f"{model_type}: generating split eval function (cache_split={use_cache_split})...")
+            # When use_device_limiting is True, generate calls to pnjlim/fetlim
+            use_device_limiting = getattr(self, 'use_device_limiting', False)
+            logger.info(f"{model_type}: generating split eval function (cache_split={use_cache_split}, limit_funcs={use_device_limiting})...")
+
             if use_cache_split:
                 split_fn, split_meta = translator.translate_eval_array_with_cache_split(
                     shared_indices, varying_indices_list,
-                    shared_cache_indices, varying_cache_indices
+                    shared_cache_indices, varying_cache_indices,
+                    use_limit_functions=use_device_limiting
                 )
-                # vmap with in_axes=(None, 0, None, 0, None) - shared arrays and simparams broadcast
+                # vmap with in_axes - limit_funcs is last param when enabled
+                if use_device_limiting:
+                    # Bind limit_funcs so call signature matches non-limit version
+                    from functools import partial
+                    from jax_spice.analysis.limiting import pnjlim, fetlim
+                    limit_funcs = {'pnjlim': pnjlim, 'fetlim': fetlim}
+                    split_fn = partial(split_fn, limit_funcs=limit_funcs)
                 vmapped_split_fn = jax.jit(jax.vmap(split_fn, in_axes=(None, 0, None, 0, None)))
 
                 # Split cache arrays
@@ -1457,9 +1471,16 @@ class CircuitEngine:
                 device_cache = cache[:, varying_cache_indices]  # (n_devices, n_varying_cache)
             else:
                 split_fn, split_meta = translator.translate_eval_array_with_cache_split(
-                    shared_indices, varying_indices_list
+                    shared_indices, varying_indices_list,
+                    use_limit_functions=use_device_limiting
                 )
-                # vmap with in_axes=(None, 0, 0, None) - simparams broadcast across devices
+                # vmap with in_axes - limit_funcs is last param when enabled
+                if use_device_limiting:
+                    # Bind limit_funcs so call signature matches non-limit version
+                    from functools import partial
+                    from jax_spice.analysis.limiting import pnjlim, fetlim
+                    limit_funcs = {'pnjlim': pnjlim, 'fetlim': fetlim}
+                    split_fn = partial(split_fn, limit_funcs=limit_funcs)
                 vmapped_split_fn = jax.jit(jax.vmap(split_fn, in_axes=(None, 0, 0, None)))
                 shared_cache = None
                 device_cache = cache
@@ -2343,7 +2364,8 @@ class CircuitEngine:
 
         # Cache strategy instance for JIT reuse across calls
         # Key includes all parameters that affect strategy construction
-        cache_key = (use_sparse, backend,
+        # max_steps is now part of the key since it affects JIT compilation
+        cache_key = (use_sparse, backend, max_steps,
                      config.lte_ratio, config.redo_factor, config.reltol,
                      config.abstol, config.min_dt, config.max_dt,
                      config.nr_convtol, config.gshunt_init, config.gshunt_steps,
@@ -2365,13 +2387,14 @@ class CircuitEngine:
                        f"{'sparse' if use_sparse else 'dense'}, "
                        f"lte_ratio={config.lte_ratio}, redo_factor={config.redo_factor})")
             strategy = FullMNAStrategy(self, use_sparse=use_sparse,
-                                       backend=backend, config=config)
+                                       backend=backend, config=config,
+                                       max_steps=max_steps)
             self._full_mna_strategy_cache[cache_key] = strategy
         else:
             strategy = self._full_mna_strategy_cache[cache_key]
             logger.debug(f"Reusing cached FullMNAStrategy")
 
-        times_full, V_out, stats = strategy.run(t_stop, dt, max_steps, checkpoint_interval)
+        times_full, V_out, stats = strategy.run(t_stop, dt, checkpoint_interval)
 
         # Extract sliced numpy results for TransientResult
         times_np, voltages, currents = extract_results(times_full, V_out, stats)

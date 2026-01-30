@@ -1213,7 +1213,8 @@ class OpenVAFToJAX:
         shared_indices: List[int],
         varying_indices: List[int],
         shared_cache_indices: Optional[List[int]] = None,
-        varying_cache_indices: Optional[List[int]] = None
+        varying_cache_indices: Optional[List[int]] = None,
+        use_limit_functions: bool = False,
     ) -> Tuple[Callable, Dict]:
         """Generate a vmappable eval function with split params and cache (internal API).
 
@@ -1224,18 +1225,22 @@ class OpenVAFToJAX:
             varying_indices: Original param indices that vary per device (including voltages)
             shared_cache_indices: Cache column indices that are constant across devices (optional)
             varying_cache_indices: Cache column indices that vary per device (optional)
+            use_limit_functions: If True, generate calls to limit_funcs['pnjlim'] etc.
+                                When enabled, the generated function has an additional
+                                'limit_funcs' parameter that should be a dict like:
+                                {'pnjlim': pnjlim_fn, 'fetlim': fetlim_fn}
 
         Returns:
             Tuple of (eval_fn, metadata)
 
         Function signature (if cache is split):
-            eval_fn(shared_params, device_params, shared_cache, device_cache)
+            eval_fn(shared_params, device_params, shared_cache, device_cache, simparams[, limit_funcs])
                 -> (res_resist, res_react, jac_resist, jac_react,
                     lim_rhs_resist, lim_rhs_react,
                     small_signal_resist, small_signal_react)
 
         Or (if cache is not split):
-            eval_fn(shared_params, device_params, cache)
+            eval_fn(shared_params, device_params, cache, simparams[, limit_funcs])
                 -> (res_resist, res_react, jac_resist, jac_react,
                     lim_rhs_resist, lim_rhs_react,
                     small_signal_resist, small_signal_react)
@@ -1251,7 +1256,7 @@ class OpenVAFToJAX:
         use_cache_split = shared_cache_indices is not None and varying_cache_indices is not None
 
         t0 = time.perf_counter()
-        logger.info(f"    translate_eval_array_with_cache_split: generating code (cache_split={use_cache_split})...")
+        logger.info(f"    translate_eval_array_with_cache_split: generating code (cache_split={use_cache_split}, limit_funcs={use_limit_functions})...")
 
         # Build the eval function
         builder = EvalFunctionBuilder(
@@ -1262,7 +1267,8 @@ class OpenVAFToJAX:
         )
         fn_name, code_lines = builder.build_with_cache_split(
             shared_indices, varying_indices,
-            shared_cache_indices, varying_cache_indices
+            shared_cache_indices, varying_cache_indices,
+            use_limit_functions=use_limit_functions
         )
 
         t1 = time.perf_counter()
@@ -1308,6 +1314,8 @@ class OpenVAFToJAX:
             'use_cache_split': use_cache_split,
             'shared_cache_indices': shared_cache_indices if use_cache_split else None,
             'varying_cache_indices': varying_cache_indices if use_cache_split else None,
+            'use_limit_functions': use_limit_functions,
+            'limit_metadata': builder.limit_metadata if use_limit_functions else None,
         }
 
         return eval_fn, metadata

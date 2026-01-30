@@ -711,12 +711,14 @@ class EvalFunctionBuilder(FunctionBuilder):
         self.dae_data = dae_data
         self.cache_mapping = cache_mapping
         self.param_idx_to_val = param_idx_to_val
+        self.limit_metadata = {}  # Will be populated by build_with_cache_split if limit functions used
 
     def build_with_cache_split(self, shared_indices: List[int],
                                 varying_indices: List[int],
                                 shared_cache_indices: Optional[List[int]] = None,
                                 varying_cache_indices: Optional[List[int]] = None,
                                 simparam_params: Optional[Dict[int, str]] = None,
+                                use_limit_functions: bool = False,
                                 ) -> Tuple[str, List[str]]:
         """Build eval function with split params and optional split cache.
 
@@ -728,6 +730,11 @@ class EvalFunctionBuilder(FunctionBuilder):
             simparam_params: Dict mapping original param indices to simparam names.
                              These params will be read from simparams array instead
                              of shared/device params. Used for $abstime, $mfactor.
+            use_limit_functions: If True, generate calls to limit_funcs['pnjlim']
+                                instead of passing through voltage unchanged. When
+                                enabled, the generated function has an additional
+                                'limit_funcs' parameter that should be a dict like:
+                                {'pnjlim': pnjlim_fn, 'fetlim': fetlim_fn}
 
         Returns:
             Tuple of (function_name, code_lines)
@@ -755,6 +762,7 @@ class EvalFunctionBuilder(FunctionBuilder):
 
         # Create context
         ctx = build_context_from_mir(self.mir_func, var_prefix='')
+        ctx.use_limit_functions = use_limit_functions
 
         # Build function body
         body: List[ast.stmt] = []
@@ -795,6 +803,9 @@ class EvalFunctionBuilder(FunctionBuilder):
         # Collect simparam metadata from context
         self.simparam_metadata = ctx.get_simparam_metadata()
 
+        # Collect limit metadata from context
+        self.limit_metadata = ctx.get_limit_metadata()
+
         # Build output arrays
         self._emit_residual_arrays(body, ctx)
         self._emit_jacobian_arrays(body, ctx)
@@ -820,10 +831,14 @@ class EvalFunctionBuilder(FunctionBuilder):
         #   simparams[0] = analysis_type (0=DC, 1=AC, 2=transient, 3=noise)
         #   simparams[1] = gmin
         fn_name = 'eval_fn_with_cache_split_cache' if use_cache_split else 'eval_fn_with_cache_split'
+        if use_limit_functions:
+            fn_name += '_limit'
         if use_cache_split:
             args = ['shared_params', 'device_params', 'shared_cache', 'device_cache', 'simparams']
         else:
             args = ['shared_params', 'device_params', 'cache', 'simparams']
+        if use_limit_functions:
+            args.append('limit_funcs')
 
         func = function_def(fn_name, args, body)
 

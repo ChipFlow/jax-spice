@@ -616,9 +616,15 @@ class InstructionTranslator:
                                 self.ctx.get_operand(inst.operands[1]))
 
         # $limit related functions - StoreLimit, LoadLimit, BuiltinLimit
-        # These are used for Newton-Raphson convergence help. In DC analysis
-        # without full limiting, we pass through the input voltage unchanged.
+        # These are used for Newton-Raphson convergence help.
         # The MIR has: StoreLimit(lim_stateN), LoadLimit(lim_stateN), $limit[pnjlim], etc.
+        #
+        # When use_limit_functions is True:
+        #   - BuiltinLimit generates calls to limit_funcs['pnjlim'](vnew, vold, vt, vcrit)
+        #   - StoreLimit/LoadLimit pass through the input voltage unchanged
+        #
+        # When use_limit_functions is False (default):
+        #   - All limit operations pass through the input voltage unchanged
         if 'storelimit' in func_name.lower() or 'loadlimit' in func_name.lower():
             if inst.operands:
                 # Pass through the input voltage
@@ -626,10 +632,13 @@ class InstructionTranslator:
             return self.ctx.zero()
 
         # $limit[pnjlim], $limit[fetlim], etc. - BuiltinLimit callbacks
-        # These implement NR convergence algorithms. For now, pass through first operand.
+        # These implement NR convergence algorithms (SPICE pnjlim/fetlim).
         if '$limit' in func_name.lower() or 'builtinlimit' in func_name.lower():
             if inst.operands:
-                # First operand is the voltage to be limited
+                # Check if we should generate limit function calls
+                if self.ctx.use_limit_functions:
+                    return self._translate_builtin_limit(func_name, inst)
+                # Default: pass through first operand (vnew)
                 return self.ctx.get_operand(inst.operands[0])
             return self.ctx.zero()
 
@@ -670,6 +679,63 @@ class InstructionTranslator:
         import warnings
         warnings.warn(f"Unknown MIR function '{func_name}' - returning zero", stacklevel=2)
         return self.ctx.zero()
+
+    def _translate_builtin_limit(self, func_name: str, inst: MIRInstruction) -> ast.expr:
+        """Translate BuiltinLimit to a limit function call.
+
+        Parses the limit function name from MIR and generates a call like:
+            limit_funcs['pnjlim'](vnew, vold, vt, vcrit)
+
+        BuiltinLimit MIR format:
+            BuiltinLimit { name: Spur(N), num_args: 4 }
+        where Spur(N) is an interned string reference to the limit name.
+
+        Standard SPICE limit functions:
+            - pnjlim(vnew, vold, vt, vcrit) - PN junction limiting
+            - fetlim(vnew, vold, vto) - FET gate limiting
+
+        Args:
+            func_name: The MIR function name (e.g., "BuiltinLimit { name: Spur(1), num_args: 4 }")
+            inst: The MIR instruction with operands
+
+        Returns:
+            AST expression for the limit function call
+        """
+        # Parse limit function name from MIR func_name
+        # Format: "BuiltinLimit { name: Spur(N), num_args: M }"
+        # The actual name (pnjlim, fetlim) is stored in str_constants
+        limit_name = 'pnjlim'  # Default
+
+        # Try to extract the interned string reference
+        # Look for patterns like "Spur(1)" or just the limit name directly
+        import re
+        spur_match = re.search(r'Spur\((\d+)\)', func_name)
+        if spur_match:
+            spur_idx = int(spur_match.group(1))
+            # Look up in string constants (the index is the string ID)
+            for str_id, str_val in self.ctx.str_constants.items():
+                # String IDs are like 's1', 's2', etc.
+                if str_id.startswith('s') and str_id[1:].isdigit():
+                    if int(str_id[1:]) == spur_idx:
+                        limit_name = str_val.lower()
+                        break
+
+        # Also check for direct name match
+        for known_limit in ['pnjlim', 'fetlim', 'limexp', 'limvds']:
+            if known_limit in func_name.lower():
+                limit_name = known_limit
+                break
+
+        # Build the function call
+        # limit_funcs['pnjlim'](vnew, vold, vt, vcrit)
+        limit_func = subscript(ast_name('limit_funcs'), ast_const(limit_name))
+
+        # Get operands
+        # For pnjlim: (vnew, vold, vt, vcrit)
+        # For fetlim: (vnew, vold, vto)
+        args = [self.ctx.get_operand(op) for op in inst.operands]
+
+        return ast_call(limit_func, args)
 
     def _translate_copy(self, inst: MIRInstruction) -> ast.expr:
         """Translate copy (simple value forwarding)."""

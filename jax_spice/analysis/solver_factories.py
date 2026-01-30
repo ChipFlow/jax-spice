@@ -31,10 +31,16 @@ import numpy as np
 from jax import Array, lax
 
 from jax_spice._logging import logger
+from jax_spice.analysis.limiting import apply_voltage_damping
 
 # Newton-Raphson solver constants
 MAX_NR_ITERATIONS = 100
 DEFAULT_ABSTOL = 1e4  # Corresponds to ~10nV voltage accuracy with G=1e12
+
+# Voltage damping constants (pnjlim-style)
+# These values are based on SPICE3 pnjlim defaults
+DAMPING_VT = 0.026  # Thermal voltage at 300K
+DAMPING_VCRIT = 0.6  # Critical voltage for PN junctions
 
 
 def _compute_noi_masks(
@@ -237,7 +243,9 @@ def make_dense_full_mna_solver(
             # Update X: skip ground (index 0), update node voltages and branch currents
             # X has structure: [V_ground, V_1, ..., V_n, I_vs1, ..., I_vsm]
             # delta has structure: [delta_V_1, ..., delta_V_n, delta_I_vs1, ..., delta_I_vsm]
-            X_new = X.at[1:n_total].add(delta[:n_unknowns])  # Update node voltages
+            V_candidate = X[1:n_total] + delta[:n_unknowns]
+            V_damped = apply_voltage_damping(V_candidate, X[1:n_total], DAMPING_VT, DAMPING_VCRIT)
+            X_new = X.at[1:n_total].set(V_damped)  # Update node voltages with damping
             X_new = X_new.at[n_total:].add(delta[n_unknowns:])  # Update branch currents
 
             # Clamp NOI nodes to 0V
@@ -417,7 +425,9 @@ def make_sparse_full_mna_solver(
             # Update X: skip ground (index 0), update node voltages and branch currents
             # X has structure: [V_ground, V_1, ..., V_n, I_vs1, ..., I_vsm]
             # delta has structure: [delta_V_1, ..., delta_V_n, delta_I_vs1, ..., delta_I_vsm]
-            X_new = X.at[1:n_total].add(delta[:n_unknowns])  # Update node voltages
+            V_candidate = X[1:n_total] + delta[:n_unknowns]
+            V_damped = apply_voltage_damping(V_candidate, X[1:n_total], DAMPING_VT, DAMPING_VCRIT)
+            X_new = X.at[1:n_total].set(V_damped)  # Update node voltages with damping
             X_new = X_new.at[n_total:].add(delta[n_unknowns:])  # Update branch currents
 
             # Clamp NOI nodes to 0V
@@ -576,8 +586,10 @@ def make_umfpack_full_mna_solver(
             scale = jnp.where(max_delta > max_step, max_step / max_delta, 1.0)
             delta = delta * scale
 
-            # Update X: node voltages and branch currents
-            X_new = X.at[1:n_total].add(delta[:n_unknowns])
+            # Update X: node voltages and branch currents with damping
+            V_candidate = X[1:n_total] + delta[:n_unknowns]
+            V_damped = apply_voltage_damping(V_candidate, X[1:n_total], DAMPING_VT, DAMPING_VCRIT)
+            X_new = X.at[1:n_total].set(V_damped)
             X_new = X_new.at[n_total:].add(delta[n_unknowns:])
 
             if noi_indices is not None and len(noi_indices) > 0:
@@ -694,8 +706,10 @@ def make_dense_solver(
             scale = jnp.where(max_delta > max_step, max_step / max_delta, 1.0)
             delta = delta * scale
 
-            # Update V (ground stays fixed)
-            V_new = V.at[1:].add(delta)
+            # Update V (ground stays fixed) with damping
+            V_candidate = V[1:] + delta
+            V_damped = apply_voltage_damping(V_candidate, V[1:], DAMPING_VT, DAMPING_VCRIT)
+            V_new = V.at[1:].set(V_damped)
 
             # Clamp NOI nodes to 0V
             if noi_indices is not None and len(noi_indices) > 0:
@@ -848,7 +862,10 @@ def make_sparse_solver(
             scale = jnp.where(max_delta > max_step, max_step / max_delta, 1.0)
             delta = delta * scale
 
-            V_new = V.at[1:].add(delta)
+            # Update V with damping
+            V_candidate = V[1:] + delta
+            V_damped = apply_voltage_damping(V_candidate, V[1:], DAMPING_VT, DAMPING_VCRIT)
+            V_new = V.at[1:].set(V_damped)
 
             if noi_indices is not None and len(noi_indices) > 0:
                 V_new = V_new.at[noi_indices].set(0.0)
@@ -995,7 +1012,10 @@ def make_spineax_solver(
             scale = jnp.where(max_delta > max_step, max_step / max_delta, 1.0)
             delta = delta * scale
 
-            V_new = V.at[1:].add(delta)
+            # Update V with damping
+            V_candidate = V[1:] + delta
+            V_damped = apply_voltage_damping(V_candidate, V[1:], DAMPING_VT, DAMPING_VCRIT)
+            V_new = V.at[1:].set(V_damped)
 
             if noi_indices is not None and len(noi_indices) > 0:
                 V_new = V_new.at[noi_indices].set(0.0)
@@ -1136,7 +1156,10 @@ def make_umfpack_solver(
             scale = jnp.where(max_delta > max_step, max_step / max_delta, 1.0)
             delta = delta * scale
 
-            V_new = V.at[1:].add(delta)
+            # Update V with damping
+            V_candidate = V[1:] + delta
+            V_damped = apply_voltage_damping(V_candidate, V[1:], DAMPING_VT, DAMPING_VCRIT)
+            V_new = V.at[1:].set(V_damped)
 
             if noi_indices is not None and len(noi_indices) > 0:
                 V_new = V_new.at[noi_indices].set(0.0)
@@ -1313,7 +1336,10 @@ def make_umfpack_ffi_full_mna_solver(
             scale = jnp.where(max_delta > max_step, max_step / max_delta, 1.0)
             delta = delta * scale
 
-            X_new = X.at[1:n_total].add(delta[:n_unknowns])
+            # Update X with damping for node voltages
+            V_candidate = X[1:n_total] + delta[:n_unknowns]
+            V_damped = apply_voltage_damping(V_candidate, X[1:n_total], DAMPING_VT, DAMPING_VCRIT)
+            X_new = X.at[1:n_total].set(V_damped)
             X_new = X_new.at[n_total:].add(delta[n_unknowns:])
 
             if noi_indices is not None and len(noi_indices) > 0:
@@ -1457,7 +1483,10 @@ def make_umfpack_ffi_solver(
             scale = jnp.where(max_delta > max_step, max_step / max_delta, 1.0)
             delta = delta * scale
 
-            V_new = V.at[1:].add(delta)
+            # Update V with damping
+            V_candidate = V[1:] + delta
+            V_damped = apply_voltage_damping(V_candidate, V[1:], DAMPING_VT, DAMPING_VCRIT)
+            V_new = V.at[1:].set(V_damped)
 
             if noi_indices is not None and len(noi_indices) > 0:
                 V_new = V_new.at[noi_indices].set(0.0)

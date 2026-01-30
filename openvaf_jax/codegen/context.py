@@ -67,6 +67,15 @@ class CodeGenContext:
     simparam_registry: Dict[str, int] = field(default_factory=dict)
     simparam_next_index: int = 0
 
+    # Limit state registry - maps limit state names to indices
+    # Each $limit call in the model gets a unique state slot for storing vold
+    # Layout: [lim_state0, lim_state1, ...]
+    limit_registry: Dict[str, int] = field(default_factory=dict)
+    limit_next_index: int = 0
+
+    # Enable limit functions (when True, generates calls to limit_funcs)
+    use_limit_functions: bool = False
+
     def __post_init__(self) -> None:
         """Initialize pre-allocated OpenVAF constants."""
         # Pre-allocated MIR constants (from OpenVAF mir/src/dfg/values.rs:57-76)
@@ -132,6 +141,57 @@ class CodeGenContext:
             'simparams_used': simparams_used,
             'simparam_indices': dict(self.simparam_registry),
             'simparam_count': self.simparam_next_index,
+        }
+
+    def register_limit(self, name: str) -> int:
+        """Register a limit state and return its index.
+
+        If the limit state is already registered, returns the existing index.
+        Otherwise, assigns the next available index.
+
+        Args:
+            name: Limit state name (e.g., 'lim_state0')
+
+        Returns:
+            Index into the limit_state array
+        """
+        if name in self.limit_registry:
+            return self.limit_registry[name]
+
+        idx = self.limit_next_index
+        self.limit_registry[name] = idx
+        self.limit_next_index += 1
+        return idx
+
+    def get_limit_index(self, name: str) -> int:
+        """Get the index of a registered limit state.
+
+        Args:
+            name: Limit state name
+
+        Returns:
+            Index into the limit_state array, or -1 if not registered
+        """
+        return self.limit_registry.get(name, -1)
+
+    def get_limit_metadata(self) -> dict:
+        """Get metadata about limit states.
+
+        Returns:
+            Dict with:
+                - limits_used: List of limit names in index order
+                - limit_indices: Dict mapping name -> index
+                - limit_count: Total number of limits
+        """
+        # Build list in index order
+        limits_used = [''] * self.limit_next_index
+        for name, idx in self.limit_registry.items():
+            limits_used[idx] = name
+
+        return {
+            'limits_used': limits_used,
+            'limit_indices': dict(self.limit_registry),
+            'limit_count': self.limit_next_index,
         }
 
     def define_var(self, var: str) -> str:
