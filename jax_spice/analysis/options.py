@@ -92,7 +92,7 @@ class SimulationOptions:
     """Maximum internal timestep."""
 
     icmode: str = 'op'
-    """Initial condition mode: 'op' (DC operating point) or 'ic' (use .ic)."""
+    """Initial condition mode: 'op' (DC operating point), 'ic' (use .ic), or 'uic' (use IC)."""
 
     def __post_init__(self):
         """Validate all options after initialization."""
@@ -121,8 +121,8 @@ class SimulationOptions:
             raise ValueError(f"gmin must be non-negative, got {value}")
         if name == 'tran_gshunt' and value < 0:
             raise ValueError(f"tran_gshunt must be non-negative, got {value}")
-        if name == 'icmode' and value not in ('op', 'ic'):
-            raise ValueError(f"icmode must be 'op' or 'ic', got {value}")
+        if name == 'icmode' and value not in ('op', 'ic', 'uic'):
+            raise ValueError(f"icmode must be 'op', 'ic', or 'uic', got {value}")
 
         # Use object.__setattr__ to set the value
         object.__setattr__(self, name, value)
@@ -166,8 +166,8 @@ class SimulationOptions:
             raise ValueError(f"tran_gshunt must be non-negative, got {self.tran_gshunt}")
 
         # icmode: must be valid
-        if self.icmode not in ('op', 'ic'):
-            raise ValueError(f"icmode must be 'op' or 'ic', got {self.icmode}")
+        if self.icmode not in ('op', 'ic', 'uic'):
+            raise ValueError(f"icmode must be 'op', 'ic', or 'uic', got {self.icmode}")
 
     def set(self, name: str, value: Any) -> None:
         """Set an option by name with validation.
