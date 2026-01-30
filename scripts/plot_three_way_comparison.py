@@ -137,15 +137,14 @@ def read_spice_raw(filename: Path) -> Dict[str, np.ndarray]:
 
 
 def get_config_hash(config: BenchmarkConfig, simulator: str) -> str:
-    """Compute hash of config parameters relevant for caching."""
-    # Include key parameters that affect simulation output
+    """Compute hash of netlist file for caching.
+
+    Since we run netlists as-is, the hash is based on file content/mtime.
+    """
+    sim_file = config.vacask_sim if simulator == 'vacask' else config.ngspice_sim
     params = {
         'simulator': simulator,
-        't_stop': config.t_stop,
-        'dt': config.dt,
-        'current_source': config.current_source,
-        'sim_file_mtime': config.vacask_sim.stat().st_mtime if simulator == 'vacask'
-        else config.ngspice_sim.stat().st_mtime,
+        'sim_file_mtime': sim_file.stat().st_mtime,
     }
     return hashlib.md5(json.dumps(params, sort_keys=True).encode()).hexdigest()[:12]
 
@@ -169,69 +168,43 @@ def write_stamp(stamp_file: Path, config_hash: str) -> None:
 
 
 def run_vacask(config: BenchmarkConfig, output_dir: Path, benchmark_key: str) -> Optional[Path]:
-    """Run VACASK simulator and return path to raw file."""
+    """Run VACASK simulator and return path to raw file.
+
+    Runs the original netlist as-is. JAX-SPICE uses the same netlist settings
+    via the API, so all simulators run with identical parameters.
+    """
     import shutil
     import tempfile
 
-    sim_dir = config.vacask_sim.parent
     raw_file = output_dir / f'{benchmark_key}_vacask.raw'
     stamp_file = output_dir / f'{benchmark_key}_vacask.stamp'
 
-    # Check cache
+    # Check cache (hash based on netlist content)
     config_hash = get_config_hash(config, 'vacask')
     if check_cache(raw_file, stamp_file, config_hash):
         logger.info(f"Using cached VACASK data: {raw_file}")
         return raw_file
 
-    # Create modified sim file with our t_stop
-    with open(config.vacask_sim) as f:
-        sim_content = f.read()
+    logger.info(f"Running VACASK ({config.name})...")
+    start = time.perf_counter()
 
-    # Modify the analysis line
-    modified = re.sub(
-        r'(analysis\s+\w+\s+tran\s+.*?stop=)[^\s]+',
-        f'\\g<1>{config.t_stop:.2e}',
-        sim_content
-    )
+    # Run original netlist - no modifications needed
+    temp_output = Path(tempfile.mkdtemp(prefix="vacask_"))
+    result_raw, error = run_vacask_util(config.vacask_sim, output_dir=temp_output, timeout=600)
+    elapsed = time.perf_counter() - start
 
-    # Add current save directive if current_source is specified
-    if config.current_source:
-        # Insert save i(source) before the analysis line
-        modified = re.sub(
-            r'(analysis\s+)',
-            f'  save i({config.current_source})\n\\1',
-            modified
-        )
+    if error:
+        logger.error(f"VACASK failed: {error}")
+        return None
 
-    temp_sim = sim_dir / 'plot_temp.sim'
-    with open(temp_sim, 'w') as f:
-        f.write(modified)
-
-    try:
-        logger.info(f"Running VACASK ({config.name})...")
-        start = time.perf_counter()
-
-        # Use utility function which handles PYTHONPATH and venv PATH
-        temp_output = Path(tempfile.mkdtemp(prefix="vacask_"))
-        result_raw, error = run_vacask_util(temp_sim, output_dir=temp_output, timeout=600)
-        elapsed = time.perf_counter() - start
-
-        if error:
-            logger.error(f"VACASK failed: {error}")
-            return None
-
-        if result_raw and result_raw.exists():
-            shutil.copy(result_raw, raw_file)
-            write_stamp(stamp_file, config_hash)
-            logger.info(f"VACASK completed in {elapsed:.1f}s -> {raw_file}")
-            return raw_file
-        else:
-            logger.error("VACASK did not produce output")
-            return None
-
-    finally:
-        if temp_sim.exists():
-            temp_sim.unlink()
+    if result_raw and result_raw.exists():
+        shutil.copy(result_raw, raw_file)
+        write_stamp(stamp_file, config_hash)
+        logger.info(f"VACASK completed in {elapsed:.1f}s -> {raw_file}")
+        return raw_file
+    else:
+        logger.error("VACASK did not produce output")
+        return None
 
 
 def run_ngspice(config: BenchmarkConfig, output_dir: Path, benchmark_key: str) -> Optional[Path]:
@@ -254,11 +227,9 @@ def run_ngspice(config: BenchmarkConfig, output_dir: Path, benchmark_key: str) -
         logger.info(f"Using cached ngspice data: {raw_file}")
         return raw_file
 
-    # Read original sim file
+    # Copy OSDI files from vacask directory if needed
     with open(config.ngspice_sim) as f:
         sim_content = f.read()
-
-    # Copy OSDI files from vacask directory if needed
     osdi_files = re.findall(r'pre_osdi\s+(\S+)', sim_content)
     vacask_dir = config.vacask_sim.parent
     for osdi_file in osdi_files:
@@ -268,64 +239,26 @@ def run_ngspice(config: BenchmarkConfig, output_dir: Path, benchmark_key: str) -
             shutil.copy(osdi_src, osdi_dst)
             logger.info(f"Copied {osdi_file} from vacask to ngspice directory")
 
-    # Modify tran command to use our t_stop
-    # ngspice tran format: tran tstep tstop [tstart [tmax]] [uic]
-    modified = re.sub(
-        r'tran\s+[\d.]+[a-z]*\s+[\d.]+[a-z]*',
-        f'tran {config.dt:.2e} {config.t_stop:.2e}',
-        sim_content
-    )
+    logger.info(f"Running ngspice ({config.name})...")
+    start = time.perf_counter()
 
-    # Add current save directive if current_source is specified
-    if config.current_source:
-        # Insert save i(source) after existing save lines
-        # Note: ngspice voltage source named 'vdd' has current saved as i(vdd)
-        if 'save ' in modified.lower():
-            # Find last save line and add after it
-            lines = modified.split('\n')
-            for i in range(len(lines) - 1, -1, -1):
-                if lines[i].strip().lower().startswith('save '):
-                    lines.insert(i + 1, f'  save i({config.current_source})')
-                    break
-            modified = '\n'.join(lines)
-        else:
-            # Add save before tran command
-            modified = re.sub(
-                r'(tran\s+)',
-                f'save i({config.current_source})\n  \\1',
-                modified
-            )
+    # Run original netlist - no modifications needed
+    temp_output = Path(tempfile.mkdtemp(prefix="ngspice_"))
+    result_raw, error = run_ngspice_util(config.ngspice_sim, output_dir=temp_output, timeout=600)
+    elapsed = time.perf_counter() - start
 
-    # Write modified sim file to temp location
-    temp_sim = sim_dir / 'plot_temp.sp'
-    with open(temp_sim, 'w') as f:
-        f.write(modified)
+    if error:
+        logger.error(f"ngspice failed: {error}")
+        return None
 
-    try:
-        logger.info(f"Running ngspice ({config.name})...")
-        start = time.perf_counter()
-
-        # Use utility function
-        temp_output = Path(tempfile.mkdtemp(prefix="ngspice_"))
-        result_raw, error = run_ngspice_util(temp_sim, output_dir=temp_output, timeout=600)
-        elapsed = time.perf_counter() - start
-
-        if error:
-            logger.error(f"ngspice failed: {error}")
-            return None
-
-        if result_raw and result_raw.exists():
-            shutil.copy(result_raw, raw_file)
-            write_stamp(stamp_file, config_hash)
-            logger.info(f"ngspice completed in {elapsed:.1f}s -> {raw_file}")
-            return raw_file
-        else:
-            logger.warning("ngspice did not produce raw file")
-            return None
-
-    finally:
-        if temp_sim.exists():
-            temp_sim.unlink()
+    if result_raw and result_raw.exists():
+        shutil.copy(result_raw, raw_file)
+        write_stamp(stamp_file, config_hash)
+        logger.info(f"ngspice completed in {elapsed:.1f}s -> {raw_file}")
+        return raw_file
+    else:
+        logger.warning("ngspice did not produce raw file")
+        return None
 
 
 def run_jax_spice(config: BenchmarkConfig) -> Tuple[np.ndarray, Dict, Dict]:
@@ -335,20 +268,16 @@ def run_jax_spice(config: BenchmarkConfig) -> Tuple[np.ndarray, Dict, Dict]:
     runner = CircuitEngine(config.vacask_sim)
     runner.parse()
 
-    # Get t_stop and dt from config or netlist
-    t_stop = config.t_stop or runner.analysis_params.get('stop')
-    dt = config.dt or runner.analysis_params.get('step')
-    logger.info(f"Using t_stop={t_stop:.2e}s, dt={dt:.2e}s (from {'config' if config.t_stop else 'netlist'})")
-
-    # Let netlist options set AdaptiveConfig defaults
-    # tran_lteratio, nr_convtol, tran_method, etc. come from the .sim file
+    # Strategy uses netlist options (tran_lteratio, nr_convtol, tran_method, etc.)
     full_mna = FullMNAStrategy(runner, use_sparse=config.use_sparse)
 
+    # Warmup uses netlist 'step' as default dt
     logger.info("Warmup...")
-    _ = full_mna.warmup(dt=dt)
+    _ = full_mna.warmup()
 
-    logger.info(f"Running simulation...")
-    times_mna, V_out, stats_mna = full_mna.run(t_stop=t_stop, dt=dt)
+    # Run uses netlist 'stop' and 'step' as defaults, config overrides if set
+    logger.info("Running simulation...")
+    times_mna, V_out, stats_mna = full_mna.run(t_stop=config.t_stop, dt=config.dt)
 
     t_mna, voltages_mna, currents_mna = extract_results(times_mna, V_out, stats_mna)
     logger.info(f"JAX-SPICE completed: {len(t_mna)} points")

@@ -499,19 +499,24 @@ class FullMNAStrategy(TransientStrategy):
 
         return V
 
-    def warmup(self, dt: float = 1e-12, max_steps: int = DEFAULT_MAX_STEPS) -> float:
+    def warmup(self, dt: Optional[float] = None, max_steps: int = DEFAULT_MAX_STEPS) -> float:
         """Pre-compile the JIT function by running a minimal simulation.
 
         This triggers JIT compilation so subsequent run() calls are fast.
 
         Args:
-            dt: Timestep to use (should match expected run() calls)
+            dt: Timestep to use. If None, uses 'step' from netlist.
             max_steps: Max steps to compile for (default: DEFAULT_MAX_STEPS).
                        Use the same value in subsequent run() calls for cache hits.
 
         Returns:
             Wall time for warmup (compilation + execution)
         """
+        # Use netlist step as default
+        if dt is None:
+            params = getattr(self.runner, 'analysis_params', {})
+            dt = params.get('step', 1e-12)
+
         self.max_steps = max_steps
 
         logger.info(f"{self.name}: Starting warmup")
