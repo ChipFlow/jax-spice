@@ -524,14 +524,16 @@ class FullMNAStrategy(TransientStrategy):
         logger.info(f"{self.name}: Warmup complete in {wall_time:.2f}s (max_steps={max_steps})")
         return wall_time
 
-    def run(self, t_stop: float, dt: float,
+    def run(self, t_stop: Optional[float] = None, dt: Optional[float] = None,
             max_steps: int = DEFAULT_MAX_STEPS,
             checkpoint_interval: Optional[int] = None) -> Tuple[jax.Array, jax.Array, Dict]:
         """Run adaptive transient analysis with full MNA.
 
         Args:
-            t_stop: Simulation stop time in seconds
-            dt: Initial time step in seconds
+            t_stop: Simulation stop time in seconds. If None, uses 'stop' from
+                netlist analysis line.
+            dt: Initial time step in seconds. If None, uses 'step' from netlist
+                analysis line.
             max_steps: Maximum number of time steps
             checkpoint_interval: If set, use GPU memory checkpointing with this
                 many steps per buffer. Results are periodically copied to CPU
@@ -550,11 +552,26 @@ class FullMNAStrategy(TransientStrategy):
                 - Other statistics (wall_time, rejected_steps, etc.)
 
         Example:
+            # Use netlist defaults
+            times, V_out, stats = strategy.run()
+
+            # Or override
             times, V_out, stats = strategy.run(t_stop=1e-6, dt=1e-9)
+
             n = stats['n_steps']
             # Get voltage at node 'out': V_out[:n, stats['node_indices']['out']]
             # Or use helper: extract_voltages(times, V_out, stats)
         """
+        # Use netlist analysis params as defaults
+        params = getattr(self.runner, 'analysis_params', {})
+        if t_stop is None:
+            t_stop = params.get('stop')
+            if t_stop is None:
+                raise ValueError("t_stop not specified and 'stop' not found in netlist")
+        if dt is None:
+            dt = params.get('step')
+            if dt is None:
+                raise ValueError("dt not specified and 'step' not found in netlist")
         setup = self.ensure_setup()
         nr_solve = self._ensure_full_mna_solver(setup)
 

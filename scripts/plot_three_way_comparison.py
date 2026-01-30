@@ -49,16 +49,19 @@ enable_performance_logging(with_memory=True, with_perf_counter=True)
 
 @dataclass
 class BenchmarkConfig:
-    """Configuration for a benchmark."""
+    """Configuration for a benchmark.
+
+    t_stop, dt: If None, uses values from netlist analysis line.
+    plot_window: If None, defaults to (0, t_stop).
+    """
     name: str
     vacask_sim: Path
     ngspice_sim: Path
-    t_stop: float
-    dt: float
-    max_dt: float
-    plot_window: Tuple[float, float]
     voltage_nodes: list  # Nodes to plot
     current_source: str  # Name of vsource for current
+    t_stop: Optional[float] = None  # From netlist if None
+    dt: Optional[float] = None  # From netlist 'step' if None
+    plot_window: Optional[Tuple[float, float]] = None  # (0, t_stop) if None
     use_sparse: bool = False
     icmode: Optional[str] = None
     input_nodes_a: Optional[list] = None  # Input bus A nodes (e.g., a0-a15)
@@ -70,27 +73,21 @@ BENCHMARKS = {
         name='Ring Oscillator',
         vacask_sim=Path('vendor/VACASK/benchmark/ring/vacask/runme.sim'),
         ngspice_sim=Path('vendor/VACASK/benchmark/ring/ngspice/runme.sim'),
-        t_stop=20e-9,
-        dt=1e-12,
-        max_dt=50e-12,
-        plot_window=(2e-9, 15e-9),
         voltage_nodes=['1', '2'],
         current_source='vdd',
+        t_stop=20e-9,  # Override netlist's 1us - too long for quick comparison
+        plot_window=(2e-9, 15e-9),
     ),
     'c6288': BenchmarkConfig(
         name='C6288 16x16 Multiplier',
         vacask_sim=Path('vendor/VACASK/benchmark/c6288/vacask/runme.sim'),
         ngspice_sim=Path('vendor/VACASK/benchmark/c6288/ngspice/runme.sim'),
-        t_stop=3e-9,       # Match VACASK: stop=2n
-        dt=1e-10,          # Match VACASK: step=2p (critical for stiff startup!)
-        max_dt=50e-10,     # Allow adaptive growth up to 50ps
-        plot_window=(0.0, 5e-9),
-        voltage_nodes=[ f'top.p{n}' for n in range(32) ],
+        voltage_nodes=[f'top.p{n}' for n in range(32)],
         current_source='vdd',
+        # Uses netlist: stop=2n, step=2p
         use_sparse=True,
-        icmode='uic',
-        input_nodes_a=[f'a{i}' for i in range(16)],  # a0-a15
-        input_nodes_b=[f'b{i}' for i in range(16)],  # b0-b15
+        input_nodes_a=[f'a{i}' for i in range(16)],
+        input_nodes_b=[f'b{i}' for i in range(16)],
     ),
 }
 
@@ -338,15 +335,20 @@ def run_jax_spice(config: BenchmarkConfig) -> Tuple[np.ndarray, Dict, Dict]:
     runner = CircuitEngine(config.vacask_sim)
     runner.parse()
 
+    # Get t_stop and dt from config or netlist
+    t_stop = config.t_stop or runner.analysis_params.get('stop')
+    dt = config.dt or runner.analysis_params.get('step')
+    logger.info(f"Using t_stop={t_stop:.2e}s, dt={dt:.2e}s (from {'config' if config.t_stop else 'netlist'})")
+
     # Let netlist options set AdaptiveConfig defaults
     # tran_lteratio, nr_convtol, tran_method, etc. come from the .sim file
     full_mna = FullMNAStrategy(runner, use_sparse=config.use_sparse)
 
     logger.info("Warmup...")
-    _ = full_mna.warmup(dt=config.dt)
+    _ = full_mna.warmup(dt=dt)
 
-    logger.info(f"Running simulation (t_stop={config.t_stop:.2e}s)...")
-    times_mna, V_out, stats_mna = full_mna.run(t_stop=config.t_stop, dt=config.dt)
+    logger.info(f"Running simulation...")
+    times_mna, V_out, stats_mna = full_mna.run(t_stop=t_stop, dt=dt)
 
     t_mna, voltages_mna, currents_mna = extract_results(times_mna, V_out, stats_mna)
     logger.info(f"JAX-SPICE completed: {len(t_mna)} points")
@@ -381,7 +383,12 @@ def plot_comparison(config: BenchmarkConfig, vacask_data: Optional[Dict],
     if n_panels == 1:
         axes = [axes]
 
-    t_start, t_end = config.plot_window
+    # Default plot window to full simulation range
+    if config.plot_window:
+        t_start, t_end = config.plot_window
+    else:
+        t_start = 0.0
+        t_end = float(t_mna[-1]) if len(t_mna) > 0 else 1e-9
     # Use picoseconds for very short simulations
     time_scale = 1e12 if t_end < 1e-9 else 1e9
     time_unit = 'ps' if time_scale == 1e12 else 'ns'
