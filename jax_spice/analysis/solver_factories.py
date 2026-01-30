@@ -65,6 +65,39 @@ def get_nr_damping() -> float:
     return _NR_DAMPING
 
 
+def _compute_diagonal_indices(
+    bcsr_indptr: Array,
+    bcsr_indices: Array,
+    n_unknowns: int,
+) -> Array:
+    """Pre-compute indices of diagonal entries in CSR data array.
+
+    For Tikhonov regularization on sparse matrices, we need to add a small
+    value to diagonal entries. This function finds where those entries are
+    in the CSR data array.
+
+    Args:
+        bcsr_indptr: CSR row pointers
+        bcsr_indices: CSR column indices
+        n_unknowns: Number of unknowns (matrix dimension)
+
+    Returns:
+        Array of indices into CSR data array for diagonal entries
+    """
+    indptr_np = np.asarray(bcsr_indptr)
+    indices_np = np.asarray(bcsr_indices)
+    diag_list = []
+
+    for row in range(n_unknowns):
+        row_start, row_end = int(indptr_np[row]), int(indptr_np[row + 1])
+        for j in range(row_start, row_end):
+            if int(indices_np[j]) == row:
+                diag_list.append(j)
+                break  # Found diagonal for this row
+
+    return jnp.array(diag_list, dtype=jnp.int32)
+
+
 def _compute_noi_masks(
     noi_indices: Optional[Array],
     n_nodes: int,
@@ -254,8 +287,13 @@ def make_dense_full_mna_solver(
                 J = J.at[noi_res_idx, noi_res_idx].set(1.0)
                 f = f.at[noi_res_idx].set(0.0)
 
+            # Add Tikhonov regularization for numerical stability on GPU
+            # JAX's scipy.linalg.solve raises hard errors on singular matrices
+            reg = 1e-14 * jnp.eye(J.shape[0], dtype=J.dtype)
+            J_reg = J + reg
+
             # Solve linear system J @ delta = -f
-            delta = jax.scipy.linalg.solve(J, -f)
+            delta = jax.scipy.linalg.solve(J_reg, -f)
 
             # Step limiting
             max_delta = jnp.max(jnp.abs(delta))
@@ -720,8 +758,13 @@ def make_dense_solver(
                 J = J.at[noi_res_idx, noi_res_idx].set(1.0)
                 f = f.at[noi_res_idx].set(0.0)
 
+            # Add Tikhonov regularization for numerical stability on GPU
+            # JAX's scipy.linalg.solve raises hard errors on singular matrices
+            reg = 1e-14 * jnp.eye(J.shape[0], dtype=J.dtype)
+            J_reg = J + reg
+
             # Solve linear system
-            delta = jax.scipy.linalg.solve(J, -f)
+            delta = jax.scipy.linalg.solve(J_reg, -f)
 
             # Step limiting
             max_delta = jnp.max(jnp.abs(delta))

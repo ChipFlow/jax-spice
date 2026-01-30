@@ -469,6 +469,10 @@ class InitFunctionBuilder(FunctionBuilder):
         # Map init params from input array
         self._emit_simple_param_mapping(body, ctx, param_indices)
 
+        # Pre-initialize all cache output variables to 0.0 to avoid NameError
+        # for variables only assigned in conditional branches (NMOS/PMOS paths)
+        self._pre_initialize_cache_vars(body, ctx)
+
         # Process blocks
         translator = InstructionTranslator(ctx, self.ssa)
         block_order = self.cfg.topological_order()
@@ -563,6 +567,10 @@ class InitFunctionBuilder(FunctionBuilder):
         self._emit_split_param_mapping(body, ctx, shared_set, varying_set,
                                        shared_to_pos, varying_to_pos, init_to_eval)
 
+        # Pre-initialize all cache output variables to 0.0 to avoid NameError
+        # for variables only assigned in conditional branches (NMOS/PMOS paths)
+        self._pre_initialize_cache_vars(body, ctx)
+
         # Process blocks
         translator = InstructionTranslator(ctx, self.ssa)
         block_order = self.cfg.topological_order()
@@ -628,6 +636,27 @@ class InitFunctionBuilder(FunctionBuilder):
                 body.append(assign(var_name, ctx.zero()))
 
             ctx.defined_vars.add(var_name)
+
+    def _pre_initialize_cache_vars(self, body: List[ast.stmt], ctx: CodeGenContext):
+        """Pre-initialize all variables that appear in cache output to 0.0.
+
+        This fixes a bug where variables assigned in conditional branches (e.g.,
+        NMOS vs PMOS paths) would cause NameError when referenced in cache arrays.
+        By pre-initializing to 0.0, all variables are guaranteed to exist even if
+        the conditional branch that assigns them isn't taken at runtime.
+        """
+        cache_vars = set()
+        for mapping in self.cache_mapping:
+            init_val = mapping['init_value']
+            var_name = f"{ctx.var_prefix}{init_val}"
+            cache_vars.add(var_name)
+
+        # Pre-initialize all cache variables to 0.0
+        # Skip variables that are already defined (constants, etc.)
+        for var_name in sorted(cache_vars):  # Sort for deterministic output
+            if var_name not in ctx.defined_vars:
+                body.append(assign(var_name, ctx.zero()))
+                ctx.defined_vars.add(var_name)
 
     def _emit_cache_output(self, body: List[ast.stmt], ctx: CodeGenContext):
         """Emit cache array construction."""
@@ -783,6 +812,10 @@ class EvalFunctionBuilder(FunctionBuilder):
 
         # Map cache values
         self._emit_cache_mapping(body, ctx, cache_idx_mapping, use_cache_split)
+
+        # Pre-initialize all output variables to 0.0 to avoid NameError
+        # for variables only assigned in conditional branches (NMOS/PMOS paths)
+        self._pre_initialize_output_vars(body, ctx)
 
         # Process blocks
         translator = InstructionTranslator(ctx, self.ssa)
@@ -1008,3 +1041,42 @@ class EvalFunctionBuilder(FunctionBuilder):
             val_id = mir_ref[4:]  # Remove 'mir_' prefix
             return f"{ctx.var_prefix}v{val_id}"
         return mir_ref or ''
+
+    def _pre_initialize_output_vars(self, body: List[ast.stmt], ctx: CodeGenContext):
+        """Pre-initialize all variables that appear in output arrays to 0.0.
+
+        This fixes a bug where variables assigned in conditional branches (e.g.,
+        NMOS vs PMOS paths) would cause NameError when referenced in output arrays.
+        By pre-initializing to 0.0, all variables are guaranteed to exist even if
+        the conditional branch that assigns them isn't taken at runtime.
+
+        The correct value will be assigned when the appropriate branch executes.
+        If no branch assigns a value, it remains 0.0 (safe default).
+        """
+        # Collect all variables from residuals
+        output_vars = set()
+        for res in self.dae_data.get('residuals', []):
+            for key in ['resist_var', 'react_var', 'resist_lim_rhs_var',
+                       'react_lim_rhs_var', 'resist_small_signal_var',
+                       'react_small_signal_var']:
+                mir_ref = res.get(key, '')
+                if mir_ref:
+                    var_name = self._mir_to_var(mir_ref, ctx)
+                    if var_name:
+                        output_vars.add(var_name)
+
+        # Collect all variables from jacobian
+        for entry in self.dae_data.get('jacobian', []):
+            for key in ['resist_var', 'react_var']:
+                mir_ref = entry.get(key, '')
+                if mir_ref:
+                    var_name = self._mir_to_var(mir_ref, ctx)
+                    if var_name:
+                        output_vars.add(var_name)
+
+        # Pre-initialize all output variables to 0.0
+        # Skip variables that are already defined (constants, etc.)
+        for var_name in sorted(output_vars):  # Sort for deterministic output
+            if var_name not in ctx.defined_vars:
+                body.append(assign(var_name, ctx.zero()))
+                ctx.defined_vars.add(var_name)
