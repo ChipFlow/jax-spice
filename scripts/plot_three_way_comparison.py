@@ -285,17 +285,6 @@ def run_jax_spice(config: BenchmarkConfig) -> Tuple[np.ndarray, Dict, Dict]:
     return t_mna, voltages_mna, currents_mna
 
 
-def compute_didt(t: np.ndarray, current: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
-    """Compute dI/dt from time and current arrays."""
-    dt = np.diff(t)
-    dI = np.diff(current)
-    # Avoid division by zero
-    dt = np.where(dt == 0, 1e-20, dt)
-    dIdt = dI / dt
-    t_mid = t[:-1] + dt / 2
-    return t_mid, dIdt
-
-
 def plot_comparison(config: BenchmarkConfig, vacask_data: Optional[Dict],
                     ngspice_data: Optional[Dict], jax_data: Tuple,
                     output_file: Path):
