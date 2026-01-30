@@ -9,8 +9,8 @@ import pytest
 from conftest import INTEGRATION_MODELS, INTEGRATION_PATH, CompiledModel
 
 # Models with known codegen issues (undefined SSA variables in complex control flow)
-# These fail with NameError: name 'vXXXX' is not defined during JIT compilation
-CODEGEN_BROKEN_MODELS = {'bsimsoi', 'hisim2'}
+# Fixed in commit a887f5d by pre-initializing output variables
+CODEGEN_BROKEN_MODELS: set = set()  # Empty - all models should work now
 
 
 class TestAllModels:
