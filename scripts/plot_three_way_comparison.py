@@ -40,7 +40,7 @@ import numpy as np
 
 from jax_spice._logging import enable_performance_logging, logger
 from jax_spice.analysis.engine import CircuitEngine
-from jax_spice.analysis.transient import AdaptiveConfig, FullMNAStrategy, extract_results
+from jax_spice.analysis.transient import FullMNAStrategy, extract_results
 from jax_spice.utils import find_ngspice_binary, run_ngspice as run_ngspice_util
 from jax_spice.utils import run_vacask as run_vacask_util
 
@@ -338,19 +338,9 @@ def run_jax_spice(config: BenchmarkConfig) -> Tuple[np.ndarray, Dict, Dict]:
     runner = CircuitEngine(config.vacask_sim)
     runner.parse()
 
-    # Adaptive config
-    if config.use_sparse:
-        # c6288: Match VACASK settings for initial timestep scaling and LTE
-        # VACASK uses tran_fs=0.25 (initial dt scaling) and lte_ratio=1.5 (from netlist)
-        adaptive_config = AdaptiveConfig(
-            max_dt=config.max_dt,
-            min_dt=1e-15,
-            tran_fs=0.25,         # VACASK default: scale initial dt by 0.25
-            lte_ratio=1.5,        # From c6288 netlist: tran_lteratio=1.5
-        )
-    else:
-        adaptive_config = AdaptiveConfig(max_dt=config.max_dt, min_dt=1e-15)
-    full_mna = FullMNAStrategy(runner, use_sparse=config.use_sparse, config=adaptive_config)
+    # Let netlist options set AdaptiveConfig defaults
+    # tran_lteratio, nr_convtol, tran_method, etc. come from the .sim file
+    full_mna = FullMNAStrategy(runner, use_sparse=config.use_sparse)
 
     logger.info("Warmup...")
     _ = full_mna.warmup(dt=config.dt)
