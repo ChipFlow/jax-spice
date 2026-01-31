@@ -118,6 +118,7 @@ jobs:
           uv pip install --no-build-isolation .
 
       - name: Run jax-spice tests (with jaxtyping runtime checks)
+        timeout-minutes: 20
         env:
           JAX_PLATFORMS: cpu
         run: uv run pytest tests/test_vacask_suite.py tests/test_vacask_jax.py tests/test_vacask_benchmarks.py -v --tb=short
