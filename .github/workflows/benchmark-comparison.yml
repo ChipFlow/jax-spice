@@ -10,6 +10,9 @@ on:
 env:
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: 0
+  # Disable XLA compilation cache to avoid CPU architecture mismatches
+  # GitHub Actions runners have varying CPU features across runs
+  JAX_COMPILATION_CACHE_DIR: ""
 
 jobs:
   benchmark-comparison:
@@ -161,10 +164,10 @@ jobs:
         run: |
           echo "Running automated VACASK result comparison tests..."
           # Run pytest with the VACASK comparison tests
-          # Tests use xfail for known-failing benchmarks so this won't break CI
+          # Tests marked xfail won't cause failure, but unexpected failures will
           uv run pytest tests/test_vacask_benchmarks.py -v \
             -k "TestVACASKResultComparison" \
-            --tb=short 2>&1 | tee /tmp/vacask-result-tests.log || true
+            --tb=short 2>&1 | tee /tmp/vacask-result-tests.log
 
       # Run benchmark performance comparison
       # NOTE: VACASK benchmarks require OSDI device files compiled by openvaf-r

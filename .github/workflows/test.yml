@@ -13,6 +13,9 @@ env:
   # Re-enable when service is restored
   SCCACHE_GHA_ENABLED: "false"
   RUSTC_WRAPPER: "sccache"
+  # Disable XLA compilation cache to avoid CPU architecture mismatches
+  # GitHub Actions runners have varying CPU features across runs
+  JAX_COMPILATION_CACHE_DIR: ""
 
 jobs:
   test-openvaf-py:

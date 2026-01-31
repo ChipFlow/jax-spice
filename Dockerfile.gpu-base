@@ -96,6 +96,11 @@ ENV SCCACHE_GCS_RW_MODE=READ_WRITE
 ENV TF_CPP_MIN_LOG_LEVEL=2
 ENV XLA_FLAGS="--xla_gpu_autotune_level=0"
 
+# Disable XLA compilation cache in CI to avoid CPU architecture mismatches
+# GitHub Actions runners have varying CPU features which causes cache mismatches
+# when the Docker image is built on one runner and run on Cloud Run instances
+ENV JAX_COMPILATION_CACHE_DIR=""
+
 # nsys-jax needs XLA source path for .proto files
 ENV SRC_PATH_XLA=/opt/xla
 
