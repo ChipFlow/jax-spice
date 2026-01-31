@@ -138,39 +138,15 @@ else
   echo "Skipping trace upload (no traces found)"
 fi
 
-echo "Running tests..."
-# Same CUDA cleanup tolerance for pytest
-# Capture output to check for actual test failures vs CUDA cleanup errors
-set +e
-uv run pytest tests/ -v --tb=short -x 2>&1 | tee /tmp/pytest_output.txt
-TEST_STATUS=${PIPESTATUS[0]}
-set -e
-
-# Check if tests actually passed by looking at pytest output
-# pytest prints "X passed" on success, "FAILED" on failure
-TESTS_OK=false
-if grep -q " passed" /tmp/pytest_output.txt 2>/dev/null && \
-   ! grep -q "FAILED" /tmp/pytest_output.txt 2>/dev/null; then
-  TESTS_OK=true
-  echo "Tests completed successfully (found 'passed', no 'FAILED')"
-fi
-
 # Report final status
 echo ""
 echo "=== Final Status ==="
 echo "Benchmark exit status: $BENCHMARK_STATUS (OK: $BENCHMARK_OK)"
-echo "Test exit status: $TEST_STATUS (OK: $TESTS_OK)"
 
-# Exit with failure only if tests actually failed (not just CUDA cleanup)
-if [ $TEST_STATUS -ne 0 ]; then
-  echo "Tests exited with non-zero status"
-  if [ "$TESTS_OK" = true ]; then
-    echo "However, all tests passed - this is likely a CUDA cleanup error"
-    echo "Treating as success"
-  else
-    echo "ERROR: Tests actually failed"
-    exit $TEST_STATUS
-  fi
+# GPU CI focuses on benchmarks only - pytest tests run in CPU CI
+if [ "$BENCHMARK_OK" != true ]; then
+  echo "ERROR: Benchmarks did not complete successfully"
+  exit 1
 fi
 
-echo "All tests passed!"
+echo "GPU benchmarks completed successfully!"
