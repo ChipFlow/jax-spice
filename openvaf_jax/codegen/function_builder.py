@@ -279,6 +279,11 @@ class FunctionBuilder:
         init_vals = [jnp_call('float32', ctx.get_operand(lc[1])) for lc in loop_state]
         init_state = tuple_expr(init_vals) if len(init_vals) > 1 else init_vals[0]
 
+        # Pre-initialize PHI variables from non-header loop body blocks
+        # These may be used in post-loop PHI resolutions (e.g., as branch conditions)
+        # and must exist in the outer scope before the lax.while_loop
+        self._pre_initialize_loop_body_phis(body, ctx, loop)
+
         # Find branch condition in header
         branch_cond = None
         header_term = header_block.terminator
@@ -421,6 +426,36 @@ class FunctionBuilder:
             loop_body.append(return_stmt(update_vals[0]))
 
         return loop_body
+
+    def _pre_initialize_loop_body_phis(self, body: List[ast.stmt],
+                                        ctx: CodeGenContext,
+                                        loop: LoopInfo) -> None:
+        """Pre-initialize PHI variables from non-header loop body blocks.
+
+        PHI nodes inside loop bodies (not the header) may be used in post-loop
+        PHI resolutions as branch conditions. Since lax.while_loop creates a
+        separate function scope for the loop body, these variables won't exist
+        in the outer scope after the loop unless we pre-initialize them.
+
+        This fixes NameError for variables like v3401 in BSIMSOI that are
+        computed inside the loop but used to determine post-loop control flow.
+        """
+        for block_name in loop.body:
+            if block_name == loop.header:
+                continue  # Skip header PHIs - those become loop state
+
+            block = self.mir_func.blocks.get(block_name)
+            if not block or not block.phi_nodes:
+                continue
+
+            for phi in block.phi_nodes:
+                if phi.result:
+                    var_name = f"{ctx.var_prefix}{phi.result}"
+                    if var_name not in ctx.defined_vars:
+                        # Pre-initialize to False (boolean) - these are typically
+                        # branch condition tracking variables
+                        body.append(assign(var_name, jnp_bool(ast_const(False))))
+                        ctx.defined_vars.add(var_name)
 
 
 class InitFunctionBuilder(FunctionBuilder):
