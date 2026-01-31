@@ -169,6 +169,53 @@ jobs:
             -k "TestVACASKResultComparison" \
             --tb=short 2>&1 | tee /tmp/vacask-result-tests.log
 
+      # Measure XLA compilation cache benefit
+      # This helps determine if architecture-specific caching is worthwhile
+      - name: Measure XLA cache benefit
+        env:
+          JAX_PLATFORMS: cpu
+          JAX_ENABLE_X64: "1"
+        timeout-minutes: 10
+        run: |
+          echo "Measuring XLA compilation cache benefit (ring benchmark)..."
+          CACHE_DIR="/tmp/xla-cache-test"
+
+          # Cold run (empty cache)
+          rm -rf "$CACHE_DIR"
+          mkdir -p "$CACHE_DIR"
+          JAX_COMPILATION_CACHE_DIR="$CACHE_DIR" \
+            uv run python scripts/compare_vacask.py \
+              --benchmark ring \
+              --max-steps 50 \
+              --use-scan 2>&1 | tee /tmp/cache-cold.log
+
+          COLD_STARTUP=$(grep -oP 'startup: \K[\d.]+' /tmp/cache-cold.log | head -1 || echo "N/A")
+          CACHE_SIZE=$(du -sh "$CACHE_DIR" 2>/dev/null | cut -f1 || echo "N/A")
+
+          # Warm run (cache populated)
+          JAX_COMPILATION_CACHE_DIR="$CACHE_DIR" \
+            uv run python scripts/compare_vacask.py \
+              --benchmark ring \
+              --max-steps 50 \
+              --use-scan 2>&1 | tee /tmp/cache-warm.log
+
+          WARM_STARTUP=$(grep -oP 'startup: \K[\d.]+' /tmp/cache-warm.log | head -1 || echo "N/A")
+
+          echo "COLD_STARTUP=${COLD_STARTUP}" >> /tmp/cache-metrics.env
+          echo "WARM_STARTUP=${WARM_STARTUP}" >> /tmp/cache-metrics.env
+          echo "CACHE_SIZE=${CACHE_SIZE}" >> /tmp/cache-metrics.env
+
+          echo ""
+          echo "=== XLA Cache Benefit Summary ==="
+          echo "Cold startup: ${COLD_STARTUP}s"
+          echo "Warm startup: ${WARM_STARTUP}s"
+          echo "Cache size: ${CACHE_SIZE}"
+          if [[ "$COLD_STARTUP" != "N/A" && "$WARM_STARTUP" != "N/A" ]]; then
+            SPEEDUP=$(echo "scale=1; $COLD_STARTUP / $WARM_STARTUP" | bc 2>/dev/null || echo "N/A")
+            SAVED=$(echo "scale=1; $COLD_STARTUP - $WARM_STARTUP" | bc 2>/dev/null || echo "N/A")
+            echo "Speedup: ${SPEEDUP}x (saved ${SAVED}s)"
+          fi
+
       # Run benchmark performance comparison
       # NOTE: VACASK benchmarks require OSDI device files compiled by openvaf-r
       # This currently crashes on Linux/LLVM18, so VACASK results may not be available
@@ -278,6 +325,28 @@ jobs:
               echo "- **N/A**: VACASK comparison not available"
             else
               echo "**Error**: Benchmark comparison log not found"
+            fi
+
+            # XLA Cache benefit metrics
+            if [ -f "/tmp/cache-metrics.env" ]; then
+              source /tmp/cache-metrics.env
+              echo ""
+              echo "### XLA Compilation Cache Benefit"
+              echo ""
+              echo "Measured on ring benchmark (50 steps):"
+              echo ""
+              echo "| Metric | Value |"
+              echo "|--------|-------|"
+              echo "| Cold startup | ${COLD_STARTUP:-N/A}s |"
+              echo "| Warm startup | ${WARM_STARTUP:-N/A}s |"
+              echo "| Cache size | ${CACHE_SIZE:-N/A} |"
+              if [[ "${COLD_STARTUP:-N/A}" != "N/A" && "${WARM_STARTUP:-N/A}" != "N/A" ]]; then
+                SPEEDUP=$(echo "scale=1; $COLD_STARTUP / $WARM_STARTUP" | bc 2>/dev/null || echo "N/A")
+                SAVED=$(echo "scale=1; $COLD_STARTUP - $WARM_STARTUP" | bc 2>/dev/null || echo "N/A")
+                echo "| **Speedup** | ${SPEEDUP}x (saved ${SAVED}s) |"
+              fi
+              echo ""
+              echo "_Note: Cache disabled in CI due to runner architecture variations._"
             fi
           } >> "$GITHUB_STEP_SUMMARY"
 
