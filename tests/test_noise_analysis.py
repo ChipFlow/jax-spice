@@ -108,33 +108,30 @@ endc
 """)
         return netlist
 
-    def test_resistor_noise_runs(self, resistor_netlist):
-        """Noise analysis with resistors should complete."""
+    @pytest.fixture
+    def resistor_noise_result(self, resistor_netlist):
+        """Run resistor noise analysis once and reuse result."""
         engine = CircuitEngine(resistor_netlist)
         engine.parse()
-        result = engine.run_noise(out=2, input_source="v1", freq_start=1.0, freq_stop=10000.0)
+        return engine.run_noise(
+            out=2, input_source="v1", freq_start=10.0, freq_stop=10000.0, mode="dec", points=5
+        )
 
+    def test_resistor_noise_runs(self, resistor_noise_result):
+        """Noise analysis with resistors should complete."""
+        result = resistor_noise_result
         assert len(result.frequencies) > 0
         assert len(result.output_noise) == len(result.frequencies)
 
-    def test_resistor_noise_contributions(self, resistor_netlist):
+    def test_resistor_noise_contributions(self, resistor_noise_result):
         """Should have noise contributions from both resistors."""
-        engine = CircuitEngine(resistor_netlist)
-        engine.parse()
-        result = engine.run_noise(
-            out=2, input_source="v1", freq_start=100.0, freq_stop=100.0, mode="list", values=[100.0]
-        )
-
+        result = resistor_noise_result
         # Should have contributions from r1 and r2
         assert "r1" in result.contributions or "r2" in result.contributions
 
-    def test_resistor_thermal_noise_is_white(self, resistor_netlist):
+    def test_resistor_thermal_noise_is_white(self, resistor_noise_result):
         """Thermal noise should be frequency-independent (white)."""
-        engine = CircuitEngine(resistor_netlist)
-        engine.parse()
-        result = engine.run_noise(
-            out=2, input_source="v1", freq_start=10.0, freq_stop=10000.0, mode="dec", points=5
-        )
+        result = resistor_noise_result
 
         # Output noise should be roughly constant across frequency
         noise_values = result.output_noise
@@ -184,20 +181,24 @@ endc
 """)
         return netlist
 
-    def test_diode_noise_runs(self, diode_netlist):
-        """Noise analysis with diode should complete."""
+    @pytest.fixture
+    def diode_noise_result(self, diode_netlist):
+        """Run diode noise analysis once and reuse result."""
         engine = CircuitEngine(diode_netlist)
         engine.parse()
-        result = engine.run_noise(out=2, input_source="v1", freq_start=1.0, freq_stop=10000.0)
+        return engine.run_noise(
+            out=2, input_source="v1", freq_start=1.0, freq_stop=10000.0, mode="dec", points=10
+        )
 
+    def test_diode_noise_runs(self, diode_noise_result):
+        """Noise analysis with diode should complete."""
+        result = diode_noise_result
         assert len(result.frequencies) > 0
         assert len(result.output_noise) == len(result.frequencies)
 
-    def test_diode_has_shot_and_flicker(self, diode_netlist):
+    def test_diode_has_shot_and_flicker(self, diode_noise_result):
         """Diode should contribute shot and flicker noise."""
-        engine = CircuitEngine(diode_netlist)
-        engine.parse()
-        result = engine.run_noise(out=2, input_source="v1", freq_start=1.0, freq_stop=10000.0)
+        result = diode_noise_result
 
         # Check detailed contributions include shot and flicker
         has_shot = any("shot" in key[1] for key in result.detailed_contributions.keys())
@@ -206,13 +207,9 @@ endc
         assert has_shot, "Expected shot noise contribution from diode"
         assert has_flicker, "Expected flicker noise contribution from diode"
 
-    def test_flicker_noise_dominates_at_low_freq(self, diode_netlist):
+    def test_flicker_noise_dominates_at_low_freq(self, diode_noise_result):
         """At low frequencies, flicker (1/f) noise should be significant."""
-        engine = CircuitEngine(diode_netlist)
-        engine.parse()
-        result = engine.run_noise(
-            out=2, input_source="v1", freq_start=1.0, freq_stop=10000.0, mode="dec", points=10
-        )
+        result = diode_noise_result
 
         # Output noise at low frequency should be higher than at high frequency
         # due to 1/f noise contribution

@@ -130,22 +130,25 @@ endc
 """)
         return netlist
 
-    def test_dcxf_transfer_function(self, resistor_divider_netlist):
-        """DCXF should compute transfer function = 0.5 for divider."""
+    @pytest.fixture
+    def resistor_divider_dcxf_result(self, resistor_divider_netlist):
+        """Run DCXF once and reuse result for multiple assertions."""
         engine = CircuitEngine(resistor_divider_netlist)
         engine.parse()
-        result = engine.run_dcxf(out=2)
+        return engine.run_dcxf(out=2)
+
+    def test_dcxf_transfer_function(self, resistor_divider_dcxf_result):
+        """DCXF should compute transfer function = 0.5 for divider."""
+        result = resistor_divider_dcxf_result
 
         # Transfer function from v1 to node 2 should be 0.5
         assert "v1" in result.tf
         tf_v1 = result.tf["v1"]
         assert tf_v1 == pytest.approx(0.5, rel=0.01)
 
-    def test_dcxf_input_impedance(self, resistor_divider_netlist):
+    def test_dcxf_input_impedance(self, resistor_divider_dcxf_result):
         """DCXF should compute input impedance ~= 2k for divider (R1 + R2)."""
-        engine = CircuitEngine(resistor_divider_netlist)
-        engine.parse()
-        result = engine.run_dcxf(out=2)
+        result = resistor_divider_dcxf_result
 
         # Input impedance seen by v1 = R1 + R2 = 2k
         # Note: High-G voltage source model causes some numerical variation
@@ -153,11 +156,9 @@ endc
         zin_v1 = result.zin["v1"]
         assert zin_v1 == pytest.approx(2000.0, rel=0.15)  # Allow 15% tolerance
 
-    def test_dcxf_input_admittance(self, resistor_divider_netlist):
+    def test_dcxf_input_admittance(self, resistor_divider_dcxf_result):
         """DCXF should compute input admittance ~= 1/2k = 0.5mS."""
-        engine = CircuitEngine(resistor_divider_netlist)
-        engine.parse()
-        result = engine.run_dcxf(out=2)
+        result = resistor_divider_dcxf_result
 
         # Input admittance = 1 / 2k = 0.5e-3 S
         # Note: High-G voltage source model causes some numerical variation
@@ -273,8 +274,8 @@ endc
         assert len(tf_v1) == 1
         assert abs(tf_v1[0]) == pytest.approx(1.0, rel=0.1)
 
-    def test_acxf_transfer_function_at_cutoff(self, rc_lowpass_netlist):
-        """ACXF at cutoff frequency should give |TF| ~= 1/sqrt(2)."""
+    def test_acxf_at_cutoff(self, rc_lowpass_netlist):
+        """ACXF at cutoff frequency: |TF| ~= 1/sqrt(2), phase ~= -45 degrees."""
         engine = CircuitEngine(rc_lowpass_netlist)
         engine.parse()
 
@@ -285,25 +286,14 @@ endc
 
         assert "v1" in result.tf
         tf_v1 = result.tf["v1"]
-        mag = abs(tf_v1[0])
 
         # At cutoff, |TF| = 1/sqrt(2) = 0.707
-        expected = 1.0 / math.sqrt(2)
-        assert mag == pytest.approx(expected, rel=0.1)
-
-    def test_acxf_phase_at_cutoff(self, rc_lowpass_netlist):
-        """ACXF at cutoff frequency should give phase ~= -45 degrees."""
-        engine = CircuitEngine(rc_lowpass_netlist)
-        engine.parse()
-
-        fc = 1.0 / (2 * math.pi * 1000 * 1e-6)
-
-        result = engine.run_acxf(out=2, freq_start=fc, freq_stop=fc, mode="list", values=[fc])
-
-        tf_v1 = result.tf["v1"]
-        phase_deg = float(jnp.angle(tf_v1[0]) * 180 / jnp.pi)
+        mag = abs(tf_v1[0])
+        expected_mag = 1.0 / math.sqrt(2)
+        assert mag == pytest.approx(expected_mag, rel=0.1)
 
         # At cutoff, phase = -45 degrees
+        phase_deg = float(jnp.angle(tf_v1[0]) * 180 / jnp.pi)
         assert phase_deg == pytest.approx(-45.0, abs=10.0)
 
     def test_acxf_input_impedance_at_dc(self, rc_lowpass_netlist):

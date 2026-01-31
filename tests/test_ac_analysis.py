@@ -137,8 +137,8 @@ endc
         mag = float(jnp.abs(v_out[0]))
         assert mag == pytest.approx(1.0, rel=0.1)
 
-    def test_rc_magnitude_at_cutoff(self, rc_circuit_netlist):
-        """At cutoff frequency, magnitude should be -3dB (1/sqrt(2))."""
+    def test_rc_at_cutoff(self, rc_circuit_netlist):
+        """At cutoff frequency: magnitude -3dB (1/sqrt(2)), phase -45 degrees."""
         engine = CircuitEngine(rc_circuit_netlist)
         engine.parse()
 
@@ -154,31 +154,14 @@ endc
 
         v_out = result.voltages.get("2")
         assert v_out is not None
-        mag = float(jnp.abs(v_out[0]))
 
         # At cutoff, |H| = 1/sqrt(2) = 0.707
-        expected = 1.0 / math.sqrt(2)
-        assert mag == pytest.approx(expected, rel=0.1)
-
-    def test_rc_phase_at_cutoff(self, rc_circuit_netlist):
-        """At cutoff frequency, phase should be -45 degrees."""
-        engine = CircuitEngine(rc_circuit_netlist)
-        engine.parse()
-
-        fc = 1.0 / (2 * math.pi * 1000 * 1e-6)
-
-        result = engine.run_ac(
-            freq_start=fc,
-            freq_stop=fc,
-            mode="list",
-            values=[fc],
-        )
-
-        v_out = result.voltages.get("2")
-        assert v_out is not None
-        phase_deg = float(jnp.angle(v_out[0]) * 180 / jnp.pi)
+        mag = float(jnp.abs(v_out[0]))
+        expected_mag = 1.0 / math.sqrt(2)
+        assert mag == pytest.approx(expected_mag, rel=0.1)
 
         # At cutoff, phase = -45 degrees
+        phase_deg = float(jnp.angle(v_out[0]) * 180 / jnp.pi)
         assert phase_deg == pytest.approx(-45.0, abs=10.0)
 
     def test_rc_frequency_sweep(self, rc_circuit_netlist):
