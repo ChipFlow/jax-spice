@@ -75,7 +75,7 @@ def generate_dot(va_path: Path, func: str = "eval", output_dir: Optional[Path] =
         cmd.append("--init-only")
 
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        subprocess.run(cmd, capture_output=True, text=True, check=True)
         print(f"Generated DOT file: {dot_path}")
         return dot_path
     except subprocess.CalledProcessError as e:
@@ -343,7 +343,7 @@ def analyze_phi_block(G: nx.DiGraph, block: str) -> dict:
 def print_summary(G: nx.DiGraph):
     """Print summary of the CFG."""
     print(f"\n{'=' * 60}")
-    print(f"CFG Summary")
+    print("CFG Summary")
     print(f"{'=' * 60}")
     print(f"Nodes: {G.number_of_nodes()}")
     print(f"Edges: {G.number_of_edges()}")
@@ -435,7 +435,7 @@ def main():
         else:
             print(f"Direct predecessors: {paths['direct_predecessors']}")
             print(f"Direct successors: {paths['direct_successors']}")
-            print(f"\nPaths from entry:")
+            print("\nPaths from entry:")
             for path in paths["paths_from_entry"]:
                 path_str = " -> ".join(f"{b}[{l}]" if l else b for b, l in path)
                 print(f"  {path_str}")
@@ -447,12 +447,12 @@ def main():
         deps = trace_value_deps(G, args.trace_value)
 
         if deps["defined_in"]:
-            print(f"\nDefined in:")
+            print("\nDefined in:")
             for block, line in deps["defined_in"]:
                 print(f"  {block}: {line[:80]}{'...' if len(line) > 80 else ''}")
 
         if deps["phi_sources"]:
-            print(f"\nPHI sources:")
+            print("\nPHI sources:")
             for src in deps["phi_sources"]:
                 print(f"  {src['value']} from {src['block']}")
 

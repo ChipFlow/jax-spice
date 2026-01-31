@@ -3,18 +3,15 @@
 Tests the PVT (Process/Voltage/Temperature) corner sweep capabilities.
 """
 
-import pytest
-
 from jax_spice.analysis.corners import (
-    ProcessCorner,
-    VoltageCorner,
+    PROCESS_CORNERS,
+    TEMPERATURE_CORNERS,
     CornerConfig,
     CornerResult,
     CornerSweepResult,
-    PROCESS_CORNERS,
-    TEMPERATURE_CORNERS,
-    create_standard_corners,
+    VoltageCorner,
     create_pvt_corners,
+    create_standard_corners,
 )
 
 

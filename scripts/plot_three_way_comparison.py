@@ -26,7 +26,6 @@ import json
 import os
 import re
 import struct
-import subprocess
 import sys
 import time
 from dataclasses import dataclass
@@ -41,7 +40,8 @@ import numpy as np
 from jax_spice._logging import enable_performance_logging, logger
 from jax_spice.analysis.engine import CircuitEngine
 from jax_spice.analysis.transient import FullMNAStrategy, extract_results
-from jax_spice.utils import find_ngspice_binary, run_ngspice as run_ngspice_util
+from jax_spice.utils import find_ngspice_binary
+from jax_spice.utils import run_ngspice as run_ngspice_util
 from jax_spice.utils import run_vacask as run_vacask_util
 
 enable_performance_logging(with_memory=True, with_perf_counter=True)

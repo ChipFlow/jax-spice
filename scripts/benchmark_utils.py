@@ -4,13 +4,12 @@ This module consolidates common functionality used across profile_cpu.py,
 profile_gpu.py, compare_vacask.py, and test files.
 """
 
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Optional, Tuple
-import sys
 
 # Re-export find_vacask_binary from jax_spice.utils to avoid duplication
-from jax_spice.utils import find_vacask_binary
 
 
 @dataclass

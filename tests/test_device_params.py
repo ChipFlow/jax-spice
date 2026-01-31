@@ -6,26 +6,27 @@ These tests verify that:
 3. Parameter coverage detection works
 """
 
-import pytest
 from pathlib import Path
+
+import pytest
 
 from jax_spice.analysis import CircuitEngine
 from jax_spice.analysis.debug import (
     ParamTrace,
-    trace_param,
-    trace_all_params,
     check_param_coverage,
-    format_param_trace,
-    format_stats,
+    execute_all_print_directives,
+    execute_print_directive,
     format_devices,
-    format_models,
     format_instance,
     format_model,
-    execute_print_directive,
-    execute_all_print_directives,
+    format_models,
+    format_param_trace,
+    format_stats,
+    trace_all_params,
+    trace_param,
 )
-from jax_spice.netlist.parser import parse_netlist
 from jax_spice.netlist.circuit import PrintDirective
+from jax_spice.netlist.parser import parse_netlist
 
 # Paths to test fixtures
 VACASK_BENCHMARK = Path(__file__).parent.parent / "vendor" / "VACASK" / "benchmark"

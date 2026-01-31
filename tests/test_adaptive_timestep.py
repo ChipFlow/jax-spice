@@ -9,7 +9,6 @@ import pytest
 
 from jax_spice.analysis.integration import IntegrationMethod, compute_coefficients
 from jax_spice.analysis.transient.predictor import (
-    PredictorCoeffs,
     compute_new_timestep,
     compute_predictor_coeffs,
     estimate_lte,

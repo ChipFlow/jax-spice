@@ -9,7 +9,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional, Set
 
-
 # Project paths
 PROJECT_ROOT = Path(__file__).parent.parent
 NGSPICE_ROOT = PROJECT_ROOT / "vendor" / "ngspice"

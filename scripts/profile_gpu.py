@@ -20,15 +20,15 @@ Usage:
 """
 
 import argparse
+import json
 import os
+import subprocess
 import sys
 import time
-import json
-import subprocess
-from pathlib import Path
-from dataclasses import asdict
-from typing import Dict, List, Optional, Tuple
 from contextlib import nullcontext
+from dataclasses import asdict
+from pathlib import Path
+from typing import List, Optional
 
 # Ensure jax-spice is importable
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -40,13 +40,12 @@ os.environ.setdefault("XLA_PYTHON_CLIENT_PREALLOCATE", "false")
 os.environ.setdefault("XLA_PYTHON_CLIENT_ALLOCATOR", "platform")
 
 import jax
-import jax.numpy as jnp
-import numpy as np
+
+from jax_spice._logging import enable_performance_logging, logger
 
 # Import jax_spice first to auto-configure precision based on backend
 # (Metal/TPU use f32, CPU/CUDA use f64)
 from jax_spice.analysis import CircuitEngine
-from jax_spice._logging import enable_performance_logging, logger
 from scripts.benchmark_utils import BenchmarkResult, get_vacask_benchmarks
 
 # Enable verbose logging with flush and memory stats for profiling visibility
@@ -112,7 +111,7 @@ class GPUProfiler:
 
         try:
             # Parse circuit
-            logger.info(f"      parsing...")
+            logger.info("      parsing...")
             sys.stdout.flush()
             sys.stderr.flush()
             engine = CircuitEngine(sim_path)
@@ -206,8 +205,8 @@ class GPUProfiler:
             solver = "sparse" if use_sparse else "dense"
 
             # Log in VACASK-comparable format
-            logger.info(f"")
-            logger.info(f"      === VACASK-comparable metrics ===")
+            logger.info("")
+            logger.info("      === VACASK-comparable metrics ===")
             logger.info(f"      Runtime:        {elapsed:.3f}s")
             logger.info(f"      Timesteps:      {actual_steps}")
             logger.info(f"      Time per step:  {time_per_step:.3f}ms")
@@ -413,7 +412,7 @@ def run_benchmark_subprocess(
         proc.wait(timeout=1800)  # 30 minute timeout
 
         if not output_lines:
-            logger.error(f"  No output from subprocess")
+            logger.error("  No output from subprocess")
             return None
 
         # Try to parse the last line as JSON
@@ -425,13 +424,13 @@ def run_benchmark_subprocess(
                 return None
             return BenchmarkResult(**data)
         except json.JSONDecodeError:
-            logger.error(f"  Failed to parse JSON from subprocess")
+            logger.error("  Failed to parse JSON from subprocess")
             logger.error(f"  Last line: {json_line[:200]}")
             return None
 
     except subprocess.TimeoutExpired:
         proc.kill()
-        logger.error(f"  Benchmark timed out after 30 minutes")
+        logger.error("  Benchmark timed out after 30 minutes")
         return BenchmarkResult(
             name=name,
             nodes=0,
@@ -549,7 +548,6 @@ def main():
     profiler.start()
 
     # Setup tracing context if requested
-    trace_ctx = None
     if args.trace:
         os.makedirs(args.trace_dir, exist_ok=True)
         logger.info(f"  Created trace directory: {args.trace_dir}")
@@ -578,13 +576,13 @@ def main():
             run_sparse = not args.dense_only
 
             if name == "c6288":
-                logger.info(f"    Note: ~86k total nodes (5k external + 81k internal)")
+                logger.info("    Note: ~86k total nodes (5k external + 81k internal)")
                 if not args.sparse_only:
-                    logger.info(f"    Skipping dense (would need ~56GB memory)")
+                    logger.info("    Skipping dense (would need ~56GB memory)")
 
             # Run dense (in subprocess)
             if run_dense:
-                logger.info(f"    dense:  running in subprocess...")
+                logger.info("    dense:  running in subprocess...")
                 sys.stdout.flush()
                 result_dense = run_benchmark_subprocess(
                     name, "dense", args.timesteps, args.warmup_steps, args.full, args.cpu
@@ -598,11 +596,11 @@ def main():
                             f"    dense:  {result_dense.total_time_s:.3f}s total, {result_dense.timesteps} steps"
                         )
                 else:
-                    logger.info(f"    dense:  FAILED (subprocess error)")
+                    logger.info("    dense:  FAILED (subprocess error)")
 
             # Run sparse (in subprocess)
             if run_sparse:
-                logger.info(f"    sparse: running in subprocess...")
+                logger.info("    sparse: running in subprocess...")
                 sys.stdout.flush()
                 result_sparse = run_benchmark_subprocess(
                     name, "sparse", args.timesteps, args.warmup_steps, args.full, args.cpu
@@ -616,7 +614,7 @@ def main():
                             f"    sparse: {result_sparse.total_time_s:.3f}s total, {result_sparse.timesteps} steps"
                         )
                 else:
-                    logger.info(f"    sparse: FAILED (subprocess error)")
+                    logger.info("    sparse: FAILED (subprocess error)")
 
             logger.info("")
 
@@ -686,7 +684,7 @@ if __name__ == "__main__":
     try:
         main()
     except Exception as e:
-        print(f"\n*** FATAL ERROR ***")
+        print("\n*** FATAL ERROR ***")
         print(f"Unhandled exception: {e}")
         import traceback
 

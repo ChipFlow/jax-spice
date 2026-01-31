@@ -15,8 +15,8 @@ from jax_spice.analysis.homotopy import (
     HomotopyConfig,
     HomotopyResult,
     gmin_stepping,
-    source_stepping,
     run_homotopy_chain,
+    source_stepping,
 )
 
 # Precision is auto-configured by jax_spice import based on backend capabilities

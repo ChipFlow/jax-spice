@@ -12,8 +12,8 @@ to JAX functions using openvaf_jax.
 import sys
 from pathlib import Path
 
-import pytest
 import numpy as np
+import pytest
 
 # Add openvaf_jax and openvaf_py to path
 project_root = Path(__file__).parent.parent
@@ -21,7 +21,6 @@ sys.path.insert(0, str(project_root))
 sys.path.insert(0, str(project_root / "openvaf_jax" / "openvaf_py"))
 
 from jax_spice.netlist.parser import parse_netlist
-from jax_spice.netlist.circuit import Circuit
 
 # VACASK paths
 VACASK_PATH = Path(__file__).parent.parent / "vendor" / "VACASK"
@@ -58,6 +57,7 @@ class CompiledVAModel:
 
     def __init__(self, va_path: Path):
         import openvaf_py
+
         import openvaf_jax
 
         self.va_path = va_path
@@ -388,11 +388,11 @@ class TestFullVACASKTestResistor:
         rel_err = abs(actual_I - expected_I) / expected_I
         assert rel_err < 1e-6, f"Current mismatch: expected {expected_I}, got {actual_I}"
 
-        print(f"\nResults:")
+        print("\nResults:")
         print(f"  Expected I = V/R = {V}/{R} = {expected_I * 1000:.6f} mA")
         print(f"  Actual I = {actual_I * 1000:.6f} mA")
         print(f"  Relative error: {rel_err:.2e}")
-        print(f"  PASS: Matches VACASK expected values!")
+        print("  PASS: Matches VACASK expected values!")
 
 
 if __name__ == "__main__":

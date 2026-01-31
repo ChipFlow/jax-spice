@@ -3,20 +3,15 @@
 Tests noise analysis against known analytical solutions.
 """
 
-import pytest
-import math
-from pathlib import Path
-
 import jax.numpy as jnp
-import numpy as np
+import pytest
 
 from jax_spice.analysis import (
     CircuitEngine,
-    NoiseConfig,
     NoiseResult,
-    compute_thermal_noise_psd,
-    compute_shot_noise_psd,
     compute_flicker_noise_psd,
+    compute_shot_noise_psd,
+    compute_thermal_noise_psd,
 )
 
 

@@ -34,12 +34,11 @@ import subprocess
 from jax_spice._logging import enable_performance_logging
 
 enable_performance_logging(with_memory=True, with_perf_counter=True)
+import re
 import sys
 import time
-import re
 from pathlib import Path
-from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Dict, Optional, Tuple
 
 # Ensure jax-spice is importable
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -56,16 +55,14 @@ import jax.numpy as jnp
 
 # Precision is auto-configured by jax_spice import (imported above via logging)
 # Metal/TPU use f32, CPU/CUDA use f64
-
 from jax_spice.analysis import CircuitEngine
 from jax_spice.analysis.transient import AdaptiveConfig
 from jax_spice.benchmarks.registry import (
-    BENCHMARKS as BENCHMARK_REGISTRY,
     BenchmarkInfo,
     get_benchmark,
     list_benchmarks,
 )
-from jax_spice.profiling import enable_profiling, ProfileConfig
+from jax_spice.profiling import ProfileConfig
 
 
 def analyze_compiled_function(fn, args, name: str, output_dir: Optional[Path] = None):
@@ -115,7 +112,7 @@ def analyze_compiled_function(fn, args, name: str, output_dir: Optional[Path] = 
         # Compile and get cost analysis
         compiled = lowered.compile()
         cost = compiled.cost_analysis()
-        print(f"\n--- Cost Analysis ---")
+        print("\n--- Cost Analysis ---")
         if cost:
             for i, device_cost in enumerate(cost):
                 if device_cost and isinstance(device_cost, dict):
@@ -226,7 +223,7 @@ def run_vacask(config: BenchmarkInfo, num_steps: int) -> Optional[Tuple[float, f
             text=True,
             timeout=300,
         )
-        elapsed = time.perf_counter() - start
+        time.perf_counter() - start
 
         # Parse output - VACASK may output Python errors from post-processing scripts
         # but still succeed. Look for elapsed time in stdout.
@@ -244,7 +241,7 @@ def run_vacask(config: BenchmarkInfo, num_steps: int) -> Optional[Tuple[float, f
             print(f"VACASK failed (rc={result.returncode}): {result.stdout[:200]}")
             return None
         else:
-            print(f"VACASK: could not parse output")
+            print("VACASK: could not parse output")
             return None
 
     except subprocess.TimeoutExpired:
@@ -581,8 +578,8 @@ def main():
     results = []
 
     # Memory profiling setup
-    import tracemalloc
     import gc
+    import tracemalloc
 
     if not tracemalloc.is_tracing():
         tracemalloc.start()
@@ -619,7 +616,7 @@ def main():
             analyze_output_dir=analyze_dir,
         )
         startup_time = stats.get("startup_time", 0)
-        print(f"done")
+        print("done")
         print(
             f"  JAX-SPICE: {jax_ms:.3f} ms/step ({jax_wall:.3f}s total, startup: {startup_time:.1f}s)"
         )
@@ -634,7 +631,7 @@ def main():
             if vacask_result is not None:
                 vacask_ms, vacask_wall = vacask_result
                 vacask_source = "run"
-                print(f"done")
+                print("done")
                 print(f"  VACASK: {vacask_ms:.3f} ms/step ({vacask_wall:.3f}s total)")
                 ratio = jax_ms / vacask_ms
                 print(f"  Ratio: {ratio:.2f}x {'slower' if ratio > 1 else 'faster'}")
@@ -673,7 +670,7 @@ def main():
         if top_diffs:
             increases = [d for d in top_diffs if d.size_diff > 0]
             if increases[:3]:
-                print(f"  Top memory increases since last benchmark:")
+                print("  Top memory increases since last benchmark:")
                 for stat in increases[:3]:
                     print(
                         f"    +{stat.size_diff / 1024:.1f}KB: {stat.traceback.format()[0] if stat.traceback else 'unknown'}"
@@ -770,7 +767,7 @@ def main():
             jax_traces = list(trace_dir.glob("benchmark_*"))
             if jax_traces:
                 print(f"JAX profiling traces saved to: {trace_dir}")
-                print(f"  To view in Perfetto: https://ui.perfetto.dev/")
+                print("  To view in Perfetto: https://ui.perfetto.dev/")
                 for t in jax_traces[:5]:  # Show first 5
                     print(f"    - {t.name}/")
                 if len(jax_traces) > 5:

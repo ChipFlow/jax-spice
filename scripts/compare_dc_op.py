@@ -82,13 +82,13 @@ v1_vac = vacask["1"][0]
 v1_ng = ng[0, 1]
 v1_mna = float(voltages["1"][0])
 
-print(f"\nV(1) differences:")
+print("\nV(1) differences:")
 print(f"  VACASK - ngspice: {(v1_vac - v1_ng) * 1e3:.3f} mV")
 print(f"  VACASK - Full MNA: {(v1_vac - v1_mna) * 1e3:.3f} mV")
 print(f"  ngspice - Full MNA: {(v1_ng - v1_mna) * 1e3:.3f} mV")
 
 # Check if all nodes have same voltage (ring oscillator at DC should be symmetric)
-print(f"\nRing symmetry check (all nodes should be equal at DC):")
+print("\nRing symmetry check (all nodes should be equal at DC):")
 for i in range(1, 10):
     node = str(i)
     if node in voltages:

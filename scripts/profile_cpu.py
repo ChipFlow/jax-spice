@@ -28,6 +28,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 # Force CPU backend
 os.environ["JAX_PLATFORMS"] = "cpu"
 
+import jax
+
 # Import jax_spice first to auto-configure precision based on backend
 # (Metal/TPU use f32, CPU/CUDA use f64)
 from jax_spice.analysis import CircuitEngine
@@ -40,7 +42,7 @@ def run_benchmark(
     """Run a single benchmark configuration."""
     try:
         # Parse circuit
-        log(f"      parsing...")
+        log("      parsing...")
         engine = CircuitEngine(sim_path)
         engine.parse()
         log("      parsing done")
@@ -193,7 +195,7 @@ def main():
         run_sparse = not args.dense_only
 
         if name == "c6288" and not args.sparse_only:
-            log(f"    Skipping dense (86k nodes would need ~56GB)")
+            log("    Skipping dense (86k nodes would need ~56GB)")
 
         # Run dense
         if run_dense:
@@ -253,7 +255,7 @@ if __name__ == "__main__":
     try:
         main()
     except Exception as e:
-        print(f"\n*** FATAL ERROR ***")
+        print("\n*** FATAL ERROR ***")
         print(f"Unhandled exception: {e}")
         import traceback
 

@@ -768,8 +768,9 @@ class EvalFunctionBuilder(FunctionBuilder):
         Returns:
             Tuple of (function_name, code_lines)
         """
-        use_cache_split = (shared_cache_indices is not None and
-                           varying_cache_indices is not None)
+        # Always use cache split for uniform interface
+        shared_cache_indices = shared_cache_indices or []
+        varying_cache_indices = varying_cache_indices or []
         simparam_params = simparam_params or {}
 
         # Build index mappings
@@ -782,12 +783,12 @@ class EvalFunctionBuilder(FunctionBuilder):
         for orig_idx, simparam_name in simparam_params.items():
             idx_mapping[orig_idx] = ('simparam', simparam_name)
 
+        # Build cache index mappings
         cache_idx_mapping: Dict[int, Tuple[str, int]] = {}
-        if use_cache_split:
-            for new_idx, orig_idx in enumerate(shared_cache_indices or []):
-                cache_idx_mapping[orig_idx] = ('shared_cache', new_idx)
-            for new_idx, orig_idx in enumerate(varying_cache_indices or []):
-                cache_idx_mapping[orig_idx] = ('device_cache', new_idx)
+        for new_idx, orig_idx in enumerate(shared_cache_indices):
+            cache_idx_mapping[orig_idx] = ('shared_cache', new_idx)
+        for new_idx, orig_idx in enumerate(varying_cache_indices):
+            cache_idx_mapping[orig_idx] = ('device_cache', new_idx)
 
         # Create context
         ctx = build_context_from_mir(self.mir_func, var_prefix='')
@@ -811,7 +812,7 @@ class EvalFunctionBuilder(FunctionBuilder):
         self._emit_param_mapping(body, ctx, idx_mapping)
 
         # Map cache values
-        self._emit_cache_mapping(body, ctx, cache_idx_mapping, use_cache_split)
+        self._emit_cache_mapping(body, ctx, cache_idx_mapping)
 
         # Pre-initialize all output variables to 0.0 to avoid NameError
         # for variables only assigned in conditional branches (NMOS/PMOS paths)
@@ -866,18 +867,12 @@ class EvalFunctionBuilder(FunctionBuilder):
         ]
         body.append(return_stmt(tuple_expr(return_values)))
 
-        # Build function
-        # simparams layout: [analysis_type, gmin]
-        #   simparams[0] = analysis_type (0=DC, 1=AC, 2=transient, 3=noise)
-        #   simparams[1] = gmin
-        # Note: limit_state_in and limit_funcs always included for uniform interface
-        fn_name = 'eval_fn_with_cache_split_cache' if use_cache_split else 'eval_fn_with_cache_split'
-        if use_cache_split:
-            args = ['shared_params', 'device_params', 'shared_cache', 'device_cache', 'simparams',
-                    'limit_state_in', 'limit_funcs']
-        else:
-            args = ['shared_params', 'device_params', 'cache', 'simparams',
-                    'limit_state_in', 'limit_funcs']
+        # Build function with uniform interface
+        # Args: shared_params, device_params, shared_cache, device_cache, simparams, limit_state_in, limit_funcs
+        # simparams layout: [analysis_type, mfactor, gmin]
+        fn_name = 'eval_fn'
+        args = ['shared_params', 'device_params', 'shared_cache', 'device_cache', 'simparams',
+                'limit_state_in', 'limit_funcs']
 
         func = function_def(fn_name, args, body)
 

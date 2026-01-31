@@ -4,10 +4,11 @@ Tests AC frequency sweep analysis against known analytical solutions
 and VACASK reference results.
 """
 
-import pytest
+import math
 import sys
 from pathlib import Path
-import math
+
+import pytest
 
 # Add openvaf_jax and openvaf_py to path
 project_root = Path(__file__).parent.parent
@@ -15,9 +16,8 @@ sys.path.insert(0, str(project_root))
 sys.path.insert(0, str(project_root / "openvaf_jax" / "openvaf_py"))
 
 import jax.numpy as jnp
-import numpy as np
 
-from jax_spice.analysis import CircuitEngine, ACConfig, ACResult, generate_frequencies
+from jax_spice.analysis import ACConfig, ACResult, CircuitEngine, generate_frequencies
 
 
 class TestFrequencyGeneration:

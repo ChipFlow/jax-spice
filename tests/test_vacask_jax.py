@@ -10,22 +10,22 @@ The approach:
 4. Compare results with expected values from the embedded Python scripts
 """
 
-import pytest
 import sys
 from pathlib import Path
+
+import pytest
 
 # Add openvaf_jax and openvaf_py to path
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 sys.path.insert(0, str(project_root / "openvaf_jax" / "openvaf_py"))
 
-import numpy as np
-import jax.numpy as jnp
 
 import openvaf_py
+from conftest import parse_si_value
+
 import openvaf_jax
 from jax_spice.netlist.parser import parse_netlist
-from conftest import parse_si_value
 
 # Paths
 VACASK_TEST = Path(__file__).parent.parent / "vendor" / "VACASK" / "test"

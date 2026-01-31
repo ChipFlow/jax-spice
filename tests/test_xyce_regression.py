@@ -11,19 +11,18 @@ The test workflow:
 
 import tempfile
 from pathlib import Path
-from typing import Optional, Tuple, Dict
+from typing import Dict, Optional, Tuple
 
 import jax.numpy as jnp
-from jax import Array
 import pytest
+from jax import Array
 
-from jax_spice.io.prn_reader import read_prn, get_column
 from jax_spice.analysis.engine import CircuitEngine
+from jax_spice.io.prn_reader import get_column, read_prn
 from tests.xyce_test_registry import (
-    XyceTestCase,
-    discover_xyce_tests,
     XYCE_NETLISTS,
     XYCE_OUTPUT,
+    discover_xyce_tests,
 )
 
 # Get ALL discovered tests at module load time for parametrization

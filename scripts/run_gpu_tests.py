@@ -18,9 +18,9 @@ Options:
     --full     Run full benchmark suite (including slow C6288 tests)
 """
 
+import argparse
 import subprocess
 import sys
-import argparse
 
 
 def run_command(cmd: list[str], check: bool = True) -> subprocess.CompletedProcess:

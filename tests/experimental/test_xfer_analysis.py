@@ -3,21 +3,16 @@
 Tests against known analytical solutions for simple circuits.
 """
 
-import pytest
 import math
-from pathlib import Path
 
 import jax.numpy as jnp
-import numpy as np
+import pytest
 
 from jax_spice.analysis import (
-    CircuitEngine,
-    DCIncConfig,
-    DCIncResult,
-    DCXFConfig,
-    DCXFResult,
-    ACXFConfig,
     ACXFResult,
+    CircuitEngine,
+    DCIncResult,
+    DCXFResult,
 )
 
 

@@ -35,7 +35,6 @@ import tempfile
 import time
 from pathlib import Path
 
-
 GCP_PROJECT = "jax-spice-cuda-test"
 GCP_REGION = "us-central1"
 JOB_NAME = "jax-spice-nsys-profile"

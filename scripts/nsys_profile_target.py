@@ -24,6 +24,8 @@ import argparse
 import sys
 from pathlib import Path
 
+import jax
+
 sys.path.insert(0, ".")
 
 # Import jax_spice first to auto-configure precision based on backend

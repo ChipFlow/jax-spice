@@ -1,17 +1,17 @@
 """Tests for Harmonic Balance analysis."""
 
-import pytest
 import jax.numpy as jnp
+
 from jax_spice.analysis.hb import (
     HBConfig,
     HBResult,
+    build_apft_matrices,
+    build_collocation_points,
     build_frequency_grid,
     build_frequency_grid_box,
     build_frequency_grid_diamond,
-    build_collocation_points,
-    build_apft_matrices,
-    phasors_to_complex,
     complex_to_phasors,
+    phasors_to_complex,
     run_hb_analysis,
 )
 

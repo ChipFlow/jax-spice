@@ -1,16 +1,15 @@
 #!/usr/bin/env python3
 """Compare JAX-SPICE vs VACASK simulation results."""
 
+import re
 import subprocess
 import sys
 import tempfile
-import re
 from pathlib import Path
 
 # Add parent to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-import jax.numpy as jnp
 
 # Import jax_spice first to auto-configure precision based on backend
 from jax_spice.analysis import CircuitEngine
@@ -210,7 +209,7 @@ def compare_benchmarks():
                 sim_path, vacask_bin, config["steps"]
             )
             if not vacask_voltages:
-                print(f"FAILED: No voltages parsed")
+                print("FAILED: No voltages parsed")
                 print(f"  Output: {vacask_output[:500]}")
                 continue
             print(f"done ({len(vacask_voltages)} nodes)")

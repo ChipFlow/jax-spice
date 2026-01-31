@@ -4,12 +4,13 @@ Automatically discovers and runs all VACASK .sim test files, extracting
 expected values from embedded Python scripts and comparing with our solver.
 """
 
-import pytest
-import sys
 import re
-from pathlib import Path
-from typing import Dict, List, Tuple, Any
+import sys
 from collections import namedtuple
+from pathlib import Path
+from typing import Dict, List, Tuple
+
+import pytest
 
 # Add openvaf_jax and openvaf_py to path
 project_root = Path(__file__).parent.parent
@@ -17,10 +18,9 @@ sys.path.insert(0, str(project_root))
 sys.path.insert(0, str(project_root / "openvaf_jax" / "openvaf_py"))
 
 import numpy as np
+from conftest import parse_embedded_python, parse_si_value
 
 from jax_spice.netlist.parser import parse_netlist
-from jax_spice.analysis import CircuitEngine
-from conftest import parse_embedded_python, parse_si_value
 
 # Paths - VACASK is at ../VACASK relative to jax-spice
 JAX_SPICE_ROOT = Path(__file__).parent.parent

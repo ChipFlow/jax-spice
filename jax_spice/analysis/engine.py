@@ -1599,10 +1599,10 @@ class CircuitEngine:
                 compiled["num_limit_states"] = 0
 
             split_mem_mb = (
-                shared_params.nbytes / 1024 / 1024 +
-                device_params.nbytes / 1024 / 1024 +
-                shared_cache.nbytes / 1024 / 1024 +
-                device_cache.nbytes / 1024 / 1024
+                shared_params.nbytes / 1024 / 1024
+                + device_params.nbytes / 1024 / 1024
+                + shared_cache.nbytes / 1024 / 1024
+                + device_cache.nbytes / 1024 / 1024
             )
             # Compare to theoretical full array size (never allocated)
             theoretical_full_mb = n_devices * n_params_total * 8 / 1024 / 1024

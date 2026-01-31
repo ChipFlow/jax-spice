@@ -9,7 +9,6 @@ These tests verify that source waveforms are computed correctly using JAX.
 
 import jax.numpy as jnp
 import pytest
-from pathlib import Path
 
 from jax_spice.analysis import CircuitEngine
 

@@ -28,15 +28,12 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 # Import jax_spice first to auto-configure precision based on backend
 from jax_spice.analysis import CircuitEngine
 from jax_spice.analysis.debug import (
-    trace_param,
-    trace_all_params,
     check_param_coverage,
-    format_param_trace,
     format_coverage_chart,
-    get_coverage_breakdown,
-    format_stats,
     format_devices,
     format_models,
+    format_param_trace,
+    format_stats,
 )
 from scripts.benchmark_utils import get_vacask_benchmarks, log
 

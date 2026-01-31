@@ -7,15 +7,14 @@ Tests for correctness (no NaN/Inf) and reports timing.
 import os
 import time
 from pathlib import Path
-from typing import List, Tuple
+from typing import List
 
 import jax
-import pytest
 import numpy as np
+import pytest
 
 # Precision is auto-configured by jax_spice import based on backend capabilities
 from jax_spice.analysis import CircuitEngine
-
 
 # Benchmark configuration
 BENCHMARK_ROOT = Path(__file__).parent.parent / "vendor" / "VACASK" / "benchmark"

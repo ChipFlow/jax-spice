@@ -13,33 +13,28 @@ The test workflow:
 4. Compare waveforms with tolerance
 """
 
-import re
 import tempfile
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
-import jax.numpy as jnp
-from jax import Array
 import numpy as np
 import pytest
+from jax import Array
 
 from jax_spice.analysis.engine import CircuitEngine
+from jax_spice.io.ngspice_out_reader import read_reference_file
+from jax_spice.netlist_converter import Converter
 from jax_spice.utils import rawread
 from jax_spice.utils.ngspice import (
     find_ngspice_binary,
-    run_ngspice,
     parse_control_section,
+    run_ngspice,
 )
-from jax_spice.utils.waveform_compare import compare_waveforms, WaveformComparison
-from jax_spice.netlist_converter import Converter
-from jax_spice.io.ngspice_out_reader import read_reference_file, get_time_and_signals
+from jax_spice.utils.waveform_compare import WaveformComparison, compare_waveforms
 from tests.ngspice_test_registry import (
-    NgspiceTestCase,
-    get_compatible_tests,
-    discover_ngspice_tests,
-    SUPPORTED_DEVICES,
     PROJECT_ROOT,
-    NGSPICE_TESTS,
+    NgspiceTestCase,
+    discover_ngspice_tests,
 )
 
 # Get ALL discovered tests at module load time for parametrization

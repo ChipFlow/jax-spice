@@ -98,7 +98,7 @@ def open_perfetto_with_url(trace_url: str) -> None:
     encoded_url = urllib.parse.quote(trace_url, safe="")
     perfetto_url = f"https://ui.perfetto.dev/#!/?url={encoded_url}"
 
-    print(f"Opening Perfetto UI with trace...")
+    print("Opening Perfetto UI with trace...")
     print(f"  {perfetto_url[:80]}...")
     webbrowser.open(perfetto_url)
 
@@ -164,7 +164,7 @@ def download_from_github(run_id: str | None = None) -> tuple[Path, str | None]:
             "download",
             run_id,
             "--name",
-            f"profiling-traces-*",
+            "profiling-traces-*",
             "--dir",
             str(cache_dir),
         ],

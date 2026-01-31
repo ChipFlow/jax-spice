@@ -9,15 +9,14 @@ Also includes tests to verify the integration method is actually being
 applied correctly in the simulation engine.
 """
 
-import pytest
 import jax.numpy as jnp
+import pytest
 
 from jax_spice.analysis.integration import (
     IntegrationMethod,
-    IntegrationCoeffs,
-    compute_coefficients,
-    apply_integration,
     IntegrationState,
+    apply_integration,
+    compute_coefficients,
     get_method_from_options,
 )
 
@@ -208,10 +207,11 @@ class TestEngineIntegrationBug:
         Uses icmode="uic" to start from mid-rail (0.5V) and a larger timestep
         (100ns = 0.1*tau) to see more pronounced differences between methods.
         """
+        import os
+        import tempfile
+
         from jax_spice.analysis.engine import CircuitEngine
         from jax_spice.analysis.integration import IntegrationMethod
-        import tempfile
-        import os
 
         # Create a simple RC circuit netlist
         # RC time constant tau = R*C = 1k * 1nF = 1us

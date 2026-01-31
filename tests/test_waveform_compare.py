@@ -7,11 +7,11 @@ import numpy as np
 import pytest
 
 from jax_spice.utils import (
-    compare_waveforms,
     WaveformComparison,
+    compare_waveforms,
     find_vacask_binary,
 )
-from jax_spice.utils.rawfile import rawread, RawFile
+from jax_spice.utils.rawfile import rawread
 
 
 class TestCompareWaveforms:

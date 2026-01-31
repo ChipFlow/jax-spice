@@ -1,18 +1,17 @@
 """Tests for GPU backend selection."""
 
-import pytest
 import jax
 import jax.numpy as jnp
+import pytest
 
 from jax_spice.analysis.gpu_backend import (
     BackendConfig,
-    select_backend,
-    is_gpu_available,
-    get_device,
-    get_default_dtype,
     backend_info,
+    get_default_dtype,
+    get_device,
+    is_gpu_available,
+    select_backend,
 )
-
 
 # =============================================================================
 # Backend Selection Tests

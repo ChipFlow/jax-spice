@@ -7,11 +7,12 @@ import os
 
 os.environ["JAX_ENABLE_X64"] = "true"
 
-import pytest
 from pathlib import Path
-import jax.numpy as jnp
 
+import jax.numpy as jnp
 import openvaf_py
+import pytest
+
 import openvaf_jax
 from jax_spice import build_simparams
 

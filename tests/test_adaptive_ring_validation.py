@@ -10,8 +10,8 @@ Ring oscillator expected periods:
 - JAX-SPICE (adaptive): should be ~3.45ns (<0.5% error)
 """
 
-import subprocess
 import re
+import subprocess
 from pathlib import Path
 from typing import Optional
 
@@ -22,7 +22,6 @@ from jax_spice.analysis import CircuitEngine
 from jax_spice.analysis.transient import AdaptiveConfig
 from jax_spice.benchmarks.registry import get_benchmark
 from jax_spice.utils import find_vacask_binary, rawread
-
 
 # Expected period from VACASK/ngspice (they agree within 0.02%)
 VACASK_PERIOD_NS = 3.453
@@ -113,7 +112,7 @@ def run_vacask_ring(vacask_bin: Path, t_stop: float = 50e-9, dt: float = 5e-11) 
     temp_sim.write_text(modified)
 
     try:
-        result = subprocess.run(
+        subprocess.run(
             [str(vacask_bin), "test_adaptive.sim"],
             cwd=sim_dir,
             capture_output=True,
@@ -123,7 +122,7 @@ def run_vacask_ring(vacask_bin: Path, t_stop: float = 50e-9, dt: float = 5e-11) 
 
         raw_files = list(sim_dir.glob("*.raw"))
         if not raw_files:
-            raise RuntimeError(f"VACASK did not produce .raw file")
+            raise RuntimeError("VACASK did not produce .raw file")
 
         raw = rawread(str(raw_files[0])).get()
         time = np.array(raw["time"])
@@ -193,7 +192,7 @@ class TestRingPeriodWithAdaptive:
         period_ns = period * 1e9
         error_pct = (period_ns - VACASK_PERIOD_NS) / VACASK_PERIOD_NS * 100
 
-        print(f"\nAdaptive timestep (default config):")
+        print("\nAdaptive timestep (default config):")
         print(f"  Measured period: {period_ns:.3f} ns")
         print(f"  VACASK reference: {VACASK_PERIOD_NS:.3f} ns")
         print(f"  Error: {error_pct:+.2f}%")
@@ -246,7 +245,7 @@ class TestRingPeriodWithAdaptive:
         rejected = stats.get("rejected_steps", 0)
         accepted = stats.get("accepted_steps", 0)
 
-        print(f"\nAdaptive timestep:")
+        print("\nAdaptive timestep:")
         print(f"  Measured period: {period_ns:.3f} ns")
         print(f"  VACASK reference: {VACASK_PERIOD_NS:.3f} ns")
         print(f"  Error: {error_pct:+.2f}%")
@@ -286,7 +285,7 @@ class TestRingPeriodWithAdaptive:
         min_dt = stats.get("min_dt_used", 0)
         max_dt = stats.get("max_dt_used", 0)
 
-        print(f"\nTimestep variation:")
+        print("\nTimestep variation:")
         print(f"  Min dt: {min_dt * 1e12:.2f} ps")
         print(f"  Max dt: {max_dt * 1e12:.2f} ps")
         print(f"  Ratio: {max_dt / max(min_dt, 1e-20):.1f}x")
@@ -353,7 +352,7 @@ class TestAdaptiveVsVACASK:
         jax_period_ns = jax_period * 1e9
         error_pct = (jax_period_ns - vacask_period_ns) / vacask_period_ns * 100
 
-        print(f"\nVACASK vs JAX-SPICE (adaptive):")
+        print("\nVACASK vs JAX-SPICE (adaptive):")
         print(f"  VACASK period: {vacask_period_ns:.3f} ns")
         print(f"  JAX-SPICE period: {jax_period_ns:.3f} ns")
         print(f"  Error: {error_pct:+.2f}%")
