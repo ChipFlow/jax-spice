@@ -166,9 +166,10 @@ jobs:
           echo "Running automated VACASK result comparison tests..."
           # Run pytest with the VACASK comparison tests
           # Tests marked xfail won't cause failure, but unexpected failures will
+          # Using --tb=long for full tracebacks and --log-cli-level=INFO for timing
           uv run pytest tests/test_vacask_benchmarks.py -v \
             -k "TestVACASKResultComparison" \
-            --tb=short 2>&1 | tee /tmp/vacask-result-tests.log
+            --tb=long --log-cli-level=INFO 2>&1 | tee /tmp/vacask-result-tests.log
 
       # Measure XLA compilation cache benefit
       # This helps determine if architecture-specific caching is worthwhile
