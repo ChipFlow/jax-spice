@@ -688,9 +688,9 @@ class OpenVAFToJAX:
             Tuple of (eval_fn, metadata)
 
             eval_fn signature:
-                eval_fn(shared_params, varying_params, cache, simparams)
+                eval_fn(shared_params, varying_params, cache, simparams, limit_state_in, limit_funcs)
                     -> (res_resist, res_react, jac_resist, jac_react,
-                        lim_rhs_resist, lim_rhs_react, ss_resist, ss_react)
+                        lim_rhs_resist, lim_rhs_react, ss_resist, ss_react, limit_state_out)
 
             simparams array layout:
                 - simparams[0] = analysis_type (0=DC, 1=AC, 2=transient, 3=noise)
@@ -1044,7 +1044,10 @@ class OpenVAFToJAX:
 
             # Run eval with simparams [analysis_type, mfactor, gmin]
             simparams = jnp.array([0.0, mfactor, 1e-12])
-            result = eval_fn(shared_params, varying_params, cache, simparams)
+            # Uniform interface: always pass limit_state_in (zeros when not using limits)
+            limit_state_in = jnp.zeros(1)  # Minimal dummy array
+            limit_funcs = {}  # Empty dict - limit functions not used
+            result = eval_fn(shared_params, varying_params, cache, simparams, limit_state_in, limit_funcs)
             res_resist, res_react, jac_resist, jac_react = result[:4]
 
             # Convert to dicts (NumPy for performance)

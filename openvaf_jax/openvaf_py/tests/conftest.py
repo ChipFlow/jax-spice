@@ -218,7 +218,10 @@ class CompiledModel:
 
         # Run eval with dynamic simparams
         simparams = jnp.array([0.0, mfactor, 1e-12])  # [analysis_type, mfactor, gmin]
-        result = eval_fn(shared_params, varying_params, cache, simparams)
+        # Uniform interface: always pass limit_state_in (zeros when not using limits)
+        limit_state_in = jnp.zeros(1)  # Minimal dummy array
+        limit_funcs = {}  # Empty dict - limit functions not used
+        result = eval_fn(shared_params, varying_params, cache, simparams, limit_state_in, limit_funcs)
         res_resist, res_react, jac_resist, jac_react = result[:4]
 
         # Convert JAX arrays to NumPy first (single device-to-host transfer)

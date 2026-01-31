@@ -845,10 +845,15 @@ class EvalFunctionBuilder(FunctionBuilder):
         self._emit_lim_rhs_arrays(body, ctx)
         self._emit_small_signal_arrays(body, ctx)
 
+        # Build limit_state_out (always emitted - empty array when no limits used)
+        # This ensures consistent function signature regardless of whether model uses limits
+        self._emit_limit_state_out(body, ctx)
+
         # Return statement: (res_resist, res_react, jac_resist, jac_react,
         #                    lim_rhs_resist, lim_rhs_react,
-        #                    small_signal_resist, small_signal_react)
-        body.append(return_stmt(tuple_expr([
+        #                    small_signal_resist, small_signal_react, limit_state_out)
+        # Note: limit_state_out is always returned (empty array if no limits) for uniform interface
+        return_values = [
             ast_name('residuals_resist'),
             ast_name('residuals_react'),
             ast_name('jacobian_resist'),
@@ -857,21 +862,22 @@ class EvalFunctionBuilder(FunctionBuilder):
             ast_name('lim_rhs_react'),
             ast_name('small_signal_resist'),
             ast_name('small_signal_react'),
-        ])))
+            ast_name('limit_state_out'),
+        ]
+        body.append(return_stmt(tuple_expr(return_values)))
 
         # Build function
         # simparams layout: [analysis_type, gmin]
         #   simparams[0] = analysis_type (0=DC, 1=AC, 2=transient, 3=noise)
         #   simparams[1] = gmin
+        # Note: limit_state_in and limit_funcs always included for uniform interface
         fn_name = 'eval_fn_with_cache_split_cache' if use_cache_split else 'eval_fn_with_cache_split'
-        if use_limit_functions:
-            fn_name += '_limit'
         if use_cache_split:
-            args = ['shared_params', 'device_params', 'shared_cache', 'device_cache', 'simparams']
+            args = ['shared_params', 'device_params', 'shared_cache', 'device_cache', 'simparams',
+                    'limit_state_in', 'limit_funcs']
         else:
-            args = ['shared_params', 'device_params', 'cache', 'simparams']
-        if use_limit_functions:
-            args.append('limit_funcs')
+            args = ['shared_params', 'device_params', 'cache', 'simparams',
+                    'limit_state_in', 'limit_funcs']
 
         func = function_def(fn_name, args, body)
 
@@ -1033,6 +1039,44 @@ class EvalFunctionBuilder(FunctionBuilder):
 
         body.append(assign('small_signal_resist', jnp_call('array', list_expr(resist_exprs))))
         body.append(assign('small_signal_react', jnp_call('array', list_expr(react_exprs))))
+
+    def _emit_limit_state_out(self, body: List[ast.stmt], ctx: CodeGenContext):
+        """Emit limit_state_out array from stored limit values.
+
+        When device-level $limit functions are enabled, StoreLimit instructions
+        track which values should be stored for the next NR iteration.
+        This method builds the limit_state_out array from those tracked values.
+
+        If no limit states are used, emits an empty array.
+        """
+        limit_count = ctx.limit_next_index
+        if limit_count == 0:
+            # No limit states used - emit empty array
+            body.append(assign('limit_state_out', jnp_call('array', list_expr([]))))
+            return
+
+        # Build array of stored limit values
+        # ctx.limit_store_operands maps limit index -> MIR operand ID
+        limit_exprs: List[ast.expr] = []
+        for idx in range(limit_count):
+            if idx in ctx.limit_store_operands:
+                operand_id = ctx.limit_store_operands[idx]
+                # Get the variable name for this operand
+                var_name = f"{ctx.var_prefix}{operand_id}"
+                if var_name in ctx.defined_vars:
+                    limit_exprs.append(ast_name(var_name))
+                else:
+                    raise ValueError(
+                        f"Limit state {idx}: operand {operand_id} -> variable {var_name} "
+                        f"not in defined_vars. This indicates a code generation bug."
+                    )
+            else:
+                raise ValueError(
+                    f"Limit state {idx} was registered (LoadLimit) but no StoreLimit found. "
+                    f"Expected StoreLimit for all registered limit states."
+                )
+
+        body.append(assign('limit_state_out', jnp_call('array', list_expr(limit_exprs))))
 
     def _mir_to_var(self, mir_ref: str, ctx: CodeGenContext) -> str:
         """Convert MIR reference (e.g., 'mir_123') to variable name."""

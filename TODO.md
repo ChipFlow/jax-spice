@@ -106,16 +106,19 @@ This issue is likely caused by the array sizes for the while loop (scan mode)
 
 ### Clean Up Legacy Transient Code Paths
 
-**Current state**: The transient module has been refactored to use `FullMNAStrategy` as the primary
-implementation (`jax_spice/analysis/transient/`), but legacy code paths remain in `engine.py`:
-- `_run_transient_hybrid` - Python loop implementation
-- `_run_transient_while_loop` - lax.while_loop wrapper
+**Status**: COMPLETED
 
-**GPU status**: GPU is ~4x faster than CPU (working correctly).
+The transient module uses `FullMNAStrategy` as the primary implementation (`jax_spice/analysis/transient/`).
+Legacy code paths (`_run_transient_hybrid`, `_run_transient_while_loop`, `_make_gpu_resident_build_system_fn`)
+have been deleted from `engine.py`.
 
-**Tasks**:
-- [ ] Consolidate `_run_transient_hybrid` and `_run_transient_while_loop` into the strategy pattern
-- [ ] Remove duplicated code between engine.py and transient/ module
+**GPU status**: GPU is ~4x faster than CPU (working correctly). Uses Spineax/cuDSS when available.
+
+**Completed**:
+- [x] Consolidated into the strategy pattern using `FullMNAStrategy`
+- [x] Removed legacy solver factories (make_dense_solver, make_sparse_solver, make_spineax_solver, make_umfpack_solver)
+- [x] Added GPU sparse support via `make_spineax_full_mna_solver`
+- [x] AC analysis updated to use `_make_full_mna_build_system_fn`
 
 ## Needed for release
 

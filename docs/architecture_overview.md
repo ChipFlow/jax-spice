@@ -77,8 +77,9 @@ JAX-SPICE is built on three core principles:
    └── Batch devices by type for vmap evaluation
 
 4. System Builder
-   └── _make_gpu_resident_build_system_fn()
+   └── _make_full_mna_build_system_fn()
        ├── Creates JIT-compiled residual/Jacobian builder
+       ├── Uses full MNA with branch currents as unknowns
        ├── Batches device evaluations via vmap
        └── Handles sparse vs dense matrix assembly
 ```
@@ -143,7 +144,7 @@ class CircuitEngine:
     def run_hb(...) -> HBResult
 
     # Internal system building
-    def _make_gpu_resident_build_system_fn() -> Callable
+    def _make_full_mna_build_system_fn() -> Callable
 ```
 
 ### TransientResult
@@ -456,7 +457,7 @@ When investigating issues, start here:
 
 1. **Parsing issues**: Check `CircuitEngine.parse()` in `engine.py`
 2. **Device compilation**: Check OpenVAF model loading in `_compile_openvaf_models()`
-3. **System building**: Check `_make_gpu_resident_build_system_fn()` for J/f construction
+3. **System building**: Check `_make_full_mna_build_system_fn()` for J/f construction
 4. **Convergence issues**: Look at Newton-Raphson loop in `solver.py`
 5. **Sparse solver**: Check `sparse.py` for BCOO/BCSR operations
 6. **Source waveforms**: Check `vsource.py` for pulse/sine/PWL evaluation
