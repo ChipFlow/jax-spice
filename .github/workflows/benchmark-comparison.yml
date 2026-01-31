@@ -164,6 +164,9 @@ jobs:
           VACASK_BIN: ${{ github.workspace }}/vendor/VACASK/build/simulator/vacask
           # Limit steps in CI to avoid timeout (full 1M steps takes too long)
           JAX_SPICE_MAX_STEPS: "10000"
+          # Enable JAX compilation tracing to debug CI slowdowns
+          JAX_LOG_COMPILES: "1"
+          JAX_EXPLAIN_CACHE_MISSES: "1"
         run: |
           echo "Running automated VACASK result comparison tests..."
           echo "Note: Limiting to 10k steps per benchmark for CI (full run uses up to 1M)"
@@ -173,6 +176,20 @@ jobs:
           uv run pytest tests/test_vacask_benchmarks.py -v \
             -k "TestVACASKResultComparison" \
             --tb=long --log-cli-level=INFO 2>&1 | tee /tmp/vacask-result-tests.log
+
+      # Summarize XLA compilation times for CI debugging
+      - name: Summarize XLA compilation times
+        if: always()
+        run: |
+          echo "=== XLA Compilation Summary ==="
+          echo "Top 20 slowest XLA compilations:"
+          grep "Finished XLA compilation" /tmp/vacask-result-tests.log 2>/dev/null | \
+            sed 's/.*of jit(\([^)]*\)) in \([0-9.]*\) sec.*/\2 \1/' | \
+            sort -rn | head -20 || echo "No XLA compilation data found"
+          echo ""
+          echo "Total compilations: $(grep -c "Finished XLA compilation" /tmp/vacask-result-tests.log 2>/dev/null || echo 0)"
+          echo "Cache hits: $(grep -c "Persistent compilation cache hit" /tmp/vacask-result-tests.log 2>/dev/null || echo 0)"
+          echo "Cache misses: $(grep -c "PERSISTENT COMPILATION CACHE MISS" /tmp/vacask-result-tests.log 2>/dev/null || echo 0)"
 
       # Measure XLA compilation cache benefit
       # This helps determine if architecture-specific caching is worthwhile
