@@ -49,9 +49,7 @@ def _build_default_models():
 
     Converts OsdiModuleInfo dataclasses to the tuple format expected by ng2vclib.
     """
-    return {
-        prefix: (info.osdi_file, info.module_name) for prefix, info in DEFAULT_MODELS.items()
-    }
+    return {prefix: (info.osdi_file, info.module_name) for prefix, info in DEFAULT_MODELS.items()}
 
 
 def default_config():

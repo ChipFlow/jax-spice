@@ -31,6 +31,7 @@ class NRConfig(NamedTuple):
         damping: Damping factor for voltage updates (1.0 = no damping)
         max_step: Maximum allowed voltage change per iteration
     """
+
     max_iterations: int = 50
     abstol: float = 1e-12
     reltol: float = 1e-3
@@ -47,6 +48,7 @@ class NRResult(NamedTuple):
         converged: Whether the solver converged
         residual_norm: Final residual norm
     """
+
     V: jax.Array
     iterations: int
     converged: bool
@@ -119,6 +121,7 @@ def _newton_loop(
     This function runs entirely on device with no host-device transfers
     during iteration.
     """
+
     # Wrap separate residual/jacobian functions into combined system builder
     def build_system_fn(V: jax.Array) -> Tuple[jax.Array, jax.Array]:
         f = residual_fn(V)
@@ -260,6 +263,7 @@ def _newton_loop_parameterized(
 
     Returns raw JAX arrays, no Python type conversion, safe for lax.scan.
     """
+
     # Wrap parameterized residual into combined system builder with autodiff Jacobian
     def build_system_fn(V: jax.Array) -> Tuple[jax.Array, jax.Array]:
         f = residual_fn(V, param)
@@ -268,7 +272,13 @@ def _newton_loop_parameterized(
         return J, f
 
     return _newton_loop_core(
-        build_system_fn, V_init, max_iterations, abstol, reltol, damping, max_step,
+        build_system_fn,
+        V_init,
+        max_iterations,
+        abstol,
+        reltol,
+        damping,
+        max_step,
         use_jax_init=True,  # Needed for lax.scan compatibility
     )
 

@@ -342,27 +342,19 @@ class NetlistParser:
             # Check for combined parameter format (name=value)
             if "=" in token and token != "=":
                 key, _, value = token.partition("=")
-                instance.parameters[key.lower()] = self.dialect.parse_parameter_value(
-                    value
-                )
+                instance.parameters[key.lower()] = self.dialect.parse_parameter_value(value)
                 i += 1
             # Check for spaced parameter format (name = value)
             elif i + 2 < len(tokens) and tokens[i + 1] == "=":
                 key = token
                 value = tokens[i + 2]
-                instance.parameters[key.lower()] = self.dialect.parse_parameter_value(
-                    value
-                )
+                instance.parameters[key.lower()] = self.dialect.parse_parameter_value(value)
                 i += 3
             elif instance.model_name is None and token and not token[0].isdigit():
                 # Could be model name or node
                 # Heuristic: if it looks like a node name, add as node
                 # Otherwise treat as model name
-                if (
-                    token.lower()
-                    in ("vdd", "vss", "gnd", "0", "in", "out")
-                    or token.isdigit()
-                ):
+                if token.lower() in ("vdd", "vss", "gnd", "0", "in", "out") or token.isdigit():
                     instance.nodes.append(token)
                 else:
                     # Might be model name - check if we have enough nodes
@@ -427,11 +419,7 @@ class NetlistParser:
                 key, _, value = token.partition("=")
                 params[key.lower()] = self.dialect.parse_parameter_value(value)
                 i += 1
-            elif (
-                i + 2 < len(tokens)
-                and tokens[i + 1] == "="
-                and "=" not in token
-            ):
+            elif i + 2 < len(tokens) and tokens[i + 1] == "=" and "=" not in token:
                 # Spaced format: name = value
                 key = token
                 value = tokens[i + 2]
@@ -484,9 +472,9 @@ class NetlistParser:
     def _end_lib_section(self) -> None:
         """End current library section."""
         if self._current_lib_section:
-            self.netlist.library_sections[
-                self._current_lib_section.name
-            ] = self._current_lib_section
+            self.netlist.library_sections[self._current_lib_section.name] = (
+                self._current_lib_section
+            )
         self._current_lib_section = None
         self._in_lib_section = False
 

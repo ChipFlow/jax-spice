@@ -23,14 +23,16 @@ def pnjlim(vnew: Array, vold: Array, vt: float = 0.026, vcrit: float = 0.6) -> A
     """PN junction voltage limiting (logarithmic damping).
 
     Applies logarithmic compression to large voltage changes across PN junctions.
-    This is the classic SPICE pnjlim algorithm.
+    This matches SPICE3's DEVpnjlim algorithm from lib/dev/diode/diotemp.c.
 
     The algorithm:
-    1. If the new voltage is above vcrit AND the change exceeds 2*vt, apply limiting
-    2. For positive changes: vnew = vold + vt * log(1 + (vnew - vold)/vt)
-    3. For negative changes: vnew = vold - vt * log(1 - (vnew - vold)/vt)
+    1. If vnew > vcrit AND |delta| > 2*vt, apply limiting
+    2. If vold >= 0 (forward bias): vnew = vold + vt * log(1 + delta/vt)
+    3. If vold < 0 (reverse recovery): vnew = vt * log(vnew/vt)
 
-    This compresses large steps while preserving the sign and direction of change.
+    This compresses large steps while preserving the direction of change.
+    The key insight is that limiting applies based on vnew > vcrit, not vold > 0.
+    The vold check only determines which formula to use.
 
     Args:
         vnew: Proposed new voltage (from NR step)
@@ -43,24 +45,26 @@ def pnjlim(vnew: Array, vold: Array, vt: float = 0.026, vcrit: float = 0.6) -> A
     """
     delta_v = vnew - vold
 
-    # Condition: above critical voltage AND large change
-    large_positive = (vnew > vcrit) & (delta_v > 2 * vt)
-    large_negative = (vnew > vcrit) & (delta_v < -2 * vt)
+    # Main condition: vnew above critical AND large change (SPICE3 outer condition)
+    needs_limiting = (vnew > vcrit) & (jnp.abs(delta_v) > 2 * vt)
 
-    # Logarithmic compression for positive changes
-    # vnew = vold + vt * log(1 + delta/vt)
-    # This maps delta -> vt * log(1 + delta/vt), compressing large deltas
-    arg_pos = delta_v / vt
-    limited_pos = vold + vt * jnp.log1p(jnp.maximum(arg_pos, 0))
+    # Forward bias case (vold >= 0): logarithmic compression
+    # vnew = vold + vt * log(1 + delta/vt) for positive delta
+    # vnew = vold - vt * log(1 - delta/vt) for negative delta
+    arg = 1.0 + delta_v / vt
+    # Guard against log of non-positive: if arg <= 0, use vcrit
+    limited_forward = jnp.where(arg > 0, vold + vt * jnp.log(jnp.maximum(arg, 1e-30)), vcrit)
 
-    # For negative changes, use symmetric formula
-    # vnew = vold - vt * log(1 - delta/vt) = vold - vt * log(1 + |delta|/vt)
-    arg_neg = -delta_v / vt
-    limited_neg = vold - vt * jnp.log1p(jnp.maximum(arg_neg, 0))
+    # Reverse recovery case (vold < 0): different formula
+    # vnew = vt * log(vnew/vt) - compresses vnew directly
+    # Guard against log of non-positive
+    limited_reverse = jnp.where(vnew > 0, vt * jnp.log(jnp.maximum(vnew / vt, 1e-30)), vcrit)
 
-    # Apply limiting where needed
-    result = jnp.where(large_positive & (vold > 0), limited_pos, vnew)
-    result = jnp.where(large_negative & (vold > 0), limited_neg, result)
+    # Choose based on vold sign (inside the needs_limiting condition)
+    limited = jnp.where(vold >= 0, limited_forward, limited_reverse)
+
+    # Apply limiting only where needed
+    result = jnp.where(needs_limiting, limited, vnew)
 
     return result
 
@@ -85,11 +89,7 @@ def fetlim(vnew: Array, vold: Array, vto: float = 0.5) -> Array:
 
     # Allow larger steps when well into on-region
     # Step limit = 2 * |vold - vto| + 2 when on, 0.5 when off
-    max_step = jnp.where(
-        in_on_region,
-        2 * jnp.abs(vold - vto) + 2,
-        0.5
-    )
+    max_step = jnp.where(in_on_region, 2 * jnp.abs(vold - vto) + 2, 0.5)
 
     delta = vnew - vold
     limited = vold + jnp.clip(delta, -max_step, max_step)
@@ -107,7 +107,7 @@ def apply_voltage_damping(
     vt: float = 0.026,
     vcrit: float = 0.6,
     max_step: float = 0.3,
-    nr_damping: float = 1.0
+    nr_damping: float = 1.0,
 ) -> Array:
     """Apply voltage damping to all voltage updates.
 

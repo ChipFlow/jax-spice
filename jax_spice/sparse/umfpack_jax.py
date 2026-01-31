@@ -27,7 +27,6 @@ from typing import Tuple
 import jax
 import jax.extend.core
 import jax.numpy as jnp
-import numpy as np
 from jax import lax
 from jax.core import ShapedArray
 from jax.interpreters import ad, batching, mlir
@@ -41,6 +40,7 @@ __all__ = ["solve", "dot", "solve_transpose", "clear_cache", "is_available"]
 # =============================================================================
 
 DEBUG = os.environ.get("UMFPACK_JAX_DEBUG", False)
+
 
 def _debug(s: str) -> None:
     if DEBUG:
@@ -56,6 +56,7 @@ _umfpack_jax_cpp = None
 
 try:
     import umfpack_jax_cpp as _umfpack_jax_cpp
+
     _UMFPACK_FFI_AVAILABLE = True
     _debug("UMFPACK FFI extension available")
 except ImportError:
@@ -422,7 +423,7 @@ def dot_f64_transpose(
         # For CSR format, A^T @ ct is equivalent to iterating over columns
         # We can compute this by treating the CSR as a CSC and doing matvec
         # For now, use a simple loop
-        n = ct.shape[0]
+        ct.shape[0]
 
         # A^T @ ct: for each column j, sum over rows i: A[i,j] * ct[i]
         # In CSR: for each row i, A[i,j] contributes to result[j]
@@ -437,16 +438,12 @@ def dot_f64_transpose(
 
         # This is tricky in JAX due to dynamic shapes. Use a simpler approach.
         # For now, raise not implemented.
-        raise NotImplementedError(
-            "Differentiation w.r.t. x in dot not yet implemented"
-        )
+        raise NotImplementedError("Differentiation w.r.t. x in dot not yet implemented")
 
     if ad.is_undefined_primal(data):
         # dA[k] = ct[row[k]] * x[col[k]]
         # In CSR format, for position k in row i, dA[k] = ct[i] * x[indices[k]]
-        raise NotImplementedError(
-            "Differentiation w.r.t. matrix values not yet implemented"
-        )
+        raise NotImplementedError("Differentiation w.r.t. matrix values not yet implemented")
 
     raise ValueError("No undefined primals in transpose")
 
@@ -475,15 +472,11 @@ def solve_f64_vmap(
 
     if ax_data is not None and ax_b is not None:
         # Both data and b are batched - handle this case
-        raise NotImplementedError(
-            "Batching over both matrix values and RHS not yet implemented"
-        )
+        raise NotImplementedError("Batching over both matrix values and RHS not yet implemented")
 
     if ax_data is not None:
         # Different matrices, same RHS
-        raise NotImplementedError(
-            "Batching over matrix values not yet implemented"
-        )
+        raise NotImplementedError("Batching over matrix values not yet implemented")
 
     if ax_b is not None:
         # Same matrix, different RHS vectors

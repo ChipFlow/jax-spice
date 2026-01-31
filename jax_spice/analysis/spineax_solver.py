@@ -25,6 +25,7 @@ _CuDSSSolver = None
 
 try:
     from spineax.cudss.solver import CuDSSSolver as _CuDSSSolver
+
     _SPINEAX_AVAILABLE = True
     logger.info("Spineax (cuDSS) solver available")
 except ImportError:
@@ -86,11 +87,11 @@ class SpineaxSolver:
 
         # Map matrix type to spineax constants
         mtype_map = {
-            "general": 1,      # CUDSS_MTYPE_GENERAL
-            "symmetric": 2,    # CUDSS_MTYPE_SYMMETRIC
-            "spd": 3,          # CUDSS_MTYPE_SPD
-            "hermitian": 4,    # CUDSS_MTYPE_HERMITIAN
-            "hpd": 5,          # CUDSS_MTYPE_HPD
+            "general": 1,  # CUDSS_MTYPE_GENERAL
+            "symmetric": 2,  # CUDSS_MTYPE_SYMMETRIC
+            "spd": 3,  # CUDSS_MTYPE_SPD
+            "hermitian": 4,  # CUDSS_MTYPE_HERMITIAN
+            "hpd": 5,  # CUDSS_MTYPE_HPD
         }
         self.mtype_id = mtype_map.get(matrix_type, 1)
         self.mview_id = 0  # Full matrix (not lower/upper triangular view)
@@ -187,4 +188,5 @@ def sparse_solve_with_spineax(
     else:
         # Fallback to JAX spsolve
         from jax.experimental.sparse.linalg import spsolve
+
         return spsolve(data, indices, indptr, b, tol=1e-6)

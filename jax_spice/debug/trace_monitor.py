@@ -33,15 +33,16 @@ _trace_warnings: Dict[str, bool] = defaultdict(bool)
 
 def _get_shape_signature(args: tuple, kwargs: dict) -> Tuple[Any, ...]:
     """Extract shape signature from arguments for comparison."""
+
     def get_shape(x):
-        if hasattr(x, 'shape'):
-            return ('array', x.shape, x.dtype)
+        if hasattr(x, "shape"):
+            return ("array", x.shape, x.dtype)
         elif isinstance(x, (list, tuple)):
             return (type(x).__name__, tuple(get_shape(item) for item in x))
         elif isinstance(x, dict):
-            return ('dict', tuple((k, get_shape(v)) for k, v in sorted(x.items())))
+            return ("dict", tuple((k, get_shape(v)) for k, v in sorted(x.items())))
         elif callable(x):
-            return ('callable', id(x))  # Different function objects = different trace
+            return ("callable", id(x))  # Different function objects = different trace
         else:
             return (type(x).__name__, x)
 
@@ -65,6 +66,7 @@ def trace_monitor(
     Returns:
         Decorator that wraps the function with trace monitoring
     """
+
     def decorator(fn: Callable) -> Callable:
         @functools.wraps(fn)
         def wrapper(*args, **kwargs):
@@ -81,18 +83,17 @@ def trace_monitor(
             if count > max_traces and not _trace_warnings[name]:
                 _trace_warnings[name] = True
                 logger.warning(
-                    f"RETRACE WARNING: '{name}' traced {count} times "
-                    f"(max_traces={max_traces})"
+                    f"RETRACE WARNING: '{name}' traced {count} times (max_traces={max_traces})"
                 )
                 if seen_before and warn_on_retrace:
                     logger.warning(
-                        "  Same shape signature seen before - "
-                        "possible unnecessary retrace!"
+                        "  Same shape signature seen before - possible unnecessary retrace!"
                     )
 
             return fn(*args, **kwargs)
 
         return wrapper
+
     return decorator
 
 
@@ -124,11 +125,7 @@ def report_traces(min_traces: int = 1) -> str:
         return "\n".join(lines)
 
     # Sort by count descending
-    sorted_counts = sorted(
-        _trace_counts.items(),
-        key=lambda x: x[1],
-        reverse=True
-    )
+    sorted_counts = sorted(_trace_counts.items(), key=lambda x: x[1], reverse=True)
 
     for name, count in sorted_counts:
         if count >= min_traces:

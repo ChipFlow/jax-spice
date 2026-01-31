@@ -70,8 +70,9 @@ def pulse_voltage(t: float, pulse_params: Tuple[float, ...]) -> float:
         return v0
 
 
-def pulse_voltage_jax(t: Array, v0: Array, v1: Array, td: Array,
-                      tr: Array, tf: Array, pw: Array, per: Array) -> Array:
+def pulse_voltage_jax(
+    t: Array, v0: Array, v1: Array, td: Array, tr: Array, tf: Array, pw: Array, per: Array
+) -> Array:
     """JAX-compatible pulse voltage calculation
 
     Uses jnp.where for differentiability and JIT compatibility.
@@ -115,10 +116,11 @@ def pulse_voltage_jax(t: Array, v0: Array, v1: Array, td: Array,
     v_fall = v1 - (v1 - v0) * (t_fall / tf)
 
     # Construct output
-    v = jnp.where(before_delay, v0,
-            jnp.where(in_rise, v_rise,
-                jnp.where(in_high, v1,
-                    jnp.where(in_fall, v_fall, v0))))
+    v = jnp.where(
+        before_delay,
+        v0,
+        jnp.where(in_rise, v_rise, jnp.where(in_high, v1, jnp.where(in_fall, v_fall, v0))),
+    )
 
     return v
 
@@ -128,11 +130,7 @@ def pulse_voltage_jax(t: Array, v0: Array, v1: Array, td: Array,
 # =============================================================================
 
 
-def vsource_batch(
-    V_batch: Array,
-    V_target: Array,
-    G_BIG: float = 1e12
-) -> Tuple[Array, Array]:
+def vsource_batch(V_batch: Array, V_target: Array, G_BIG: float = 1e12) -> Tuple[Array, Array]:
     """Vectorized voltage source evaluation for batch processing
 
     Evaluates multiple voltage sources in parallel using JAX operations.

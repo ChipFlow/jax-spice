@@ -47,11 +47,11 @@ import openvaf_jax  # noqa: E402
 # Residuals in MNA formulation are currents (KCL equations), so we use
 # CURRENT_ABSTOL for residual comparison.
 
-CURRENT_ABSTOL = 1e-12   # 1 pA - from VAMS-LRM Current nature
-CURRENT_RTOL = 1e-4      # 0.01% relative tolerance
+CURRENT_ABSTOL = 1e-12  # 1 pA - from VAMS-LRM Current nature
+CURRENT_RTOL = 1e-4  # 0.01% relative tolerance
 
-VOLTAGE_ABSTOL = 1e-6    # 1 µV - from VAMS-LRM Voltage nature
-VOLTAGE_RTOL = 1e-4      # 0.01% relative tolerance
+VOLTAGE_ABSTOL = 1e-6  # 1 µV - from VAMS-LRM Voltage nature
+VOLTAGE_RTOL = 1e-4  # 0.01% relative tolerance
 
 # For conductance (Jacobian entries dI/dV), use current-like abstol
 CONDUCTANCE_ABSTOL = 1e-12  # S (Siemens)
@@ -111,7 +111,7 @@ def compare_residuals(
     jax = np.array(jax_residuals)
 
     if osdi.shape != jax.shape:
-        return False, float('inf'), float('inf'), []
+        return False, float("inf"), float("inf"), []
 
     failed_indices = []
     max_abs_diff = 0.0
@@ -239,32 +239,34 @@ def get_full_param_info(va_path: Path) -> dict:
     defaults_lower = {k.lower(): v for k, v in defaults.items()}
 
     params = []
-    for p in osdi_desc['params']:
-        name = p['name']
-        flags = p['flags']
+    for p in osdi_desc["params"]:
+        name = p["name"]
+        flags = p["flags"]
 
         # Decode type from flags (lower 2 bits)
         type_code = flags & 3
-        param_type = {0: 'real', 1: 'int', 2: 'str'}.get(type_code, 'real')
+        param_type = {0: "real", 1: "int", 2: "str"}.get(type_code, "real")
 
         # Get default value (case-insensitive lookup)
         default = defaults_lower.get(name.lower())
 
-        params.append({
-            'name': name,
-            'type': param_type,
-            'default': default,
-            'units': p.get('units', ''),
-            'description': p.get('description', ''),
-            'is_instance': p.get('is_instance', False),
-            'aliases': p.get('aliases', []),
-        })
+        params.append(
+            {
+                "name": name,
+                "type": param_type,
+                "default": default,
+                "units": p.get("units", ""),
+                "description": p.get("description", ""),
+                "is_instance": p.get("is_instance", False),
+                "aliases": p.get("aliases", []),
+            }
+        )
 
     return {
-        'params': params,
-        'terminals': osdi_desc.get('num_terminals', 0),
-        'nodes': osdi_desc.get('nodes', []),
-        'num_nodes': osdi_desc.get('num_nodes', 0),
+        "params": params,
+        "terminals": osdi_desc.get("num_terminals", 0),
+        "nodes": osdi_desc.get("nodes", []),
+        "num_nodes": osdi_desc.get("num_nodes", 0),
     }
 
 
@@ -304,11 +306,11 @@ TRANSISTOR_CONFIGS = [
         "name": "ekv",
         "va_path": OPENVAF_INTEGRATION / "EKV" / "ekv.va",
         "params": {
-            "TYPE": 1,       # NMOS
+            "TYPE": 1,  # NMOS
             "W": 1e-6,
             "L": 100e-9,
-            "TEMP": 1e21,    # Sentinel: use $temperature
-            "TNOM": 1e21,    # Sentinel: use default
+            "TEMP": 1e21,  # Sentinel: use $temperature
+            "TNOM": 1e21,  # Sentinel: use default
             "mfactor": 1.0,
         },
         "terminals": ["d", "g", "s", "b"],  # voltage order
@@ -333,7 +335,7 @@ TRANSISTOR_CONFIGS = [
         "name": "psp102",
         "va_path": OPENVAF_INTEGRATION / "PSP102" / "psp102.va",
         "params": {
-            "TYPE": 1,       # NMOS
+            "TYPE": 1,  # NMOS
             "W": 1e-6,
             "L": 100e-9,
             "mfactor": 1.0,
@@ -347,7 +349,7 @@ TRANSISTOR_CONFIGS = [
         "name": "psp103",
         "va_path": OPENVAF_INTEGRATION / "PSP103" / "psp103.va",
         "params": {
-            "TYPE": 1,       # NMOS
+            "TYPE": 1,  # NMOS
             "W": 1e-6,
             "L": 100e-9,
             "mfactor": 1.0,
@@ -376,6 +378,7 @@ def _build_transistor_voltages(terminals: list, vds: float, vgs: float) -> list:
 # =============================================================================
 # Parameterized Tests for Simple Models
 # =============================================================================
+
 
 @pytest.fixture(scope="module")
 def compiled_models():
@@ -419,7 +422,9 @@ class TestSimpleModelsParameterized:
             passed, max_abs, max_rel = compare_arrays(
                 osdi_res[0], jax_res[0], rtol=1e-10, atol=1e-15
             )
-            assert passed, f"{name} resistive mismatch at V={voltages}: abs={max_abs}, rel={max_rel}"
+            assert passed, (
+                f"{name} resistive mismatch at V={voltages}: abs={max_abs}, rel={max_rel}"
+            )
 
             # Compare reactive residuals
             passed, max_abs, max_rel = compare_arrays(
@@ -438,7 +443,9 @@ class TestSimpleModelsParameterized:
         params = config["params"]
         voltages = config["test_voltages"][0]
 
-        osdi_eval, _, _, _, jacobian_keys, n_nodes = create_osdi_evaluator(paths["osdi_path"], params)
+        osdi_eval, _, _, _, jacobian_keys, n_nodes = create_osdi_evaluator(
+            paths["osdi_path"], params
+        )
         jax_eval, _, _ = create_jax_evaluator(paths["va_path"], params)
 
         osdi_res = osdi_eval(voltages)
@@ -446,15 +453,13 @@ class TestSimpleModelsParameterized:
 
         # Compare resistive Jacobian
         result = compare_jacobians(
-            osdi_res[2], jax_res[2], n_nodes, jacobian_keys,
-            rtol=1e-10, atol=1e-15
+            osdi_res[2], jax_res[2], n_nodes, jacobian_keys, rtol=1e-10, atol=1e-15
         )
         assert result.passed, f"{name} resistive Jacobian mismatch:\n{result.report}"
 
         # Compare reactive Jacobian
         result = compare_jacobians(
-            osdi_res[3], jax_res[3], n_nodes, jacobian_keys,
-            rtol=1e-10, atol=1e-15, reactive=True
+            osdi_res[3], jax_res[3], n_nodes, jacobian_keys, rtol=1e-10, atol=1e-15, reactive=True
         )
         assert result.passed, f"{name} reactive Jacobian mismatch:\n{result.report}"
 
@@ -462,6 +467,7 @@ class TestSimpleModelsParameterized:
 # =============================================================================
 # Parameterized Tests for Transistor Models
 # =============================================================================
+
 
 @pytest.fixture(scope="module")
 def compiled_transistors():
@@ -481,9 +487,12 @@ def compiled_transistors():
 def _transistor_xfail(config):
     """Apply xfail marker if config specifies it."""
     if config.get("xfail", False):
-        return pytest.param(config, marks=pytest.mark.xfail(
-            reason=f"{config['name']} has known PHI node resolution issues"
-        ))
+        return pytest.param(
+            config,
+            marks=pytest.mark.xfail(
+                reason=f"{config['name']} has known PHI node resolution issues"
+            ),
+        )
     return config
 
 
@@ -493,8 +502,11 @@ class TestTransistorModelsParameterized:
     Uses TRANSISTOR_CONFIGS to test Vgs sweeps and Jacobians across models.
     """
 
-    @pytest.mark.parametrize("config", [_transistor_xfail(c) for c in TRANSISTOR_CONFIGS],
-                             ids=lambda c: c["name"] if isinstance(c, dict) else c.values[0]["name"])
+    @pytest.mark.parametrize(
+        "config",
+        [_transistor_xfail(c) for c in TRANSISTOR_CONFIGS],
+        ids=lambda c: c["name"] if isinstance(c, dict) else c.values[0]["name"],
+    )
     def test_ids_vs_vgs_sweep(self, compiled_transistors, config):
         """Sweep Vgs at fixed Vds, compare drain current residuals."""
         name = config["name"]
@@ -515,9 +527,7 @@ class TestTransistorModelsParameterized:
             osdi_res = osdi_eval(voltages)
             jax_res = jax_eval(voltages)
 
-            passed, max_abs, max_rel, failed = compare_residuals(
-                osdi_res[0], jax_res[0]
-            )
+            passed, max_abs, max_rel, failed = compare_residuals(osdi_res[0], jax_res[0])
             if not passed:
                 all_failed.append((vgs, failed, max_abs, max_rel))
 
@@ -527,8 +537,11 @@ class TestTransistorModelsParameterized:
             f"max_abs={all_failed[0][2]:.3e}, max_rel={all_failed[0][3]:.2%}"
         )
 
-    @pytest.mark.parametrize("config", [_transistor_xfail(c) for c in TRANSISTOR_CONFIGS],
-                             ids=lambda c: c["name"] if isinstance(c, dict) else c.values[0]["name"])
+    @pytest.mark.parametrize(
+        "config",
+        [_transistor_xfail(c) for c in TRANSISTOR_CONFIGS],
+        ids=lambda c: c["name"] if isinstance(c, dict) else c.values[0]["name"],
+    )
     def test_jacobian_at_operating_point(self, compiled_transistors, config):
         """Compare Jacobian at typical operating point."""
         name = config["name"]
@@ -540,7 +553,9 @@ class TestTransistorModelsParameterized:
         vds = config["vds"]
         vgs = config["vgs_for_jacobian"]
 
-        osdi_eval, _, _, _, jacobian_keys, n_nodes = create_osdi_evaluator(paths["osdi_path"], params)
+        osdi_eval, _, _, _, jacobian_keys, n_nodes = create_osdi_evaluator(
+            paths["osdi_path"], params
+        )
         jax_eval, _, _ = create_jax_evaluator(paths["va_path"], params)
 
         voltages = _build_transistor_voltages(terminals, vds, vgs)
@@ -549,8 +564,12 @@ class TestTransistorModelsParameterized:
         jax_res = jax_eval(voltages)
 
         result = compare_jacobians(
-            osdi_res[2], jax_res[2], n_nodes, jacobian_keys,
-            rtol=CONDUCTANCE_RTOL, atol=CONDUCTANCE_ABSTOL
+            osdi_res[2],
+            jax_res[2],
+            n_nodes,
+            jacobian_keys,
+            rtol=CONDUCTANCE_RTOL,
+            atol=CONDUCTANCE_ABSTOL,
         )
         assert result.passed, f"{name} Jacobian mismatch:\n{result.report}"
 
@@ -559,7 +578,10 @@ class TestTransistorModelsParameterized:
 # Helper Functions
 # =============================================================================
 
-def create_osdi_evaluator(osdi_path: Path, params: dict, temperature: float = 300.0, gmin: float = 0.0):
+
+def create_osdi_evaluator(
+    osdi_path: Path, params: dict, temperature: float = 300.0, gmin: float = 0.0
+):
     """Create an OSDI evaluator function with fixed params.
 
     Args:
@@ -592,7 +614,7 @@ def create_osdi_evaluator(osdi_path: Path, params: dict, temperature: float = 30
 
         if name in params:
             value = params[name]
-        elif name.startswith('$') and name[1:] in params:
+        elif name.startswith("$") and name[1:] in params:
             value = params[name[1:]]
 
         if value is not None:
@@ -664,7 +686,9 @@ def create_osdi_evaluator(osdi_path: Path, params: dict, temperature: float = 30
     return evaluate, lib, model, instance, jacobian_keys, n_nodes
 
 
-def create_jax_evaluator(va_path: Path, params: dict, temperature: float = 300.0, return_debug_info: bool = False):
+def create_jax_evaluator(
+    va_path: Path, params: dict, temperature: float = 300.0, return_debug_info: bool = False
+):
     """Create a JAX evaluator function with fixed params.
 
     Uses proper init + eval flow to handle hidden_state values correctly.
@@ -701,8 +725,8 @@ def create_jax_evaluator(va_path: Path, params: dict, temperature: float = 300.0
         params=params,
         temperature=temperature,
     )
-    init_inputs = init_metadata['init_inputs']
-    init_param_names = init_metadata['param_names']
+    init_inputs = init_metadata["init_inputs"]
+    init_param_names = init_metadata["param_names"]
 
     # Run init to compute cache (hidden_state values)
     cache, collapse_decisions = init_fn(init_inputs)
@@ -713,12 +737,12 @@ def create_jax_evaluator(va_path: Path, params: dict, temperature: float = 300.0
         temperature=temperature,
     )
 
-    eval_param_names = eval_metadata['param_names']
-    eval_param_kinds = eval_metadata['param_kinds']
-    voltage_indices = eval_metadata['voltage_indices']
-    non_voltage_indices = eval_metadata['shared_indices']
-    shared_inputs = eval_metadata['shared_inputs']
-    node_names = eval_metadata['node_names']
+    eval_param_names = eval_metadata["param_names"]
+    eval_param_kinds = eval_metadata["param_kinds"]
+    voltage_indices = eval_metadata["voltage_indices"]
+    non_voltage_indices = eval_metadata["shared_indices"]
+    shared_inputs = eval_metadata["shared_inputs"]
+    node_names = eval_metadata["node_names"]
     n_nodes = len(node_names)
 
     print(f"JAX voltage_indices = {voltage_indices}")
@@ -727,10 +751,13 @@ def create_jax_evaluator(va_path: Path, params: dict, temperature: float = 300.0
     shared_arr = jnp.array(shared_inputs)
     # Build simparams array using metadata from translate_eval
     # For comparison tests, we use gmin=0 to match OSDI behavior
-    simparams_list = build_simparams(eval_metadata, {
-        '$analysis_type': 0.0,  # DC analysis
-        'gmin': 0.0,            # Match OSDI gmin=0 for comparison
-    })
+    simparams_list = build_simparams(
+        eval_metadata,
+        {
+            "$analysis_type": 0.0,  # DC analysis
+            "gmin": 0.0,  # Match OSDI gmin=0 for comparison
+        },
+    )
     simparams_arr = jnp.array(simparams_list)
 
     def evaluate(voltages):
@@ -747,25 +774,27 @@ def create_jax_evaluator(va_path: Path, params: dict, temperature: float = 300.0
             name = eval_param_names[i]
             kind = eval_param_kinds[i]
 
-            if kind == 'implicit_unknown':
+            if kind == "implicit_unknown":
                 # Implicit equation node - name is like 'inode0', 'inode1'
                 # Map to corresponding implicit_equation_* in node_names
-                if name.startswith('inode'):
+                if name.startswith("inode"):
                     idx = int(name[5:])  # Extract index from 'inode0', 'inode1', etc.
                     # Look for implicit_equation_N in node_names
-                    implicit_node = f'implicit_equation_{idx}'
+                    implicit_node = f"implicit_equation_{idx}"
                     if implicit_node in node_names:
                         node_idx = node_names.index(implicit_node)
                         varying_inputs.append(full_voltages[node_idx])
                     else:
-                        raise Exception(f"Implicit node {implicit_node} not found in node_names: {node_names}")
+                        raise Exception(
+                            f"Implicit node {implicit_node} not found in node_names: {node_names}"
+                        )
                 else:
                     raise Exception(f"Unknown implicit_unknown format: {name}")
-            elif kind == 'voltage':
+            elif kind == "voltage":
                 # Regular voltage param - format is V(node) or V(node1, node2)
                 inner = name[2:-1]  # Remove V( and )
-                if ',' in inner:
-                    node_pos, node_neg = inner.split(',')
+                if "," in inner:
+                    node_pos, node_neg = inner.split(",")
                     node_pos = node_pos.strip()
                     node_neg = node_neg.strip()
                     if node_pos in node_names and node_neg in node_names:
@@ -773,7 +802,9 @@ def create_jax_evaluator(va_path: Path, params: dict, temperature: float = 300.0
                         idx_neg = node_names.index(node_neg)
                         varying_inputs.append(full_voltages[idx_pos] - full_voltages[idx_neg])
                     else:
-                        raise Exception(f"Unknown voltage parameters to JAX eval: {node_pos} (POS), {node_neg} (NEG)")
+                        raise Exception(
+                            f"Unknown voltage parameters to JAX eval: {node_pos} (POS), {node_neg} (NEG)"
+                        )
                 else:
                     node = inner.strip()
                     if node in node_names:
@@ -808,18 +839,18 @@ def create_jax_evaluator(va_path: Path, params: dict, temperature: float = 300.0
 
     if return_debug_info:
         debug_info = {
-            'cache': np.array(cache),
-            'collapse_decisions': np.array(collapse_decisions),
-            'shared_inputs': np.array(shared_inputs),
-            'init_inputs': np.array(init_inputs),
-            'init_param_names': init_param_names,
-            'eval_param_names': eval_param_names,
-            'eval_param_kinds': eval_param_kinds,
-            'voltage_indices': voltage_indices,
-            'non_voltage_indices': non_voltage_indices,
-            'node_names': node_names,
-            'init_metadata': init_metadata,
-            'eval_metadata': eval_metadata,
+            "cache": np.array(cache),
+            "collapse_decisions": np.array(collapse_decisions),
+            "shared_inputs": np.array(shared_inputs),
+            "init_inputs": np.array(init_inputs),
+            "init_param_names": init_param_names,
+            "eval_param_names": eval_param_names,
+            "eval_param_kinds": eval_param_kinds,
+            "voltage_indices": voltage_indices,
+            "non_voltage_indices": non_voltage_indices,
+            "node_names": node_names,
+            "init_metadata": init_metadata,
+            "eval_metadata": eval_metadata,
         }
         return evaluate, module, eval_metadata, debug_info
 
@@ -841,18 +872,14 @@ def compare_arrays(
     jax = np.array(jax_arr)
 
     if osdi.shape != jax.shape:
-        return False, float('inf'), float('inf')
+        return False, float("inf"), float("inf")
 
     abs_diff = np.abs(osdi - jax)
     max_abs = np.max(abs_diff) if abs_diff.size > 0 else 0.0
 
     # Relative difference (avoid division by zero)
-    with np.errstate(divide='ignore', invalid='ignore'):
-        rel_diff = np.where(
-            np.abs(osdi) > atol,
-            abs_diff / np.abs(osdi),
-            0.0
-        )
+    with np.errstate(divide="ignore", invalid="ignore"):
+        rel_diff = np.where(np.abs(osdi) > atol, abs_diff / np.abs(osdi), 0.0)
     max_rel = np.max(rel_diff) if rel_diff.size > 0 else 0.0
 
     passed = np.allclose(osdi, jax, rtol=rtol, atol=atol)
@@ -936,14 +963,13 @@ class TestCapacitorComparison:
         jax_res = jax_eval(voltages)
 
         # Compare reactive residuals (charge)
-        passed, max_abs, max_rel = compare_arrays(
-            osdi_res[1], jax_res[1], rtol=1e-10, atol=1e-20
-        )
+        passed, max_abs, max_rel = compare_arrays(osdi_res[1], jax_res[1], rtol=1e-10, atol=1e-20)
         assert passed, f"Reactive residual mismatch: max_abs={max_abs}, max_rel={max_rel}"
 
         # Verify absolute value
-        assert abs(abs(jax_res[1][0]) - expected_q) < 1e-20, \
+        assert abs(abs(jax_res[1][0]) - expected_q) < 1e-20, (
             f"Expected Q={expected_q}, got {jax_res[1][0]}"
+        )
 
     def test_reactive_jacobian(self, osdi_path, va_path):
         """dQ/dV = C comparison."""
@@ -960,8 +986,7 @@ class TestCapacitorComparison:
 
         # Compare reactive Jacobian using format-aware comparison
         result = compare_jacobians(
-            osdi_res[3], jax_res[3], n_nodes, jacobian_keys,
-            rtol=1e-10, atol=1e-20, reactive=True
+            osdi_res[3], jax_res[3], n_nodes, jacobian_keys, rtol=1e-10, atol=1e-20, reactive=True
         )
         assert result.passed, f"Reactive Jacobian mismatch:\n{result.report}"
 
@@ -992,8 +1017,8 @@ class TestDiodeComparison:
 
         params = {
             "Is": 1e-12,  # Saturation current
-            "N": 1.0,     # Ideality factor
-            "Rs": 10.0,   # Series resistance (non-zero to avoid node collapse)
+            "N": 1.0,  # Ideality factor
+            "Rs": 10.0,  # Series resistance (non-zero to avoid node collapse)
             "Tnom": 27.0,  # Nominal temperature (Celsius)
             "mfactor": 1.0,
         }
@@ -1007,8 +1032,7 @@ class TestDiodeComparison:
         jax_res = jax_eval(voltages)
 
         # Compare resistive residuals
-        passed, max_abs, max_rel = compare_arrays(
-            osdi_res[0], jax_res[0], rtol=1e-8, atol=1e-15        )
+        passed, max_abs, max_rel = compare_arrays(osdi_res[0], jax_res[0], rtol=1e-8, atol=1e-15)
         assert passed, f"Resistive residual mismatch: max_abs={max_abs}, max_rel={max_rel}"
 
 
@@ -1081,9 +1105,9 @@ class TestPSP102Comparison:
         Note: Be careful with units! Check parameter descriptions.
         """
         return {
-            "TYPE": 1,       # NMOS (+1) or PMOS (-1)
-            "W": 1e-6,       # Width (m)
-            "L": 100e-9,     # Length (m)
+            "TYPE": 1,  # NMOS (+1) or PMOS (-1)
+            "W": 1e-6,  # Width (m)
+            "L": 100e-9,  # Length (m)
             "mfactor": 1.0,
         }
 
@@ -1106,9 +1130,7 @@ class TestPSP102Comparison:
             jax_res = jax_eval(voltages)
 
             # Compare residuals using VAMS-LRM current tolerance
-            passed, max_abs, max_rel, failed = compare_residuals(
-                osdi_res[0], jax_res[0]
-            )
+            passed, max_abs, max_rel, failed = compare_residuals(osdi_res[0], jax_res[0])
             if not passed:
                 all_failed.append((vds, failed, max_abs, max_rel))
 
@@ -1121,7 +1143,9 @@ class TestPSP102Comparison:
     def test_debug_init_comparison(self, osdi_path, va_path, nmos_params):
         """Debug test: compare init/cache values between OSDI and JAX."""
         # Get OSDI setup
-        osdi_eval, osdi_lib, osdi_model, osdi_instance, _, _ = create_osdi_evaluator(osdi_path, nmos_params)
+        osdi_eval, osdi_lib, osdi_model, osdi_instance, _, _ = create_osdi_evaluator(
+            osdi_path, nmos_params
+        )
 
         # Get JAX setup with debug info
         jax_eval, jax_module, jax_metadata, jax_debug = create_jax_evaluator(
@@ -1133,7 +1157,7 @@ class TestPSP102Comparison:
         print("=" * 60)
 
         # JAX cache info
-        cache = jax_debug['cache']
+        cache = jax_debug["cache"]
         print(f"\nJAX cache: {len(cache)} values")
         print(f"  Non-zero: {np.sum(np.abs(cache) > 1e-20)}")
         print(f"  Has inf: {np.sum(np.isinf(cache))}")
@@ -1163,18 +1187,18 @@ class TestPSP102Comparison:
 
         # Compare specific known parameters
         print("\nParameter comparison (JAX init inputs vs expected):")
-        init_param_names = jax_debug['init_param_names']
-        init_inputs = jax_debug['init_inputs']
-        for name in ['TYPE', 'W', 'L', 'mfactor', '$temperature']:
+        init_param_names = jax_debug["init_param_names"]
+        init_inputs = jax_debug["init_inputs"]
+        for name in ["TYPE", "W", "L", "mfactor", "$temperature"]:
             if name in init_param_names:
                 idx = init_param_names.index(name)
                 print(f"  {name}: JAX init = {init_inputs[idx]}")
 
         # Check shared inputs
-        shared_inputs = jax_debug['shared_inputs']
-        eval_param_names = jax_debug['eval_param_names']
-        eval_param_kinds = jax_debug['eval_param_kinds']
-        non_voltage_indices = jax_debug['non_voltage_indices']
+        shared_inputs = jax_debug["shared_inputs"]
+        eval_param_names = jax_debug["eval_param_names"]
+        eval_param_kinds = jax_debug["eval_param_kinds"]
+        non_voltage_indices = jax_debug["non_voltage_indices"]
 
         print(f"\nJAX shared inputs: {len(shared_inputs)} values")
         print(f"  Non-zero: {np.sum(np.abs(shared_inputs) > 1e-20)}")
@@ -1184,7 +1208,7 @@ class TestPSP102Comparison:
         count = 0
         for pos, orig_idx in enumerate(non_voltage_indices):
             kind = eval_param_kinds[orig_idx]
-            if kind != 'hidden_state' and kind != 'current':
+            if kind != "hidden_state" and kind != "current":
                 name = eval_param_names[orig_idx]
                 val = shared_inputs[pos]
                 if abs(val) > 1e-20:
@@ -1238,9 +1262,9 @@ class TestBSIM4Comparison:
     def nmos_params(self):
         """Minimal NMOS parameters for BSIM4."""
         return {
-            "L": 100e-9,     # Length
-            "W": 1e-6,       # Width
-            "NF": 1,         # Number of fingers
+            "L": 100e-9,  # Length
+            "W": 1e-6,  # Width
+            "NF": 1,  # Number of fingers
             "mfactor": 1.0,
         }
 

@@ -48,9 +48,7 @@ class FileStack:
             canonical = str(Path(filename).resolve())
         except (OSError, ValueError):
             canonical = filename
-        self.files.append(
-            SourceFile(filename, canonical, parent_id, inclusion_line)
-        )
+        self.files.append(SourceFile(filename, canonical, parent_id, inclusion_line))
         return len(self.files) - 1
 
     def get_file(self, file_id: int) -> Optional[SourceFile]:
@@ -186,6 +184,7 @@ class ControlBlock:
 @dataclass
 class Model:
     """Model definition mapping name to device module"""
+
     name: str
     module: str
     params: Dict[str, str] = field(default_factory=dict)
@@ -194,6 +193,7 @@ class Model:
 @dataclass
 class Instance:
     """Device or subcircuit instance"""
+
     name: str
     terminals: List[str]
     model: str
@@ -203,6 +203,7 @@ class Instance:
 @dataclass
 class Subcircuit:
     """Subcircuit definition"""
+
     name: str
     terminals: List[str]
     params: Dict[str, str] = field(default_factory=dict)
@@ -236,7 +237,7 @@ class Circuit:
             Tuple of (flat instance list, node name to index mapping)
         """
         flat_instances = []
-        nodes = {self.ground or '0': 0}  # Ground is node 0
+        nodes = {self.ground or "0": 0}  # Ground is node 0
 
         # Add global nodes
         for g in self.globals:
@@ -256,7 +257,7 @@ class Circuit:
                 for t in inst.terminals:
                     if t in port_map:
                         mapped_terminals.append(port_map[t])
-                    elif t in self.globals or t == (self.ground or '0'):
+                    elif t in self.globals or t == (self.ground or "0"):
                         mapped_terminals.append(t)
                     else:
                         mapped_terminals.append(f"{prefix}.{t}")
@@ -277,7 +278,7 @@ class Circuit:
                         name=f"{prefix}.{inst.name}",
                         terminals=mapped_terminals,
                         model=inst.model,
-                        params={**inst.params}  # Copy params
+                        params={**inst.params},  # Copy params
                     )
                     flat_instances.append(flat_inst)
 
@@ -293,7 +294,7 @@ class Circuit:
         for inst in self.top_instances:
             mapped_terminals = []
             for t in inst.terminals:
-                if t in self.globals or t == (self.ground or '0'):
+                if t in self.globals or t == (self.ground or "0"):
                     mapped_terminals.append(t)
                 else:
                     mapped_terminals.append(t)
@@ -308,7 +309,7 @@ class Circuit:
                     name=inst.name,
                     terminals=mapped_terminals,
                     model=inst.model,
-                    params={**inst.params}
+                    params={**inst.params},
                 )
                 flat_instances.append(flat_inst)
 
@@ -317,9 +318,9 @@ class Circuit:
     def stats(self) -> Dict[str, int]:
         """Return statistics about the circuit"""
         return {
-            'num_subckts': len(self.subckts),
-            'num_models': len(self.models),
-            'num_top_instances': len(self.top_instances),
-            'num_globals': len(self.globals),
-            'num_loads': len(self.loads),
+            "num_subckts": len(self.subckts),
+            "num_models": len(self.models),
+            "num_top_instances": len(self.top_instances),
+            "num_globals": len(self.globals),
+            "num_loads": len(self.loads),
         }

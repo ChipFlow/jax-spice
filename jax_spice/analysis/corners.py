@@ -160,29 +160,29 @@ class CornerSweepResult:
 
 # Standard process corners
 PROCESS_CORNERS: Dict[str, ProcessCorner] = {
-    'FF': ProcessCorner(
-        name='FF',
+    "FF": ProcessCorner(
+        name="FF",
         mobility_scale=1.15,
         vth_shift=-0.05,
         tox_scale=0.95,
     ),
-    'TT': ProcessCorner(
-        name='TT',
+    "TT": ProcessCorner(
+        name="TT",
         # All nominal (no scaling)
     ),
-    'SS': ProcessCorner(
-        name='SS',
+    "SS": ProcessCorner(
+        name="SS",
         mobility_scale=0.85,
         vth_shift=0.05,
         tox_scale=1.05,
     ),
-    'FS': ProcessCorner(
-        name='FS',
+    "FS": ProcessCorner(
+        name="FS",
         mobility_scale=1.15,  # Fast NMOS
         vth_shift=0.05,  # Slow PMOS (higher |Vth|)
     ),
-    'SF': ProcessCorner(
-        name='SF',
+    "SF": ProcessCorner(
+        name="SF",
         mobility_scale=0.85,  # Slow NMOS
         vth_shift=-0.05,  # Fast PMOS (lower |Vth|)
     ),
@@ -190,9 +190,9 @@ PROCESS_CORNERS: Dict[str, ProcessCorner] = {
 
 # Standard temperature corners (in Kelvin)
 TEMPERATURE_CORNERS: Dict[str, float] = {
-    'cold': 233.15,  # -40°C
-    'room': 300.15,  # 27°C
-    'hot': 398.15,  # 125°C
+    "cold": 233.15,  # -40°C
+    "room": 300.15,  # 27°C
+    "hot": 398.15,  # 125°C
 }
 
 
@@ -217,7 +217,7 @@ def create_standard_corners(
         List of CornerConfig for all combinations
     """
     if processes is None:
-        processes = ['TT']
+        processes = ["TT"]
     if temperatures is None:
         temperatures = [DEFAULT_TEMPERATURE_K]
     if vdd_scales is None:
@@ -227,7 +227,7 @@ def create_standard_corners(
 
     for proc_name in processes:
         process = PROCESS_CORNERS.get(proc_name)
-        if process is None and proc_name != 'TT':
+        if process is None and proc_name != "TT":
             raise ValueError(f"Unknown process corner: {proc_name}")
 
         for temp in temperatures:
@@ -235,25 +235,27 @@ def create_standard_corners(
                 # Create descriptive name
                 temp_c = temp - 273.15
                 if temp_c == -40:
-                    temp_str = 'm40C'
+                    temp_str = "m40C"
                 elif temp_c == 27:
-                    temp_str = '27C'
+                    temp_str = "27C"
                 elif temp_c == 125:
-                    temp_str = '125C'
+                    temp_str = "125C"
                 else:
-                    temp_str = f'{temp_c:.0f}C'
+                    temp_str = f"{temp_c:.0f}C"
 
-                vdd_str = f'V{vdd * 100:.0f}pct'
-                name = f'{proc_name}_{temp_str}_{vdd_str}'
+                vdd_str = f"V{vdd * 100:.0f}pct"
+                name = f"{proc_name}_{temp_str}_{vdd_str}"
 
-                voltage = VoltageCorner(name=f'VDD_{vdd}', vdd_scale=vdd)
+                voltage = VoltageCorner(name=f"VDD_{vdd}", vdd_scale=vdd)
 
-                corners.append(CornerConfig(
-                    name=name,
-                    process=process,
-                    voltage=voltage,
-                    temperature=temp,
-                ))
+                corners.append(
+                    CornerConfig(
+                        name=name,
+                        process=process,
+                        voltage=voltage,
+                        temperature=temp,
+                    )
+                )
 
     return corners
 
@@ -276,18 +278,17 @@ def create_pvt_corners(
         List of CornerConfig (default: 27 corners = 3 × 3 × 3)
     """
     if processes is None:
-        processes = ['FF', 'TT', 'SS']
+        processes = ["FF", "TT", "SS"]
 
     if temperatures is None:
         temp_values = [
-            TEMPERATURE_CORNERS['cold'],
-            TEMPERATURE_CORNERS['room'],
-            TEMPERATURE_CORNERS['hot'],
+            TEMPERATURE_CORNERS["cold"],
+            TEMPERATURE_CORNERS["room"],
+            TEMPERATURE_CORNERS["hot"],
         ]
     else:
         temp_values = [
-            TEMPERATURE_CORNERS[t] if t in TEMPERATURE_CORNERS else float(t)
-            for t in temperatures
+            TEMPERATURE_CORNERS[t] if t in TEMPERATURE_CORNERS else float(t) for t in temperatures
         ]
 
     if voltages is None:

@@ -15,11 +15,14 @@ Usage:
     tracer.trace_device_params('sp_diode', V_test)
 """
 
-from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Tuple
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Dict, List, Optional
 
 import jax.numpy as jnp
 import numpy as np
+
+if TYPE_CHECKING:
+    from jax_spice.analysis.engine import CircuitEngine
 
 
 @dataclass
@@ -196,17 +199,16 @@ class SimulationTracer:
 
         # Get devices of this type
         openvaf_devices = [
-            d for d in self.engine.devices
-            if d.get('model') == model_type and d.get('is_openvaf')
+            d for d in self.engine.devices if d.get("model") == model_type and d.get("is_openvaf")
         ]
 
         if not openvaf_devices:
             raise ValueError(f"No devices of type {model_type}")
 
         # Get voltage indices and param names
-        param_names = compiled.get('param_names', [])
-        param_kinds = compiled.get('param_kinds', [])
-        voltage_indices = [i for i, k in enumerate(param_kinds) if k == 'voltage']
+        param_names = compiled.get("param_names", [])
+        param_kinds = compiled.get("param_kinds", [])
+        voltage_indices = [i for i, k in enumerate(param_kinds) if k == "voltage"]
         voltage_param_names = [param_names[i] for i in voltage_indices]
 
         # Build voltage_node arrays by calling _prepare_static_inputs
@@ -217,17 +219,17 @@ class SimulationTracer:
         )
 
         # Get voltage positions in device_params (populated by _prepare_static_inputs)
-        voltage_positions = compiled.get('voltage_positions_in_varying', jnp.array([]))
+        voltage_positions = compiled.get("voltage_positions_in_varying", jnp.array([]))
 
         # Build voltage_node arrays
-        voltage_node1 = np.array([
-            [n1 for n1, n2 in ctx['voltage_node_pairs']]
-            for ctx in device_contexts
-        ], dtype=np.int32)
-        voltage_node2 = np.array([
-            [n2 for n1, n2 in ctx['voltage_node_pairs']]
-            for ctx in device_contexts
-        ], dtype=np.int32)
+        voltage_node1 = np.array(
+            [[n1 for n1, n2 in ctx["voltage_node_pairs"]] for ctx in device_contexts],
+            dtype=np.int32,
+        )
+        voltage_node2 = np.array(
+            [[n2 for n1, n2 in ctx["voltage_node_pairs"]] for ctx in device_contexts],
+            dtype=np.int32,
+        )
 
         # Build node name map (index -> name)
         node_name_map = {v: k for k, v in alloc.external_nodes.items()}
@@ -235,7 +237,7 @@ class SimulationTracer:
             for node_name, idx in nodes.items():
                 node_name_map[idx] = f"{dev_name}.{node_name}"
 
-        device_names = [d['name'] for d in openvaf_devices]
+        device_names = [d["name"] for d in openvaf_devices]
 
         return VoltageMapping(
             model_type=model_type,
@@ -276,7 +278,7 @@ class SimulationTracer:
         voltage_updates = V_jnp[mapping.voltage_node1] - V_jnp[mapping.voltage_node2]
 
         # Get device_params
-        device_params = compiled.get('device_params', jnp.zeros((mapping.num_devices, 0)))
+        device_params = compiled.get("device_params", jnp.zeros((mapping.num_devices, 0)))
         voltage_positions = jnp.array(mapping.voltage_positions)
 
         # Update device_params with voltages
@@ -323,8 +325,8 @@ class SimulationTracer:
         # Set internal node voltages
         if internal_voltages:
             for key, voltage in internal_voltages.items():
-                if '.' in key:
-                    dev_name, node_name = key.split('.', 1)
+                if "." in key:
+                    dev_name, node_name = key.split(".", 1)
                     if dev_name in alloc.internal_nodes:
                         nodes = alloc.internal_nodes[dev_name]
                         if node_name in nodes:
@@ -344,8 +346,8 @@ class SimulationTracer:
         # Print voltage mapping for each OpenVAF model type
         model_types = set()
         for d in self.engine.devices:
-            if d.get('is_openvaf'):
-                model_types.add(d['model'])
+            if d.get("is_openvaf"):
+                model_types.add(d["model"])
 
         for model_type in sorted(model_types):
             print()

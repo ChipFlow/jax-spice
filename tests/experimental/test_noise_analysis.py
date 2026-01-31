@@ -68,7 +68,7 @@ class TestNoisePSDCalculations:
         Af = 1.0
         Ef = 1.0
 
-        expected = Kf * (I ** Af) / (f ** Ef)
+        expected = Kf * (I**Af) / (f**Ef)
         result = compute_flicker_noise_psd(I, f, Kf, Af, Ef)
 
         assert result == pytest.approx(expected, rel=1e-10)
@@ -117,7 +117,7 @@ endc
         """Noise analysis with resistors should complete."""
         engine = CircuitEngine(resistor_netlist)
         engine.parse()
-        result = engine.run_noise(out=2, input_source='v1', freq_start=1.0, freq_stop=10000.0)
+        result = engine.run_noise(out=2, input_source="v1", freq_start=1.0, freq_stop=10000.0)
 
         assert len(result.frequencies) > 0
         assert len(result.output_noise) == len(result.frequencies)
@@ -126,18 +126,20 @@ endc
         """Should have noise contributions from both resistors."""
         engine = CircuitEngine(resistor_netlist)
         engine.parse()
-        result = engine.run_noise(out=2, input_source='v1', freq_start=100.0, freq_stop=100.0,
-                                   mode='list', values=[100.0])
+        result = engine.run_noise(
+            out=2, input_source="v1", freq_start=100.0, freq_stop=100.0, mode="list", values=[100.0]
+        )
 
         # Should have contributions from r1 and r2
-        assert 'r1' in result.contributions or 'r2' in result.contributions
+        assert "r1" in result.contributions or "r2" in result.contributions
 
     def test_resistor_thermal_noise_is_white(self, resistor_netlist):
         """Thermal noise should be frequency-independent (white)."""
         engine = CircuitEngine(resistor_netlist)
         engine.parse()
-        result = engine.run_noise(out=2, input_source='v1', freq_start=10.0, freq_stop=10000.0,
-                                   mode='dec', points=5)
+        result = engine.run_noise(
+            out=2, input_source="v1", freq_start=10.0, freq_stop=10000.0, mode="dec", points=5
+        )
 
         # Output noise should be roughly constant across frequency
         noise_values = result.output_noise
@@ -191,7 +193,7 @@ endc
         """Noise analysis with diode should complete."""
         engine = CircuitEngine(diode_netlist)
         engine.parse()
-        result = engine.run_noise(out=2, input_source='v1', freq_start=1.0, freq_stop=10000.0)
+        result = engine.run_noise(out=2, input_source="v1", freq_start=1.0, freq_stop=10000.0)
 
         assert len(result.frequencies) > 0
         assert len(result.output_noise) == len(result.frequencies)
@@ -200,11 +202,11 @@ endc
         """Diode should contribute shot and flicker noise."""
         engine = CircuitEngine(diode_netlist)
         engine.parse()
-        result = engine.run_noise(out=2, input_source='v1', freq_start=1.0, freq_stop=10000.0)
+        result = engine.run_noise(out=2, input_source="v1", freq_start=1.0, freq_stop=10000.0)
 
         # Check detailed contributions include shot and flicker
-        has_shot = any('shot' in key[1] for key in result.detailed_contributions.keys())
-        has_flicker = any('flicker' in key[1] for key in result.detailed_contributions.keys())
+        has_shot = any("shot" in key[1] for key in result.detailed_contributions.keys())
+        has_flicker = any("flicker" in key[1] for key in result.detailed_contributions.keys())
 
         assert has_shot, "Expected shot noise contribution from diode"
         assert has_flicker, "Expected flicker noise contribution from diode"
@@ -213,8 +215,9 @@ endc
         """At low frequencies, flicker (1/f) noise should be significant."""
         engine = CircuitEngine(diode_netlist)
         engine.parse()
-        result = engine.run_noise(out=2, input_source='v1', freq_start=1.0, freq_stop=10000.0,
-                                   mode='dec', points=10)
+        result = engine.run_noise(
+            out=2, input_source="v1", freq_start=1.0, freq_stop=10000.0, mode="dec", points=10
+        )
 
         # Output noise at low frequency should be higher than at high frequency
         # due to 1/f noise contribution
@@ -233,8 +236,8 @@ class TestNoiseResult:
             frequencies=jnp.array([1.0, 10.0, 100.0]),
             output_noise=jnp.array([1e-20, 1e-21, 1e-22]),
             power_gain=jnp.array([1.0, 0.9, 0.5]),
-            contributions={'r1': jnp.array([1e-20, 1e-21, 1e-22])},
-            detailed_contributions={('r1', 'thermal'): jnp.array([1e-20, 1e-21, 1e-22])},
+            contributions={"r1": jnp.array([1e-20, 1e-21, 1e-22])},
+            detailed_contributions={("r1", "thermal"): jnp.array([1e-20, 1e-21, 1e-22])},
         )
         assert len(result.frequencies) == 3
 

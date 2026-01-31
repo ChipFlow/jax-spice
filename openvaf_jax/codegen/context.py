@@ -73,6 +73,11 @@ class CodeGenContext:
     limit_registry: Dict[str, int] = field(default_factory=dict)
     limit_next_index: int = 0
 
+    # Track which limit states have been stored (for building limit_state_out)
+    # Maps limit index -> MIR operand ID (e.g., 0 -> 'v3')
+    # We track the operand ID so we can reference it when building the output array
+    limit_store_operands: Dict[int, str] = field(default_factory=dict)
+
     # Enable limit functions (when True, generates calls to limit_funcs)
     use_limit_functions: bool = False
 
@@ -182,6 +187,7 @@ class CodeGenContext:
                 - limits_used: List of limit names in index order
                 - limit_indices: Dict mapping name -> index
                 - limit_count: Total number of limits
+                - store_operands: Dict mapping limit index -> MIR operand ID
         """
         # Build list in index order
         limits_used = [''] * self.limit_next_index
@@ -192,6 +198,7 @@ class CodeGenContext:
             'limits_used': limits_used,
             'limit_indices': dict(self.limit_registry),
             'limit_count': self.limit_next_index,
+            'store_operands': dict(self.limit_store_operands),
         }
 
     def define_var(self, var: str) -> str:

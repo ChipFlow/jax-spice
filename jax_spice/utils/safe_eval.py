@@ -12,7 +12,7 @@ Example:
 
 import math
 import re
-from typing import Dict, Union
+from typing import Dict
 
 from simpleeval import EvalWithCompoundTypes, InvalidExpression
 
@@ -135,9 +135,7 @@ def _expand_si_suffixes(expr: str) -> str:
 _evaluator = EvalWithCompoundTypes(functions=SAFE_FUNCTIONS)
 
 
-def safe_eval_expr(
-    expr: str, params: Dict[str, float], default: float = 0.0
-) -> float:
+def safe_eval_expr(expr: str, params: Dict[str, float], default: float = 0.0) -> float:
     """Safely evaluate a SPICE parameter expression.
 
     Supports:

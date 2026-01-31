@@ -242,9 +242,7 @@ def download_from_gcs(gcs_path: str) -> tuple[Path, str | None]:
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        description="View JAX profiling traces in Perfetto UI"
-    )
+    parser = argparse.ArgumentParser(description="View JAX profiling traces in Perfetto UI")
     parser.add_argument(
         "trace_dir",
         type=str,
@@ -299,9 +297,7 @@ def main():
         print(f"Error: Trace directory does not exist: {trace_dir}")
         print()
         print("To generate traces, run benchmarks with profiling enabled:")
-        print(
-            "  JAX_SPICE_PROFILE_JAX=1 uv run python scripts/compare_vacask.py --profile"
-        )
+        print("  JAX_SPICE_PROFILE_JAX=1 uv run python scripts/compare_vacask.py --profile")
         print()
         print("Or run on Cloud Run GPU:")
         print("  uv run scripts/profile_gpu_cloudrun.py")
@@ -324,9 +320,7 @@ def main():
         sys.exit(1)
 
     # Sort by size (largest first - usually most interesting)
-    trace_files_by_size = sorted(
-        trace_files, key=lambda f: f.stat().st_size, reverse=True
-    )
+    trace_files_by_size = sorted(trace_files, key=lambda f: f.stat().st_size, reverse=True)
 
     print(f"Found {len(trace_files)} trace file(s):")
     for i, f in enumerate(trace_files_by_size[:10]):

@@ -1,5 +1,10 @@
 # JAX-SPICE: GPU-Accelerated Analog Circuit Simulator
 
+[![Tests](https://github.com/ChipFlow/jax-spice/actions/workflows/test.yml/badge.svg)](https://github.com/ChipFlow/jax-spice/actions/workflows/test.yml)
+[![GPU Tests](https://github.com/ChipFlow/jax-spice/actions/workflows/test-gpu-cloudrun.yml/badge.svg)](https://github.com/ChipFlow/jax-spice/actions/workflows/test-gpu-cloudrun.yml)
+[![Lint](https://github.com/ChipFlow/jax-spice/actions/workflows/lint.yml/badge.svg)](https://github.com/ChipFlow/jax-spice/actions/workflows/lint.yml)
+[![Benchmark](https://github.com/ChipFlow/jax-spice/actions/workflows/benchmark-comparison.yml/badge.svg)](https://github.com/ChipFlow/jax-spice/actions/workflows/benchmark-comparison.yml)
+
 A proof-of-concept GPU-accelerated analog circuit simulator built on JAX, demonstrating:
 - **Automatic differentiation** for computing device Jacobians without explicit derivatives
 - **GPU acceleration** for large circuits using JAX's JIT compilation

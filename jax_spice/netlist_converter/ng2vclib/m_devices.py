@@ -1,8 +1,7 @@
-
 class DevicesMixin:
     def load_statements(self):
         """
-        Generate load statements. 
+        Generate load statements.
         """
         # Scan all used models, collect osdi files.
         files = []
@@ -26,7 +25,7 @@ class DevicesMixin:
             files.append(file)
 
         # Generate text
-        return [ "load\""+f+"\"" for f in files ]
+        return ['load"' + f + '"' for f in files]
 
     def default_models(self):
         """
@@ -40,7 +39,7 @@ class DevicesMixin:
 
         # Generate text for OSDI-based default models
         result = [
-            "model "+self.cfg["default_model_prefix"]+inst_letter+" "+module
+            "model " + self.cfg["default_model_prefix"] + inst_letter + " " + module
             for inst_letter, module in model_lines
         ]
 
@@ -50,9 +49,3 @@ class DevicesMixin:
                 result.append(f"model {model} {model}")
 
         return result
-
-
-
-
-
-

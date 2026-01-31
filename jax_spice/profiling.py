@@ -44,15 +44,15 @@ import jax
 
 from jax_spice._logging import logger
 
-F = TypeVar('F', bound=Callable[..., Any])
+F = TypeVar("F", bound=Callable[..., Any])
 
 
 def _env_bool(name: str, default: bool = False) -> bool:
     """Get boolean from environment variable."""
-    val = os.environ.get(name, '').lower()
-    if val in ('1', 'true', 'yes', 'on'):
+    val = os.environ.get(name, "").lower()
+    if val in ("1", "true", "yes", "on"):
         return True
-    if val in ('0', 'false', 'no', 'off'):
+    if val in ("0", "false", "no", "off"):
         return False
     return default
 
@@ -68,10 +68,12 @@ class ProfileConfig:
         create_perfetto_link: Create Perfetto UI link for JAX traces
         name: Name prefix for trace files/annotations
     """
-    jax: bool = field(default_factory=lambda: _env_bool('JAX_SPICE_PROFILE_JAX'))
-    cuda: bool = field(default_factory=lambda: _env_bool('JAX_SPICE_PROFILE_CUDA'))
-    trace_dir: str = field(default_factory=lambda: os.environ.get(
-        'JAX_SPICE_PROFILE_DIR', '/tmp/jax-spice-traces'))
+
+    jax: bool = field(default_factory=lambda: _env_bool("JAX_SPICE_PROFILE_JAX"))
+    cuda: bool = field(default_factory=lambda: _env_bool("JAX_SPICE_PROFILE_CUDA"))
+    trace_dir: str = field(
+        default_factory=lambda: os.environ.get("JAX_SPICE_PROFILE_DIR", "/tmp/jax-spice-traces")
+    )
     create_perfetto_link: bool = False
     name: Optional[str] = None
 
@@ -99,8 +101,7 @@ def set_config(config: ProfileConfig) -> None:
         _global_config = config
 
 
-def enable_profiling(jax: bool = True, cuda: bool = True,
-                     trace_dir: Optional[str] = None) -> None:
+def enable_profiling(jax: bool = True, cuda: bool = True, trace_dir: Optional[str] = None) -> None:
     """Enable profiling globally (thread-safe).
 
     Args:
@@ -114,7 +115,7 @@ def enable_profiling(jax: bool = True, cuda: bool = True,
             _global_config,
             jax=jax,
             cuda=cuda,
-            trace_dir=trace_dir if trace_dir else _global_config.trace_dir
+            trace_dir=trace_dir if trace_dir else _global_config.trace_dir,
         )
 
 
@@ -135,12 +136,12 @@ try:
     from cuda.cudart import cudaProfilerStop as _cudaProfilerStop_raw
 
     def _cudaProfilerStart():
-        err, = _cudaProfilerStart_raw()
+        (err,) = _cudaProfilerStart_raw()
         if err.value != 0:
             logger.warning(f"cudaProfilerStart failed with error {err}")
 
     def _cudaProfilerStop():
-        err, = _cudaProfilerStop_raw()
+        (err,) = _cudaProfilerStop_raw()
         if err.value != 0:
             logger.warning(f"cudaProfilerStop failed with error {err}")
 
@@ -153,6 +154,7 @@ if not _cuda_profiler_available:
     try:
         from cuda_profiler_api import cudaProfilerStart as _cudaProfilerStart
         from cuda_profiler_api import cudaProfilerStop as _cudaProfilerStop
+
         _cuda_profiler_available = True
         logger.debug("CUDA profiler API available (cuda-profiler-api)")
     except ImportError:
@@ -162,7 +164,7 @@ if not _cuda_profiler_available:
 def _has_gpu() -> bool:
     """Check if GPU device is available."""
     try:
-        return any(d.platform != 'cpu' for d in jax.devices())
+        return any(d.platform != "cpu" for d in jax.devices())
     except Exception:
         return False
 
@@ -204,8 +206,7 @@ def profile_section(name: str, config: Optional[ProfileConfig] = None):
             logger.info(f"Starting JAX trace: {trace_path}")
             try:
                 jax_trace = jax.profiler.trace(
-                    str(trace_path),
-                    create_perfetto_link=cfg.create_perfetto_link
+                    str(trace_path), create_perfetto_link=cfg.create_perfetto_link
                 )
                 jax_trace.__enter__()
             except Exception as e:
@@ -225,7 +226,7 @@ def profile_section(name: str, config: Optional[ProfileConfig] = None):
         if cuda_started:
             # Ensure GPU operations complete before stopping
             for dev in jax.devices():
-                if dev.platform != 'cpu':
+                if dev.platform != "cpu":
                     try:
                         jax.device_put(0, dev).block_until_ready()
                     except Exception:
@@ -269,6 +270,7 @@ def profile(
     Returns:
         Decorated function or decorator
     """
+
     def decorator(fn: F) -> F:
         @functools.wraps(fn)
         def wrapper(*args, **kwargs):
@@ -322,9 +324,10 @@ class ProfileTimer:
             return 0.0
         return (self._end_time - self._start_time) * 1000
 
-    def start(self) -> 'ProfileTimer':
+    def start(self) -> "ProfileTimer":
         """Start timing and profiling."""
         import time
+
         self._start_time = time.perf_counter()
 
         # JAX profiling works best on GPU - skip on CPU
@@ -334,8 +337,7 @@ class ProfileTimer:
             trace_path.parent.mkdir(parents=True, exist_ok=True)
             try:
                 self._trace = jax.profiler.trace(
-                    str(trace_path),
-                    create_perfetto_link=self.config.create_perfetto_link
+                    str(trace_path), create_perfetto_link=self.config.create_perfetto_link
                 )
                 self._trace.__enter__()
             except Exception as e:
@@ -348,13 +350,13 @@ class ProfileTimer:
 
         return self
 
-    def stop(self) -> 'ProfileTimer':
+    def stop(self) -> "ProfileTimer":
         """Stop timing and profiling."""
         import time
 
         # Ensure GPU operations complete
         for dev in jax.devices():
-            if dev.platform != 'cpu':
+            if dev.platform != "cpu":
                 try:
                     jax.device_put(0, dev).block_until_ready()
                 except Exception:
@@ -370,7 +372,7 @@ class ProfileTimer:
 
         return self
 
-    def __enter__(self) -> 'ProfileTimer':
+    def __enter__(self) -> "ProfileTimer":
         return self.start()
 
     def __exit__(self, *args) -> None:

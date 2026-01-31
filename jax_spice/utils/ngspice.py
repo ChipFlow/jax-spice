@@ -19,11 +19,11 @@ from typing import Any, Dict, Optional, Tuple
 logger = logging.getLogger(__name__)
 
 __all__ = [
-    'find_ngspice_binary',
-    'parse_control_section',
-    'run_ngspice',
-    'NgspiceError',
-    'validate_path_safe',
+    "find_ngspice_binary",
+    "parse_control_section",
+    "run_ngspice",
+    "NgspiceError",
+    "validate_path_safe",
 ]
 
 
@@ -54,7 +54,7 @@ def validate_path_safe(path: Path, allowed_parent: Optional[Path] = None) -> boo
 
         # Check for suspicious path components in original path string
         path_str = str(path)
-        if '..' in path_str:
+        if ".." in path_str:
             logger.warning(f"Path contains '..': {path}")
             return False
 
@@ -63,9 +63,7 @@ def validate_path_safe(path: Path, allowed_parent: Optional[Path] = None) -> boo
             try:
                 resolved.relative_to(parent_resolved)
             except ValueError:
-                logger.warning(
-                    f"Path {resolved} is not within allowed parent {parent_resolved}"
-                )
+                logger.warning(f"Path {resolved} is not within allowed parent {parent_resolved}")
                 return False
 
         return True
@@ -77,6 +75,7 @@ def validate_path_safe(path: Path, allowed_parent: Optional[Path] = None) -> boo
 
 class NgspiceError(Exception):
     """Error running ngspice simulation."""
+
     pass
 
 
@@ -92,23 +91,23 @@ def find_ngspice_binary() -> Optional[Path]:
         Path to ngspice binary or None if not found
     """
     # Check environment variable
-    env_path = os.environ.get('NGSPICE_BIN')
+    env_path = os.environ.get("NGSPICE_BIN")
     if env_path:
         path = Path(env_path).resolve()
         if path.exists() and path.is_file():
             return path
 
     # Check PATH
-    which_result = shutil.which('ngspice')
+    which_result = shutil.which("ngspice")
     if which_result:
         return Path(which_result)
 
     # Check common locations
     search_paths = [
-        Path('/usr/local/bin/ngspice'),
-        Path('/usr/bin/ngspice'),
-        Path('/opt/homebrew/bin/ngspice'),  # macOS Homebrew ARM
-        Path('/opt/local/bin/ngspice'),  # MacPorts
+        Path("/usr/local/bin/ngspice"),
+        Path("/usr/bin/ngspice"),
+        Path("/opt/homebrew/bin/ngspice"),  # macOS Homebrew ARM
+        Path("/opt/local/bin/ngspice"),  # MacPorts
     ]
     for path in search_paths:
         if path.exists():
@@ -139,11 +138,7 @@ def parse_control_section(netlist_path: Path) -> Dict[str, Any]:
     result: Dict[str, Any] = {}
 
     # Find .control section
-    control_match = re.search(
-        r'\.control\s+(.*?)\.endc',
-        content,
-        re.DOTALL | re.IGNORECASE
-    )
+    control_match = re.search(r"\.control\s+(.*?)\.endc", content, re.DOTALL | re.IGNORECASE)
     if not control_match:
         # No .control section, check for dot commands
         return _parse_dot_commands(content)
@@ -152,52 +147,42 @@ def parse_control_section(netlist_path: Path) -> Dict[str, Any]:
 
     # Parse tran command: tran step stop [start [maxstep]]
     tran_match = re.search(
-        r'\btran\s+(\S+)\s+(\S+)(?:\s+(\S+))?(?:\s+(\S+))?',
-        control,
-        re.IGNORECASE
+        r"\btran\s+(\S+)\s+(\S+)(?:\s+(\S+))?(?:\s+(\S+))?", control, re.IGNORECASE
     )
     if tran_match:
-        result['analysis'] = 'tran'
-        result['step'] = tran_match.group(1)
-        result['stop'] = tran_match.group(2)
-        result['start'] = tran_match.group(3) or '0'
-        result['maxstep'] = tran_match.group(4)
+        result["analysis"] = "tran"
+        result["step"] = tran_match.group(1)
+        result["stop"] = tran_match.group(2)
+        result["start"] = tran_match.group(3) or "0"
+        result["maxstep"] = tran_match.group(4)
 
     # Parse ac command: ac type points fstart fstop
-    ac_match = re.search(
-        r'\bac\s+(dec|oct|lin)\s+(\S+)\s+(\S+)\s+(\S+)',
-        control,
-        re.IGNORECASE
-    )
+    ac_match = re.search(r"\bac\s+(dec|oct|lin)\s+(\S+)\s+(\S+)\s+(\S+)", control, re.IGNORECASE)
     if ac_match:
-        result['analysis'] = 'ac'
-        result['type'] = ac_match.group(1)
-        result['points'] = ac_match.group(2)
-        result['fstart'] = ac_match.group(3)
-        result['fstop'] = ac_match.group(4)
+        result["analysis"] = "ac"
+        result["type"] = ac_match.group(1)
+        result["points"] = ac_match.group(2)
+        result["fstart"] = ac_match.group(3)
+        result["fstop"] = ac_match.group(4)
 
     # Parse dc command: dc srcnam vstart vstop vincr
-    dc_match = re.search(
-        r'\bdc\s+(\S+)\s+(\S+)\s+(\S+)\s+(\S+)',
-        control,
-        re.IGNORECASE
-    )
+    dc_match = re.search(r"\bdc\s+(\S+)\s+(\S+)\s+(\S+)\s+(\S+)", control, re.IGNORECASE)
     if dc_match:
-        result['analysis'] = 'dc'
-        result['srcnam'] = dc_match.group(1)
-        result['vstart'] = dc_match.group(2)
-        result['vstop'] = dc_match.group(3)
-        result['vincr'] = dc_match.group(4)
+        result["analysis"] = "dc"
+        result["srcnam"] = dc_match.group(1)
+        result["vstart"] = dc_match.group(2)
+        result["vstop"] = dc_match.group(3)
+        result["vincr"] = dc_match.group(4)
 
     # Parse op command
-    if re.search(r'\bop\b', control, re.IGNORECASE):
-        if 'analysis' not in result:
-            result['analysis'] = 'op'
+    if re.search(r"\bop\b", control, re.IGNORECASE):
+        if "analysis" not in result:
+            result["analysis"] = "op"
 
     # Parse OSDI pre-load: pre_osdi path/to/model.osdi
-    osdi_match = re.search(r'pre_osdi\s+(\S+)', control, re.IGNORECASE)
+    osdi_match = re.search(r"pre_osdi\s+(\S+)", control, re.IGNORECASE)
     if osdi_match:
-        result['osdi'] = osdi_match.group(1)
+        result["osdi"] = osdi_match.group(1)
 
     return result
 
@@ -207,42 +192,36 @@ def _parse_dot_commands(content: str) -> Dict[str, Any]:
     result: Dict[str, Any] = {}
 
     # Process line by line to avoid cross-line matching issues
-    for line in content.split('\n'):
+    for line in content.split("\n"):
         line = line.strip()
 
         # .TRAN step stop [start [maxstep]]
         tran_match = re.match(
-            r'\.TRAN\s+(\S+)\s+(\S+)(?:\s+(\S+))?(?:\s+(\S+))?',
-            line,
-            re.IGNORECASE
+            r"\.TRAN\s+(\S+)\s+(\S+)(?:\s+(\S+))?(?:\s+(\S+))?", line, re.IGNORECASE
         )
         if tran_match:
-            result['analysis'] = 'tran'
-            result['step'] = tran_match.group(1)
-            result['stop'] = tran_match.group(2)
+            result["analysis"] = "tran"
+            result["step"] = tran_match.group(1)
+            result["stop"] = tran_match.group(2)
             start = tran_match.group(3)
             maxstep = tran_match.group(4)
             # Only use start/maxstep if they're numeric values
             if start and _is_numeric_value(start):
-                result['start'] = start
+                result["start"] = start
             else:
-                result['start'] = '0'
+                result["start"] = "0"
             if maxstep and _is_numeric_value(maxstep):
-                result['maxstep'] = maxstep
+                result["maxstep"] = maxstep
             continue
 
         # .AC type points fstart fstop
-        ac_match = re.match(
-            r'\.AC\s+(dec|oct|lin)\s+(\S+)\s+(\S+)\s+(\S+)',
-            line,
-            re.IGNORECASE
-        )
+        ac_match = re.match(r"\.AC\s+(dec|oct|lin)\s+(\S+)\s+(\S+)\s+(\S+)", line, re.IGNORECASE)
         if ac_match:
-            result['analysis'] = 'ac'
-            result['type'] = ac_match.group(1)
-            result['points'] = ac_match.group(2)
-            result['fstart'] = ac_match.group(3)
-            result['fstop'] = ac_match.group(4)
+            result["analysis"] = "ac"
+            result["type"] = ac_match.group(1)
+            result["points"] = ac_match.group(2)
+            result["fstart"] = ac_match.group(3)
+            result["fstop"] = ac_match.group(4)
             continue
 
     return result
@@ -260,20 +239,20 @@ def _is_numeric_value(s: str) -> bool:
     if not s:
         return False
     # Must start with a digit or minus sign
-    if not (s[0].isdigit() or s[0] == '-' or s[0] == '.'):
+    if not (s[0].isdigit() or s[0] == "-" or s[0] == "."):
         return False
     # Common SI suffixes
-    suffixes = {'t', 'g', 'meg', 'k', 'm', 'u', 'n', 'p', 'f', 'a'}
+    suffixes = {"t", "g", "meg", "k", "m", "u", "n", "p", "f", "a"}
     s_lower = s.lower()
     # Strip any suffix and check if remainder is numeric
     for suffix in sorted(suffixes, key=len, reverse=True):
         if s_lower.endswith(suffix):
-            s_lower = s_lower[:-len(suffix)]
+            s_lower = s_lower[: -len(suffix)]
             break
     # Also handle 'ms', 'us', 'ns', 'ps', 'fs'
-    for suffix in ['ms', 'us', 'ns', 'ps', 'fs']:
+    for suffix in ["ms", "us", "ns", "ps", "fs"]:
         if s_lower.endswith(suffix):
-            s_lower = s_lower[:-len(suffix)]
+            s_lower = s_lower[: -len(suffix)]
             break
     try:
         float(s_lower)
@@ -316,10 +295,8 @@ def run_ngspice(
         if ngspice_bin is None:
             return None, "ngspice binary not found. Install ngspice or set NGSPICE_BIN."
 
-    cleanup_tempdir = False
     if output_dir is None:
         output_dir = Path(tempfile.mkdtemp(prefix="ngspice_"))
-        cleanup_tempdir = True
 
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -342,7 +319,7 @@ def run_ngspice(
 
     try:
         result = subprocess.run(
-            [str(ngspice_bin), '-b', str(modified_netlist)],
+            [str(ngspice_bin), "-b", str(modified_netlist)],
             cwd=output_dir,
             capture_output=True,
             text=True,
@@ -350,12 +327,12 @@ def run_ngspice(
         )
 
         # Check for raw file
-        raw_path = output_dir / 'output.raw'
+        raw_path = output_dir / "output.raw"
         if raw_path.exists():
             return raw_path, None
 
         # Check for other .raw files
-        raw_files = list(output_dir.glob('*.raw'))
+        raw_files = list(output_dir.glob("*.raw"))
         if raw_files:
             return raw_files[0], None
 
@@ -386,26 +363,26 @@ def _inject_raw_output(content: str) -> str:
         Modified netlist content
     """
     # Check if .control section exists
-    if re.search(r'\.control', content, re.IGNORECASE):
+    if re.search(r"\.control", content, re.IGNORECASE):
         # Find quit command and insert before it
-        if re.search(r'\bquit\b', content, re.IGNORECASE):
+        if re.search(r"\bquit\b", content, re.IGNORECASE):
             content = re.sub(
-                r'(\s*)(quit)',
-                r'\1set wr_vecnames\n\1write output.raw all\n\1\2',
+                r"(\s*)(quit)",
+                r"\1set wr_vecnames\n\1write output.raw all\n\1\2",
                 content,
-                flags=re.IGNORECASE
+                flags=re.IGNORECASE,
             )
         else:
             # No quit, add write before .endc
             content = re.sub(
-                r'(\.endc)',
-                r'set wr_vecnames\nwrite output.raw all\nquit\n\1',
+                r"(\.endc)",
+                r"set wr_vecnames\nwrite output.raw all\nquit\n\1",
                 content,
-                flags=re.IGNORECASE
+                flags=re.IGNORECASE,
             )
     else:
         # No .control section - add one before .end
-        end_match = re.search(r'\.end\b', content, re.IGNORECASE)
+        end_match = re.search(r"\.end\b", content, re.IGNORECASE)
         if end_match:
             insert_pos = end_match.start()
             control_section = """
@@ -421,11 +398,7 @@ quit
     return content
 
 
-def _copy_includes(
-    netlist_path: Path,
-    output_dir: Path,
-    content: str
-) -> None:
+def _copy_includes(netlist_path: Path, output_dir: Path, content: str) -> None:
     """Copy .include files and OSDI model files to output directory.
 
     Only copies files that are within the source directory tree

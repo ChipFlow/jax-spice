@@ -180,9 +180,7 @@ class VacaskWriter:
 
         buf.write("\n")
 
-    def _write_subcircuit(
-        self, buf: TextIO, subckt: Subcircuit, indent: int = 0
-    ) -> None:
+    def _write_subcircuit(self, buf: TextIO, subckt: Subcircuit, indent: int = 0) -> None:
         """Write a subcircuit definition."""
         prefix = " " * indent
 

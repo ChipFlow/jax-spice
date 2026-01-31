@@ -35,9 +35,7 @@ class PredictorCoeffs(NamedTuple):
     order: int  # Order of extrapolation
 
 
-def compute_predictor_coeffs(
-    past_dt: List[float], new_dt: float, order: int
-) -> PredictorCoeffs:
+def compute_predictor_coeffs(past_dt: List[float], new_dt: float, order: int) -> PredictorCoeffs:
     """Compute polynomial extrapolation coefficients for given timestep history.
 
     Given past timesteps [h_{n-1}, h_{n-2}, ...] (most recent first) and the
@@ -92,9 +90,7 @@ def compute_predictor_coeffs(
     )
 
 
-def _compute_normalized_timepoints(
-    past_dt: List[float], new_dt: float, order: int
-) -> np.ndarray:
+def _compute_normalized_timepoints(past_dt: List[float], new_dt: float, order: int) -> np.ndarray:
     """Compute normalized past timepoints for predictor.
 
     Timepoints are normalized so that t_{n+1} is at tau=0 and

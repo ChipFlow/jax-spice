@@ -124,8 +124,9 @@ class TestApplyIntegration:
         dQdt_trap = apply_integration(Q_new, Q_prev, trap_coeffs, dQdt_prev=dQdt_prev)
 
         # They should be DIFFERENT
-        assert not jnp.allclose(dQdt_be, dQdt_trap), \
+        assert not jnp.allclose(dQdt_be, dQdt_trap), (
             "BE and trap produced identical results - integration method not applied!"
+        )
 
     def test_gear2_formula(self):
         """Test Gear2 formula: dQ/dt = (3*Q - 4*Q_prev + Q_prev2) / (2*dt)."""
@@ -238,7 +239,7 @@ endc
         for method in ["be", "trap"]:
             netlist_content = rc_netlist.format(method=method)
 
-            with tempfile.NamedTemporaryFile(mode='w', suffix='.sim', delete=False) as f:
+            with tempfile.NamedTemporaryFile(mode="w", suffix=".sim", delete=False) as f:
                 f.write(netlist_content)
                 sim_path = f.name
 
@@ -247,18 +248,23 @@ endc
                 engine.parse()
 
                 # Verify method was parsed correctly
-                expected_method = (IntegrationMethod.BACKWARD_EULER if method == "be"
-                                  else IntegrationMethod.TRAPEZOIDAL)
-                assert engine.analysis_params.get('tran_method') == expected_method, \
+                expected_method = (
+                    IntegrationMethod.BACKWARD_EULER
+                    if method == "be"
+                    else IntegrationMethod.TRAPEZOIDAL
+                )
+                assert engine.analysis_params.get("tran_method") == expected_method, (
                     f"Method {method} not parsed correctly"
+                )
 
                 # Verify icmode was parsed correctly
-                assert engine.analysis_params.get('icmode') == 'uic', \
+                assert engine.analysis_params.get("icmode") == "uic", (
                     f"icmode not parsed correctly: {engine.analysis_params.get('icmode')}"
+                )
 
                 # Run transient analysis with larger timestep
                 result = engine.run_transient(t_stop=10e-6, dt=100e-9)
-                results[method] = result.voltages.get('2', result.voltages.get(2))
+                results[method] = result.voltages.get("2", result.voltages.get(2))
             finally:
                 os.unlink(sim_path)
 

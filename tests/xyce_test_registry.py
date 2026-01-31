@@ -77,17 +77,17 @@ def analyze_xyce_netlist(netlist_path: Path, category: str) -> Optional[XyceTest
     content_lower = content.lower()
 
     # Skip files without analysis commands
-    if not any(x in content_lower for x in ['.tran', '.dc', '.ac', '.op']):
+    if not any(x in content_lower for x in [".tran", ".dc", ".ac", ".op"]):
         return None
 
     # Determine analysis type (priority: tran > dc > ac > op)
-    analysis_type = 'op'
-    if '.tran' in content_lower:
-        analysis_type = 'tran'
-    elif '.ac' in content_lower:
-        analysis_type = 'ac'
-    elif '.dc' in content_lower:
-        analysis_type = 'dc'
+    analysis_type = "op"
+    if ".tran" in content_lower:
+        analysis_type = "tran"
+    elif ".ac" in content_lower:
+        analysis_type = "ac"
+    elif ".dc" in content_lower:
+        analysis_type = "dc"
 
     # Detect device types
     device_types = _detect_device_types(content)
@@ -110,7 +110,7 @@ def analyze_xyce_netlist(netlist_path: Path, category: str) -> Optional[XyceTest
         output_path=output_path,
         analysis_type=analysis_type,
         device_types=device_types,
-        expected_nodes=expected_nodes or ['1'],
+        expected_nodes=expected_nodes or ["1"],
     )
 
 
@@ -127,35 +127,35 @@ def _detect_device_types(content: str) -> Set[str]:
 
     # Device patterns (first character of instance name)
     device_patterns = {
-        'r': 'resistor',
-        'c': 'capacitor',
-        'l': 'inductor',
-        'd': 'diode',
-        'm': 'mosfet',
-        'q': 'bjt',
-        'j': 'jfet',
-        'v': 'vsource',
-        'i': 'isource',
-        'e': 'vcvs',
-        'f': 'cccs',
-        'g': 'vccs',
-        'h': 'ccvs',
-        'x': 'subckt',
-        'b': 'bsource',
-        't': 'tline',
-        'y': 'pde',  # Xyce-specific PDE device
-        'p': 'digital',  # Xyce digital device
-        'u': 'mutual_inductor',
-        'k': 'coupling',
+        "r": "resistor",
+        "c": "capacitor",
+        "l": "inductor",
+        "d": "diode",
+        "m": "mosfet",
+        "q": "bjt",
+        "j": "jfet",
+        "v": "vsource",
+        "i": "isource",
+        "e": "vcvs",
+        "f": "cccs",
+        "g": "vccs",
+        "h": "ccvs",
+        "x": "subckt",
+        "b": "bsource",
+        "t": "tline",
+        "y": "pde",  # Xyce-specific PDE device
+        "p": "digital",  # Xyce digital device
+        "u": "mutual_inductor",
+        "k": "coupling",
     }
 
-    for line in content.split('\n'):
+    for line in content.split("\n"):
         line = line.strip().lower()
         # Skip comments and directives
-        if line.startswith('*') or line.startswith('.') or not line:
+        if line.startswith("*") or line.startswith(".") or not line:
             continue
 
-        first_char = line[0] if line else ''
+        first_char = line[0] if line else ""
         if first_char in device_patterns:
             device_types.add(device_patterns[first_char])
 
@@ -174,11 +174,7 @@ def _extract_output_nodes(content: str) -> List[str]:
     nodes = []
 
     # Match v(node) or i(source) patterns in .print
-    for match in re.finditer(
-        r'\.print\s+(?:tran|ac|dc)?\s+.*?v\((\w+)\)',
-        content,
-        re.IGNORECASE
-    ):
+    for match in re.finditer(r"\.print\s+(?:tran|ac|dc)?\s+.*?v\((\w+)\)", content, re.IGNORECASE):
         node = match.group(1)
         if node not in nodes:
             nodes.append(node)
@@ -189,25 +185,25 @@ def _extract_output_nodes(content: str) -> List[str]:
 # Devices supported by JAX-SPICE (via OpenVAF or built-in)
 # Note: Missing devices can be created with VADistiller
 SUPPORTED_DEVICES = {
-    'resistor',
-    'capacitor',
-    'inductor',
-    'diode',
-    'vsource',
-    'isource',
-    'mosfet',  # Via PSP103 or other VA models
-    'subckt',  # Subcircuit instantiation
+    "resistor",
+    "capacitor",
+    "inductor",
+    "diode",
+    "vsource",
+    "isource",
+    "mosfet",  # Via PSP103 or other VA models
+    "subckt",  # Subcircuit instantiation
 }
 
 # Devices that can be added via VADistiller
 VADISTILLER_DEVICES = {
-    'bjt',      # BJT transistor
-    'jfet',     # JFET transistor
-    'vcvs',     # Voltage-controlled voltage source
-    'cccs',     # Current-controlled current source
-    'vccs',     # Voltage-controlled current source
-    'ccvs',     # Current-controlled voltage source
-    'bsource',  # Behavioral source
+    "bjt",  # BJT transistor
+    "jfet",  # JFET transistor
+    "vcvs",  # Voltage-controlled voltage source
+    "cccs",  # Current-controlled current source
+    "vccs",  # Voltage-controlled current source
+    "ccvs",  # Current-controlled voltage source
+    "bsource",  # Behavioral source
 }
 
 
@@ -228,7 +224,7 @@ def get_compatible_tests(
         List of compatible test cases
     """
     if analysis_types is None:
-        analysis_types = ['tran']
+        analysis_types = ["tran"]
 
     if device_types is None:
         device_types = SUPPORTED_DEVICES.copy()

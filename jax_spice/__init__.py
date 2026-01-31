@@ -1,4 +1,5 @@
 """JAX-SPICE: GPU-Accelerated Analog Circuit Simulator"""
+
 import logging
 import os
 from pathlib import Path
@@ -83,6 +84,7 @@ def configure_xla_cache(cache_dir: Path | str | None = None) -> Path | None:
 # Note: XLA cache is configured lazily in CircuitEngine.__init__
 # to avoid side effects on import. Call configure_xla_cache() explicitly
 # if you need caching without using CircuitEngine.
+
 
 def _backend_supports_x64() -> bool:
     """Check if the current JAX backend supports 64-bit floats.
@@ -171,6 +173,7 @@ def get_float_dtype():
         >>> V = jnp.zeros(n_nodes, dtype=dtype)
     """
     import jax.numpy as jnp
+
     return jnp.float64 if jax.config.jax_enable_x64 else jnp.float32
 
 
@@ -180,17 +183,17 @@ def get_float_dtype():
 
 # Default simparam values per VAMS-LRM
 SIMPARAM_DEFAULTS = {
-    '$analysis_type': 0.0,    # 0=DC, 1=AC, 2=transient, 3=noise
-    'gmin': 1e-12,            # Minimum conductance (S)
-    'abstol': 1e-12,          # Absolute current tolerance (A)
-    'vntol': 1e-6,            # Absolute voltage tolerance (V)
-    'reltol': 1e-3,           # Relative tolerance
-    'tnom': 300.15,           # Nominal temperature (K)
-    'scale': 1.0,             # Scale factor
-    'shrink': 0.0,            # Shrink factor
-    'imax': 1.0,              # Branch current limit (A)
-    '$abstime': 0.0,          # Absolute simulation time (s)
-    '$mfactor': 1.0,          # Device multiplicity factor
+    "$analysis_type": 0.0,  # 0=DC, 1=AC, 2=transient, 3=noise
+    "gmin": 1e-12,  # Minimum conductance (S)
+    "abstol": 1e-12,  # Absolute current tolerance (A)
+    "vntol": 1e-6,  # Absolute voltage tolerance (V)
+    "reltol": 1e-3,  # Relative tolerance
+    "tnom": 300.15,  # Nominal temperature (K)
+    "scale": 1.0,  # Scale factor
+    "shrink": 0.0,  # Shrink factor
+    "imax": 1.0,  # Branch current limit (A)
+    "$abstime": 0.0,  # Absolute simulation time (s)
+    "$mfactor": 1.0,  # Device multiplicity factor
 }
 
 
@@ -216,8 +219,8 @@ def build_simparams(metadata: dict, values: dict | None = None) -> list:
         >>> simparams = build_simparams(meta, {'gmin': 1e-12, '$analysis_type': 0})
         >>> result = eval_fn(shared, varying, cache, jnp.array(simparams))
     """
-    simparams_used = metadata.get('simparams_used', ['$analysis_type'])
-    simparam_count = metadata.get('simparam_count', 1)
+    simparams_used = metadata.get("simparams_used", ["$analysis_type"])
+    metadata.get("simparam_count", 1)
 
     # Merge user values with defaults
     effective_values = dict(SIMPARAM_DEFAULTS)

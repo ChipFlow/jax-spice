@@ -143,18 +143,18 @@ def main():
         # Group devices by model type
         by_model = {}
         for dev in engine.devices:
-            model = dev.get('model', 'unknown')
+            model = dev.get("model", "unknown")
             if model not in by_model:
                 by_model[model] = []
             by_model[model].append(dev)
 
         for model, devices in sorted(by_model.items()):
-            if model in ('vsource', 'isource'):
+            if model in ("vsource", "isource"):
                 continue  # Skip sources
 
             # Use first instance as representative
             dev = devices[0]
-            name = dev.get('name')
+            name = dev.get("name")
 
             if args.visualize:
                 # Visual ASCII chart
@@ -169,9 +169,9 @@ def main():
                 print(f"  Mapped: {len(coverage['mapped'])}")
                 print(f"  Unmapped: {len(coverage['unmapped'])}")
 
-                if coverage['unmapped']:
+                if coverage["unmapped"]:
                     print(f"  Unmapped params: {', '.join(coverage['unmapped'][:10])}")
-                    if len(coverage['unmapped']) > 10:
+                    if len(coverage["unmapped"]) > 10:
                         print(f"    ... and {len(coverage['unmapped']) - 10} more")
                 print()
 
@@ -193,7 +193,7 @@ def main():
     print()
 
     # Show sample device traces
-    openvaf_devices = [d for d in engine.devices if d.get('model') not in ('vsource', 'isource')]
+    openvaf_devices = [d for d in engine.devices if d.get("model") not in ("vsource", "isource")]
 
     if openvaf_devices:
         print("Sample Device Parameter Traces")
@@ -202,22 +202,22 @@ def main():
         # Show first device of each model type
         shown_models = set()
         for dev in openvaf_devices:
-            model = dev.get('model')
+            model = dev.get("model")
             if model in shown_models:
                 continue
             shown_models.add(model)
 
-            name = dev.get('name')
+            name = dev.get("name")
             print()
             print(format_param_trace(engine, name))
             print()
 
             if len(shown_models) >= 3:
-                remaining = len(set(d.get('model') for d in openvaf_devices)) - len(shown_models)
+                remaining = len(set(d.get("model") for d in openvaf_devices)) - len(shown_models)
                 if remaining > 0:
                     print(f"... and {remaining} more model types")
                 break
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

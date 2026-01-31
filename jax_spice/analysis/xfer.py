@@ -31,6 +31,7 @@ logger = logging.getLogger(__name__)
 # DCINC (DC Incremental) Analysis
 # =============================================================================
 
+
 @dataclass
 class DCIncConfig:
     """DCINC analysis configuration.
@@ -38,6 +39,7 @@ class DCIncConfig:
     Attributes:
         writeop: If True, also return DC operating point data
     """
+
     writeop: bool = False
 
 
@@ -50,6 +52,7 @@ class DCIncResult:
                               Node names come from the netlist.
         dc_voltages: DC operating point voltages (if writeop=True)
     """
+
     incremental_voltages: Dict[str, float]
     dc_voltages: Optional[Array] = None
 
@@ -126,15 +129,15 @@ def build_dcinc_excitation(
     G = 1e12
 
     for source in sources:
-        mag = source.get('mag', 0.0)
+        mag = source.get("mag", 0.0)
         if mag == 0.0:
             continue
 
-        source_type = source.get('type', 'vsource')
-        pos_node = source.get('pos_node', 0)
-        neg_node = source.get('neg_node', 0)
+        source_type = source.get("type", "vsource")
+        pos_node = source.get("pos_node", 0)
+        neg_node = source.get("neg_node", 0)
 
-        if source_type == 'vsource':
+        if source_type == "vsource":
             # Voltage source: du = G * mag
             if pos_node > 0:
                 du = du.at[pos_node - 1].set(du[pos_node - 1] + G * mag)
@@ -154,6 +157,7 @@ def build_dcinc_excitation(
 # DCXF (DC Transfer Function) Analysis
 # =============================================================================
 
+
 @dataclass
 class DCXFConfig:
     """DCXF analysis configuration.
@@ -162,6 +166,7 @@ class DCXFConfig:
         out: Output node specification (node name or index)
         writeop: If True, also return DC operating point data
     """
+
     out: Union[str, int] = 1
     writeop: bool = False
 
@@ -182,6 +187,7 @@ class DCXFResult:
         out_node: The output node used
         dc_voltages: DC operating point voltages (if writeop=True)
     """
+
     tf: Dict[str, float]
     zin: Dict[str, float]
     yin: Dict[str, float]
@@ -233,15 +239,15 @@ def solve_dcxf(
     yin_dict: Dict[str, float] = {}
 
     for source in sources:
-        name = source.get('name', 'unknown')
-        source_type = source.get('type', 'vsource')
-        pos_node = source.get('pos_node', 0)
-        neg_node = source.get('neg_node', 0)
+        name = source.get("name", "unknown")
+        source_type = source.get("type", "vsource")
+        pos_node = source.get("pos_node", 0)
+        neg_node = source.get("neg_node", 0)
 
         # Build unity excitation for this source
         du = jnp.zeros(n, dtype=jnp.float64)
 
-        if source_type == 'vsource':
+        if source_type == "vsource":
             # Unity voltage excitation
             if pos_node > 0:
                 du = du.at[pos_node - 1].set(G)
@@ -261,7 +267,7 @@ def solve_dcxf(
         v_out = float(dx[out_idx]) if 0 <= out_idx < n else 0.0
 
         # Compute transfer function
-        if source_type == 'vsource':
+        if source_type == "vsource":
             # tf = Vout / Vsrc (Vsrc = 1V)
             tf = v_out
         else:
@@ -272,7 +278,7 @@ def solve_dcxf(
         # For voltage source: Zin = Vsrc / Isrc
         # Isrc = G * (Vpos - Vneg - Vsrc) at DC, but we want small-signal
         # Input impedance = (Vpos - Vneg) / Isrc_into_source
-        if source_type == 'vsource':
+        if source_type == "vsource":
             v_pos = float(dx[pos_node - 1]) if pos_node > 0 else 0.0
             v_neg = float(dx[neg_node - 1]) if neg_node > 0 else 0.0
             delta_v = v_pos - v_neg
@@ -306,6 +312,7 @@ def solve_dcxf(
 # ACXF (AC Transfer Function) Analysis
 # =============================================================================
 
+
 @dataclass
 class ACXFConfig:
     """ACXF analysis configuration.
@@ -320,10 +327,11 @@ class ACXFConfig:
         values: Explicit frequency list for 'list' mode
         writeop: If True, also return DC operating point data
     """
+
     out: Union[str, int] = 1
     freq_start: float = 1.0
     freq_stop: float = 1e6
-    mode: str = 'dec'
+    mode: str = "dec"
     points: int = 10
     step: Optional[float] = None
     values: Optional[List[float]] = None
@@ -347,6 +355,7 @@ class ACXFResult:
         out_node: The output node used
         dc_voltages: DC operating point voltages (if writeop=True)
     """
+
     frequencies: Array
     tf: Dict[str, Array]
     zin: Dict[str, Array]
@@ -386,15 +395,15 @@ def solve_acxf_single_freq(
     results: Dict[str, Dict[str, complex]] = {}
 
     for source in sources:
-        name = source.get('name', 'unknown')
-        source_type = source.get('type', 'vsource')
-        pos_node = source.get('pos_node', 0)
-        neg_node = source.get('neg_node', 0)
+        name = source.get("name", "unknown")
+        source_type = source.get("type", "vsource")
+        pos_node = source.get("pos_node", 0)
+        neg_node = source.get("neg_node", 0)
 
         # Build unity excitation for this source
         U = jnp.zeros(n, dtype=jnp.complex128)
 
-        if source_type == 'vsource':
+        if source_type == "vsource":
             if pos_node > 0:
                 U = U.at[pos_node - 1].set(G + 0j)
             if neg_node > 0:
@@ -415,7 +424,7 @@ def solve_acxf_single_freq(
         tf = complex(v_out)
 
         # Input impedance
-        if source_type == 'vsource':
+        if source_type == "vsource":
             v_pos = X[pos_node - 1] if pos_node > 0 else 0.0 + 0j
             v_neg = X[neg_node - 1] if neg_node > 0 else 0.0 + 0j
             delta_v = v_pos - v_neg
@@ -429,9 +438,9 @@ def solve_acxf_single_freq(
         yin = 1.0 / zin if abs(zin) > 1e-30 else 1e30 + 0j
 
         results[name] = {
-            'tf': complex(tf),
-            'zin': complex(zin),
-            'yin': complex(yin),
+            "tf": complex(tf),
+            "zin": complex(zin),
+            "yin": complex(yin),
         }
 
     return results
@@ -472,8 +481,10 @@ def solve_acxf(
     frequencies = generate_frequencies(ac_config)
     n_freqs = len(frequencies)
 
-    logger.info(f"ACXF analysis: {n_freqs} frequencies, "
-                f"{config.freq_start:.2e} to {config.freq_stop:.2e} Hz")
+    logger.info(
+        f"ACXF analysis: {n_freqs} frequencies, "
+        f"{config.freq_start:.2e} to {config.freq_stop:.2e} Hz"
+    )
 
     # Determine output node index
     out_node = config.out
@@ -486,7 +497,7 @@ def solve_acxf(
         out_idx = int(out_node) - 1
 
     # Get source names for result initialization
-    source_names = [s.get('name', f'src{i}') for i, s in enumerate(sources)]
+    source_names = [s.get("name", f"src{i}") for i, s in enumerate(sources)]
 
     # Initialize result arrays
     tf_arrays: Dict[str, List[complex]] = {name: [] for name in source_names}
@@ -501,21 +512,18 @@ def solve_acxf(
 
         for name in source_names:
             if name in results:
-                tf_arrays[name].append(results[name]['tf'])
-                zin_arrays[name].append(results[name]['zin'])
-                yin_arrays[name].append(results[name]['yin'])
+                tf_arrays[name].append(results[name]["tf"])
+                zin_arrays[name].append(results[name]["zin"])
+                yin_arrays[name].append(results[name]["yin"])
             else:
                 tf_arrays[name].append(0.0 + 0j)
                 zin_arrays[name].append(0.0 + 0j)
                 yin_arrays[name].append(0.0 + 0j)
 
     # Convert to JAX arrays
-    tf_dict = {name: jnp.array(vals, dtype=jnp.complex128)
-               for name, vals in tf_arrays.items()}
-    zin_dict = {name: jnp.array(vals, dtype=jnp.complex128)
-                for name, vals in zin_arrays.items()}
-    yin_dict = {name: jnp.array(vals, dtype=jnp.complex128)
-                for name, vals in yin_arrays.items()}
+    tf_dict = {name: jnp.array(vals, dtype=jnp.complex128) for name, vals in tf_arrays.items()}
+    zin_dict = {name: jnp.array(vals, dtype=jnp.complex128) for name, vals in zin_arrays.items()}
+    yin_dict = {name: jnp.array(vals, dtype=jnp.complex128) for name, vals in yin_arrays.items()}
 
     return ACXFResult(
         frequencies=frequencies,

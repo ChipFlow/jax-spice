@@ -136,29 +136,32 @@ class TestRawFileReader:
     def test_create_and_read_raw_file(self):
         """Test creating a minimal raw file and reading it."""
         # Create a minimal raw file in binary format
-        with tempfile.NamedTemporaryFile(suffix='.raw', delete=False) as f:
+        with tempfile.NamedTemporaryFile(suffix=".raw", delete=False) as f:
             # Write header
-            f.write(b'Title: Test Circuit\n')
-            f.write(b'Date: Mon Jan 01 00:00:00 2025\n')
-            f.write(b'Plotname: Transient Analysis\n')
-            f.write(b'Flags: real\n')
-            f.write(b'No. Variables: 2\n')
-            f.write(b'No. Points: 5\n')
-            f.write(b'Variables:\n')
-            f.write(b'\t0\ttime\ttime\n')
-            f.write(b'\t1\tv(1)\tvoltage\n')
-            f.write(b'Binary:\n')
+            f.write(b"Title: Test Circuit\n")
+            f.write(b"Date: Mon Jan 01 00:00:00 2025\n")
+            f.write(b"Plotname: Transient Analysis\n")
+            f.write(b"Flags: real\n")
+            f.write(b"No. Variables: 2\n")
+            f.write(b"No. Points: 5\n")
+            f.write(b"Variables:\n")
+            f.write(b"\t0\ttime\ttime\n")
+            f.write(b"\t1\tv(1)\tvoltage\n")
+            f.write(b"Binary:\n")
 
             # Write binary data: 5 points, 2 variables
-            data = np.array([
-                [0.0, 0.0],
-                [1e-9, 0.5],
-                [2e-9, 1.0],
-                [3e-9, 0.5],
-                [4e-9, 0.0],
-            ], dtype=np.float64)
+            data = np.array(
+                [
+                    [0.0, 0.0],
+                    [1e-9, 0.5],
+                    [2e-9, 1.0],
+                    [3e-9, 0.5],
+                    [4e-9, 0.0],
+                ],
+                dtype=np.float64,
+            )
             f.write(data.tobytes())
-            f.write(b'\n')
+            f.write(b"\n")
 
             temp_path = Path(f.name)
 
@@ -168,35 +171,35 @@ class TestRawFileReader:
             rf = raw.get()
 
             # Check parsed data
-            assert rf.title == 'Test Circuit'
-            assert rf.plotname == 'Transient Analysis'
-            assert rf.names == ['time', 'v(1)']
-            assert rf.units == ['time', 'voltage']
+            assert rf.title == "Test Circuit"
+            assert rf.plotname == "Transient Analysis"
+            assert rf.names == ["time", "v(1)"]
+            assert rf.units == ["time", "voltage"]
 
             # Check data
-            np.testing.assert_allclose(rf['time'], [0, 1e-9, 2e-9, 3e-9, 4e-9])
-            np.testing.assert_allclose(rf['v(1)'], [0, 0.5, 1.0, 0.5, 0])
+            np.testing.assert_allclose(rf["time"], [0, 1e-9, 2e-9, 3e-9, 4e-9])
+            np.testing.assert_allclose(rf["v(1)"], [0, 0.5, 1.0, 0.5, 0])
 
         finally:
             temp_path.unlink()
 
     def test_get_all_method(self):
         """Test get_all method returns dict of all vectors."""
-        with tempfile.NamedTemporaryFile(suffix='.raw', delete=False) as f:
-            f.write(b'Title: Test\n')
-            f.write(b'Date: Test\n')
-            f.write(b'Plotname: Test\n')
-            f.write(b'Flags: real\n')
-            f.write(b'No. Variables: 2\n')
-            f.write(b'No. Points: 3\n')
-            f.write(b'Variables:\n')
-            f.write(b'\t0\ttime\ttime\n')
-            f.write(b'\t1\tv(out)\tvoltage\n')
-            f.write(b'Binary:\n')
+        with tempfile.NamedTemporaryFile(suffix=".raw", delete=False) as f:
+            f.write(b"Title: Test\n")
+            f.write(b"Date: Test\n")
+            f.write(b"Plotname: Test\n")
+            f.write(b"Flags: real\n")
+            f.write(b"No. Variables: 2\n")
+            f.write(b"No. Points: 3\n")
+            f.write(b"Variables:\n")
+            f.write(b"\t0\ttime\ttime\n")
+            f.write(b"\t1\tv(out)\tvoltage\n")
+            f.write(b"Binary:\n")
 
             data = np.array([[0, 0], [1, 1], [2, 2]], dtype=np.float64)
             f.write(data.tobytes())
-            f.write(b'\n')
+            f.write(b"\n")
 
             temp_path = Path(f.name)
 
@@ -204,8 +207,8 @@ class TestRawFileReader:
             rf = rawread(str(temp_path)).get()
             all_data = rf.get_all()
 
-            assert 'time' in all_data
-            assert 'v(out)' in all_data
+            assert "time" in all_data
+            assert "v(out)" in all_data
             assert len(all_data) == 2
 
         finally:
@@ -244,7 +247,7 @@ class TestVacaskIntegration:
         # Parse the output
         rf = rawread(str(raw_path)).get()
 
-        assert 'time' in rf.names
+        assert "time" in rf.names
         assert rf.data.shape[0] > 0  # Has data points
 
         # Cleanup

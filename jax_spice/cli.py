@@ -32,20 +32,20 @@ def parse_spice_value(s: str) -> float:
     """
     s = s.strip().lower()
     suffixes = [
-        ('meg', 1e6),
-        ('g', 1e9),
-        ('t', 1e12),
-        ('k', 1e3),
-        ('m', 1e-3),
-        ('u', 1e-6),
-        ('n', 1e-9),
-        ('p', 1e-12),
-        ('f', 1e-15),
-        ('a', 1e-18),
+        ("meg", 1e6),
+        ("g", 1e9),
+        ("t", 1e12),
+        ("k", 1e3),
+        ("m", 1e-3),
+        ("u", 1e-6),
+        ("n", 1e-9),
+        ("p", 1e-12),
+        ("f", 1e-15),
+        ("a", 1e-18),
     ]
     for suffix, mult in suffixes:
         if s.endswith(suffix):
-            return float(s[:-len(suffix)]) * mult
+            return float(s[: -len(suffix)]) * mult
     return float(s)
 
 
@@ -62,7 +62,7 @@ def setup_logging(verbose: int = 0, quiet: bool = False) -> None:
 
     logging.basicConfig(
         level=level,
-        format='%(levelname)s: %(message)s',
+        format="%(levelname)s: %(message)s",
     )
 
 
@@ -82,10 +82,12 @@ def cmd_run(args: argparse.Namespace) -> int:
     # Force GPU/CPU backend
     if args.gpu:
         import os
-        os.environ.setdefault('JAX_PLATFORMS', 'cuda,gpu')
+
+        os.environ.setdefault("JAX_PLATFORMS", "cuda,gpu")
     elif args.cpu:
         import os
-        os.environ.setdefault('JAX_PLATFORMS', 'cpu')
+
+        os.environ.setdefault("JAX_PLATFORMS", "cpu")
 
     # Load and parse circuit
     try:
@@ -112,7 +114,7 @@ def cmd_run(args: argparse.Namespace) -> int:
         return 1
 
     # Write output
-    output_path = Path(args.output) if args.output else circuit_path.with_suffix('.raw')
+    output_path = Path(args.output) if args.output else circuit_path.with_suffix(".raw")
     _write_output(result, output_path, args.format)
 
     print(f"Results written to: {output_path}")
@@ -161,20 +163,22 @@ def _run_ac(engine: CircuitEngine, ac_args: List[str], args: argparse.Namespace)
 
 def _write_output(result, output_path: Path, fmt: str) -> None:
     """Write simulation results to file."""
-    if fmt == 'raw':
+    if fmt == "raw":
         from jax_spice.io.rawfile_writer import write_rawfile
+
         write_rawfile(result, output_path)
-    elif fmt == 'csv':
+    elif fmt == "csv":
         from jax_spice.io.csv_writer import write_csv
+
         write_csv(result, output_path)
-    elif fmt == 'json':
+    elif fmt == "json":
         import json
 
         data = {
-            'times': result.times.tolist() if hasattr(result, 'times') else [],
-            'voltages': {k: v.tolist() for k, v in result.voltages.items()},
+            "times": result.times.tolist() if hasattr(result, "times") else [],
+            "voltages": {k: v.tolist() for k, v in result.voltages.items()},
         }
-        with open(output_path, 'w') as f:
+        with open(output_path, "w") as f:
             json.dump(data, f, indent=2)
     else:
         print(f"Unknown format: {fmt}", file=sys.stderr)
@@ -216,6 +220,7 @@ def cmd_benchmark(args: argparse.Namespace) -> int:
         # Run with profiling if requested
         if args.profile:
             import time
+
             start = time.perf_counter()
 
         result = engine.run_transient(
@@ -251,6 +256,7 @@ def cmd_convert(args: argparse.Namespace) -> int:
 
     try:
         from jax_spice.netlist_converter import convert_netlist
+
         convert_netlist(input_path, output_path)
         print(f"Converted: {input_path} -> {output_path}")
         return 0
@@ -273,6 +279,7 @@ def cmd_info(args: argparse.Namespace) -> int:
 
     try:
         import jax_spice
+
         print(f"Version: {getattr(jax_spice, '__version__', 'unknown')}")
     except Exception:
         pass
@@ -283,8 +290,8 @@ def cmd_info(args: argparse.Namespace) -> int:
 def create_parser() -> argparse.ArgumentParser:
     """Create argument parser."""
     parser = argparse.ArgumentParser(
-        prog='jax-spice',
-        description='JAX-SPICE: GPU-accelerated analog circuit simulator',
+        prog="jax-spice",
+        description="JAX-SPICE: GPU-accelerated analog circuit simulator",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
@@ -297,71 +304,72 @@ Examples:
         """,
     )
 
-    parser.add_argument('--version', action='version', version='%(prog)s 0.1.0')
-    parser.add_argument('-v', '--verbose', action='count', default=0,
-                        help='Increase verbosity (use -vv for debug)')
-    parser.add_argument('-q', '--quiet', action='store_true',
-                        help='Suppress non-error output')
+    parser.add_argument("--version", action="version", version="%(prog)s 0.1.0")
+    parser.add_argument(
+        "-v", "--verbose", action="count", default=0, help="Increase verbosity (use -vv for debug)"
+    )
+    parser.add_argument("-q", "--quiet", action="store_true", help="Suppress non-error output")
 
-    subparsers = parser.add_subparsers(dest='command', help='Commands')
+    subparsers = parser.add_subparsers(dest="command", help="Commands")
 
     # Run command (default when circuit file is provided)
-    run_parser = subparsers.add_parser('run', help='Run simulation')
-    run_parser.add_argument('circuit', help='Circuit file (.sim or SPICE)')
-    run_parser.add_argument('-o', '--output', help='Output file path')
-    run_parser.add_argument('-f', '--format', choices=['raw', 'csv', 'json'],
-                            default='raw', help='Output format (default: raw)')
+    run_parser = subparsers.add_parser("run", help="Run simulation")
+    run_parser.add_argument("circuit", help="Circuit file (.sim or SPICE)")
+    run_parser.add_argument("-o", "--output", help="Output file path")
+    run_parser.add_argument(
+        "-f",
+        "--format",
+        choices=["raw", "csv", "json"],
+        default="raw",
+        help="Output format (default: raw)",
+    )
 
     # Analysis options
-    run_parser.add_argument('--tran', nargs=2, metavar=('DT', 'TSTOP'),
-                            help='Transient analysis: dt t_stop')
-    run_parser.add_argument('--ac', nargs=4, metavar=('TYPE', 'POINTS', 'FSTART', 'FSTOP'),
-                            help='AC analysis: dec|lin|oct points fstart fstop')
+    run_parser.add_argument(
+        "--tran", nargs=2, metavar=("DT", "TSTOP"), help="Transient analysis: dt t_stop"
+    )
+    run_parser.add_argument(
+        "--ac",
+        nargs=4,
+        metavar=("TYPE", "POINTS", "FSTART", "FSTOP"),
+        help="AC analysis: dec|lin|oct points fstart fstop",
+    )
 
     # Solver options
-    run_parser.add_argument('--sparse', action='store_true',
-                            help='Force sparse solver')
-    run_parser.add_argument('--no-scan', action='store_true',
-                            help='Disable lax.scan (use Python loop)')
+    run_parser.add_argument("--sparse", action="store_true", help="Force sparse solver")
+    run_parser.add_argument(
+        "--no-scan", action="store_true", help="Disable lax.scan (use Python loop)"
+    )
 
     # Backend options
-    run_parser.add_argument('--gpu', action='store_true',
-                            help='Force GPU backend')
-    run_parser.add_argument('--cpu', action='store_true',
-                            help='Force CPU backend')
-    run_parser.add_argument('--x64', action='store_true',
-                            help='Force float64 precision')
-    run_parser.add_argument('--x32', action='store_true',
-                            help='Force float32 precision')
+    run_parser.add_argument("--gpu", action="store_true", help="Force GPU backend")
+    run_parser.add_argument("--cpu", action="store_true", help="Force CPU backend")
+    run_parser.add_argument("--x64", action="store_true", help="Force float64 precision")
+    run_parser.add_argument("--x32", action="store_true", help="Force float32 precision")
 
-    run_parser.add_argument('--profile', action='store_true',
-                            help='Enable profiling')
+    run_parser.add_argument("--profile", action="store_true", help="Enable profiling")
     run_parser.set_defaults(func=cmd_run)
 
     # Benchmark command
-    bench_parser = subparsers.add_parser('benchmark', aliases=['bench'],
-                                         help='Run benchmark circuits')
-    bench_parser.add_argument('name', nargs='?', help='Benchmark name')
-    bench_parser.add_argument('--list', '-l', action='store_true',
-                              help='List available benchmarks')
-    bench_parser.add_argument('--sparse', action='store_true',
-                              help='Force sparse solver')
-    bench_parser.add_argument('--x64', action='store_true',
-                              help='Force float64 precision')
-    bench_parser.add_argument('--x32', action='store_true',
-                              help='Force float32 precision')
-    bench_parser.add_argument('--profile', action='store_true',
-                              help='Enable profiling')
+    bench_parser = subparsers.add_parser(
+        "benchmark", aliases=["bench"], help="Run benchmark circuits"
+    )
+    bench_parser.add_argument("name", nargs="?", help="Benchmark name")
+    bench_parser.add_argument("--list", "-l", action="store_true", help="List available benchmarks")
+    bench_parser.add_argument("--sparse", action="store_true", help="Force sparse solver")
+    bench_parser.add_argument("--x64", action="store_true", help="Force float64 precision")
+    bench_parser.add_argument("--x32", action="store_true", help="Force float32 precision")
+    bench_parser.add_argument("--profile", action="store_true", help="Enable profiling")
     bench_parser.set_defaults(func=cmd_benchmark)
 
     # Convert command
-    conv_parser = subparsers.add_parser('convert', help='Convert SPICE to VACASK format')
-    conv_parser.add_argument('input', help='Input SPICE file')
-    conv_parser.add_argument('output', help='Output VACASK file')
+    conv_parser = subparsers.add_parser("convert", help="Convert SPICE to VACASK format")
+    conv_parser.add_argument("input", help="Input SPICE file")
+    conv_parser.add_argument("output", help="Output VACASK file")
     conv_parser.set_defaults(func=cmd_convert)
 
     # Info command
-    info_parser = subparsers.add_parser('info', help='Show system information')
+    info_parser = subparsers.add_parser("info", help="Show system information")
     info_parser.set_defaults(func=cmd_info)
 
     return parser
@@ -376,21 +384,25 @@ def main(argv: Optional[List[str]] = None) -> int:
         argv = sys.argv[1:]
 
     # If first arg is a file path (not a subcommand), insert 'run'
-    if argv and not argv[0].startswith('-') and argv[0] not in ('run', 'benchmark', 'bench', 'convert', 'info'):
+    if (
+        argv
+        and not argv[0].startswith("-")
+        and argv[0] not in ("run", "benchmark", "bench", "convert", "info")
+    ):
         # Check if it looks like a file path
-        if '.' in argv[0] or '/' in argv[0]:
-            argv = ['run'] + list(argv)
+        if "." in argv[0] or "/" in argv[0]:
+            argv = ["run"] + list(argv)
 
     args = parser.parse_args(argv)
 
     setup_logging(args.verbose, args.quiet)
 
-    if hasattr(args, 'func'):
+    if hasattr(args, "func"):
         return args.func(args)
     else:
         parser.print_help()
         return 0
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     sys.exit(main())

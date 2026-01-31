@@ -37,9 +37,22 @@ def create_mock_nr_solve(residual_fn_factory, max_iterations=50, abstol=1e-10):
                  gmin, gshunt, integ_c1, integ_d1, dQdt_prev, integ_c2, Q_prev2)
             -> (V, iters, converged, max_f, Q, dQdt)
     """
-    def nr_solve(V_init, vsource_vals, isource_vals, Q_prev, integ_c0, device_arrays,
-                 gmin=1e-12, gshunt=0.0, integ_c1=0.0, integ_d1=0.0, dQdt_prev=None,
-                 integ_c2=0.0, Q_prev2=None):
+
+    def nr_solve(
+        V_init,
+        vsource_vals,
+        isource_vals,
+        Q_prev,
+        integ_c0,
+        device_arrays,
+        gmin=1e-12,
+        gshunt=0.0,
+        integ_c1=0.0,
+        integ_d1=0.0,
+        dQdt_prev=None,
+        integ_c2=0.0,
+        Q_prev2=None,
+    ):
         # Build residual function with current gmin/gshunt
         res_fn = residual_fn_factory(gmin, gshunt)
         jac_fn = jax.jacfwd(res_fn)
@@ -158,11 +171,13 @@ class TestSimpleCircuits:
 
         def residual_fn_factory(gmin, gshunt):
             """Build residual function for the resistor divider."""
+
             def residual_fn(V):
                 V1 = V[1]
                 # KCL at node 1
                 f1 = g1 * (vdd - V1) - g2 * V1 + gmin * V1 + gshunt * V1
                 return jnp.array([f1])
+
             return residual_fn
 
         # Create mock nr_solve
@@ -213,6 +228,7 @@ class TestSimpleCircuits:
 
         def residual_fn_factory(gmin, gshunt):
             """Build residual function with source scaling."""
+
             def residual_fn(V):
                 V1 = V[1]
                 # Note: source scaling is handled by the homotopy algorithm
@@ -220,13 +236,26 @@ class TestSimpleCircuits:
                 G_source = 1e12
                 f1 = G_source * (V1 - vdd) + gmin * V1 + gshunt * V1
                 return jnp.array([f1])
+
             return residual_fn
 
         # For source stepping, we need a residual that uses vsource_vals
         def create_source_stepping_nr_solve():
-            def nr_solve(V_init, vsource_vals, isource_vals, Q_prev, integ_c0, device_arrays,
-                         gmin=1e-12, gshunt=0.0, integ_c1=0.0, integ_d1=0.0, dQdt_prev=None,
-                         integ_c2=0.0, Q_prev2=None):
+            def nr_solve(
+                V_init,
+                vsource_vals,
+                isource_vals,
+                Q_prev,
+                integ_c0,
+                device_arrays,
+                gmin=1e-12,
+                gshunt=0.0,
+                integ_c1=0.0,
+                integ_d1=0.0,
+                dQdt_prev=None,
+                integ_c2=0.0,
+                Q_prev2=None,
+            ):
                 # Use the first vsource value as VDD (already scaled by homotopy)
                 scaled_vdd = vsource_vals[0] if len(vsource_vals) > 0 else vdd
 
@@ -259,6 +288,7 @@ class TestSimpleCircuits:
                 Q = jnp.zeros(len(V_init) - 1)
                 dQdt = jnp.zeros(len(V_init) - 1)
                 return V_final, iters, converged, max_f, Q, dQdt
+
             return nr_solve
 
         nr_solve = create_source_stepping_nr_solve()
@@ -289,18 +319,28 @@ class TestSimpleCircuits:
 
         assert result.converged, f"Source stepping should converge, got: {result}"
         assert result.final_source_scale >= 1.0, "Should reach source_scale=1.0"
-        assert jnp.abs(result.V[1] - vdd) < 1e-6, (
-            f"Expected V1={vdd}, got V1={float(result.V[1])}"
-        )
+        assert jnp.abs(result.V[1] - vdd) < 1e-6, f"Expected V1={vdd}, got V1={float(result.V[1])}"
 
     def test_homotopy_chain_simple_circuit(self):
         """Test the full homotopy chain with a simple circuit."""
         vdd = 1.2
 
         def create_chain_nr_solve():
-            def nr_solve(V_init, vsource_vals, isource_vals, Q_prev, integ_c0, device_arrays,
-                         gmin=1e-12, gshunt=0.0, integ_c1=0.0, integ_d1=0.0, dQdt_prev=None,
-                         integ_c2=0.0, Q_prev2=None):
+            def nr_solve(
+                V_init,
+                vsource_vals,
+                isource_vals,
+                Q_prev,
+                integ_c0,
+                device_arrays,
+                gmin=1e-12,
+                gshunt=0.0,
+                integ_c1=0.0,
+                integ_d1=0.0,
+                dQdt_prev=None,
+                integ_c2=0.0,
+                Q_prev2=None,
+            ):
                 scaled_vdd = vsource_vals[0] if len(vsource_vals) > 0 else vdd
 
                 def res_fn(V):
@@ -332,6 +372,7 @@ class TestSimpleCircuits:
                 Q = jnp.zeros(len(V_init) - 1)
                 dQdt = jnp.zeros(len(V_init) - 1)
                 return V_final, iters, converged, max_f, Q, dQdt
+
             return nr_solve
 
         nr_solve = create_chain_nr_solve()
@@ -376,9 +417,21 @@ class TestDifficultCircuits:
             return jnp.where(V_gs > vth, k * (V_gs - vth) ** 2, 0.0)
 
         def create_mosfet_nr_solve():
-            def nr_solve(V_init, vsource_vals, isource_vals, Q_prev, integ_c0, device_arrays,
-                         gmin=1e-12, gshunt=0.0, integ_c1=0.0, integ_d1=0.0, dQdt_prev=None,
-                         integ_c2=0.0, Q_prev2=None):
+            def nr_solve(
+                V_init,
+                vsource_vals,
+                isource_vals,
+                Q_prev,
+                integ_c0,
+                device_arrays,
+                gmin=1e-12,
+                gshunt=0.0,
+                integ_c1=0.0,
+                integ_d1=0.0,
+                dQdt_prev=None,
+                integ_c2=0.0,
+                Q_prev2=None,
+            ):
                 scaled_vdd = vsource_vals[0] if len(vsource_vals) > 0 else vdd
 
                 def res_fn(V):
@@ -410,6 +463,7 @@ class TestDifficultCircuits:
                 Q = jnp.zeros(len(V_init) - 1)
                 dQdt = jnp.zeros(len(V_init) - 1)
                 return V_final, iters, converged, max_f, Q, dQdt
+
             return nr_solve
 
         nr_solve = create_mosfet_nr_solve()

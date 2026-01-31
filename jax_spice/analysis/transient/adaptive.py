@@ -69,15 +69,17 @@ class AdaptiveConfig:
     debug_lte: bool = False  # Print detailed LTE debug info (top contributors)
     tran_fs: float = 0.25  # Initial timestep scale factor (VACASK default)
     debug_steps: bool = False  # Print per-step info (time, dt, NR iters, LTE)
-    integration_method: IntegrationMethod = IntegrationMethod.TRAPEZOIDAL  # Integration method (VACASK default: trap)
+    integration_method: IntegrationMethod = (
+        IntegrationMethod.TRAPEZOIDAL
+    )  # Integration method (VACASK default: trap)
     max_consecutive_rejects: int = 5  # Force accept after this many consecutive LTE rejects
 
 
 def predict_voltage_jax(
-    V_history: jax.Array,           # (max_history, n_total)
-    dt_history: jax.Array,          # (max_history,)
-    history_count: jax.Array,       # Scalar
-    new_dt: jax.Array,              # Scalar
+    V_history: jax.Array,  # (max_history, n_total)
+    dt_history: jax.Array,  # (max_history,)
+    history_count: jax.Array,  # Scalar
+    new_dt: jax.Array,  # Scalar
     max_order: int,
     debug: bool = False,
     debug_node: int = 24,
@@ -157,25 +159,44 @@ def predict_voltage_jax(
     a_masked = jnp.where(mask, a, 0.0)
 
     # V_history is (max_history, n_total), we need first 3 rows
-    V_pred = jnp.einsum('i,ij->j', a_masked[:3], V_history[:3])
+    V_pred = jnp.einsum("i,ij->j", a_masked[:3], V_history[:3])
 
     # Debug callback
     if debug:
-        def _debug_predictor(order_val, hist_count, new_dt_val, dt_hist,
-                            a_coeffs, v_hist_node, v_pred_node, tau_arr):
+
+        def _debug_predictor(
+            order_val, hist_count, new_dt_val, dt_hist, a_coeffs, v_hist_node, v_pred_node, tau_arr
+        ):
             print(f"\n=== Predictor Debug (node {debug_node}) ===")
-            print(f"order={int(order_val)}, history_count={int(hist_count)}, new_dt={float(new_dt_val)*1e12:.4f}ps")
-            print(f"dt_history: [{float(dt_hist[0])*1e12:.4f}, {float(dt_hist[1])*1e12:.4f}, {float(dt_hist[2])*1e12:.4f}]ps")
-            print(f"tau: [{float(tau_arr[0]):.3f}, {float(tau_arr[1]):.3f}, {float(tau_arr[2]):.3f}]")
-            print(f"a coefficients: [{float(a_coeffs[0]):.4f}, {float(a_coeffs[1]):.4f}, {float(a_coeffs[2]):.4f}]")
-            print(f"V_history[node]: [{float(v_hist_node[0]):.6f}, {float(v_hist_node[1]):.6f}, {float(v_hist_node[2]):.6f}]V")
+            print(
+                f"order={int(order_val)}, history_count={int(hist_count)}, new_dt={float(new_dt_val) * 1e12:.4f}ps"
+            )
+            print(
+                f"dt_history: [{float(dt_hist[0]) * 1e12:.4f}, {float(dt_hist[1]) * 1e12:.4f}, {float(dt_hist[2]) * 1e12:.4f}]ps"
+            )
+            print(
+                f"tau: [{float(tau_arr[0]):.3f}, {float(tau_arr[1]):.3f}, {float(tau_arr[2]):.3f}]"
+            )
+            print(
+                f"a coefficients: [{float(a_coeffs[0]):.4f}, {float(a_coeffs[1]):.4f}, {float(a_coeffs[2]):.4f}]"
+            )
+            print(
+                f"V_history[node]: [{float(v_hist_node[0]):.6f}, {float(v_hist_node[1]):.6f}, {float(v_hist_node[2]):.6f}]V"
+            )
             print(f"V_pred[node] = {float(v_pred_node):.6f}V")
             v_check = sum(float(a_coeffs[i]) * float(v_hist_node[i]) for i in range(3))
             print(f"V_pred check = {v_check:.6f}V")
+
         jax.debug.callback(
             _debug_predictor,
-            order, history_count, new_dt, dt_history,
-            a_masked, V_history[:3, debug_node], V_pred[debug_node], tau
+            order,
+            history_count,
+            new_dt,
+            dt_history,
+            a_masked,
+            V_history[:3, debug_node],
+            V_pred[debug_node],
+            tau,
         )
 
     return V_pred, err_coeff
@@ -231,18 +252,33 @@ def compute_lte_timestep_jax(
 
     # Debug callback to show top LTE contributors
     if debug_lte:
-        def _debug_lte_callback(step, dt_val, lte_norm_val, lte_normalized_arr,
-                                V_new_arr, V_pred_arr, lte_arr, tol_arr,
-                                pred_err, integ_err, reltol, abstol):
+
+        def _debug_lte_callback(
+            step,
+            dt_val,
+            lte_norm_val,
+            lte_normalized_arr,
+            V_new_arr,
+            V_pred_arr,
+            lte_arr,
+            tol_arr,
+            pred_err,
+            integ_err,
+            reltol,
+            abstol,
+        ):
             import numpy as np
+
             # Find top 5 nodes with largest normalized LTE
             top_indices = np.argsort(lte_normalized_arr)[-5:][::-1]
             err_scale = float(integ_err) / (float(integ_err) - float(pred_err))
-            print(f"\n=== LTE Debug (step {int(step)}, dt={float(dt_val)*1e12:.4f}ps) ===")
-            print(f"Error coefficients: pred_err={float(pred_err):.4f}, integ_err={float(integ_err):.4f}, scale={err_scale:.4f}")
+            print(f"\n=== LTE Debug (step {int(step)}, dt={float(dt_val) * 1e12:.4f}ps) ===")
+            print(
+                f"Error coefficients: pred_err={float(pred_err):.4f}, integ_err={float(integ_err):.4f}, scale={err_scale:.4f}"
+            )
             print(f"Tolerances: reltol={float(reltol):.1e}, abstol={float(abstol):.1e}")
             print(f"Max normalized LTE (lte_norm): {float(lte_norm_val):.2f}")
-            print(f"Top 5 LTE contributors:")
+            print("Top 5 LTE contributors:")
             for idx in top_indices:
                 v_new = float(V_new_arr[idx])
                 v_pred = float(V_pred_arr[idx])
@@ -251,14 +287,27 @@ def compute_lte_timestep_jax(
                 v_scale = max(abs(v_new), abs(v_pred))
                 reltol_contrib = float(reltol) * v_scale
                 print(f"  Node {idx}: V_new={v_new:.6f}V, V_pred={v_pred:.6f}V, diff={diff:.3e}V")
-                print(f"           tol={tol_val:.3e} (reltol*max|V|={reltol_contrib:.3e}, abstol={float(abstol):.3e})")
-                print(f"           LTE={float(lte_arr[idx]):.3e}, norm_LTE={float(lte_normalized_arr[idx]):.2f}")
+                print(
+                    f"           tol={tol_val:.3e} (reltol*max|V|={reltol_contrib:.3e}, abstol={float(abstol):.3e})"
+                )
+                print(
+                    f"           LTE={float(lte_arr[idx]):.3e}, norm_LTE={float(lte_normalized_arr[idx]):.2f}"
+                )
 
         jax.debug.callback(
             _debug_lte_callback,
-            step_idx, dt, lte_norm, lte_normalized,
-            V_new, V_pred, lte, tol,
-            pred_err_coeff, error_coeff_integ, config.reltol, config.abstol
+            step_idx,
+            dt,
+            lte_norm,
+            lte_normalized,
+            V_new,
+            V_pred,
+            lte,
+            tol,
+            pred_err_coeff,
+            error_coeff_integ,
+            config.reltol,
+            config.abstol,
         )
 
     # Compute new timestep: dt_new = dt * (lte_ratio / lte_norm)^(1/(order+1))

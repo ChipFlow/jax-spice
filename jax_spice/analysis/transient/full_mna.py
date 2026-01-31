@@ -36,13 +36,22 @@ from jax import lax
 
 from jax_spice._logging import logger
 from jax_spice.analysis.solver_factories import (
-    is_umfpack_ffi_available,
     make_dense_full_mna_solver,
-    make_sparse_full_mna_solver,
+    make_spineax_full_mna_solver,
     make_umfpack_ffi_full_mna_solver,
-    make_umfpack_full_mna_solver,
 )
-from jax_spice.analysis.umfpack_solver import is_umfpack_available
+
+
+# Check if Spineax (GPU sparse solver) is available
+def is_spineax_available() -> bool:
+    """Check if Spineax/cuDSS GPU sparse solver is available."""
+    try:
+        from spineax.cudss.solver import CuDSSSolver  # noqa: F401
+
+        return True
+    except ImportError:
+        return False
+
 
 from jax_spice.analysis.integration import IntegrationMethod
 
@@ -85,14 +94,14 @@ def compute_checkpoint_interval(
     # Try to get GPU memory
     if target_memory_gb is None:
         try:
-            devices = jax.devices('gpu')
+            devices = jax.devices("gpu")
             if devices:
                 # Get memory stats from first GPU
                 device = devices[0]
-                if hasattr(device, 'memory_stats'):
+                if hasattr(device, "memory_stats"):
                     stats = device.memory_stats()
-                    if stats and 'bytes_limit' in stats:
-                        target_memory_gb = stats['bytes_limit'] / (1024**3)
+                    if stats and "bytes_limit" in stats:
+                        target_memory_gb = stats["bytes_limit"] / (1024**3)
         except (RuntimeError, TypeError):
             pass  # No GPU available
 
@@ -100,7 +109,7 @@ def compute_checkpoint_interval(
         if target_memory_gb is None:
             # Check if we're on GPU backend
             try:
-                if jax.default_backend() == 'gpu':
+                if jax.default_backend() == "gpu":
                     target_memory_gb = 16.0  # Conservative estimate for typical GPU
                 else:
                     return None  # CPU doesn't need checkpointing
@@ -146,22 +155,18 @@ def extract_results(
         - voltages: Dict mapping node name to numpy voltage array
         - currents: Dict mapping source name to numpy current array
     """
-    n = stats['n_steps']
+    n = stats["n_steps"]
 
     # Convert to numpy and slice
     times_np = np.asarray(times)[:n]
     V_np = np.asarray(V_out)[:n]
 
-    voltages = {
-        name: V_np[:, idx] for name, idx in stats['node_indices'].items()
-    }
+    voltages = {name: V_np[:, idx] for name, idx in stats["node_indices"].items()}
 
     currents = {}
-    if 'I_out' in stats and stats['current_indices']:
-        I_np = np.asarray(stats['I_out'])[:n]
-        currents = {
-            name: I_np[:, idx] for name, idx in stats['current_indices'].items()
-        }
+    if "I_out" in stats and stats["current_indices"]:
+        I_np = np.asarray(stats["I_out"])[:n]
+        currents = {name: I_np[:, idx] for name, idx in stats["current_indices"].items()}
 
     return times_np, voltages, currents
 
@@ -197,9 +202,14 @@ class FullMNAStrategy(TransientStrategy):
         """Human-readable strategy name for logging."""
         return "full_mna"
 
-    def __init__(self, runner, use_sparse: bool = False, backend: str = "cpu",
-                 config: Optional[AdaptiveConfig] = None,
-                 max_steps: int = DEFAULT_MAX_STEPS):
+    def __init__(
+        self,
+        runner,
+        use_sparse: bool = False,
+        backend: str = "cpu",
+        config: Optional[AdaptiveConfig] = None,
+        max_steps: int = DEFAULT_MAX_STEPS,
+    ):
         """Initialize FullMNAStrategy.
 
         Args:
@@ -241,40 +251,40 @@ class FullMNAStrategy(TransientStrategy):
         - maxstep -> max_dt
         - tran_method -> integration_method
         """
-        params = getattr(self.runner, 'analysis_params', {})
+        params = getattr(self.runner, "analysis_params", {})
         kwargs = {}
 
         # LTE options
-        if 'tran_lteratio' in params:
-            kwargs['lte_ratio'] = float(params['tran_lteratio'])
-        if 'tran_redofactor' in params:
-            kwargs['redo_factor'] = float(params['tran_redofactor'])
+        if "tran_lteratio" in params:
+            kwargs["lte_ratio"] = float(params["tran_lteratio"])
+        if "tran_redofactor" in params:
+            kwargs["redo_factor"] = float(params["tran_redofactor"])
 
         # NR options
-        if 'nr_convtol' in params:
-            kwargs['nr_convtol'] = float(params['nr_convtol'])
+        if "nr_convtol" in params:
+            kwargs["nr_convtol"] = float(params["nr_convtol"])
 
         # GSHUNT options
-        if 'tran_gshunt' in params:
-            kwargs['gshunt_init'] = float(params['tran_gshunt'])
+        if "tran_gshunt" in params:
+            kwargs["gshunt_init"] = float(params["tran_gshunt"])
 
         # Tolerance options
-        if 'reltol' in params:
-            kwargs['reltol'] = float(params['reltol'])
-        if 'abstol' in params:
-            kwargs['abstol'] = float(params['abstol'])
+        if "reltol" in params:
+            kwargs["reltol"] = float(params["reltol"])
+        if "abstol" in params:
+            kwargs["abstol"] = float(params["abstol"])
 
         # Timestep control options
-        if 'tran_fs' in params:
-            kwargs['tran_fs'] = float(params['tran_fs'])
-        if 'tran_minpts' in params:
-            kwargs['tran_minpts'] = int(params['tran_minpts'])
-        if 'maxstep' in params:
-            kwargs['max_dt'] = float(params['maxstep'])
+        if "tran_fs" in params:
+            kwargs["tran_fs"] = float(params["tran_fs"])
+        if "tran_minpts" in params:
+            kwargs["tran_minpts"] = int(params["tran_minpts"])
+        if "maxstep" in params:
+            kwargs["max_dt"] = float(params["maxstep"])
 
         # Integration method
-        if 'tran_method' in params:
-            kwargs['integration_method'] = params['tran_method']
+        if "tran_method" in params:
+            kwargs["integration_method"] = params["tran_method"]
 
         return AdaptiveConfig(**kwargs)
 
@@ -335,16 +345,19 @@ class FullMNAStrategy(TransientStrategy):
             return self._cached_full_mna_solver
 
         # Create full MNA build_system function
-        build_system_fn, device_arrays = self.runner._make_full_mna_build_system_fn(
-            setup.source_device_data,
-            setup.vmapped_fns,
-            setup.static_inputs_cache,
-            setup.n_unknowns,
-            use_dense=self.use_dense,
+        build_system_fn, device_arrays, total_limit_states = (
+            self.runner._make_full_mna_build_system_fn(
+                setup.source_device_data,
+                setup.vmapped_fns,
+                setup.static_inputs_cache,
+                setup.n_unknowns,
+                use_dense=self.use_dense,
+            )
         )
 
-        # Store device arrays for solver
+        # Store device arrays and limit state size for solver
         self._device_arrays_full_mna = device_arrays
+        self._total_limit_states = total_limit_states
 
         # JIT compile build_system
         build_system_jit = jax.jit(build_system_fn)
@@ -353,8 +366,8 @@ class FullMNAStrategy(TransientStrategy):
         noi_indices = []
         if setup.device_internal_nodes:
             for dev_name, internal_nodes in setup.device_internal_nodes.items():
-                if 'node4' in internal_nodes:  # NOI is node4 in PSP103
-                    noi_indices.append(internal_nodes['node4'])
+                if "node4" in internal_nodes:  # NOI is node4 in PSP103
+                    noi_indices.append(internal_nodes["node4"])
         noi_indices = jnp.array(noi_indices, dtype=jnp.int32) if noi_indices else None
 
         # Create full MNA solver
@@ -363,9 +376,14 @@ class FullMNAStrategy(TransientStrategy):
         # abstol=1e-6 means 1µA current error and 1µV voltage error
         if self.use_dense:
             nr_solve = make_dense_full_mna_solver(
-                build_system_jit, n_nodes, n_vsources,
+                build_system_jit,
+                n_nodes,
+                n_vsources,
                 noi_indices=noi_indices,
-                max_iterations=100, abstol=1e-6, max_step=1.0
+                max_iterations=100,
+                abstol=1e-6,
+                max_step=1.0,
+                total_limit_states=total_limit_states,
             )
         else:
             # Sparse path: compute COO→CSR mapping from trial run
@@ -381,9 +399,21 @@ class FullMNAStrategy(TransientStrategy):
             isource_trial = jnp.zeros(0, dtype=jnp.float64)
             Q_trial = jnp.zeros(setup.n_unknowns, dtype=jnp.float64)
 
-            J_bcoo_trial, _, _, _ = build_system_fn(
-                X_trial, vsource_trial, isource_trial, Q_trial, 0.0,
-                device_arrays, 1e-12, 0.0, 0.0, 0.0, None, 0.0, None
+            J_bcoo_trial, _, _, _, _ = build_system_fn(
+                X_trial,
+                vsource_trial,
+                isource_trial,
+                Q_trial,
+                0.0,
+                device_arrays,
+                1e-12,
+                0.0,
+                0.0,
+                0.0,
+                None,
+                0.0,
+                None,
+                None,
             )
 
             # Extract COO indices
@@ -418,50 +448,46 @@ class FullMNAStrategy(TransientStrategy):
 
             logger.info(f"Full MNA sparse: {n_coo} COO -> {nse} CSR entries")
 
-            # Solver selection hierarchy:
-            # 1. UMFPACK FFI (fastest - no pure_callback overhead)
-            # 2. UMFPACK with pure_callback (cached symbolic factorization)
-            # 3. JAX spsolve (no external dependencies)
+            # Use UMFPACK FFI solver (workspace dependency, always available)
             bcsr_indptr_jax = jnp.array(csr_indptr, dtype=jnp.int32)
             bcsr_indices_jax = jnp.array(csr_indices, dtype=jnp.int32)
             coo_sort_perm_jax = jnp.array(coo_sort_perm, dtype=jnp.int32)
             csr_segment_ids_jax = jnp.array(csr_segment_ids, dtype=jnp.int32)
 
-            if is_umfpack_ffi_available():
-                # Best performance: UMFPACK via XLA FFI (no callback overhead)
-                logger.info("Using UMFPACK FFI solver (zero callback overhead)")
-                nr_solve = make_umfpack_ffi_full_mna_solver(
-                    build_system_jit, n_nodes, n_vsources, nse,
+            # Use Spineax/cuDSS on CUDA, UMFPACK FFI otherwise
+            on_cuda = jax.default_backend() in ("cuda", "gpu")
+
+            if on_cuda and is_spineax_available():
+                logger.info("Using Spineax/cuDSS solver (GPU sparse)")
+                nr_solve = make_spineax_full_mna_solver(
+                    build_system_jit,
+                    n_nodes,
+                    n_vsources,
+                    nse,
                     bcsr_indptr=bcsr_indptr_jax,
                     bcsr_indices=bcsr_indices_jax,
                     noi_indices=noi_indices,
-                    max_iterations=100, abstol=1e-6, max_step=1.0,
-                    coo_sort_perm=coo_sort_perm_jax,
-                    csr_segment_ids=csr_segment_ids_jax,
-                )
-            elif is_umfpack_available():
-                # Good performance: UMFPACK via pure_callback (cached symbolic)
-                logger.info("Using UMFPACK solver (via pure_callback)")
-                nr_solve = make_umfpack_full_mna_solver(
-                    build_system_jit, n_nodes, n_vsources, nse,
-                    bcsr_indptr=bcsr_indptr_jax,
-                    bcsr_indices=bcsr_indices_jax,
-                    noi_indices=noi_indices,
-                    max_iterations=100, abstol=1e-6, max_step=1.0,
+                    max_iterations=100,
+                    abstol=1e-6,
+                    max_step=1.0,
                     coo_sort_perm=coo_sort_perm_jax,
                     csr_segment_ids=csr_segment_ids_jax,
                 )
             else:
-                # Fallback: JAX's spsolve (no external dependencies)
-                logger.info("Using JAX spsolve (no UMFPACK available)")
-                nr_solve = make_sparse_full_mna_solver(
-                    build_system_jit, n_nodes, n_vsources, nse,
+                logger.info("Using UMFPACK FFI solver (zero callback overhead)")
+                nr_solve = make_umfpack_ffi_full_mna_solver(
+                    build_system_jit,
+                    n_nodes,
+                    n_vsources,
+                    nse,
+                    bcsr_indptr=bcsr_indptr_jax,
+                    bcsr_indices=bcsr_indices_jax,
                     noi_indices=noi_indices,
-                    max_iterations=100, abstol=1e-6, max_step=1.0,
+                    max_iterations=100,
+                    abstol=1e-6,
+                    max_step=1.0,
                     coo_sort_perm=coo_sort_perm_jax,
                     csr_segment_ids=csr_segment_ids_jax,
-                    bcsr_indices=bcsr_indices_jax,
-                    bcsr_indptr=bcsr_indptr_jax,
                 )
 
         self._cached_full_mna_solver = nr_solve
@@ -485,8 +511,7 @@ class FullMNAStrategy(TransientStrategy):
             V0: Initial voltage vector
         """
         # Check cache - circuit topology doesn't change between runs
-        if (self._cached_init_V0 is not None and
-                self._cached_init_V0_n_total == n_total):
+        if self._cached_init_V0 is not None and self._cached_init_V0_n_total == n_total:
             return self._cached_init_V0
 
         vdd_value = self.runner._get_vdd_value()
@@ -497,26 +522,26 @@ class FullMNAStrategy(TransientStrategy):
         # Set VDD/GND nodes
         for name, idx in self.runner.node_names.items():
             name_lower = name.lower()
-            if 'vdd' in name_lower or 'vcc' in name_lower:
+            if "vdd" in name_lower or "vcc" in name_lower:
                 V = V.at[idx].set(vdd_value)
-            elif name_lower in ('gnd', 'vss', '0'):
+            elif name_lower in ("gnd", "vss", "0"):
                 V = V.at[idx].set(0.0)
 
         # Initialize voltage source nodes to target values
         for dev in self.runner.devices:
-            if dev['model'] == 'vsource':
-                nodes = dev.get('nodes', [])
+            if dev["model"] == "vsource":
+                nodes = dev.get("nodes", [])
                 if len(nodes) >= 2:
                     p_node, n_node = nodes[0], nodes[1]
-                    dc_val = float(dev['params'].get('dc', 0.0))
+                    dc_val = float(dev["params"].get("dc", 0.0))
                     if n_node == 0 and p_node > 0:
                         V = V.at[p_node].set(dc_val)
 
         # Initialize NOI nodes to 0V
         if setup.device_internal_nodes:
             for dev_name, internal_nodes in setup.device_internal_nodes.items():
-                if 'node4' in internal_nodes:
-                    noi_idx = internal_nodes['node4']
+                if "node4" in internal_nodes:
+                    noi_idx = internal_nodes["node4"]
                     V = V.at[noi_idx].set(0.0)
 
         # Cache result
@@ -539,8 +564,8 @@ class FullMNAStrategy(TransientStrategy):
         """
         # Use netlist step as default
         if dt is None:
-            params = getattr(self.runner, 'analysis_params', {})
-            dt = params.get('step', 1e-12)
+            params = getattr(self.runner, "analysis_params", {})
+            dt = params.get("step", 1e-12)
 
         logger.info(f"{self.name}: Starting warmup (max_steps={self.max_steps})")
 
@@ -552,8 +577,12 @@ class FullMNAStrategy(TransientStrategy):
         logger.info(f"{self.name}: Warmup complete in {wall_time:.2f}s")
         return wall_time
 
-    def run(self, t_stop: Optional[float] = None, dt: Optional[float] = None,
-            checkpoint_interval: Optional[int] = None) -> Tuple[jax.Array, jax.Array, Dict]:
+    def run(
+        self,
+        t_stop: Optional[float] = None,
+        dt: Optional[float] = None,
+        checkpoint_interval: Optional[int] = None,
+    ) -> Tuple[jax.Array, jax.Array, Dict]:
         """Run adaptive transient analysis with full MNA.
 
         Args:
@@ -596,13 +625,13 @@ class FullMNAStrategy(TransientStrategy):
         max_steps = self.max_steps
 
         # Use netlist analysis params as defaults
-        params = getattr(self.runner, 'analysis_params', {})
+        params = getattr(self.runner, "analysis_params", {})
         if t_stop is None:
-            t_stop = params.get('stop')
+            t_stop = params.get("stop")
             if t_stop is None:
                 raise ValueError("t_stop not specified and 'stop' not found in netlist")
         if dt is None:
-            dt = params.get('step')
+            dt = params.get("step")
             if dt is None:
                 raise ValueError("dt not specified and 'step' not found in netlist")
         setup = self.ensure_setup()
@@ -621,7 +650,9 @@ class FullMNAStrategy(TransientStrategy):
             hmax_from_minpts = t_stop / config.tran_minpts
             effective_max_dt = min(config.max_dt, hmax_from_minpts)
             if effective_max_dt < config.max_dt:
-                logger.info(f"{self.name}: tran_minpts={config.tran_minpts} -> hmax={effective_max_dt:.2e}s")
+                logger.info(
+                    f"{self.name}: tran_minpts={config.tran_minpts} -> hmax={effective_max_dt:.2e}s"
+                )
                 config = dataclasses.replace(config, max_dt=effective_max_dt)
 
         # Apply initial timestep scaling (VACASK uses tran_fs=0.25 by default)
@@ -629,7 +660,9 @@ class FullMNAStrategy(TransientStrategy):
         if config.tran_fs != 1.0:
             dt_original = dt
             dt = dt * config.tran_fs
-            logger.info(f"{self.name}: Applied tran_fs={config.tran_fs} scaling: dt={dt_original:.2e}s -> {dt:.2e}s")
+            logger.info(
+                f"{self.name}: Applied tran_fs={config.tran_fs} scaling: dt={dt_original:.2e}s -> {dt:.2e}s"
+            )
 
         device_arrays = self._device_arrays_full_mna
         dtype = jnp.float64
@@ -646,7 +679,7 @@ class FullMNAStrategy(TransientStrategy):
         # DC operating point (skip if icmode='uic')
         vsource_vals_init, isource_vals_init = self._build_source_arrays(source_fn(0.0))
 
-        if setup.icmode == 'uic':
+        if setup.icmode == "uic":
             # Use Initial Conditions - skip DC solve, start from 0V
             # This matches VACASK behavior: all nodes start at 0V, voltage sources
             # force their values. The initial state may be inconsistent (like SPICE3).
@@ -658,22 +691,46 @@ class FullMNAStrategy(TransientStrategy):
             # Compute initial charges consistent with initial voltages
             # Note: The state may not be at DC equilibrium - this is expected for UIC
             # Use gmin from netlist options (default 1e-12)
-            dc_gmin = getattr(self.runner.options, 'gmin', 1e-12)
-            _, _, Q_init, I_vsource_dc = self._cached_build_system_jit(
-                X0, vsource_vals_init, isource_vals_init,
-                jnp.zeros(n_unknowns, dtype=dtype), 0.0, device_arrays,
-                dc_gmin, 0.0, 0.0, 0.0, None, 0.0, None
+            dc_gmin = getattr(self.runner.options, "gmin", 1e-12)
+            _, _, Q_init, I_vsource_dc, _ = self._cached_build_system_jit(
+                X0,
+                vsource_vals_init,
+                isource_vals_init,
+                jnp.zeros(n_unknowns, dtype=dtype),
+                0.0,
+                device_arrays,
+                dc_gmin,
+                0.0,
+                0.0,
+                0.0,
+                None,
+                0.0,
+                None,
+                None,  # Last None is limit_state_in
             )
-            logger.info(f"{self.name}: Initial state - Q_max={float(jnp.max(jnp.abs(Q_init))):.2e}, "
-                       f"I_vdd={float(I_vsource_dc[0]) if len(I_vsource_dc) > 0 else 0:.2e}A")
+            logger.info(
+                f"{self.name}: Initial state - Q_max={float(jnp.max(jnp.abs(Q_init))):.2e}, "
+                f"I_vdd={float(I_vsource_dc[0]) if len(I_vsource_dc) > 0 else 0:.2e}A"
+            )
         else:
             # Compute DC operating point
             # Use gmin from netlist options (default 1e-12)
-            dc_gmin = getattr(self.runner.options, 'gmin', 1e-12)
-            X_dc, _, dc_converged, dc_residual, Q_dc, _, I_vsource_dc = nr_solve(
-                X0, vsource_vals_init, isource_vals_init,
-                jnp.zeros(n_unknowns, dtype=dtype), 0.0, device_arrays,
-                dc_gmin, 0.0, 0.0, 0.0, None, 0.0, None
+            dc_gmin = getattr(self.runner.options, "gmin", 1e-12)
+            X_dc, _, dc_converged, dc_residual, Q_dc, _, I_vsource_dc, _ = nr_solve(
+                X0,
+                vsource_vals_init,
+                isource_vals_init,
+                jnp.zeros(n_unknowns, dtype=dtype),
+                0.0,
+                device_arrays,
+                dc_gmin,
+                0.0,
+                0.0,
+                0.0,
+                None,
+                0.0,
+                None,
+                limit_state_in=None,  # Device-level limiting state (optional)
             )
 
             if dc_converged:
@@ -717,13 +774,25 @@ class FullMNAStrategy(TransientStrategy):
         if use_checkpoints:
             # Checkpoint mode: use smaller buffers and outer Python loop
             return self._run_with_checkpoints(
-                setup=setup, nr_solve=nr_solve, jit_source_eval=jit_source_eval,
-                device_arrays=device_arrays, X0=X0, Q_init=Q_init, I_vsource_dc=I_vsource_dc,
-                V_history=V_history, dt_history=dt_history,
-                t_stop=t_stop, dt=dt, max_steps=max_steps,
+                setup=setup,
+                nr_solve=nr_solve,
+                jit_source_eval=jit_source_eval,
+                device_arrays=device_arrays,
+                X0=X0,
+                Q_init=Q_init,
+                I_vsource_dc=I_vsource_dc,
+                V_history=V_history,
+                dt_history=dt_history,
+                t_stop=t_stop,
+                dt=dt,
+                max_steps=max_steps,
                 checkpoint_interval=effective_checkpoint_interval,
-                n_total=n_total, n_unknowns=n_unknowns, n_external=n_external,
-                n_vsources=n_vsources, config=config, dtype=dtype,
+                n_total=n_total,
+                n_unknowns=n_unknowns,
+                n_external=n_external,
+                n_vsources=n_vsources,
+                config=config,
+                dtype=dtype,
             )
 
         # Standard mode: single while_loop with full output arrays
@@ -739,6 +808,12 @@ class FullMNAStrategy(TransientStrategy):
         # Initial state
         # Initialize historic max with DC solution voltages
         V_max_historic_init = jnp.abs(X0[:n_total])
+        # Initialize device-level limiting state (flat array for all devices)
+        total_limit_states = self._total_limit_states
+        if total_limit_states > 0:
+            limit_state_init = jnp.zeros(total_limit_states, dtype=dtype)
+        else:
+            limit_state_init = jnp.zeros(0, dtype=dtype)
         init_state = FullMNAState(
             t=jnp.array(0.0, dtype=dtype),
             dt=jnp.array(dt, dtype=dtype),
@@ -762,6 +837,7 @@ class FullMNAStrategy(TransientStrategy):
             max_dt_used=jnp.array(dt, dtype=dtype),
             consecutive_rejects=jnp.array(0, dtype=jnp.int32),
             V_max_historic=V_max_historic_init,
+            limit_state=limit_state_init,
         )
 
         # Cache key does NOT include t_stop or max_dt since they're passed dynamically via state
@@ -777,9 +853,17 @@ class FullMNAStrategy(TransientStrategy):
 
             # Create while_loop functions using module-level function
             cond_fn, body_fn = _make_full_mna_while_loop_fns(
-                nr_solve, jit_source_eval, device_arrays, config,
-                n_total, n_unknowns, n_external, n_vsources,
-                max_steps, config.warmup_steps, dtype,
+                nr_solve,
+                jit_source_eval,
+                device_arrays,
+                config,
+                n_total,
+                n_unknowns,
+                n_external,
+                n_vsources,
+                max_steps,
+                config.warmup_steps,
+                dtype,
             )
 
             # JIT-compile the while_loop for performance
@@ -795,8 +879,10 @@ class FullMNAStrategy(TransientStrategy):
         run_while = self._jit_run_while_cache[cache_key]
 
         # Run simulation
-        logger.info(f"{self.name}: Starting simulation (t_stop={t_stop:.2e}s, dt={dt:.2e}s, "
-                   f"max_steps={max_steps}, {'sparse' if self.use_sparse else 'dense'})")
+        logger.info(
+            f"{self.name}: Starting simulation (t_stop={t_stop:.2e}s, dt={dt:.2e}s, "
+            f"max_steps={max_steps}, {'sparse' if self.use_sparse else 'dense'})"
+        )
         t_start = time_module.perf_counter()
 
         final_state = run_while(init_state)
@@ -824,23 +910,23 @@ class FullMNAStrategy(TransientStrategy):
 
         rejected = int(final_state.rejected_steps)
         stats = {
-            'n_steps': n_steps,  # Valid data is [:n_steps]
-            'total_timesteps': n_steps,
-            'accepted_steps': n_steps,
-            'rejected_steps': rejected,
-            'total_nr_iterations': int(final_state.total_nr_iters),
-            'avg_nr_iterations': float(final_state.total_nr_iters) / max(n_steps, 1),
-            'wall_time': wall_time,
-            'time_per_step_ms': wall_time / n_steps * 1000 if n_steps > 0 else 0,
-            'min_dt_used': float(final_state.min_dt_used),
-            'max_dt_used': float(final_state.max_dt_used),
-            'convergence_rate': n_steps / max(n_steps + rejected, 1),
-            'strategy': 'adaptive_full_mna',
-            'solver': 'sparse' if self.use_sparse else 'dense',
-            'V_out': V_out,  # Full voltage array [max_steps, n_nodes]
-            'I_out': I_out,  # Full current array [max_steps, n_vsources]
-            'node_indices': node_indices,  # name -> column index for V_out
-            'current_indices': current_indices,  # name -> column index for I_out
+            "n_steps": n_steps,  # Valid data is [:n_steps]
+            "total_timesteps": n_steps,
+            "accepted_steps": n_steps,
+            "rejected_steps": rejected,
+            "total_nr_iterations": int(final_state.total_nr_iters),
+            "avg_nr_iterations": float(final_state.total_nr_iters) / max(n_steps, 1),
+            "wall_time": wall_time,
+            "time_per_step_ms": wall_time / n_steps * 1000 if n_steps > 0 else 0,
+            "min_dt_used": float(final_state.min_dt_used),
+            "max_dt_used": float(final_state.max_dt_used),
+            "convergence_rate": n_steps / max(n_steps + rejected, 1),
+            "strategy": "adaptive_full_mna",
+            "solver": "sparse" if self.use_sparse else "dense",
+            "V_out": V_out,  # Full voltage array [max_steps, n_nodes]
+            "I_out": I_out,  # Full current array [max_steps, n_vsources]
+            "node_indices": node_indices,  # name -> column index for V_out
+            "current_indices": current_indices,  # name -> column index for I_out
         }
 
         logger.info(
@@ -854,12 +940,26 @@ class FullMNAStrategy(TransientStrategy):
         return times, V_out, stats
 
     def _run_with_checkpoints(
-        self, setup: TransientSetup, nr_solve: Callable, jit_source_eval: Callable,
-        device_arrays: Any, X0: jax.Array, Q_init: jax.Array, I_vsource_dc: jax.Array,
-        V_history: jax.Array, dt_history: jax.Array,
-        t_stop: float, dt: float, max_steps: int, checkpoint_interval: int,
-        n_total: int, n_unknowns: int, n_external: int, n_vsources: int,
-        config: AdaptiveConfig, dtype: Any,
+        self,
+        setup: TransientSetup,
+        nr_solve: Callable,
+        jit_source_eval: Callable,
+        device_arrays: Any,
+        X0: jax.Array,
+        Q_init: jax.Array,
+        I_vsource_dc: jax.Array,
+        V_history: jax.Array,
+        dt_history: jax.Array,
+        t_stop: float,
+        dt: float,
+        max_steps: int,
+        checkpoint_interval: int,
+        n_total: int,
+        n_unknowns: int,
+        n_external: int,
+        n_vsources: int,
+        config: AdaptiveConfig,
+        dtype: Any,
     ) -> Tuple[jax.Array, jax.Array, Dict]:
         """Run simulation with periodic checkpoints to CPU memory.
 
@@ -890,6 +990,12 @@ class FullMNAStrategy(TransientStrategy):
         current_history_count = 1
         current_warmup_count = 0
         current_V_max_historic = jnp.abs(X0[:n_total])
+        # Initialize device-level limiting state for checkpoint mode
+        total_limit_states = self._total_limit_states
+        if total_limit_states > 0:
+            current_limit_state = jnp.zeros(total_limit_states, dtype=dtype)
+        else:
+            current_limit_state = jnp.zeros(0, dtype=dtype)
 
         # Get or create JIT-compiled while_loop for checkpoint_interval size
         cache_key = (checkpoint_interval, n_total, n_unknowns, n_external, n_vsources, dtype)
@@ -900,9 +1006,17 @@ class FullMNAStrategy(TransientStrategy):
                 del self._jit_run_while_cache[oldest_key]
 
             cond_fn, body_fn = _make_full_mna_while_loop_fns(
-                nr_solve, jit_source_eval, device_arrays, config,
-                n_total, n_unknowns, n_external, n_vsources,
-                checkpoint_interval, config.warmup_steps, dtype,
+                nr_solve,
+                jit_source_eval,
+                device_arrays,
+                config,
+                n_total,
+                n_unknowns,
+                n_external,
+                n_vsources,
+                checkpoint_interval,
+                config.warmup_steps,
+                dtype,
             )
 
             @jax.jit
@@ -969,6 +1083,7 @@ class FullMNAStrategy(TransientStrategy):
                 max_dt_used=jnp.array(current_dt, dtype=dtype),
                 consecutive_rejects=jnp.array(0, dtype=jnp.int32),
                 V_max_historic=current_V_max_historic,
+                limit_state=current_limit_state,
             )
 
             # Run while_loop for this checkpoint
@@ -1003,6 +1118,7 @@ class FullMNAStrategy(TransientStrategy):
             current_history_count = int(final_state.history_count)
             current_warmup_count = int(final_state.warmup_count)
             current_V_max_historic = final_state.V_max_historic
+            current_limit_state = final_state.limit_state
 
             first_checkpoint = False
 
@@ -1044,25 +1160,25 @@ class FullMNAStrategy(TransientStrategy):
 
         n_steps = total_steps
         stats = {
-            'n_steps': n_steps,
-            'total_timesteps': n_steps,
-            'accepted_steps': n_steps,
-            'rejected_steps': total_rejected,
-            'total_nr_iterations': total_nr_iters,
-            'avg_nr_iterations': total_nr_iters / max(n_steps, 1),
-            'wall_time': wall_time,
-            'time_per_step_ms': wall_time / n_steps * 1000 if n_steps > 0 else 0,
-            'min_dt_used': min_dt_global,
-            'max_dt_used': max_dt_global,
-            'convergence_rate': n_steps / max(n_steps + total_rejected, 1),
-            'strategy': 'adaptive_full_mna_checkpointed',
-            'solver': 'sparse' if self.use_sparse else 'dense',
-            'V_out': V_out,
-            'I_out': I_out,
-            'node_indices': node_indices,
-            'current_indices': current_indices,
-            'checkpoints': checkpoint_num,
-            'checkpoint_interval': checkpoint_interval,
+            "n_steps": n_steps,
+            "total_timesteps": n_steps,
+            "accepted_steps": n_steps,
+            "rejected_steps": total_rejected,
+            "total_nr_iterations": total_nr_iters,
+            "avg_nr_iterations": total_nr_iters / max(n_steps, 1),
+            "wall_time": wall_time,
+            "time_per_step_ms": wall_time / n_steps * 1000 if n_steps > 0 else 0,
+            "min_dt_used": min_dt_global,
+            "max_dt_used": max_dt_global,
+            "convergence_rate": n_steps / max(n_steps + total_rejected, 1),
+            "strategy": "adaptive_full_mna_checkpointed",
+            "solver": "sparse" if self.use_sparse else "dense",
+            "V_out": V_out,
+            "I_out": I_out,
+            "node_indices": node_indices,
+            "current_indices": current_indices,
+            "checkpoints": checkpoint_num,
+            "checkpoint_interval": checkpoint_interval,
         }
 
         logger.info(
@@ -1079,24 +1195,26 @@ class FullMNAStrategy(TransientStrategy):
         Uses jnp.stack instead of jnp.array to handle traced values properly.
         """
         source_data = setup.source_device_data
-        vsource_data = source_data.get('vsource', {'names': [], 'dc_values': []})
-        isource_data = source_data.get('isource', {'names': [], 'dc_values': []})
+        vsource_data = source_data.get("vsource", {"names": [], "dc_values": []})
+        isource_data = source_data.get("isource", {"names": [], "dc_values": []})
 
-        vsource_names = vsource_data.get('names', [])
-        isource_names = isource_data.get('names', [])
+        vsource_names = vsource_data.get("names", [])
+        isource_names = isource_data.get("names", [])
         n_vsources = len(vsource_names)
         n_isources = len(isource_names)
 
         dtype = jnp.float64
 
         if n_vsources == 0 and n_isources == 0:
+
             def eval_sources(t):
                 return jnp.zeros(0, dtype=dtype), jnp.zeros(0, dtype=dtype)
+
             return eval_sources
 
         # Get DC values as JAX arrays for fallback
-        vsource_dc = jnp.array(vsource_data.get('dc_values', [0.0] * n_vsources), dtype=dtype)
-        isource_dc = jnp.array(isource_data.get('dc_values', [0.0] * n_isources), dtype=dtype)
+        vsource_dc = jnp.array(vsource_data.get("dc_values", [0.0] * n_vsources), dtype=dtype)
+        isource_dc = jnp.array(isource_data.get("dc_values", [0.0] * n_isources), dtype=dtype)
 
         def eval_sources(t):
             source_values = source_fn(t)
@@ -1108,8 +1226,7 @@ class FullMNAStrategy(TransientStrategy):
                 val = source_values.get(vsource_names[0], vsource_dc[0])
                 vsource_vals = jnp.array([val], dtype=dtype)
             else:
-                vals = [source_values.get(name, dc)
-                        for name, dc in zip(vsource_names, vsource_dc)]
+                vals = [source_values.get(name, dc) for name, dc in zip(vsource_names, vsource_dc)]
                 vsource_vals = jnp.stack(vals)
 
             # Build isource array using jnp.stack (JIT-compatible)
@@ -1119,8 +1236,7 @@ class FullMNAStrategy(TransientStrategy):
                 val = source_values.get(isource_names[0], isource_dc[0])
                 isource_vals = jnp.array([val], dtype=dtype)
             else:
-                vals = [source_values.get(name, dc)
-                        for name, dc in zip(isource_names, isource_dc)]
+                vals = [source_values.get(name, dc) for name, dc in zip(isource_names, isource_dc)]
                 isource_vals = jnp.stack(vals)
 
             return vsource_vals, isource_vals
@@ -1130,28 +1246,30 @@ class FullMNAStrategy(TransientStrategy):
 
 class FullMNAState(NamedTuple):
     """State for while-loop based full MNA adaptive timestep."""
-    t: jax.Array                    # Current time
-    dt: jax.Array                   # Current timestep
-    X: jax.Array                    # Current solution [V; I_branch]
-    Q_prev: jax.Array               # Previous charge state
-    dQdt_prev: jax.Array            # Previous dQ/dt
-    Q_prev2: jax.Array              # Charge two steps ago (for Gear2)
-    V_history: jax.Array            # History of voltage vectors (max_history, n_total)
-    dt_history: jax.Array           # History of timesteps (max_history,)
-    history_count: jax.Array        # Number of valid history entries
-    times_out: jax.Array            # Output time array
-    V_out: jax.Array                # Output voltage array (max_steps, n_external)
-    I_out: jax.Array                # Output current array (max_steps, n_vsources)
-    step_idx: jax.Array             # Current output step index
-    warmup_count: jax.Array         # Warmup steps completed
-    t_stop: jax.Array               # Target stop time (passed through)
-    max_dt: jax.Array               # Maximum timestep (passed through, from tran_minpts)
-    total_nr_iters: jax.Array       # Total NR iterations
-    rejected_steps: jax.Array       # Number of rejected steps
-    min_dt_used: jax.Array          # Minimum dt actually used
-    max_dt_used: jax.Array          # Maximum dt actually used
+
+    t: jax.Array  # Current time
+    dt: jax.Array  # Current timestep
+    X: jax.Array  # Current solution [V; I_branch]
+    Q_prev: jax.Array  # Previous charge state
+    dQdt_prev: jax.Array  # Previous dQ/dt
+    Q_prev2: jax.Array  # Charge two steps ago (for Gear2)
+    V_history: jax.Array  # History of voltage vectors (max_history, n_total)
+    dt_history: jax.Array  # History of timesteps (max_history,)
+    history_count: jax.Array  # Number of valid history entries
+    times_out: jax.Array  # Output time array
+    V_out: jax.Array  # Output voltage array (max_steps, n_external)
+    I_out: jax.Array  # Output current array (max_steps, n_vsources)
+    step_idx: jax.Array  # Current output step index
+    warmup_count: jax.Array  # Warmup steps completed
+    t_stop: jax.Array  # Target stop time (passed through)
+    max_dt: jax.Array  # Maximum timestep (passed through, from tran_minpts)
+    total_nr_iters: jax.Array  # Total NR iterations
+    rejected_steps: jax.Array  # Number of rejected steps
+    min_dt_used: jax.Array  # Minimum dt actually used
+    max_dt_used: jax.Array  # Maximum dt actually used
     consecutive_rejects: jax.Array  # Consecutive LTE rejections (reset on accept)
-    V_max_historic: jax.Array       # Historic max |V| per node (for LTE tolerance)
+    V_max_historic: jax.Array  # Historic max |V| per node (for LTE tolerance)
+    limit_state: jax.Array  # Device-level limiting state (flat array for all devices)
 
 
 def _make_full_mna_while_loop_fns(
@@ -1242,9 +1360,13 @@ def _make_full_mna_while_loop_fns(
         can_predict = warmup_complete & (state.history_count >= 2)
 
         V_pred, pred_err_coeff = predict_voltage_jax(
-            state.V_history, state.dt_history, state.history_count,
-            dt_cur, config.max_order,
-            debug=config.debug_lte, debug_node=24
+            state.V_history,
+            state.dt_history,
+            state.history_count,
+            dt_cur,
+            config.max_order,
+            debug=config.debug_lte,
+            debug_node=24,
         )
 
         # Initialize X with predicted voltages
@@ -1254,14 +1376,26 @@ def _make_full_mna_while_loop_fns(
         ramp_progress = jnp.where(
             gshunt_steps > 0,
             jnp.clip(state.step_idx / gshunt_steps, 0.0, 1.0),
-            1.0  # If no steps, use target immediately
+            1.0,  # If no steps, use target immediately
         )
         current_gshunt = gshunt_init + ramp_progress * (gshunt_target - gshunt_init)
 
-        # Newton-Raphson solve
-        X_new, iterations, converged, max_f, Q, dQdt_out, I_vsource = nr_solve(
-            X_init, vsource_vals, isource_vals, Q_prev, c0, device_arrays,
-            1e-12, current_gshunt, c1, d1, dQdt_prev, c2, Q_prev2,
+        # Newton-Raphson solve with device-level limiting state
+        X_new, iterations, converged, max_f, Q, dQdt_out, I_vsource, limit_state_out = nr_solve(
+            X_init,
+            vsource_vals,
+            isource_vals,
+            Q_prev,
+            c0,
+            device_arrays,
+            1e-12,
+            current_gshunt,
+            c1,
+            d1,
+            dQdt_prev,
+            c2,
+            Q_prev2,
+            limit_state_in=state.limit_state,
         )
 
         new_total_nr_iters = state.total_nr_iters + jnp.int32(iterations)
@@ -1269,13 +1403,23 @@ def _make_full_mna_while_loop_fns(
         # Handle NR failure
         nr_failed = ~converged
         at_min_dt = dt_cur <= config.min_dt
-        # Note: NR failure at min_dt is implicitly accepted since nr_reject = nr_failed & ~at_min_dt
+        # When NR fails at min_dt, we accept the step (to advance time) but DON'T use the
+        # bad solution - we keep the previous solution to prevent state corruption.
+        # This is tracked by nr_failed_at_min_dt and used in the state update below.
+        nr_failed_at_min_dt = nr_failed & at_min_dt
 
         # LTE estimation (on voltage part only) using shared function
         V_new = X_new[:n_total]
         dt_lte, lte_norm = compute_lte_timestep_jax(
-            V_new, V_pred, pred_err_coeff, dt_cur, state.history_count, config, error_coeff_integ,
-            debug_lte=config.debug_lte, step_idx=state.step_idx,
+            V_new,
+            V_pred,
+            pred_err_coeff,
+            dt_cur,
+            state.history_count,
+            config,
+            error_coeff_integ,
+            debug_lte=config.debug_lte,
+            step_idx=state.step_idx,
             V_max_historic=state.V_max_historic,  # Use historic max for tolerance (VACASK relrefAlllocal)
         )
 
@@ -1294,16 +1438,27 @@ def _make_full_mna_while_loop_fns(
         new_consecutive_rejects = jnp.where(
             accept_step,
             jnp.array(0, dtype=jnp.int32),
-            jnp.where(lte_reject, state.consecutive_rejects + 1, state.consecutive_rejects)
+            jnp.where(lte_reject, state.consecutive_rejects + 1, state.consecutive_rejects),
         )
 
         # Debug per-step logging (for VACASK comparison)
         if config.debug_steps:
-            def _debug_step_callback(step, t_next_val, dt_val, nr_iters, residual,
-                                     can_pred, lte_norm_val, lte_rej, nr_rej, accept):
+
+            def _debug_step_callback(
+                step,
+                t_next_val,
+                dt_val,
+                nr_iters,
+                residual,
+                can_pred,
+                lte_norm_val,
+                lte_rej,
+                nr_rej,
+                accept,
+            ):
                 t_ps = float(t_next_val) * 1e12
                 dt_ps = float(dt_val) * 1e12
-                lte_ratio = float(dt_val / (dt_val / max(float(lte_norm_val), 1e-30)))  # Approximate
+                float(dt_val / (dt_val / max(float(lte_norm_val), 1e-30)))  # Approximate
                 if not can_pred:
                     lte_status = "Cannot estimate"
                 elif lte_rej:
@@ -1311,12 +1466,23 @@ def _make_full_mna_while_loop_fns(
                 else:
                     lte_status = f"LTE/tol={float(lte_norm_val):.2f}"
                 status = "REJECT" if not accept else "accept"
-                print(f"Step {int(step)+1:3d}: t={t_ps:8.3f}ps dt={dt_ps:8.4f}ps "
-                      f"NR={int(nr_iters):2d} res={float(residual):.2e} {lte_status:<20} [{status}]")
+                print(
+                    f"Step {int(step) + 1:3d}: t={t_ps:8.3f}ps dt={dt_ps:8.4f}ps "
+                    f"NR={int(nr_iters):2d} res={float(residual):.2e} {lte_status:<20} [{status}]"
+                )
+
             jax.debug.callback(
                 _debug_step_callback,
-                state.step_idx, t_next, dt_cur, iterations, max_f,
-                can_predict, lte_norm, lte_reject, nr_reject, accept_step
+                state.step_idx,
+                t_next,
+                dt_cur,
+                iterations,
+                max_f,
+                can_predict,
+                lte_norm,
+                lte_reject,
+                nr_reject,
+                accept_step,
             )
 
         # Compute new dt
@@ -1329,55 +1495,55 @@ def _make_full_mna_while_loop_fns(
         new_dt = jnp.minimum(new_dt, state.t_stop - t_next)
 
         # Update state
+        # When NR fails at min_dt, we accept the step (advance time) but keep the previous
+        # solution to prevent state corruption from bad NR results
+        use_new_solution = accept_step & ~nr_failed_at_min_dt
         new_t = jnp.where(accept_step, t_next, t)
-        new_X = jnp.where(accept_step, X_new, X)
-        new_Q_prev = jnp.where(accept_step, Q, Q_prev)
-        new_dQdt_prev = jnp.where(accept_step, dQdt_out, dQdt_prev)
-        new_Q_prev2 = jnp.where(accept_step, Q_prev, Q_prev2)
+        new_X = jnp.where(use_new_solution, X_new, X)
+        new_Q_prev = jnp.where(use_new_solution, Q, Q_prev)
+        new_dQdt_prev = jnp.where(use_new_solution, dQdt_out, dQdt_prev)
+        new_Q_prev2 = jnp.where(use_new_solution, Q_prev, Q_prev2)
 
-        # Update history
+        # Update history - only when we're actually using a new valid solution
+        # When NR fails at min_dt, don't corrupt the predictor history
         new_V_history = jnp.where(
-            accept_step,
-            jnp.roll(state.V_history, 1, axis=0).at[0].set(V_new),
-            state.V_history
+            use_new_solution, jnp.roll(state.V_history, 1, axis=0).at[0].set(V_new), state.V_history
         )
         new_dt_history = jnp.where(
-            accept_step,
-            jnp.roll(state.dt_history, 1).at[0].set(dt_cur),
-            state.dt_history
+            use_new_solution, jnp.roll(state.dt_history, 1).at[0].set(dt_cur), state.dt_history
         )
         new_history_count = jnp.where(
-            accept_step,
-            jnp.minimum(state.history_count + 1, max_history),
-            state.history_count
+            use_new_solution, jnp.minimum(state.history_count + 1, max_history), state.history_count
         )
-        new_warmup_count = jnp.where(accept_step, state.warmup_count + 1, state.warmup_count)
+        new_warmup_count = jnp.where(use_new_solution, state.warmup_count + 1, state.warmup_count)
 
         # Update historic max voltage per node (for VACASK-compatible LTE tolerance)
         # This implements relrefAlllocal: tolerance based on max |V| seen across all time
+        # Only update when we have a valid solution
         new_V_max_historic = jnp.where(
-            accept_step,
+            use_new_solution,
             jnp.maximum(state.V_max_historic, jnp.abs(V_new)),
-            state.V_max_historic
+            state.V_max_historic,
         )
 
         # Update outputs
+        # Compute the voltage to record - use new_X which is the actual solution we're using
+        # (either X_new if converged, or previous X if NR failed at min_dt)
+        V_to_record = new_X[:n_external]
         new_times_out = jnp.where(
-            accept_step,
-            state.times_out.at[state.step_idx].set(t_next),
-            state.times_out
+            accept_step, state.times_out.at[state.step_idx].set(t_next), state.times_out
         )
         new_V_out = jnp.where(
-            accept_step,
-            state.V_out.at[state.step_idx].set(V_new[:n_external]),
-            state.V_out
+            accept_step, state.V_out.at[state.step_idx].set(V_to_record), state.V_out
+        )
+        # For currents, use zero if NR failed at min_dt (current from bad solution is unreliable)
+        I_to_record = jnp.where(
+            nr_failed_at_min_dt,
+            jnp.zeros(n_vsources, dtype=dtype) if n_vsources > 0 else jnp.zeros(1, dtype=dtype),
+            I_vsource[:n_vsources] if n_vsources > 0 else jnp.zeros(1, dtype=dtype),
         )
         new_I_out = jnp.where(
-            accept_step,
-            state.I_out.at[state.step_idx].set(
-                I_vsource[:n_vsources] if n_vsources > 0 else jnp.zeros(1, dtype=dtype)
-            ),
-            state.I_out
+            accept_step, state.I_out.at[state.step_idx].set(I_to_record), state.I_out
         )
         new_step_idx = jnp.where(accept_step, state.step_idx + 1, state.step_idx)
 
@@ -1398,6 +1564,13 @@ def _make_full_mna_while_loop_fns(
                 _progress_callback, new_step_idx, new_t, state.t_stop, new_dt, new_rejected
             ),
             lambda: None,
+        )
+
+        # Update limit_state: use new state when we accept the step, keep old state on rejection
+        new_limit_state = (
+            jnp.where(use_new_solution, limit_state_out, state.limit_state)
+            if state.limit_state.size > 0
+            else state.limit_state
         )
 
         return FullMNAState(
@@ -1423,6 +1596,7 @@ def _make_full_mna_while_loop_fns(
             max_dt_used=new_max_dt,
             consecutive_rejects=new_consecutive_rejects,
             V_max_historic=new_V_max_historic,
+            limit_state=new_limit_state,
         )
 
     return cond_fn, body_fn

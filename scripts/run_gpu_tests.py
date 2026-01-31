@@ -56,8 +56,12 @@ def main():
     # Trigger the workflow
     print("\nTriggering test-gpu-cloudrun workflow...")
     workflow_cmd = [
-        "gh", "workflow", "run", "test-gpu-cloudrun.yml",
-        "--ref", branch,
+        "gh",
+        "workflow",
+        "run",
+        "test-gpu-cloudrun.yml",
+        "--ref",
+        branch,
     ]
 
     if args.full:
@@ -71,17 +75,26 @@ def main():
         print("\nWaiting for workflow to start...")
         # Give it a moment to register
         import time
+
         time.sleep(3)
 
         # Get the latest run
-        result = run_command([
-            "gh", "run", "list",
-            "--workflow", "test-gpu-cloudrun.yml",
-            "--limit", "1",
-            "--json", "databaseId,status,conclusion",
-        ])
+        result = run_command(
+            [
+                "gh",
+                "run",
+                "list",
+                "--workflow",
+                "test-gpu-cloudrun.yml",
+                "--limit",
+                "1",
+                "--json",
+                "databaseId,status,conclusion",
+            ]
+        )
 
         import json
+
         runs = json.loads(result.stdout)
         if runs:
             run_id = runs[0]["databaseId"]
@@ -89,10 +102,16 @@ def main():
             run_command(["gh", "run", "watch", str(run_id)])
 
             # Show the logs if it failed
-            result = run_command([
-                "gh", "run", "view", str(run_id),
-                "--json", "conclusion",
-            ])
+            result = run_command(
+                [
+                    "gh",
+                    "run",
+                    "view",
+                    str(run_id),
+                    "--json",
+                    "conclusion",
+                ]
+            )
             conclusion = json.loads(result.stdout).get("conclusion")
             if conclusion != "success":
                 print("\nWorkflow failed. Fetching logs...")

@@ -61,7 +61,8 @@ def parse_tran_params(cir_path: Path) -> Tuple[float, float]:
     #   .TRAN 0 0.5ms
     #   .TRAN 1ns 100ns
     import re
-    tran_match = re.search(r'\.TRAN\s+(\S+)\s+(\S+)', content, re.IGNORECASE)
+
+    tran_match = re.search(r"\.TRAN\s+(\S+)\s+(\S+)", content, re.IGNORECASE)
     if not tran_match:
         raise ValueError(f"No .TRAN statement found in {cir_path}")
 
@@ -70,26 +71,26 @@ def parse_tran_params(cir_path: Path) -> Tuple[float, float]:
         s = s.strip()
         # Order matters - check longer suffixes first
         suffixes = [
-            ('meg', 1e6),
-            ('mil', 25.4e-6),  # mils
-            ('ms', 1e-3),      # milliseconds
-            ('us', 1e-6),      # microseconds
-            ('ns', 1e-9),      # nanoseconds
-            ('ps', 1e-12),     # picoseconds
-            ('fs', 1e-15),     # femtoseconds
-            ('f', 1e-15),
-            ('p', 1e-12),
-            ('n', 1e-9),
-            ('u', 1e-6),
-            ('m', 1e-3),
-            ('k', 1e3),
-            ('g', 1e9),
-            ('t', 1e12),
+            ("meg", 1e6),
+            ("mil", 25.4e-6),  # mils
+            ("ms", 1e-3),  # milliseconds
+            ("us", 1e-6),  # microseconds
+            ("ns", 1e-9),  # nanoseconds
+            ("ps", 1e-12),  # picoseconds
+            ("fs", 1e-15),  # femtoseconds
+            ("f", 1e-15),
+            ("p", 1e-12),
+            ("n", 1e-9),
+            ("u", 1e-6),
+            ("m", 1e-3),
+            ("k", 1e3),
+            ("g", 1e9),
+            ("t", 1e12),
         ]
         s_lower = s.lower()
         for suffix, mult in suffixes:
             if s_lower.endswith(suffix):
-                return float(s[:-len(suffix)]) * mult
+                return float(s[: -len(suffix)]) * mult
         return float(s)
 
     step_str = tran_match.group(1)
@@ -176,8 +177,8 @@ def run_xyce_test(
     computed = {}
     comparison_errors = []
 
-    for col in (check_columns or expected_cols):
-        if col.upper() in ('INDEX', 'TIME'):
+    for col in check_columns or expected_cols:
+        if col.upper() in ("INDEX", "TIME"):
             continue
 
         expected = get_column(expected_data, col)
@@ -187,7 +188,8 @@ def run_xyce_test(
         # Find matching column in computed results
         # Xyce column names like "V(3)" map to node "3"
         import re
-        node_match = re.match(r'V\((\w+)\)', col, re.IGNORECASE)
+
+        node_match = re.match(r"V\((\w+)\)", col, re.IGNORECASE)
         if node_match:
             node_name = node_match.group(1)
             if node_name in result.voltages:
@@ -196,6 +198,7 @@ def run_xyce_test(
 
                 # Interpolate to expected time points
                 from jax.numpy import interp
+
                 computed_at_expected = interp(
                     time_col,
                     result.times,
@@ -205,9 +208,7 @@ def run_xyce_test(
                 # Check if values are close
                 if not jnp.allclose(computed_at_expected, expected, rtol=rtol, atol=atol):
                     max_diff = float(jnp.max(jnp.abs(computed_at_expected - expected)))
-                    comparison_errors.append(
-                        f"{col}: max diff = {max_diff:.6e}"
-                    )
+                    comparison_errors.append(f"{col}: max diff = {max_diff:.6e}")
 
     if comparison_errors:
         pytest.fail("Value mismatch:\n" + "\n".join(comparison_errors))
@@ -216,6 +217,7 @@ def run_xyce_test(
 
 
 # --- Test cases ---
+
 
 class TestXyceRegression:
     """Tests from Xyce_Regression suite.
@@ -237,7 +239,7 @@ class TestXyceRegression:
             pytest.skip(f"Netlist not found: {test_case.netlist_path}")
 
         # Skip non-transient tests for now
-        if test_case.analysis_type != 'tran':
+        if test_case.analysis_type != "tran":
             pytest.skip(f"Analysis type {test_case.analysis_type} not yet supported")
 
         # Skip tests without expected output

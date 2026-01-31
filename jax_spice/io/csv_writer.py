@@ -31,11 +31,11 @@ def write_csv(
     output_path = Path(output_path)
 
     # Extract data
-    if hasattr(result, 'frequencies'):
-        x_name = 'frequency'
+    if hasattr(result, "frequencies"):
+        x_name = "frequency"
         x_data = np.asarray(result.frequencies)
     else:
-        x_name = 'time'
+        x_name = "time"
         x_data = np.asarray(result.times)
 
     voltages = {k: np.asarray(v) for k, v in result.voltages.items()}
@@ -43,7 +43,7 @@ def write_csv(
     # Sort node names for consistent output
     node_names = sorted(voltages.keys())
 
-    with open(output_path, 'w', newline='') as f:
+    with open(output_path, "w", newline="") as f:
         writer = csv.writer(f)
 
         # Header row
@@ -51,7 +51,7 @@ def write_csv(
         writer.writerow(header)
 
         # Data rows
-        fmt = f'{{:.{precision}e}}'
+        fmt = f"{{:.{precision}e}}"
         for i in range(len(x_data)):
             row = [fmt.format(x_data[i])]
             for name in node_names:
@@ -67,9 +67,9 @@ def read_csv(input_path: Union[str, Path]) -> dict:
         - voltages: dict of node_name -> array
     """
     input_path = Path(input_path)
-    result = {'voltages': {}}
+    result = {"voltages": {}}
 
-    with open(input_path, 'r', newline='') as f:
+    with open(input_path, "r", newline="") as f:
         reader = csv.reader(f)
         header = next(reader)
 
@@ -84,11 +84,11 @@ def read_csv(input_path: Union[str, Path]) -> dict:
             for i, name in enumerate(node_names):
                 data[name].append(float(row[i + 1]))
 
-    if x_name == 'frequency':
-        result['frequencies'] = np.array(x_data)
+    if x_name == "frequency":
+        result["frequencies"] = np.array(x_data)
     else:
-        result['times'] = np.array(x_data)
+        result["times"] = np.array(x_data)
 
-    result['voltages'] = {name: np.array(values) for name, values in data.items()}
+    result["voltages"] = {name: np.array(values) for name, values in data.items()}
 
     return result

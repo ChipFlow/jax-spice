@@ -221,8 +221,7 @@ class TestTimestepCalculation:
         max_dt = 1e-6
 
         dt_new, _ = compute_new_timestep(
-            lte, V_ref, reltol, abstol, lte_ratio, current_dt, order,
-            min_dt=min_dt, max_dt=max_dt
+            lte, V_ref, reltol, abstol, lte_ratio, current_dt, order, min_dt=min_dt, max_dt=max_dt
         )
 
         # Even though error suggests huge increase, should be capped
@@ -241,8 +240,7 @@ class TestTimestepCalculation:
         current_dt = 1e-9
 
         dt_new, max_ratio = compute_new_timestep(
-            lte, V_ref, config.reltol, config.abstol, config.lte_ratio,
-            current_dt, order=1
+            lte, V_ref, config.reltol, config.abstol, config.lte_ratio, current_dt, order=1
         )
 
         # Check if this would be rejected
@@ -284,5 +282,3 @@ class TestAdaptiveConfig:
         assert config.redo_factor == 3.0
         assert config.reltol == 1e-4
         assert config.abstol == 1e-14
-
-

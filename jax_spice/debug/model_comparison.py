@@ -15,12 +15,12 @@ import os
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Dict, List, Tuple
 
 import numpy as np
 
 # Ensure JAX uses 64-bit floats
-os.environ.setdefault('JAX_ENABLE_X64', 'true')
+os.environ.setdefault("JAX_ENABLE_X64", "true")
 
 
 @dataclass
@@ -109,7 +109,7 @@ class ModelComparator:
 
     # Physical constants
     K_B = 1.38064852e-23  # Boltzmann constant
-    Q = 1.602176634e-19   # Elementary charge
+    Q = 1.602176634e-19  # Elementary charge
 
     def __init__(
         self,
@@ -144,21 +144,23 @@ class ModelComparator:
 
         # Import here to avoid circular imports
         sys.path.insert(0, str(Path(__file__).parent.parent.parent))
-        sys.path.insert(0, str(Path(__file__).parent.parent.parent / 'tests'))
+        sys.path.insert(0, str(Path(__file__).parent.parent.parent / "tests"))
 
-        from test_osdi_jax_comparison import create_osdi_evaluator, create_jax_evaluator
+        from test_osdi_jax_comparison import create_jax_evaluator, create_osdi_evaluator
 
-        self._osdi_eval, _, _, _, self._jacobian_keys, self._n_nodes = \
-            create_osdi_evaluator(self.osdi_path, self.params, self.temperature)
+        self._osdi_eval, _, _, _, self._jacobian_keys, self._n_nodes = create_osdi_evaluator(
+            self.osdi_path, self.params, self.temperature
+        )
 
-        self._jax_eval, _, self._jax_metadata = \
-            create_jax_evaluator(self.va_path, self.params, self.temperature)
+        self._jax_eval, _, self._jax_metadata = create_jax_evaluator(
+            self.va_path, self.params, self.temperature
+        )
 
         # Get cache for analysis
         _, _, _, debug_info = create_jax_evaluator(
             self.va_path, self.params, self.temperature, return_debug_info=True
         )
-        self._jax_cache = debug_info['cache']
+        self._jax_cache = debug_info["cache"]
 
     def compare_at_bias(
         self,
@@ -198,7 +200,9 @@ class ModelComparator:
                 resist_max_rel = max(resist_max_rel, abs(o - j) / abs(o))
 
         # Jacobian comparison
-        jac_diff = max(abs(o - j) for o, j in zip(osdi_jac, jax_jac)) if osdi_jac and jax_jac else 0.0
+        jac_diff = (
+            max(abs(o - j) for o, j in zip(osdi_jac, jax_jac)) if osdi_jac and jax_jac else 0.0
+        )
         jac_nz_osdi = sum(1 for v in osdi_jac if abs(v) > 1e-20)
         jac_nz_jax = sum(1 for v in jax_jac if abs(v) > 1e-20)
 
@@ -297,7 +301,7 @@ class ModelComparator:
         osdi_res = self._osdi_eval(voltages)
         jax_res = self._jax_eval(voltages)
 
-        node_names = self._jax_metadata.get('node_names', [])
+        node_names = self._jax_metadata.get("node_names", [])
 
         print(f"\n=== Residual Comparison at V={voltages} ===")
         print(f"{'Node':<6} {'Name':<10} {'OSDI':>14} {'JAX':>14} {'Diff':>14}")

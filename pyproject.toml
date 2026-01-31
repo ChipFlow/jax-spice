@@ -100,8 +100,18 @@ select = ["E", "F", "I", "N", "W"]
 # N803: argument name should be lowercase (V_history, V_pred, etc.)
 # N806: variable in function should be lowercase (V_pred, Q_prev, etc.)
 # N815: variable in class scope should not be mixedCase (dQdt_prev)
+# N802: function name should be lowercase (NR_solve, etc.)
+# N816: variable in global scope should not be mixedCase
 # E501: Line too long
-ignore = ["N803", "N806", "N815", "E501"]
+# E402: Module level import not at top of file (intentional for lazy loading)
+# E741: Ambiguous variable name (l, I, O) - common in circuit simulation (I=current, l=length)
+# E721: Type comparison using == instead of isinstance (used intentionally with JAX arrays)
+# F403/F405: Star imports (used in __init__.py for public API)
+ignore = ["N803", "N806", "N815", "N802", "N816", "E501", "E402", "E741", "E721", "F403", "F405"]
+
+[tool.ruff.lint.per-file-ignores]
+# Allow star imports in __init__.py files
+"__init__.py" = ["F401"]
 
 [tool.pyright]
 pythonVersion = "3.11"

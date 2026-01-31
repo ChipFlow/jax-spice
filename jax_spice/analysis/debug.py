@@ -38,6 +38,7 @@ class ParamTrace:
     3. OpenVAF param_kinds (param, hidden_state, voltage, etc.)
     4. Final value in shared_params or device_params arrays
     """
+
     param_name: str
     instance_name: str
 
@@ -110,7 +111,7 @@ def trace_param(
     # Find the device in engine.devices
     device = None
     for dev in engine.devices:
-        if dev.get('name') == instance_name:
+        if dev.get("name") == instance_name:
             device = dev
             break
 
@@ -119,7 +120,7 @@ def trace_param(
 
     # Layer 1: Instance params - check original netlist instance
     # The device dict 'original_params' contains the actual netlist params
-    original_params = device.get('original_params', {})
+    original_params = device.get("original_params", {})
     for k, v in original_params.items():
         if k.lower() == param_lower:
             trace.in_instance = True
@@ -128,8 +129,8 @@ def trace_param(
 
     # Layer 2: Model params from model card
     # Try to find the model card - may be model name or variant (e.g., psp103n/psp103p)
-    model_name = device.get('model')
-    model_card_name = device.get('model_card')  # May be stored explicitly
+    model_name = device.get("model")
+    model_card_name = device.get("model_card")  # May be stored explicitly
     trace.model_name = model_card_name or model_name
 
     if engine.circuit:
@@ -153,7 +154,7 @@ def trace_param(
 
     # If not found in original_params or model, get value from merged params
     if not trace.in_instance and not trace.in_model:
-        merged_params = device.get('params', {})
+        merged_params = device.get("params", {})
         for k, v in merged_params.items():
             if k.lower() == param_lower:
                 trace.instance_value = v  # Store the value but mark as default
@@ -161,12 +162,12 @@ def trace_param(
 
     # Layer 3 & 4: OpenVAF mapping
     # Get the model type (e.g., 'psp103' from 'psp103n')
-    model_type = device.get('model_type', model_name)
+    model_type = device.get("model_type", model_name)
     compiled = engine._compiled_models.get(model_type)
 
     if compiled:
-        param_names = compiled.get('param_names', [])
-        param_kinds = compiled.get('param_kinds', [])
+        param_names = compiled.get("param_names", [])
+        param_kinds = compiled.get("param_kinds", [])
 
         # Find the parameter in OpenVAF's param list
         for idx, (name, kind) in enumerate(zip(param_names, param_kinds)):
@@ -177,16 +178,18 @@ def trace_param(
 
     # Layer 4: Get final value from split eval params (shared_params/device_params)
     if compiled and trace.param_index is not None:
-        shared_indices = compiled.get('shared_indices', [])
-        varying_indices = compiled.get('varying_indices', [])
-        shared_params = compiled.get('shared_params')
-        device_params = compiled.get('device_params')
+        shared_indices = compiled.get("shared_indices", [])
+        varying_indices = compiled.get("varying_indices", [])
+        shared_params = compiled.get("shared_params")
+        device_params = compiled.get("device_params")
 
         if shared_params is not None and device_params is not None:
             # Find device index
-            model_devices = [d for d in engine.devices if d.get('model_type', d.get('model')) == model_type]
+            model_devices = [
+                d for d in engine.devices if d.get("model_type", d.get("model")) == model_type
+            ]
             for dev_idx, dev in enumerate(model_devices):
-                if dev.get('name') == instance_name:
+                if dev.get("name") == instance_name:
                     param_idx = trace.param_index
                     if param_idx in shared_indices:
                         # Constant param - same for all devices
@@ -229,7 +232,7 @@ def trace_all_params(
     # Find the device
     device = None
     for dev in engine.devices:
-        if dev.get('name') == instance_name:
+        if dev.get("name") == instance_name:
             device = dev
             break
 
@@ -239,10 +242,10 @@ def trace_all_params(
     # Get all params from instance and model
     all_params = set()
 
-    instance_params = device.get('params', {})
+    instance_params = device.get("params", {})
     all_params.update(k.lower() for k in instance_params.keys())
 
-    model_name = device.get('model')
+    model_name = device.get("model")
     if model_name and engine.circuit:
         model = engine.circuit.models.get(model_name)
         if model and model.params:
@@ -283,12 +286,12 @@ def check_param_coverage(
     coverage = len(mapped) / total if total > 0 else 1.0
 
     return {
-        'mapped': mapped,
-        'unmapped': unmapped,
-        'total': total,
-        'coverage': coverage,
-        'coverage_pct': f"{coverage * 100:.1f}%",
-        'traces': traces,
+        "mapped": mapped,
+        "unmapped": unmapped,
+        "total": total,
+        "coverage": coverage,
+        "coverage_pct": f"{coverage * 100:.1f}%",
+        "traces": traces,
     }
 
 
@@ -306,31 +309,31 @@ def get_coverage_breakdown(
         Dict with breakdowns by param_kind and source
     """
     coverage = check_param_coverage(engine, instance_name)
-    traces = coverage['traces']
+    traces = coverage["traces"]
 
     # Count by param_kind
     by_kind: Dict[str, int] = {}
     for trace in traces:
-        kind = trace.param_kind or 'unmapped'
+        kind = trace.param_kind or "unmapped"
         by_kind[kind] = by_kind.get(kind, 0) + 1
 
     # Count by source (instance, model, default, unmapped)
     by_source: Dict[str, int] = {}
     for trace in traces:
         if trace.param_kind is None:
-            source = 'unmapped'
+            source = "unmapped"
         elif trace.in_instance:
-            source = 'instance'
+            source = "instance"
         elif trace.in_model:
-            source = 'model'
+            source = "model"
         else:
-            source = 'default'
+            source = "default"
         by_source[source] = by_source.get(source, 0) + 1
 
     return {
         **coverage,
-        'by_kind': by_kind,
-        'by_source': by_source,
+        "by_kind": by_kind,
+        "by_source": by_source,
     }
 
 
@@ -350,7 +353,7 @@ def format_coverage_chart(
         Formatted ASCII chart string
     """
     breakdown = get_coverage_breakdown(engine, instance_name)
-    total = breakdown['total']
+    total = breakdown["total"]
     if total == 0:
         return f"No parameters found for {instance_name}"
 
@@ -363,7 +366,7 @@ def format_coverage_chart(
     # By param_kind chart
     lines.append("By OpenVAF param_kind:")
     lines.append("-" * 60)
-    by_kind = breakdown['by_kind']
+    by_kind = breakdown["by_kind"]
     max_count = max(by_kind.values()) if by_kind else 1
     for kind in sorted(by_kind.keys()):
         count = by_kind[kind]
@@ -377,13 +380,13 @@ def format_coverage_chart(
     # By source chart
     lines.append("By value source:")
     lines.append("-" * 60)
-    by_source = breakdown['by_source']
-    source_order = ['instance', 'model', 'default', 'unmapped']
+    by_source = breakdown["by_source"]
+    source_order = ["instance", "model", "default", "unmapped"]
     source_labels = {
-        'instance': 'Instance params',
-        'model': 'Model card',
-        'default': 'OpenVAF default',
-        'unmapped': 'Not mapped',
+        "instance": "Instance params",
+        "model": "Model card",
+        "default": "OpenVAF default",
+        "unmapped": "Not mapped",
     }
     max_count = max(by_source.values()) if by_source else 1
     for source in source_order:
@@ -424,15 +427,19 @@ def format_param_trace(
         lines.append(f"  Mapped: {len(coverage['mapped'])}")
         lines.append(f"  Unmapped: {len(coverage['unmapped'])}")
 
-        if coverage['unmapped']:
+        if coverage["unmapped"]:
             lines.append("\nUnmapped parameters:")
-            for p in coverage['unmapped']:
+            for p in coverage["unmapped"]:
                 lines.append(f"  - {p}")
 
         lines.append("\nAll parameters:")
         for trace in traces:
             status = "✓" if trace.param_kind else "✗"
-            value = trace.final_value if trace.final_value is not None else trace.instance_value or trace.model_value
+            value = (
+                trace.final_value
+                if trace.final_value is not None
+                else trace.instance_value or trace.model_value
+            )
             lines.append(f"  {status} {trace.param_name}: {value} ({trace.source or 'unmapped'})")
 
         return "\n".join(lines)
@@ -470,7 +477,7 @@ def format_stats(circuit: "Circuit", engine: "CircuitEngine" = None) -> str:
         # Count device types
         device_counts = {}
         for dev in engine.devices:
-            model = dev.get('model', 'unknown')
+            model = dev.get("model", "unknown")
             device_counts[model] = device_counts.get(model, 0) + 1
 
         if device_counts:
@@ -496,9 +503,9 @@ def format_devices(circuit: "Circuit", engine: "CircuitEngine" = None) -> str:
 
     if engine and engine.devices:
         for dev in engine.devices:
-            name = dev.get('name', 'unknown')
-            model = dev.get('model', 'unknown')
-            terminals = dev.get('terminals', [])
+            name = dev.get("name", "unknown")
+            model = dev.get("model", "unknown")
+            terminals = dev.get("terminals", [])
             lines.append(f"{name}: {model} ({', '.join(terminals)})")
     else:
         # Use top-level instances
@@ -550,7 +557,7 @@ def format_instance(
 
     for name in instance_names:
         # Strip quotes if present
-        name = name.strip('"\'')
+        name = name.strip("\"'")
         lines.append(f"\nInstance: {name}")
         lines.append("-" * 40)
 
@@ -558,12 +565,12 @@ def format_instance(
         found = False
         if engine and engine.devices:
             for dev in engine.devices:
-                if dev.get('name') == name:
+                if dev.get("name") == name:
                     lines.append(f"Model: {dev.get('model')}")
                     lines.append(f"Terminals: {', '.join(dev.get('terminals', []))}")
-                    if dev.get('params'):
+                    if dev.get("params"):
                         lines.append("Parameters:")
-                        for k, v in sorted(dev['params'].items()):
+                        for k, v in sorted(dev["params"].items()):
                             lines.append(f"  {k} = {v}")
                     found = True
                     break
@@ -601,7 +608,7 @@ def format_model(model_names: list[str], circuit: "Circuit") -> str:
 
     for name in model_names:
         # Strip quotes if present
-        name = name.strip('"\'')
+        name = name.strip("\"'")
         lines.append(f"\nModel: {name}")
         lines.append("-" * 40)
 

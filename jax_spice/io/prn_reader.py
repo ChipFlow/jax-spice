@@ -35,7 +35,7 @@ def read_prn(file_path: Path | str) -> Tuple[List[str], Dict[str, Array]]:
     """
     file_path = Path(file_path)
 
-    with open(file_path, 'r') as f:
+    with open(file_path, "r") as f:
         lines = f.readlines()
 
     if not lines:
@@ -53,10 +53,10 @@ def read_prn(file_path: Path | str) -> Tuple[List[str], Dict[str, Array]]:
         if not line:
             continue
         # Skip Xyce footer
-        if line.startswith('End of'):
+        if line.startswith("End of"):
             continue
         # Skip comment lines
-        if line.startswith('*') or line.startswith('#'):
+        if line.startswith("*") or line.startswith("#"):
             continue
 
         try:
@@ -91,7 +91,7 @@ def normalize_column_name(name: str) -> str:
         Normalized name like "v3" or "ivmon"
     """
     # Remove non-alphanumeric except underscore
-    normalized = re.sub(r'[^a-zA-Z0-9_]', '', name)
+    normalized = re.sub(r"[^a-zA-Z0-9_]", "", name)
     return normalized.lower()
 
 

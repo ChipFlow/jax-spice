@@ -26,6 +26,7 @@ ArrayLike = Any  # Could be np.ndarray or jax.Array
 @dataclass
 class WaveformComparison:
     """Result of comparing two waveforms."""
+
     name: str
     max_abs_error: float
     max_rel_error: float
@@ -46,6 +47,7 @@ class WaveformComparison:
 @dataclass
 class ComparisonResult:
     """Result of comparing VACASK and JAX-SPICE simulations."""
+
     benchmark: str
     vacask_points: int
     jaxspice_points: int
@@ -61,7 +63,7 @@ class ComparisonResult:
             f"VACASK points: {self.vacask_points}",
             f"JAX-SPICE points: {self.jaxspice_points}",
             "",
-            "Waveform comparisons:"
+            "Waveform comparisons:",
         ]
         for wc in self.waveform_comparisons:
             lines.append(f"  {wc}")
@@ -75,7 +77,7 @@ def find_vacask_binary() -> Optional[Path]:
     import os
 
     # Check environment variable first
-    if env_path := os.environ.get('VACASK_BIN'):
+    if env_path := os.environ.get("VACASK_BIN"):
         path = Path(env_path).resolve()
         if path.exists() and path.is_file():
             return path
@@ -161,7 +163,7 @@ def run_vacask(
         # Prefer transient files (tran*.raw) over operating point (op*.raw)
         raw_files = list(output_dir.glob("*.raw"))
         if raw_files:
-            tran_files = [f for f in raw_files if f.name.startswith('tran')]
+            tran_files = [f for f in raw_files if f.name.startswith("tran")]
             if tran_files:
                 return tran_files[0], None
             return raw_files[0], None
@@ -198,7 +200,7 @@ def compare_waveforms(
         WaveformComparison with comparison metrics
     """
     # Convert to numpy for comparison
-    if hasattr(jaxspice_data, 'block_until_ready'):
+    if hasattr(jaxspice_data, "block_until_ready"):
         jaxspice_data = np.asarray(jaxspice_data)
 
     # Ensure same length (interpolate if needed)
@@ -226,7 +228,7 @@ def compare_waveforms(
     rel_error = abs_error / denom
     max_rel_error = float(np.max(rel_error))
 
-    rms_error = float(np.sqrt(np.mean(abs_error ** 2)))
+    rms_error = float(np.sqrt(np.mean(abs_error**2)))
 
     # Check tolerance
     within_tol = max_abs_error <= abs_tol or max_rel_error <= rel_tol
@@ -268,31 +270,35 @@ def compare_transient(
     comparisons = []
 
     # Compare time vectors first
-    if 'time' in vacask_raw.names and 'time' in jaxspice_result:
-        comparisons.append(compare_waveforms(
-            vacask_raw['time'].real,
-            jaxspice_result['time'],
-            'time',
-            abs_tol=abs_tol,
-            rel_tol=rel_tol,
-        ))
+    if "time" in vacask_raw.names and "time" in jaxspice_result:
+        comparisons.append(
+            compare_waveforms(
+                vacask_raw["time"].real,
+                jaxspice_result["time"],
+                "time",
+                abs_tol=abs_tol,
+                rel_tol=rel_tol,
+            )
+        )
 
     # Compare voltage signals
     for jax_name, jax_data in jaxspice_result.items():
-        if jax_name == 'time':
+        if jax_name == "time":
             continue
 
         # Try to find matching VACASK signal
         vacask_name = node_mapping.get(jax_name, jax_name)
 
         if vacask_name in vacask_raw.names:
-            comparisons.append(compare_waveforms(
-                vacask_raw[vacask_name].real,
-                jax_data,
-                jax_name,
-                abs_tol=abs_tol,
-                rel_tol=rel_tol,
-            ))
+            comparisons.append(
+                compare_waveforms(
+                    vacask_raw[vacask_name].real,
+                    jax_data,
+                    jax_name,
+                    abs_tol=abs_tol,
+                    rel_tol=rel_tol,
+                )
+            )
 
     return comparisons
 

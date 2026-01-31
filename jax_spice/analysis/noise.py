@@ -55,11 +55,12 @@ class NoiseConfig:
         values: Explicit frequency list for 'list' mode
         temperature: Circuit temperature in Kelvin
     """
+
     out: Union[str, int] = 1
-    input_source: str = ''
+    input_source: str = ""
     freq_start: float = 1.0
     freq_stop: float = 1e6
-    mode: str = 'dec'
+    mode: str = "dec"
     points: int = 10
     step: Optional[float] = None
     values: Optional[List[float]] = None
@@ -81,6 +82,7 @@ class NoiseSource:
             - shot: {'current': I}
             - flicker: {'current': I, 'kf': Kf, 'af': Af, 'ef': Ef}
     """
+
     name: str
     source_type: str
     device_name: str
@@ -101,6 +103,7 @@ class NoiseResult:
         detailed_contributions: Dict mapping (device, type) to contribution
         dc_voltages: DC operating point voltages
     """
+
     frequencies: Array
     output_noise: Array
     power_gain: Array
@@ -171,7 +174,7 @@ def compute_flicker_noise_psd(
     ef = float(ef)
     if kf <= 0 or frequency <= 0:
         return 0.0
-    return kf * (abs(current) ** af) / (frequency ** ef)
+    return kf * (abs(current) ** af) / (frequency**ef)
 
 
 def extract_noise_sources(
@@ -192,57 +195,63 @@ def extract_noise_sources(
     noise_sources = []
 
     for dev in devices:
-        name = dev.get('name', '')
-        model = dev.get('model', '')
-        params = dev.get('params', {})
-        nodes = dev.get('nodes', [0, 0])
+        name = dev.get("name", "")
+        model = dev.get("model", "")
+        params = dev.get("params", {})
+        nodes = dev.get("nodes", [0, 0])
 
         pos_node = nodes[0] if len(nodes) > 0 else 0
         neg_node = nodes[1] if len(nodes) > 1 else 0
 
-        if model == 'resistor':
+        if model == "resistor":
             # Thermal noise for resistor
-            r = float(params.get('r', 1000.0))
-            has_noise = params.get('has_noise', 1)
+            r = float(params.get("r", 1000.0))
+            has_noise = params.get("has_noise", 1)
 
             if has_noise and r > 0:
-                noise_sources.append(NoiseSource(
-                    name=f"{name}_thermal",
-                    source_type='thermal',
-                    device_name=name,
-                    pos_node=pos_node,
-                    neg_node=neg_node,
-                    psd_params={'resistance': r, 'temperature': temperature},
-                ))
+                noise_sources.append(
+                    NoiseSource(
+                        name=f"{name}_thermal",
+                        source_type="thermal",
+                        device_name=name,
+                        pos_node=pos_node,
+                        neg_node=neg_node,
+                        psd_params={"resistance": r, "temperature": temperature},
+                    )
+                )
 
-        elif model in ('diode', 'd'):
+        elif model in ("diode", "d"):
             # Shot and flicker noise for diode
             i_dc = dc_currents.get(name, 0.0)
 
             # Shot noise
-            noise_sources.append(NoiseSource(
-                name=f"{name}_shot",
-                source_type='shot',
-                device_name=name,
-                pos_node=pos_node,
-                neg_node=neg_node,
-                psd_params={'current': i_dc},
-            ))
-
-            # Flicker noise
-            kf = float(params.get('kf', 0.0))
-            af = float(params.get('af', 1.0))
-            ef = float(params.get('ef', 1.0))
-
-            if kf > 0:
-                noise_sources.append(NoiseSource(
-                    name=f"{name}_flicker",
-                    source_type='flicker',
+            noise_sources.append(
+                NoiseSource(
+                    name=f"{name}_shot",
+                    source_type="shot",
                     device_name=name,
                     pos_node=pos_node,
                     neg_node=neg_node,
-                    psd_params={'current': i_dc, 'kf': kf, 'af': af, 'ef': ef},
-                ))
+                    psd_params={"current": i_dc},
+                )
+            )
+
+            # Flicker noise
+            kf = float(params.get("kf", 0.0))
+            af = float(params.get("af", 1.0))
+            ef = float(params.get("ef", 1.0))
+
+            if kf > 0:
+                noise_sources.append(
+                    NoiseSource(
+                        name=f"{name}_flicker",
+                        source_type="flicker",
+                        device_name=name,
+                        pos_node=pos_node,
+                        neg_node=neg_node,
+                        psd_params={"current": i_dc, "kf": kf, "af": af, "ef": ef},
+                    )
+                )
 
     return noise_sources
 
@@ -257,22 +266,22 @@ def compute_noise_psd(source: NoiseSource, frequency: float) -> float:
     Returns:
         Power spectral density in A^2/Hz
     """
-    if source.source_type == 'thermal':
+    if source.source_type == "thermal":
         return compute_thermal_noise_psd(
-            source.psd_params.get('resistance', 1000.0),
-            source.psd_params.get('temperature', T_NOMINAL),
+            source.psd_params.get("resistance", 1000.0),
+            source.psd_params.get("temperature", T_NOMINAL),
         )
-    elif source.source_type == 'shot':
+    elif source.source_type == "shot":
         return compute_shot_noise_psd(
-            source.psd_params.get('current', 0.0),
+            source.psd_params.get("current", 0.0),
         )
-    elif source.source_type == 'flicker':
+    elif source.source_type == "flicker":
         return compute_flicker_noise_psd(
-            source.psd_params.get('current', 0.0),
+            source.psd_params.get("current", 0.0),
             frequency,
-            source.psd_params.get('kf', 0.0),
-            source.psd_params.get('af', 1.0),
-            source.psd_params.get('ef', 1.0),
+            source.psd_params.get("kf", 0.0),
+            source.psd_params.get("af", 1.0),
+            source.psd_params.get("ef", 1.0),
         )
     else:
         return 0.0
@@ -310,12 +319,12 @@ def solve_noise_single_freq(
     # Compute power gain from input source
     power_gain = 0.0
     if input_source:
-        pos_node = input_source.get('pos_node', 0)
-        neg_node = input_source.get('neg_node', 0)
-        source_type = input_source.get('type', 'vsource')
+        pos_node = input_source.get("pos_node", 0)
+        neg_node = input_source.get("neg_node", 0)
+        source_type = input_source.get("type", "vsource")
 
         U = jnp.zeros(n, dtype=jnp.complex128)
-        if source_type == 'vsource':
+        if source_type == "vsource":
             if pos_node > 0:
                 U = U.at[pos_node - 1].set(G + 0j)
             if neg_node > 0:
@@ -412,9 +421,11 @@ def run_noise_analysis(
     frequencies = generate_frequencies(ac_config)
     n_freqs = len(frequencies)
 
-    logger.info(f"Noise analysis: {n_freqs} frequencies, "
-                f"{config.freq_start:.2e} to {config.freq_stop:.2e} Hz, "
-                f"{len(noise_sources)} noise sources")
+    logger.info(
+        f"Noise analysis: {n_freqs} frequencies, "
+        f"{config.freq_start:.2e} to {config.freq_stop:.2e} Hz, "
+        f"{len(noise_sources)} noise sources"
+    )
 
     # Determine output node index
     out_node = config.out
@@ -458,14 +469,10 @@ def run_noise_analysis(
     power_gain = jnp.array(power_gain_list, dtype=jnp.float64)
 
     contributions = {
-        name: jnp.array(vals, dtype=jnp.float64)
-        for name, vals in device_contribs.items()
+        name: jnp.array(vals, dtype=jnp.float64) for name, vals in device_contribs.items()
     }
 
-    detailed = {
-        key: jnp.array(vals, dtype=jnp.float64)
-        for key, vals in detailed_contribs.items()
-    }
+    detailed = {key: jnp.array(vals, dtype=jnp.float64) for key, vals in detailed_contribs.items()}
 
     return NoiseResult(
         frequencies=frequencies,

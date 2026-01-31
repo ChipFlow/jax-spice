@@ -37,7 +37,7 @@ def osdi_to_va_path(osdi_name: str) -> Path:
     in vendor/VACASK/devices/.
     """
     # Remove .osdi extension
-    name = osdi_name.replace('.osdi', '')
+    name = osdi_name.replace(".osdi", "")
 
     # Try various locations
     candidates = [
@@ -98,20 +98,20 @@ class CompiledVAModel:
         """
         inputs = []
         for name, kind in zip(self.param_names, self.param_kinds):
-            if kind == 'voltage':
+            if kind == "voltage":
                 # Look for matching voltage
                 inputs.append(voltages.get(name, 0.0))
-            elif kind == 'temperature':
+            elif kind == "temperature":
                 inputs.append(temperature)
-            elif kind == 'sysfun':
+            elif kind == "sysfun":
                 # System function like mfactor
-                if 'mfactor' in name.lower():
-                    inputs.append(params.get('mfactor', 1.0))
+                if "mfactor" in name.lower():
+                    inputs.append(params.get("mfactor", 1.0))
                 else:
                     inputs.append(1.0)
-            elif kind == 'hidden_state':
+            elif kind == "hidden_state":
                 inputs.append(0.0)
-            elif kind == 'param':
+            elif kind == "param":
                 # Look for matching parameter
                 inputs.append(params.get(name, 1.0))
             else:
@@ -237,9 +237,7 @@ class TestVACASKResistorSim:
         """
         # Build inputs for V=1V across resistor, R=2000 Ohm
         inputs = resistor_model.build_inputs(
-            voltages={'V(A,B)': 1.0},
-            params={'r': 2000.0, 'has_noise': 0},
-            temperature=300.15
+            voltages={"V(A,B)": 1.0}, params={"r": 2000.0, "has_noise": 0}, temperature=300.15
         )
 
         residuals, jacobian = resistor_model.evaluate(inputs)
@@ -255,21 +253,22 @@ class TestVACASKResistorSim:
         # The resistor equation is I = V/R
         # In JAX output, residuals contain the current contributions
         for node_name, node_res in residuals.items():
-            resist = float(node_res['resist'])
+            resist = float(node_res["resist"])
             assert not np.isnan(resist), f"NaN resist at {node_name}"
 
         # Calculate expected current
         expected_I = 1.0 / 2000.0  # 0.5mA
 
         # The 'A' should have the current flowing
-        node0_current = float(residuals['A']['resist'])
+        node0_current = float(residuals["A"]["resist"])
 
         # Current magnitude should match (sign depends on convention)
-        assert abs(abs(node0_current) - expected_I) < 1e-9, \
+        assert abs(abs(node0_current) - expected_I) < 1e-9, (
             f"Expected I={expected_I}, got {node0_current}"
+        )
 
-        print(f"Resistor current: {node0_current*1000:.6f} mA")
-        print(f"Expected: {expected_I*1000:.6f} mA")
+        print(f"Resistor current: {node0_current * 1000:.6f} mA")
+        print(f"Expected: {expected_I * 1000:.6f} mA")
 
     def test_resistor_with_mfactor(self, resistor_model):
         """Test resistor with mfactor=3 (parallel instances)
@@ -277,9 +276,9 @@ class TestVACASKResistorSim:
         VACASK test expects: i(v1) = -1/2k * 3 = -1.5mA
         """
         inputs = resistor_model.build_inputs(
-            voltages={'V(A,B)': 1.0},
-            params={'r': 2000.0, 'has_noise': 0, 'mfactor': 3.0},
-            temperature=300.15
+            voltages={"V(A,B)": 1.0},
+            params={"r": 2000.0, "has_noise": 0, "mfactor": 3.0},
+            temperature=300.15,
         )
 
         residuals, jacobian = resistor_model.evaluate(inputs)
@@ -287,13 +286,14 @@ class TestVACASKResistorSim:
         # With mfactor=3, current should be 3x
         expected_I = (1.0 / 2000.0) * 3.0  # 1.5mA
 
-        node0_current = float(residuals['A']['resist'])
+        node0_current = float(residuals["A"]["resist"])
 
-        assert abs(abs(node0_current) - expected_I) < 1e-9, \
+        assert abs(abs(node0_current) - expected_I) < 1e-9, (
             f"Expected I={expected_I} (mfactor=3), got {node0_current}"
+        )
 
-        print(f"Resistor current (mfactor=3): {node0_current*1000:.6f} mA")
-        print(f"Expected: {expected_I*1000:.6f} mA")
+        print(f"Resistor current (mfactor=3): {node0_current * 1000:.6f} mA")
+        print(f"Expected: {expected_I * 1000:.6f} mA")
 
     def test_resistor_jacobian(self, resistor_model):
         """Test that Jacobian (conductance) is correct
@@ -302,9 +302,7 @@ class TestVACASKResistorSim:
         With R=2000, G=0.0005 S
         """
         inputs = resistor_model.build_inputs(
-            voltages={'V(A,B)': 1.0},
-            params={'r': 2000.0, 'has_noise': 0},
-            temperature=300.15
+            voltages={"V(A,B)": 1.0}, params={"r": 2000.0, "has_noise": 0}, temperature=300.15
         )
 
         residuals, jacobian = resistor_model.evaluate(inputs)
@@ -319,12 +317,12 @@ class TestVACASKResistorSim:
         # Find the conductance in the Jacobian
         # Structure depends on how openvaf_jax organizes it
         for key, val in jacobian.items():
-            if 'resist' in val:
-                G = float(val['resist'])
+            if "resist" in val:
+                G = float(val["resist"])
                 if abs(G) > 1e-12:  # Non-zero entry
                     print(f"Jacobian[{key}] = {G:.6f} S")
 
-        print(f"Expected conductance: {expected_G*1000:.6f} mS")
+        print(f"Expected conductance: {expected_G * 1000:.6f} mS")
 
 
 class TestFullVACASKTestResistor:
@@ -378,23 +376,21 @@ class TestFullVACASKTestResistor:
 
         # Step 5: Evaluate the resistor model
         inputs = resistor_model.build_inputs(
-            voltages={'V(A,B)': V},
-            params={'r': R, 'has_noise': 0},
-            temperature=300.15
+            voltages={"V(A,B)": V}, params={"r": R, "has_noise": 0}, temperature=300.15
         )
 
         residuals, jacobian = resistor_model.evaluate(inputs)
 
         # Step 6: Verify results match VACASK expected values
         expected_I = V / R
-        actual_I = abs(float(residuals['A']['resist']))
+        actual_I = abs(float(residuals["A"]["resist"]))
 
         rel_err = abs(actual_I - expected_I) / expected_I
         assert rel_err < 1e-6, f"Current mismatch: expected {expected_I}, got {actual_I}"
 
         print(f"\nResults:")
-        print(f"  Expected I = V/R = {V}/{R} = {expected_I*1000:.6f} mA")
-        print(f"  Actual I = {actual_I*1000:.6f} mA")
+        print(f"  Expected I = V/R = {V}/{R} = {expected_I * 1000:.6f} mA")
+        print(f"  Actual I = {actual_I * 1000:.6f} mA")
         print(f"  Relative error: {rel_err:.2e}")
         print(f"  PASS: Matches VACASK expected values!")
 

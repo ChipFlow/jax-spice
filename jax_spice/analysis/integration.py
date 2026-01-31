@@ -23,6 +23,7 @@ from jax import Array
 
 class IntegrationMethod(Enum):
     """Supported integration methods for transient analysis."""
+
     BACKWARD_EULER = "be"
     TRAPEZOIDAL = "trap"
     GEAR2 = "gear2"
@@ -34,7 +35,7 @@ class IntegrationMethod(Enum):
 
         Handles various aliases used in SPICE simulators.
         """
-        s_lower = s.lower().strip().strip('"\'')
+        s_lower = s.lower().strip().strip("\"'")
         aliases = {
             "be": cls.BACKWARD_EULER,
             "euler": cls.BACKWARD_EULER,
@@ -49,8 +50,7 @@ class IntegrationMethod(Enum):
         }
         if s_lower in aliases:
             return aliases[s_lower]
-        raise ValueError(f"Unknown integration method: {s}. "
-                        f"Supported: be, trap, gear2")
+        raise ValueError(f"Unknown integration method: {s}. Supported: be, trap, gear2")
 
 
 class IntegrationCoeffs(NamedTuple):
@@ -75,6 +75,7 @@ class IntegrationCoeffs(NamedTuple):
     The error_coeff is used for Local Truncation Error (LTE) estimation
     in adaptive timestep control.
     """
+
     c0: float  # Coefficient for Q_new (leading coefficient)
     c1: float  # Coefficient for Q_prev
     c2: float  # Coefficient for Q_prev2 (only Gear2)
@@ -172,6 +173,7 @@ class IntegrationState:
 
     Tracks charge and derivative history for higher-order methods.
     """
+
     Q_prev: Array  # Q at t_{n-1}
     Q_prev2: Array | None = None  # Q at t_{n-2} (for Gear2)
     dQdt_prev: Array | None = None  # dQ/dt at t_{n-1} (for trap)
@@ -225,5 +227,5 @@ def get_method_from_options(options_params: dict) -> IntegrationMethod:
     tran_method = options_params.get("tran_method", "trap")
     # Strip quotes if present
     if isinstance(tran_method, str):
-        tran_method = tran_method.strip('"\'')
+        tran_method = tran_method.strip("\"'")
     return IntegrationMethod.from_string(tran_method)

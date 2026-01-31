@@ -30,7 +30,7 @@ def read_ngspice_out(
         Tuple of (column_names, data_dict) where data_dict maps column name to array
     """
     content = filepath.read_text()
-    lines = content.split('\n')
+    lines = content.split("\n")
 
     columns: List[str] = []
     data_rows: List[List[float]] = []
@@ -45,12 +45,12 @@ def read_ngspice_out(
             continue
 
         # Skip separator lines (all dashes)
-        if line.startswith('---'):
+        if line.startswith("---"):
             in_data = True
             continue
 
         # Detect column header line (starts with Index)
-        if line.strip().startswith('Index'):
+        if line.strip().startswith("Index"):
             # Parse column names
             parts = line.split()
             if not header_seen:
@@ -103,7 +103,7 @@ def read_ngspice_standard(
         Tuple of (column_names, data_dict) where data_dict maps column name to array
     """
     content = filepath.read_text()
-    lines = content.strip().split('\n')
+    lines = content.strip().split("\n")
 
     if not lines:
         return [], {}
@@ -147,7 +147,7 @@ def read_reference_file(
     Returns:
         Tuple of (column_names, data_dict)
     """
-    if filepath.suffix == '.standard':
+    if filepath.suffix == ".standard":
         return read_ngspice_standard(filepath)
     else:
         return read_ngspice_out(filepath)
@@ -164,6 +164,6 @@ def get_time_and_signals(
     Returns:
         Tuple of (time_array, signals_dict)
     """
-    time = data.get('time')
-    signals = {k: v for k, v in data.items() if k not in ('index', 'time')}
+    time = data.get("time")
+    signals = {k: v for k, v in data.items() if k not in ("index", "time")}
     return time, signals

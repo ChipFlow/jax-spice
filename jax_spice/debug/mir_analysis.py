@@ -25,8 +25,7 @@ def _check_deps():
     """Check that networkx and pydot are available."""
     if not HAS_GRAPH_DEPS:
         raise ImportError(
-            "MIR analysis requires networkx and pydot. "
-            "Install with: uv add networkx pydot"
+            "MIR analysis requires networkx and pydot. Install with: uv add networkx pydot"
         )
 
 

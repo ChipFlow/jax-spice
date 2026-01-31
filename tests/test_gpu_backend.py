@@ -18,6 +18,7 @@ from jax_spice.analysis.gpu_backend import (
 # Backend Selection Tests
 # =============================================================================
 
+
 class TestBackendSelection:
     """Tests for automatic backend selection."""
 

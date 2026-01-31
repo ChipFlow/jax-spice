@@ -44,6 +44,7 @@ class TransientSetup:
         branch_node_p: JAX array of positive terminal indices for vsources
         branch_node_n: JAX array of negative terminal indices for vsources
     """
+
     n_total: int
     n_unknowns: int
     n_external: int
@@ -58,12 +59,12 @@ class TransientSetup:
     n_branches: int = 0
     n_augmented: int = 0
     use_full_mna: bool = False
-    branch_data: Optional['MNABranchData'] = None
+    branch_data: Optional["MNABranchData"] = None
     branch_node_p: Optional[jax.Array] = None
     branch_node_n: Optional[jax.Array] = None
 
     # Initial condition mode: 'op' (compute DC) or 'uic' (use initial conditions)
-    icmode: str = 'op'
+    icmode: str = "op"
 
     def __post_init__(self):
         """Compute derived fields after initialization."""
@@ -80,8 +81,7 @@ class TransientStrategy(ABC):
     - JIT-compiled simulation loop using lax.while_loop
     """
 
-    def __init__(self, runner: 'CircuitEngine',
-                 use_sparse: bool = False, backend: str = "cpu"):
+    def __init__(self, runner: "CircuitEngine", use_sparse: bool = False, backend: str = "cpu"):
         """Initialize the strategy.
 
         Args:
@@ -120,84 +120,69 @@ class TransientStrategy(ABC):
         setup_key = self._get_setup_key()
 
         # Get icmode from analysis params (default 'op' = compute DC)
-        icmode = self.runner.analysis_params.get('icmode', 'op')
+        icmode = self.runner.analysis_params.get("icmode", "op")
 
         # Check runner's cache first (shared across strategies)
-        if (self.runner._transient_setup_cache is not None and
-            self.runner._transient_setup_key == setup_key):
+        if (
+            self.runner._transient_setup_cache is not None
+            and self.runner._transient_setup_key == setup_key
+        ):
             cache = self.runner._transient_setup_cache
             self._setup = TransientSetup(
-                n_total=cache['n_total'],
-                n_unknowns=cache['n_unknowns'],
+                n_total=cache["n_total"],
+                n_unknowns=cache["n_unknowns"],
                 n_external=self.runner.num_nodes,
-                device_internal_nodes=cache['device_internal_nodes'],
-                source_fn=cache['source_fn'],
-                source_device_data=cache['source_device_data'],
-                openvaf_by_type=cache['openvaf_by_type'],
-                vmapped_fns=cache['vmapped_fns'],
-                static_inputs_cache=cache['static_inputs_cache'],
+                device_internal_nodes=cache["device_internal_nodes"],
+                source_fn=cache["source_fn"],
+                source_device_data=cache["source_device_data"],
+                openvaf_by_type=cache["openvaf_by_type"],
+                vmapped_fns=cache["vmapped_fns"],
+                static_inputs_cache=cache["static_inputs_cache"],
                 icmode=icmode,
             )
             logger.debug(f"{self.name}: Reusing cached setup")
             return self._setup
 
-        # Build new setup via runner's hybrid method (with 0 steps)
+        # Build new setup via runner's setup method
         logger.info(f"{self.name}: Building transient setup...")
-        self.runner._run_transient_hybrid(
-            t_stop=0, dt=1e-12, backend=self.backend, use_dense=self.use_dense
-        )
-
-        # Extract from runner's cache
-        cache = self.runner._transient_setup_cache
-        assert cache is not None, "Transient setup cache not populated after _run_transient_hybrid"
+        cache = self.runner._build_transient_setup(backend=self.backend, use_dense=self.use_dense)
         self._setup = TransientSetup(
-            n_total=cache['n_total'],
-            n_unknowns=cache['n_unknowns'],
+            n_total=cache["n_total"],
+            n_unknowns=cache["n_unknowns"],
             n_external=self.runner.num_nodes,
-            device_internal_nodes=cache['device_internal_nodes'],
-            source_fn=cache['source_fn'],
-            source_device_data=cache['source_device_data'],
-            openvaf_by_type=cache['openvaf_by_type'],
-            vmapped_fns=cache['vmapped_fns'],
-            static_inputs_cache=cache['static_inputs_cache'],
+            device_internal_nodes=cache["device_internal_nodes"],
+            source_fn=cache["source_fn"],
+            source_device_data=cache["source_device_data"],
+            openvaf_by_type=cache["openvaf_by_type"],
+            vmapped_fns=cache["vmapped_fns"],
+            static_inputs_cache=cache["static_inputs_cache"],
             icmode=icmode,
         )
         self._setup_key = setup_key
         return self._setup
 
     def ensure_solver(self) -> Callable:
-        """Ensure NR solver is initialized, using cache if available.
+        """Ensure NR solver is initialized.
 
-        Returns cached solver if available, otherwise builds and caches new solver.
+        This is a hook for strategies to implement solver initialization.
+        The default implementation raises NotImplementedError since each
+        strategy (e.g., FullMNAStrategy) builds its own solver with the
+        appropriate formulation.
 
         Returns:
             JIT-compiled Newton-Raphson solver function
+
+        Raises:
+            NotImplementedError: Subclasses must implement solver creation
         """
-        setup = self.ensure_setup()
-
-        n_vsources = len(setup.source_device_data.get('vsource', {}).get('names', []))
-        n_isources = len(setup.source_device_data.get('isource', {}).get('names', []))
-        n_nodes = setup.n_unknowns + 1
-
-        cache_key = (n_nodes, n_vsources, n_isources, self.use_dense)
-
-        # Check runner's cached solver
-        if hasattr(self.runner, '_cached_nr_solve') and self.runner._cached_solver_key == cache_key:
-            self._nr_solve = self.runner._cached_nr_solve
-            logger.debug(f"{self.name}: Reusing cached NR solver")
-            return self._nr_solve
-
-        # Build solver via runner (will cache it)
-        logger.info(f"{self.name}: Building NR solver...")
-        self.runner._run_transient_hybrid(
-            t_stop=1e-12, dt=1e-12, backend=self.backend, use_dense=self.use_dense
+        raise NotImplementedError(
+            f"{self.name} must implement ensure_solver() or use a solver-specific method"
         )
-        self._nr_solve = self.runner._cached_nr_solve
-        return self._nr_solve
 
     @abstractmethod
-    def run(self, t_stop: float, dt: float,
-            max_steps: int = 10000) -> Tuple[jax.Array, Dict[int, jax.Array], Dict]:
+    def run(
+        self, t_stop: float, dt: float, max_steps: int = 10000
+    ) -> Tuple[jax.Array, Dict[int, jax.Array], Dict]:
         """Run transient analysis.
 
         Args:
@@ -226,21 +211,19 @@ class TransientStrategy(ABC):
         assert setup is not None, "Setup not initialized - call ensure_setup() first"
         source_device_data = setup.source_device_data
 
-        if 'vsource' in source_device_data:
-            d = source_device_data['vsource']
-            vsource_vals = jnp.array([
-                source_values.get(name, float(dc))
-                for name, dc in zip(d['names'], d['dc'])
-            ])
+        if "vsource" in source_device_data:
+            d = source_device_data["vsource"]
+            vsource_vals = jnp.array(
+                [source_values.get(name, float(dc)) for name, dc in zip(d["names"], d["dc"])]
+            )
         else:
             vsource_vals = jnp.array([])
 
-        if 'isource' in source_device_data:
-            d = source_device_data['isource']
-            isource_vals = jnp.array([
-                source_values.get(name, float(dc))
-                for name, dc in zip(d['names'], d['dc'])
-            ])
+        if "isource" in source_device_data:
+            d = source_device_data["isource"]
+            isource_vals = jnp.array(
+                [source_values.get(name, float(dc)) for name, dc in zip(d["names"], d["dc"])]
+            )
         else:
             isource_vals = jnp.array([])
 

@@ -60,26 +60,26 @@ def parse_si_value(s: str) -> float:
 
     # Order matters - check longer suffixes first
     suffixes = [
-        ('meg', 1e6),
-        ('mil', 25.4e-6),
-        ('ms', 1e-3),
-        ('us', 1e-6),
-        ('ns', 1e-9),
-        ('ps', 1e-12),
-        ('fs', 1e-15),
-        ('f', 1e-15),
-        ('p', 1e-12),
-        ('n', 1e-9),
-        ('u', 1e-6),
-        ('m', 1e-3),
-        ('k', 1e3),
-        ('g', 1e9),
-        ('t', 1e12),
+        ("meg", 1e6),
+        ("mil", 25.4e-6),
+        ("ms", 1e-3),
+        ("us", 1e-6),
+        ("ns", 1e-9),
+        ("ps", 1e-12),
+        ("fs", 1e-15),
+        ("f", 1e-15),
+        ("p", 1e-12),
+        ("n", 1e-9),
+        ("u", 1e-6),
+        ("m", 1e-3),
+        ("k", 1e3),
+        ("g", 1e9),
+        ("t", 1e12),
     ]
 
     for suffix, mult in suffixes:
         if s.endswith(suffix):
-            return float(s[:-len(suffix)]) * mult
+            return float(s[: -len(suffix)]) * mult
     return float(s)
 
 
@@ -183,8 +183,8 @@ def run_jaxspice(
             engine.parse()
 
             # Parse analysis parameters
-            t_stop = parse_si_value(control_params.get('stop', '1m'))
-            dt = parse_si_value(control_params.get('step', '1u'))
+            t_stop = parse_si_value(control_params.get("stop", "1m"))
+            dt = parse_si_value(control_params.get("step", "1u"))
 
             # Ensure we have reasonable defaults
             if dt <= 0 or dt > t_stop:
@@ -194,10 +194,10 @@ def run_jaxspice(
 
             result = engine.run_transient(t_stop=t_stop, dt=dt, max_steps=max_steps)
 
-            results: Dict[str, Array] = {'time': result.times}
+            results: Dict[str, Array] = {"time": result.times}
             for node_name, voltage in result.voltages.items():
                 # Store as both v(node) and node for flexibility
-                results[f'v({node_name})'] = voltage
+                results[f"v({node_name})"] = voltage
                 results[node_name] = voltage
 
             return results, None
@@ -229,12 +229,12 @@ def compare_results(
 
     # Get time vectors
     ref_time = None
-    for key in ['time', 'TIME', 'Time']:
+    for key in ["time", "TIME", "Time"]:
         if key in ref_results:
             ref_time = ref_results[key]
             break
 
-    jax_time = np.array(jaxspice_results.get('time', []))
+    jax_time = np.array(jaxspice_results.get("time", []))
 
     if ref_time is None or len(jax_time) == 0:
         return comparisons
@@ -256,7 +256,7 @@ def compare_results(
         jax_signal = None
 
         # Handle voltage signals: v(node) -> look up node in voltages
-        if sig_lower.startswith('v(') and sig_lower.endswith(')'):
+        if sig_lower.startswith("v(") and sig_lower.endswith(")"):
             node = sig_lower[2:-1]  # Extract node name
             for key in jaxspice_results:
                 if key.lower() == node:
@@ -265,7 +265,7 @@ def compare_results(
 
         # Handle branch currents: source#branch
         # JAX-SPICE doesn't currently support branch currents, skip these
-        elif '#branch' in sig_lower:
+        elif "#branch" in sig_lower:
             # Can't compare branch currents - JAX-SPICE doesn't compute them
             continue
 
@@ -320,7 +320,7 @@ class TestNgspiceRegression:
             pytest.skip(f"Netlist not found: {test_case.netlist_path}")
 
         # Skip non-transient tests for now
-        if test_case.analysis_type != 'tran':
+        if test_case.analysis_type != "tran":
             pytest.skip(f"Analysis type {test_case.analysis_type} not yet supported")
 
         # Try to load reference data from .out file first
@@ -378,16 +378,13 @@ class TestVacaskBenchmarksWithNgspice:
         """Get ngspice binary, skip if not available."""
         binary = find_ngspice_binary()
         if binary is None:
-            pytest.skip(
-                "ngspice binary not found. Install ngspice or set NGSPICE_BIN."
-            )
+            pytest.skip("ngspice binary not found. Install ngspice or set NGSPICE_BIN.")
         return binary
 
     def test_rc_benchmark(self, ngspice_bin):
         """Compare VACASK RC benchmark against ngspice reference."""
         ngspice_rc = (
-            PROJECT_ROOT / "vendor" / "VACASK" / "benchmark" / "rc" /
-            "ngspice" / "runme.sim"
+            PROJECT_ROOT / "vendor" / "VACASK" / "benchmark" / "rc" / "ngspice" / "runme.sim"
         )
 
         if not ngspice_rc.exists():
@@ -403,12 +400,12 @@ class TestVacaskBenchmarksWithNgspice:
                 pytest.skip(f"ngspice failed: {error}")
 
             ng_raw = rawread(str(raw_path)).get()
-            ng_time = np.array(ng_raw['time'])
+            ng_time = np.array(ng_raw["time"])
 
             # Find the voltage node
             ng_v2 = None
             for name in ng_raw.names:
-                if '2' in name.lower() or 'out' in name.lower():
+                if "2" in name.lower() or "out" in name.lower():
                     ng_v2 = np.array(ng_raw[name])
                     break
 
@@ -429,8 +426,8 @@ class TestVacaskBenchmarksWithNgspice:
             engine = CircuitEngine(converted_path)
             engine.parse()
 
-            t_stop = parse_si_value(control_params.get('stop', '1'))
-            dt = parse_si_value(control_params.get('step', '1u'))
+            t_stop = parse_si_value(control_params.get("stop", "1"))
+            dt = parse_si_value(control_params.get("step", "1u"))
             if dt <= 0:
                 dt = t_stop / 1000
 
@@ -444,7 +441,7 @@ class TestVacaskBenchmarksWithNgspice:
 
             # Get output voltage - try various node names
             jax_v2 = None
-            for node in ['2', 'out', 'OUT']:
+            for node in ["2", "out", "OUT"]:
                 if node in result.voltages:
                     jax_v2 = np.array(result.voltages[node])
                     break
@@ -452,7 +449,7 @@ class TestVacaskBenchmarksWithNgspice:
             if jax_v2 is None:
                 # Just use the first non-ground node
                 for node, voltage in result.voltages.items():
-                    if node != '0':
+                    if node != "0":
                         jax_v2 = np.array(voltage)
                         break
 

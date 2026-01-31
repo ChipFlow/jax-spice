@@ -62,9 +62,7 @@ def run_cmd(
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        description="Run nsys-jax GPU profiling on Cloud Run"
-    )
+    parser = argparse.ArgumentParser(description="Run nsys-jax GPU profiling on Cloud Run")
     parser.add_argument(
         "--circuit",
         default="and_test",
@@ -100,9 +98,7 @@ def main():
 
     # Check gcloud auth
     print("[1/5] Checking gcloud authentication...")
-    result = run_cmd(
-        ["gcloud", "auth", "print-identity-token"], capture=True, check=False
-    )
+    result = run_cmd(["gcloud", "auth", "print-identity-token"], capture=True, check=False)
     if result.returncode != 0:
         print("Error: Not authenticated with gcloud. Run: gcloud auth login")
         sys.exit(1)
@@ -112,15 +108,13 @@ def main():
     # Create GCS bucket if needed
     print("[2/5] Ensuring GCS bucket exists...")
     run_cmd(["gsutil", "ls", GCS_BUCKET], check=False)
-    run_cmd(
-        ["gsutil", "mb", "-l", GCP_REGION, "-p", GCP_PROJECT, GCS_BUCKET], check=False
-    )
+    run_cmd(["gsutil", "mb", "-l", GCP_REGION, "-p", GCP_PROJECT, GCS_BUCKET], check=False)
     print()
 
     # Build the bash script that runs nsys-jax profiling
     skip_warmup_flag = "--skip-warmup" if args.skip_warmup else ""
 
-    profile_script = f'''#!/bin/bash
+    profile_script = f"""#!/bin/bash
 set -e
 
 cd /app
@@ -148,7 +142,7 @@ gsutil cp /tmp/{profile_name}.zip {profile_gcs_path}.zip
 
 echo "=== Profiling Complete ==="
 echo "Profile uploaded to: {profile_gcs_path}.zip"
-'''
+"""
 
     # Write script to temp file for debugging
     script_path = Path(tempfile.gettempdir()) / "nsys_profile_script.sh"

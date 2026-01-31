@@ -21,6 +21,7 @@ class BenchmarkResult:
     - total_time_s: Total wall-clock time for the simulation (comparable to VACASK "Runtime")
     - time_per_step_ms: Derived metric for per-step performance analysis
     """
+
     name: str
     nodes: int
     devices: int
@@ -29,7 +30,7 @@ class BenchmarkResult:
     total_time_s: float
     time_per_step_ms: float
     solver: str  # 'dense' or 'sparse'
-    backend: str = 'cpu'  # 'cpu' or 'gpu'
+    backend: str = "cpu"  # 'cpu' or 'gpu'
     # Analysis parameters (for VACASK comparison)
     t_stop: float = 0.0  # Simulation stop time (seconds)
     dt: float = 0.0  # Time step (seconds)
@@ -51,7 +52,7 @@ def get_vacask_benchmarks(names: Optional[List[str]] = None) -> List[Tuple[str, 
     project_root = script_dir.parent
     base = project_root / "vendor" / "VACASK" / "benchmark"
 
-    all_benchmarks = ['rc', 'graetz', 'mul', 'ring', 'c6288']
+    all_benchmarks = ["rc", "graetz", "mul", "ring", "c6288"]
 
     if names:
         all_benchmarks = [n for n in names if n in all_benchmarks]

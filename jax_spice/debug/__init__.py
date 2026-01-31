@@ -1,5 +1,42 @@
 """Debug utilities for JAX-SPICE."""
 
+from jax_spice.debug.jacobian import (
+    JacobianComparison,
+    compare_jacobians,
+    jax_to_dense_jacobian,
+    osdi_to_dense_jacobian,
+    print_jacobian_structure,
+)
+from jax_spice.debug.mir_inspector import (
+    MIRInspector,
+    ParamSummary,
+    PHIInfo,
+    inspect_model,
+)
+from jax_spice.debug.mir_tracer import (
+    MIRTracer,
+    ValueInfo,
+    trace_model,
+)
+from jax_spice.debug.model_comparison import (
+    CacheAnalysis,
+    ComparisonResult,
+    ModelComparator,
+    quick_compare,
+)
+from jax_spice.debug.param_analyzer import (
+    KindSummary,
+    ParamAnalyzer,
+    ParamInfo,
+    analyze_model,
+)
+from jax_spice.debug.simulation_tracer import (
+    DeviceParamsTrace,
+    NodeAllocation,
+    SimulationTracer,
+    VoltageMapping,
+    trace_simulation,
+)
 from jax_spice.debug.trace_monitor import (
     TraceScope,
     get_trace_counts,
@@ -8,49 +45,6 @@ from jax_spice.debug.trace_monitor import (
     report_traces,
     reset_traces,
     trace_monitor,
-)
-
-from jax_spice.debug.jacobian import (
-    JacobianComparison,
-    compare_jacobians,
-    jax_to_dense_jacobian,
-    osdi_to_dense_jacobian,
-    print_jacobian_structure,
-)
-
-from jax_spice.debug.mir_tracer import (
-    MIRTracer,
-    ValueInfo,
-    trace_model,
-)
-
-from jax_spice.debug.param_analyzer import (
-    ParamAnalyzer,
-    ParamInfo,
-    KindSummary,
-    analyze_model,
-)
-
-from jax_spice.debug.model_comparison import (
-    ModelComparator,
-    ComparisonResult,
-    CacheAnalysis,
-    quick_compare,
-)
-
-from jax_spice.debug.mir_inspector import (
-    MIRInspector,
-    ParamSummary,
-    PHIInfo,
-    inspect_model,
-)
-
-from jax_spice.debug.simulation_tracer import (
-    SimulationTracer,
-    NodeAllocation,
-    VoltageMapping,
-    DeviceParamsTrace,
-    trace_simulation,
 )
 
 # MIR analysis imports are optional (require networkx/pydot)

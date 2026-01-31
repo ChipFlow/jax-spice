@@ -47,6 +47,7 @@ def _setup_jaxtyping():
     """Enable jaxtyping runtime checking with beartype."""
     try:
         from jaxtyping import install_import_hook
+
         # Enable runtime type checking for jax_spice modules
         install_import_hook("jax_spice", "beartype.beartype")
     except ImportError:
@@ -61,10 +62,10 @@ def pytest_configure(config):
     BEFORE any test modules are imported.
     """
     # Platform-specific configuration BEFORE importing JAX
-    if sys.platform == 'darwin':
+    if sys.platform == "darwin":
         # macOS: Force CPU backend - Metal doesn't support triangular_solve
-        os.environ['JAX_PLATFORMS'] = 'cpu'
-    elif sys.platform == 'linux' and os.environ.get('JAX_PLATFORMS', '').startswith('cuda'):
+        os.environ["JAX_PLATFORMS"] = "cpu"
+    elif sys.platform == "linux" and os.environ.get("JAX_PLATFORMS", "").startswith("cuda"):
         # Linux with CUDA: Preload CUDA libraries before JAX import
         _setup_cuda_libraries()
 
@@ -97,13 +98,20 @@ def parse_si_value(s: str) -> float:
     """
     s = s.strip().lower()
     suffixes = {
-        'f': 1e-15, 'p': 1e-12, 'n': 1e-9, 'u': 1e-6, 'm': 1e-3,
-        'k': 1e3, 'meg': 1e6, 'g': 1e9, 't': 1e12
+        "f": 1e-15,
+        "p": 1e-12,
+        "n": 1e-9,
+        "u": 1e-6,
+        "m": 1e-3,
+        "k": 1e3,
+        "meg": 1e6,
+        "g": 1e9,
+        "t": 1e12,
     }
     # Check longer suffixes first (meg before m)
     for suffix, mult in sorted(suffixes.items(), key=lambda x: -len(x[0])):
         if s.endswith(suffix):
-            return float(s[:-len(suffix)]) * mult
+            return float(s[: -len(suffix)]) * mult
     return float(s)
 
 
@@ -125,12 +133,12 @@ def parse_embedded_python(sim_path: Path) -> Dict[str, Any]:
     text = sim_path.read_text()
 
     # Find embedded Python between <<<FILE and >>>FILE
-    match = re.search(r'<<<FILE\n(.*?)>>>FILE', text, re.DOTALL)
+    match = re.search(r"<<<FILE\n(.*?)>>>FILE", text, re.DOTALL)
     if not match:
-        return {'expectations': [], 'analysis_type': 'op'}
+        return {"expectations": [], "analysis_type": "op"}
 
     py_code = match.group(1)
-    lines = py_code.split('\n')
+    lines = py_code.split("\n")
 
     expectations = []
     current_var = None
@@ -143,7 +151,7 @@ def parse_embedded_python(sim_path: Path) -> Dict[str, Any]:
             continue
 
         # Match: exact = <expression>
-        m = re.match(r'\s*exact\s*=\s*(.+)', line)
+        m = re.match(r"\s*exact\s*=\s*(.+)", line)
         if m and current_var:
             try:
                 # Safe evaluation of numeric expressions using simpleeval
@@ -155,11 +163,8 @@ def parse_embedded_python(sim_path: Path) -> Dict[str, Any]:
             current_var = None
 
     # Determine analysis type
-    analysis_type = 'op'
-    if 'tran1' in py_code or 'rawread(\'tran' in py_code:
-        analysis_type = 'tran'
+    analysis_type = "op"
+    if "tran1" in py_code or "rawread('tran" in py_code:
+        analysis_type = "tran"
 
-    return {
-        'expectations': expectations,
-        'analysis_type': analysis_type
-    }
+    return {"expectations": expectations, "analysis_type": analysis_type}

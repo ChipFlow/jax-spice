@@ -12,4 +12,4 @@ Usage:
 
 from .ng2vclib.converter import Converter
 
-__all__ = ['Converter']
+__all__ = ["Converter"]

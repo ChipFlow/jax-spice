@@ -28,6 +28,7 @@ _UmfpackContext = None
 
 try:
     from scikits.umfpack import UmfpackContext
+
     _UmfpackContext = UmfpackContext
     _UMFPACK_AVAILABLE = True
     logger.info("UMFPACK solver available (scikit-umfpack)")
@@ -72,8 +73,8 @@ class UMFPACKSolver:
         bcsr_indptr: Array,
         bcsr_indices: Array,
         device_id: int = 0,  # Ignored, for Spineax API compatibility
-        mtype_id: int = 1,   # Ignored, for Spineax API compatibility
-        mview_id: int = 0,   # Ignored, for Spineax API compatibility
+        mtype_id: int = 1,  # Ignored, for Spineax API compatibility
+        mview_id: int = 0,  # Ignored, for Spineax API compatibility
     ):
         """Initialize solver with CSR sparsity pattern.
 
@@ -86,8 +87,7 @@ class UMFPACKSolver:
         """
         if not _UMFPACK_AVAILABLE:
             raise RuntimeError(
-                "scikit-umfpack is not available. Install with: "
-                "pip install scikit-umfpack"
+                "scikit-umfpack is not available. Install with: pip install scikit-umfpack"
             )
 
         # Store CSR structure as contiguous numpy arrays
@@ -98,8 +98,9 @@ class UMFPACKSolver:
 
         # Pre-compute CSR→CSC transpose mapping
         # This avoids repeated COO→CSC conversion at solve time
-        self._csc_indptr, self._csc_indices, self._csr_to_csc_map = \
+        self._csc_indptr, self._csc_indices, self._csr_to_csc_map = (
             self._compute_csr_to_csc_mapping()
+        )
 
         # Create UMFPACK context (will cache symbolic factorization)
         self._umf = _UmfpackContext()
@@ -118,10 +119,8 @@ class UMFPACKSolver:
         # Create a dummy CSR matrix to get the CSC structure
         dummy_data = np.ones(self.nnz, dtype=np.float64)
         from scipy.sparse import csr_matrix
-        csr = csr_matrix(
-            (dummy_data, self._csr_indices, self._csr_indptr),
-            shape=(self.n, self.n)
-        )
+
+        csr = csr_matrix((dummy_data, self._csr_indices, self._csr_indptr), shape=(self.n, self.n))
         csc = csr.tocsc()
 
         # Store CSC structure
@@ -133,7 +132,7 @@ class UMFPACKSolver:
         positions = np.arange(self.nnz, dtype=np.int32)
         csr_with_pos = csr_matrix(
             (positions.astype(np.float64), self._csr_indices, self._csr_indptr),
-            shape=(self.n, self.n)
+            shape=(self.n, self.n),
         )
         csc_with_pos = csr_with_pos.tocsc()
         csr_to_csc_map = csc_with_pos.data.astype(np.int32)
@@ -159,8 +158,7 @@ class UMFPACKSolver:
 
         # Create CSC matrix with the reordered data
         A_csc = csc_matrix(
-            (csc_data, self._csc_indices.copy(), self._csc_indptr.copy()),
-            shape=(self.n, self.n)
+            (csc_data, self._csc_indices.copy(), self._csc_indptr.copy()), shape=(self.n, self.n)
         )
         # Ensure arrays are contiguous
         A_csc.data = np.ascontiguousarray(A_csc.data)
@@ -194,6 +192,7 @@ class UMFPACKSolver:
         Returns:
             Tuple of (solution x, info dict)
         """
+
         # Define callback that JAX can call
         def solve_callback(b_np, data_np):
             return self._solve_impl(b_np, data_np)
@@ -206,7 +205,7 @@ class UMFPACKSolver:
             csr_data,
         )
 
-        info = {'solver': 'umfpack', 'n': self.n, 'nnz': self.nnz}
+        info = {"solver": "umfpack", "n": self.n, "nnz": self.nnz}
         return x, info
 
 

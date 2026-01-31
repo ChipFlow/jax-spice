@@ -48,16 +48,16 @@ def _get_memory_stats() -> str:
     # CPU memory via tracemalloc
     if tracemalloc.is_tracing():
         current, peak = tracemalloc.get_traced_memory()
-        parts.append(f"CPU:{current/1024/1024:.0f}MB")
+        parts.append(f"CPU:{current / 1024 / 1024:.0f}MB")
 
     # GPU memory via JAX (works for CUDA devices)
     try:
         for dev in jax.devices():
             # Check for GPU/CUDA devices (platform can be 'gpu', 'cuda', etc.)
-            if dev.platform != 'cpu':
+            if dev.platform != "cpu":
                 stats = dev.memory_stats()
-                if stats and 'bytes_in_use' in stats:
-                    current_mb = stats['bytes_in_use'] / 1024 / 1024
+                if stats and "bytes_in_use" in stats:
+                    current_mb = stats["bytes_in_use"] / 1024 / 1024
                     parts.append(f"{dev.platform}:{current_mb:.0f}MB")
     except Exception:
         pass

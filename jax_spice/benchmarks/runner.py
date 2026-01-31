@@ -81,8 +81,11 @@ class BenchmarkRunner:
         # Warmup runs
         for _ in range(warmup_runs):
             self._engine.run_transient(
-                t_stop=t_stop, dt=dt, max_steps=max_steps,
-                use_sparse=use_sparse, use_while_loop=use_scan
+                t_stop=t_stop,
+                dt=dt,
+                max_steps=max_steps,
+                use_sparse=use_sparse,
+                use_while_loop=use_scan,
             )
 
         # Timed runs
@@ -91,20 +94,23 @@ class BenchmarkRunner:
         for _ in range(timed_runs):
             start = time.perf_counter()
             result = self._engine.run_transient(
-                t_stop=t_stop, dt=dt, max_steps=max_steps,
-                use_sparse=use_sparse, use_while_loop=use_scan,
-                profile_config=profile_config
+                t_stop=t_stop,
+                dt=dt,
+                max_steps=max_steps,
+                use_sparse=use_sparse,
+                use_while_loop=use_scan,
+                profile_config=profile_config,
             )
             elapsed = time.perf_counter() - start
             run_times.append(elapsed)
 
         return {
-            'times': result.times,
-            'voltages': result.voltages,
-            'stats': result.stats,
-            'run_times': run_times,
-            'avg_time': sum(run_times) / len(run_times),
-            'num_nodes': self._engine.num_nodes,
+            "times": result.times,
+            "voltages": result.voltages,
+            "stats": result.stats,
+            "run_times": run_times,
+            "avg_time": sum(run_times) / len(run_times),
+            "num_nodes": self._engine.num_nodes,
         }
 
     def clear(self):

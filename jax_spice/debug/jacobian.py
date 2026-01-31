@@ -7,7 +7,7 @@ OSDI and openvaf_jax return Jacobians in different formats:
 This module provides utilities to convert between formats and compare Jacobians.
 """
 
-from typing import NamedTuple, Optional, Sequence, Union
+from typing import NamedTuple, Optional, Sequence
 
 import numpy as np
 from numpy.typing import ArrayLike

@@ -17,7 +17,19 @@ import sys
 import warnings
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple, Union
+
+if TYPE_CHECKING:
+    from jax_spice.analysis.ac import ACResult
+    from jax_spice.analysis.corners import (
+        CornerConfig,
+        CornerSweepResult,
+        ProcessCorner,
+        VoltageCorner,
+    )
+    from jax_spice.analysis.noise import NoiseResult
+    from jax_spice.analysis.transient import AdaptiveConfig
+    from jax_spice.analysis.xfer import ACXFResult, DCIncResult, DCXFResult
 
 import jax
 import jax.numpy as jnp

@@ -6,7 +6,7 @@ where values come from and how they're used.
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Dict, List, Optional, Set, Tuple
 
 import openvaf_py
 
@@ -66,12 +66,12 @@ class MIRTracer:
         self.dae_data = self.module.get_dae_system()
 
         # Extract useful data
-        self.params = list(self.mir_data.get('params', []))
-        self.instructions = self.mir_data.get('instructions', [])
-        self.constants = dict(self.mir_data.get('constants', {}))
-        self.blocks = self.mir_data.get('blocks', {})
+        self.params = list(self.mir_data.get("params", []))
+        self.instructions = self.mir_data.get("instructions", [])
+        self.constants = dict(self.mir_data.get("constants", {}))
+        self.blocks = self.mir_data.get("blocks", {})
 
-        self.init_params = list(self.init_mir_data.get('params', []))
+        self.init_params = list(self.init_mir_data.get("params", []))
 
         # Build indices
         self._build_indices()
@@ -84,14 +84,14 @@ class MIRTracer:
         # Map value name to producer instruction
         self.producers: Dict[str, Dict] = {}
         for inst in self.instructions:
-            result = inst.get('result', '')
+            result = inst.get("result", "")
             if result:
                 self.producers[result] = inst
 
         # Map value name to consumer instructions
         self.consumers: Dict[str, List[Dict]] = {}
         for inst in self.instructions:
-            for operand in inst.get('operands', []):
+            for operand in inst.get("operands", []):
                 if operand not in self.consumers:
                     self.consumers[operand] = []
                 self.consumers[operand].append(inst)
@@ -111,7 +111,7 @@ class MIRTracer:
             ValueInfo with source and usage information
         """
         # Extract value ID
-        if value_name.startswith('v'):
+        if value_name.startswith("v"):
             try:
                 value_id = int(value_name[1:])
             except ValueError:
@@ -131,9 +131,9 @@ class MIRTracer:
         if value_name in self.producers:
             producer = self.producers[value_name]
             info.is_computed = True
-            info.producer_block = producer.get('block', '')
-            info.producer_opcode = producer.get('opcode', '')
-            info.producer_operands = producer.get('operands', [])
+            info.producer_block = producer.get("block", "")
+            info.producer_opcode = producer.get("opcode", "")
+            info.producer_operands = producer.get("operands", [])
 
         # Check if it's a param
         if value_name in self.param_name_to_idx:
@@ -144,7 +144,7 @@ class MIRTracer:
         if value_name in self.consumers:
             consumers = self.consumers[value_name]
             info.consumer_count = len(consumers)
-            info.consumer_blocks = list(set(c.get('block', '') for c in consumers))
+            info.consumer_blocks = list(set(c.get("block", "") for c in consumers))
 
         return info
 
@@ -164,21 +164,21 @@ class MIRTracer:
         if translator:
             # Use translate_eval to get param info
             eval_fn, eval_meta = translator.translate_eval(params={}, temperature=300.0)
-            param_kinds = eval_meta.get('param_kinds', [])
-            param_names = eval_meta.get('param_names', [])
+            param_kinds = eval_meta.get("param_kinds", [])
+            param_names = eval_meta.get("param_names", [])
 
             for i, (name, kind) in enumerate(zip(param_names, param_kinds)):
                 if kind not in analysis.by_kind:
                     analysis.by_kind[kind] = []
                 analysis.by_kind[kind].append((i, name))
 
-                if kind == 'unknown':
+                if kind == "unknown":
                     analysis.unknown_params.append((i, name))
 
             # Check cache mapping
             cache_mapping = translator.cache_mapping
             for m in cache_mapping:
-                eval_param_idx = m.get('eval_param', -1)
+                eval_param_idx = m.get("eval_param", -1)
                 analysis.cache_mapped_params.add(eval_param_idx)
 
         return analysis
@@ -219,25 +219,26 @@ class MIRTracer:
         Returns:
             Nested dict representing the dependency tree
         """
+
         def trace(name: str, depth: int, visited: Set[str]) -> Dict:
             if depth > max_depth or name in visited:
-                return {'name': name, 'truncated': True}
+                return {"name": name, "truncated": True}
 
             visited.add(name)
-            result = {'name': name}
+            result = {"name": name}
 
             if name in self.producers:
                 producer = self.producers[name]
-                result['opcode'] = producer.get('opcode', '')
-                result['block'] = producer.get('block', '')
-                result['operands'] = []
+                result["opcode"] = producer.get("opcode", "")
+                result["block"] = producer.get("block", "")
+                result["operands"] = []
 
-                for op in producer.get('operands', []):
-                    result['operands'].append(trace(op, depth + 1, visited.copy()))
+                for op in producer.get("operands", []):
+                    result["operands"].append(trace(op, depth + 1, visited.copy()))
             elif name in self.constants:
-                result['constant'] = self.constants[name]
+                result["constant"] = self.constants[name]
             elif name in self.param_name_to_idx:
-                result['param_index'] = self.param_name_to_idx[name]
+                result["param_index"] = self.param_name_to_idx[name]
 
             return result
 
@@ -247,9 +248,9 @@ class MIRTracer:
         """Print a human-readable trace of a value."""
         info = self.trace_value(value_name)
 
-        print(f"\n{'='*60}")
+        print(f"\n{'=' * 60}")
         print(f"Value: {info.name} (id={info.value_id})")
-        print(f"{'='*60}")
+        print(f"{'=' * 60}")
 
         print("\nSource:")
         if info.is_constant:
@@ -262,13 +263,13 @@ class MIRTracer:
             if info.param_kind:
                 print(f"    Kind: {info.param_kind}")
         else:
-            print(f"  UNKNOWN SOURCE")
+            print("  UNKNOWN SOURCE")
 
-        print(f"\nUsage:")
+        print("\nUsage:")
         print(f"  Used {info.consumer_count} times in blocks: {info.consumer_blocks}")
 
         if info.is_cache:
-            print(f"\nCache:")
+            print("\nCache:")
             print(f"  Mapped to cache index {info.cache_index}")
 
 
@@ -294,8 +295,9 @@ def trace_model(va_path: Path, values: List[str] = None):
             tracer.print_value_trace(name)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     import sys
+
     if len(sys.argv) < 2:
         print("Usage: python mir_tracer.py <va_file> [value1] [value2] ...")
         sys.exit(1)

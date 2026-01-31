@@ -26,7 +26,7 @@ from typing import List
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 # Force CPU backend
-os.environ['JAX_PLATFORMS'] = 'cpu'
+os.environ["JAX_PLATFORMS"] = "cpu"
 
 # Import jax_spice first to auto-configure precision based on backend
 # (Metal/TPU use f32, CPU/CUDA use f64)
@@ -34,8 +34,9 @@ from jax_spice.analysis import CircuitEngine
 from scripts.benchmark_utils import BenchmarkResult, get_vacask_benchmarks, log
 
 
-def run_benchmark(sim_path: Path, name: str, use_sparse: bool,
-                  num_steps: int = 20, use_scan: bool = False) -> BenchmarkResult:
+def run_benchmark(
+    sim_path: Path, name: str, use_sparse: bool, num_steps: int = 20, use_scan: bool = False
+) -> BenchmarkResult:
     """Run a single benchmark configuration."""
     try:
         # Parse circuit
@@ -46,7 +47,7 @@ def run_benchmark(sim_path: Path, name: str, use_sparse: bool,
 
         nodes = engine.num_nodes
         devices = len(engine.devices)
-        openvaf_devices = sum(1 for d in engine.devices if d.get('is_openvaf'))
+        openvaf_devices = sum(1 for d in engine.devices if d.get("is_openvaf"))
 
         # Skip sparse for non-OpenVAF circuits
         if use_sparse and not engine._has_openvaf_devices:
@@ -58,13 +59,13 @@ def run_benchmark(sim_path: Path, name: str, use_sparse: bool,
                 timesteps=0,
                 total_time_s=0,
                 time_per_step_ms=0,
-                solver='sparse',
+                solver="sparse",
                 converged=True,
-                error="Sparse not applicable (no OpenVAF devices)"
+                error="Sparse not applicable (no OpenVAF devices)",
             )
 
         # Get analysis params
-        dt = engine.analysis_params.get('step', 1e-12)
+        dt = engine.analysis_params.get("step", 1e-12)
 
         # Warmup run (includes JIT compilation)
         # IMPORTANT: Use same num_steps as timed run to avoid JAX re-tracing
@@ -72,18 +73,24 @@ def run_benchmark(sim_path: Path, name: str, use_sparse: bool,
         mode_str = "lax.scan" if use_scan else "Python loop"
         log(f"      warmup ({num_steps} steps, {mode_str}, includes JIT)...")
         warmup_start = time.perf_counter()
-        engine.run_transient(t_stop=dt * num_steps, dt=dt,
-                            max_steps=num_steps, use_sparse=use_sparse,
-                            use_while_loop=use_scan)
+        engine.run_transient(
+            t_stop=dt * num_steps,
+            dt=dt,
+            max_steps=num_steps,
+            use_sparse=use_sparse,
+            use_while_loop=use_scan,
+        )
         warmup_time = time.perf_counter() - warmup_start
         log(f"      warmup done ({warmup_time:.1f}s)")
 
         # Timed run - use same engine with cached JIT functions
         start = time.perf_counter()
         result = engine.run_transient(
-            t_stop=dt * num_steps, dt=dt,
-            max_steps=num_steps, use_sparse=use_sparse,
-            use_while_loop=use_scan
+            t_stop=dt * num_steps,
+            dt=dt,
+            max_steps=num_steps,
+            use_sparse=use_sparse,
+            use_while_loop=use_scan,
         )
         elapsed = time.perf_counter() - start
 
@@ -98,12 +105,13 @@ def run_benchmark(sim_path: Path, name: str, use_sparse: bool,
             timesteps=actual_steps,
             total_time_s=elapsed,
             time_per_step_ms=time_per_step,
-            solver='sparse' if use_sparse else 'dense',
+            solver="sparse" if use_sparse else "dense",
             converged=True,
         )
 
     except Exception as e:
         import traceback
+
         traceback.print_exc()
         return BenchmarkResult(
             name=name,
@@ -113,16 +121,14 @@ def run_benchmark(sim_path: Path, name: str, use_sparse: bool,
             timesteps=0,
             total_time_s=0,
             time_per_step_ms=0,
-            solver='sparse' if use_sparse else 'dense',
+            solver="sparse" if use_sparse else "dense",
             converged=False,
-            error=str(e)
+            error=str(e),
         )
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        description="Profile VACASK benchmarks on CPU"
-    )
+    parser = argparse.ArgumentParser(description="Profile VACASK benchmarks on CPU")
     parser.add_argument(
         "--benchmark",
         type=str,
@@ -166,7 +172,7 @@ def main():
     # Parse benchmark names
     benchmark_names = None
     if args.benchmark:
-        benchmark_names = [b.strip() for b in args.benchmark.split(',')]
+        benchmark_names = [b.strip() for b in args.benchmark.split(",")]
 
     log("[Stage 2/3] Discovering benchmarks...")
     benchmarks = get_vacask_benchmarks(benchmark_names)
@@ -183,35 +189,37 @@ def main():
         log(f"  {name}:")
 
         # Determine which solvers to run
-        run_dense = not args.sparse_only and name != 'c6288'  # c6288 too large for dense
+        run_dense = not args.sparse_only and name != "c6288"  # c6288 too large for dense
         run_sparse = not args.dense_only
 
-        if name == 'c6288' and not args.sparse_only:
+        if name == "c6288" and not args.sparse_only:
             log(f"    Skipping dense (86k nodes would need ~56GB)")
 
         # Run dense
         if run_dense:
             result_dense = run_benchmark(
-                sim_path, name, use_sparse=False,
-                num_steps=args.timesteps, use_scan=args.use_scan
+                sim_path, name, use_sparse=False, num_steps=args.timesteps, use_scan=args.use_scan
             )
             results.append(result_dense)
             if result_dense.error:
                 log(f"    dense:  ERROR - {result_dense.error}")
             else:
-                log(f"    dense:  {result_dense.time_per_step_ms:.1f}ms/step ({result_dense.timesteps} steps)")
+                log(
+                    f"    dense:  {result_dense.time_per_step_ms:.1f}ms/step ({result_dense.timesteps} steps)"
+                )
 
         # Run sparse
         if run_sparse:
             result_sparse = run_benchmark(
-                sim_path, name, use_sparse=True,
-                num_steps=args.timesteps, use_scan=args.use_scan
+                sim_path, name, use_sparse=True, num_steps=args.timesteps, use_scan=args.use_scan
             )
             results.append(result_sparse)
             if result_sparse.error:
                 log(f"    sparse: {result_sparse.error}")
             else:
-                log(f"    sparse: {result_sparse.time_per_step_ms:.1f}ms/step ({result_sparse.timesteps} steps)")
+                log(
+                    f"    sparse: {result_sparse.time_per_step_ms:.1f}ms/step ({result_sparse.timesteps} steps)"
+                )
 
         log()
 
@@ -230,8 +238,10 @@ def main():
     log("|-----------|-------|--------|-------|-----------|---------------|--------|")
     for r in results:
         status = "OK" if r.converged and not r.error else (r.error or "Failed")[:15]
-        log(f"| {r.name:9} | {r.nodes:5} | {r.solver:6} | {r.timesteps:5} | "
-            f"{r.total_time_s:9.3f} | {r.time_per_step_ms:13.1f} | {status:6} |")
+        log(
+            f"| {r.name:9} | {r.nodes:5} | {r.solver:6} | {r.timesteps:5} | "
+            f"{r.total_time_s:9.3f} | {r.time_per_step_ms:13.1f} | {status:6} |"
+        )
 
     log()
     log("=" * 70)
@@ -239,13 +249,14 @@ def main():
     log("=" * 70)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     try:
         main()
     except Exception as e:
         print(f"\n*** FATAL ERROR ***")
         print(f"Unhandled exception: {e}")
         import traceback
+
         traceback.print_exc()
         sys.stdout.flush()
         sys.exit(1)

@@ -117,9 +117,7 @@ def split_params(params: list[str], handle_m: bool = False) -> list[tuple[str, s
     return result
 
 
-def remove_params(
-    params: list[tuple[str, str]], to_remove: set[str]
-) -> list[tuple[str, str]]:
+def remove_params(params: list[tuple[str, str]], to_remove: set[str]) -> list[tuple[str, str]]:
     """Remove specified parameters from a parameter list.
 
     Args:
@@ -242,7 +240,7 @@ def process_terminals(terminals: list[str]) -> list[str]:
     for t in terminals:
         t = t.replace("!", "_")
         # Replace [N] with _N_ (array indices not allowed in VACASK)
-        t = re.sub(r'\[(\d+)\]', r'_\1_', t)
+        t = re.sub(r"\[(\d+)\]", r"_\1_", t)
         result.append(t)
     return result
 
@@ -263,7 +261,7 @@ def sanitize_identifier(name: str | None) -> str | None:
     if name is None:
         return None
     name = name.replace("!", "_")
-    name = re.sub(r'\[(\d+)\]', r'_\1_', name)
+    name = re.sub(r"\[(\d+)\]", r"_\1_", name)
     return name
 
 

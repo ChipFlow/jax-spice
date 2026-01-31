@@ -6,16 +6,16 @@ class InstanceXMixin:
         """
         Process X instance (subcircuit).
         """
-        name = annot["name"]
+        annot["name"]
         parts = annot["words"]
         mod_index = annot["mod_index"]
         model = annot["mod_name"]
 
         if model is None:
-            raise ConverterError(line+"\nModel not found.")
+            raise ConverterError(line + "\nModel not found.")
 
         terminals = self.process_terminals(parts[:mod_index])
-        params = parts[(mod_index+1):]
+        params = parts[(mod_index + 1) :]
 
         # Process parameters, do not handle m (keep its name unchanged)
         psplit = self.process_instance_params(params, "x", handle_m=False)
@@ -24,12 +24,12 @@ class InstanceXMixin:
         # and sanitize for VACASK compatibility
         output_model = self.sanitize_identifier(annot["mod_name"])
 
-        txt = lws + annot["output_name"] + " (" + (" ".join(terminals))+") "+output_model+" "
+        txt = lws + annot["output_name"] + " (" + (" ".join(terminals)) + ") " + output_model + " "
 
-        if len(psplit)>0:
+        if len(psplit) > 0:
             fmted, need_split, split = self.format_params(psplit, len(txt))
             if need_split or split:
-                fmted = self.indent(fmted, len(lws)+2)
+                fmted = self.indent(fmted, len(lws) + 2)
                 txt += "(" + eol + "\n" + fmted
                 txt += "\n" + lws + ")"
             else:

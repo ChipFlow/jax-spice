@@ -16,7 +16,7 @@ class InstanceVMixin:
             vname (n+ n-) vsource dc=value
             vname (n+ n-) vsource type="pwl" wave=[t1, v1, t2, v2, ...]
         """
-        name = annot["name"]
+        annot["name"]
         parts = annot["words"]
 
         # Track that vsource builtin model is needed
@@ -85,13 +85,17 @@ class InstanceVMixin:
                 pwl_data = self.parse_pwl(pwl_content)
                 params.append(("type", '"pwl"'))
                 params.append(("wave", pwl_data))
-            elif rest_str_lower.startswith("pulse(") or rest_str_lower.startswith("pulse ") or rest_str_lower.startswith("pulse"):
+            elif (
+                rest_str_lower.startswith("pulse(")
+                or rest_str_lower.startswith("pulse ")
+                or rest_str_lower.startswith("pulse")
+            ):
                 # PULSE source: PULSE(v1 v2 td tr tf pw per) or PULSE v1 v2 td tr tf pw per
                 # VACASK format: type="pulse" val0=v1 val1=v2 delay=td rise=tr fall=tf width=pw period=per
                 #
                 # Use raw line (before preprocessing) since preprocess removes spaces inside parens
                 raw_line = annot.get("rawline", annot.get("origline", ""))
-                pulse_match = re.search(r'pulse\s*\(\s*([^)]+)\s*\)', raw_line, re.IGNORECASE)
+                pulse_match = re.search(r"pulse\s*\(\s*([^)]+)\s*\)", raw_line, re.IGNORECASE)
                 if pulse_match:
                     pulse_content = pulse_match.group(1).strip()
                 else:
@@ -153,8 +157,8 @@ class InstanceVMixin:
         tokens = pwl_str.split()
         if len(tokens) > 1:
             # Spaces were preserved - original behavior
-            pwl_str_clean = re.sub(r'(\d+\.?\d*[eE]?[+-]?\d*)[sS]', r'\1', pwl_str)
-            pwl_str_clean = re.sub(r'(\d+\.?\d*[eE]?[+-]?\d*)[vV]', r'\1', pwl_str_clean)
+            pwl_str_clean = re.sub(r"(\d+\.?\d*[eE]?[+-]?\d*)[sS]", r"\1", pwl_str)
+            pwl_str_clean = re.sub(r"(\d+\.?\d*[eE]?[+-]?\d*)[vV]", r"\1", pwl_str_clean)
             tokens = pwl_str_clean.split()
             # Return flat list of alternating time, value pairs
             return "[" + ", ".join(tokens) + "]"
@@ -162,8 +166,8 @@ class InstanceVMixin:
         # Spaces were removed - need to parse more carefully
         # Pattern: time value pairs where time ends in 's' and value ends in 'v'
         # Match pattern: (number)s(number)v repeated
-        number_pattern = r'[-+]?\d+\.?\d*(?:[eE][-+]?\d+)?'
-        pair_pattern = f'({number_pattern})[sS]({number_pattern})[vV]'
+        number_pattern = r"[-+]?\d+\.?\d*(?:[eE][-+]?\d+)?"
+        pair_pattern = f"({number_pattern})[sS]({number_pattern})[vV]"
 
         values = []
         for match in re.finditer(pair_pattern, pwl_str):
@@ -205,7 +209,7 @@ class InstanceVMixin:
         params = []
 
         # Map SPICE pulse params to VACASK names
-        param_names = ['val0', 'val1', 'delay', 'rise', 'fall', 'width', 'period']
+        param_names = ["val0", "val1", "delay", "rise", "fall", "width", "period"]
 
         for i, token in enumerate(tokens):
             if i < len(param_names):
@@ -227,7 +231,25 @@ class InstanceVMixin:
         the end of one value. A new value starts at a digit or sign after a unit.
         """
         # SI unit suffixes (longer first for correct matching)
-        units = ['meg', 'mil', 'ms', 'us', 'ns', 'ps', 'fs', 'f', 'p', 'n', 'u', 'm', 'k', 'g', 't', 's', 'v']
+        units = [
+            "meg",
+            "mil",
+            "ms",
+            "us",
+            "ns",
+            "ps",
+            "fs",
+            "f",
+            "p",
+            "n",
+            "u",
+            "m",
+            "k",
+            "g",
+            "t",
+            "s",
+            "v",
+        ]
 
         # First pass: find all positions where units appear
         # Then work backwards to identify number boundaries
@@ -237,30 +259,32 @@ class InstanceVMixin:
         while remaining:
             # Find a number at the start
             # A number is: optional sign, digits, optional decimal, optional exponent
-            num_match = re.match(r'^([-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?)', remaining)
+            num_match = re.match(r"^([-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?)", remaining)
             if not num_match:
                 break
 
             num = num_match.group(1)
-            remaining = remaining[len(num):]
+            remaining = remaining[len(num) :]
 
             # Check if followed by a unit suffix
-            unit = ''
+            unit = ""
             for u in units:
                 if remaining.lower().startswith(u):
                     # Make sure unit is not followed by another letter (to avoid partial matches)
                     if len(remaining) == len(u) or not remaining[len(u)].isalpha():
-                        unit = remaining[:len(u)]
-                        remaining = remaining[len(u):]
+                        unit = remaining[: len(u)]
+                        remaining = remaining[len(u) :]
                         break
 
             tokens.append(num + unit)
 
             # If there's still content but no more matches, something went wrong
-            if remaining and not remaining[0].lstrip('+-').replace('.','',1).isdigit():
+            if remaining and not remaining[0].lstrip("+-").replace(".", "", 1).isdigit():
                 # Skip any non-numeric characters
                 idx = 0
-                while idx < len(remaining) and not (remaining[idx].isdigit() or remaining[idx] in '+-'):
+                while idx < len(remaining) and not (
+                    remaining[idx].isdigit() or remaining[idx] in "+-"
+                ):
                     idx += 1
                 remaining = remaining[idx:]
 

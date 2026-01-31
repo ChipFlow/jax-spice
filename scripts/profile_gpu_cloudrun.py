@@ -98,7 +98,9 @@ def main():
 
     timestamp = int(time.time())
     trace_gcs_path = f"{GCS_BUCKET}/{args.benchmark.replace(',', '-')}-{timestamp}"
-    local_trace_dir = Path(tempfile.gettempdir()) / f"jax-trace-{args.benchmark.replace(',', '-')}-{timestamp}"
+    local_trace_dir = (
+        Path(tempfile.gettempdir()) / f"jax-trace-{args.benchmark.replace(',', '-')}-{timestamp}"
+    )
     enable_profiling = not args.no_profile
 
     print("=" * 60)
@@ -128,9 +130,7 @@ def main():
     if enable_profiling:
         print("[2/5] Ensuring GCS bucket exists...")
         run_cmd(["gsutil", "ls", GCS_BUCKET], check=False)
-        run_cmd(
-            ["gsutil", "mb", "-l", GCP_REGION, "-p", GCP_PROJECT, GCS_BUCKET], check=False
-        )
+        run_cmd(["gsutil", "mb", "-l", GCP_REGION, "-p", GCP_PROJECT, GCS_BUCKET], check=False)
         print()
     else:
         print("[2/5] Skipping GCS bucket (profiling disabled)")
@@ -138,9 +138,14 @@ def main():
 
     # Build the compare_vacask.py command
     compare_cmd = [
-        "uv", "run", "python", "scripts/compare_vacask.py",
-        "--benchmark", args.benchmark,
-        "--max-steps", str(args.max_steps),
+        "uv",
+        "run",
+        "python",
+        "scripts/compare_vacask.py",
+        "--benchmark",
+        args.benchmark,
+        "--max-steps",
+        str(args.max_steps),
         "--use-scan",
     ]
     if args.use_sparse:
@@ -171,7 +176,7 @@ fi
         upload_script = ""
 
     # Create the bash script that runs on Cloud Run
-    benchmark_script = f'''#!/bin/bash
+    benchmark_script = f"""#!/bin/bash
 set -e
 
 cd /app
@@ -208,7 +213,7 @@ echo ""
 
 echo ""
 echo "=== Benchmark Complete ==="
-'''
+"""
 
     # Create or update the Cloud Run job
     print("[3/5] Creating/updating Cloud Run job...")
@@ -218,7 +223,11 @@ echo "=== Benchmark Complete ==="
     job_args = f"echo {script_b64} | base64 -d | bash"
 
     job_cmd = [
-        "gcloud", "run", "jobs", "create", JOB_NAME,
+        "gcloud",
+        "run",
+        "jobs",
+        "create",
+        JOB_NAME,
         f"--region={GCP_REGION}",
         f"--project={GCP_PROJECT}",
         "--image=us-central1-docker.pkg.dev/jax-spice-cuda-test/ghcr-remote/chipflow/jax-spice/gpu-base:latest",
@@ -244,7 +253,11 @@ echo "=== Benchmark Complete ==="
     print("[4/5] Executing Cloud Run job...")
     (result, exec_id, _) = run_cmd(
         [
-            "gcloud", "run", "jobs", "execute", JOB_NAME,
+            "gcloud",
+            "run",
+            "jobs",
+            "execute",
+            JOB_NAME,
             f"--region={GCP_REGION}",
             f"--project={GCP_PROJECT}",
             "--async",
@@ -258,7 +271,13 @@ echo "=== Benchmark Complete ==="
     # Start log tailing in background
     log_proc = subprocess.Popen(
         [
-            "gcloud", "beta", "run", "jobs", "executions", "logs", "tail",
+            "gcloud",
+            "beta",
+            "run",
+            "jobs",
+            "executions",
+            "logs",
+            "tail",
             exec_id,
             f"--region={GCP_REGION}",
             f"--project={GCP_PROJECT}",
@@ -276,7 +295,12 @@ echo "=== Benchmark Complete ==="
             time.sleep(5)
             result = subprocess.run(
                 [
-                    "gcloud", "run", "jobs", "executions", "describe", exec_id,
+                    "gcloud",
+                    "run",
+                    "jobs",
+                    "executions",
+                    "describe",
+                    exec_id,
                     f"--region={GCP_REGION}",
                     f"--project={GCP_PROJECT}",
                     "--format=value(status.conditions[0].type,status.conditions[0].status)",
@@ -315,8 +339,7 @@ echo "=== Benchmark Complete ==="
         print("[5/5] Downloading traces from GCS...")
         local_trace_dir.mkdir(parents=True, exist_ok=True)
         dl_result = run_cmd(
-            ["gsutil", "-m", "cp", "-r", f"{trace_gcs_path}/*", str(local_trace_dir)],
-            check=False
+            ["gsutil", "-m", "cp", "-r", f"{trace_gcs_path}/*", str(local_trace_dir)], check=False
         )
         print()
 
@@ -354,6 +377,7 @@ echo "=== Benchmark Complete ==="
 
         if args.open_perfetto:
             import webbrowser
+
             webbrowser.open("https://ui.perfetto.dev/")
 
     print("To view full logs:")

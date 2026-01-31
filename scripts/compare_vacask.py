@@ -32,6 +32,7 @@ import subprocess
 # Enable jax_spice performance logging with memory stats and perf_counter timestamps
 # This helps track memory usage and correlate log messages with Perfetto trace timestamps
 from jax_spice._logging import enable_performance_logging
+
 enable_performance_logging(with_memory=True, with_perf_counter=True)
 import sys
 import time
@@ -45,9 +46,9 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 # Configure JAX memory allocation BEFORE importing JAX
 # Disable preallocation to avoid grabbing all GPU memory at startup
-os.environ.setdefault('XLA_PYTHON_CLIENT_PREALLOCATE', 'false')
+os.environ.setdefault("XLA_PYTHON_CLIENT_PREALLOCATE", "false")
 # Use memory growth instead of fixed allocation
-os.environ.setdefault('XLA_PYTHON_CLIENT_ALLOCATOR', 'platform')
+os.environ.setdefault("XLA_PYTHON_CLIENT_ALLOCATOR", "platform")
 # Note: Set JAX_PLATFORMS=cpu before running for CPU-only mode
 
 import jax
@@ -76,9 +77,9 @@ def analyze_compiled_function(fn, args, name: str, output_dir: Optional[Path] = 
         name: Name for output files
         output_dir: Optional directory to save analysis files
     """
-    print(f"\n{'='*70}")
+    print(f"\n{'=' * 70}")
     print(f"JAX Analysis: {name}")
-    print(f"{'='*70}")
+    print(f"{'=' * 70}")
 
     # Lower the function to get HLO and cost analysis
     # For JIT-compiled functions, we use .lower() directly
@@ -86,26 +87,26 @@ def analyze_compiled_function(fn, args, name: str, output_dir: Optional[Path] = 
     try:
         # If fn is already jitted, we can lower it directly
         # Otherwise wrap it in jit first
-        if hasattr(fn, 'lower'):
+        if hasattr(fn, "lower"):
             lowered = fn.lower(*args)
         else:
             lowered = jax.jit(fn).lower(*args)
 
         # Get the HLO text (MLIR representation)
         hlo_text = lowered.as_text()
-        hlo_lines = hlo_text.split('\n')
+        hlo_lines = hlo_text.split("\n")
         print(f"HLO text: {len(hlo_lines)} lines")
 
         # Count operations in HLO
         op_counts: Dict[str, int] = {}
         for line in hlo_lines:
             # Extract operation names from MLIR-style ops like: %0 = stablehlo.add
-            if '=' in line and '.' in line:
-                parts = line.split('=')
+            if "=" in line and "." in line:
+                parts = line.split("=")
                 if len(parts) >= 2:
-                    op_part = parts[1].strip().split()[0] if parts[1].strip() else ''
-                    if '.' in op_part:
-                        op_name = op_part.split('(')[0]  # Remove args
+                    op_part = parts[1].strip().split()[0] if parts[1].strip() else ""
+                    if "." in op_part:
+                        op_name = op_part.split("(")[0]  # Remove args
                         op_counts[op_name] = op_counts.get(op_name, 0) + 1
 
         if op_counts:
@@ -122,11 +123,11 @@ def analyze_compiled_function(fn, args, name: str, output_dir: Optional[Path] = 
                     for key, val in device_cost.items():
                         if isinstance(val, (int, float)):
                             if val > 1e9:
-                                print(f"  {key}: {val/1e9:.2f}G")
+                                print(f"  {key}: {val / 1e9:.2f}G")
                             elif val > 1e6:
-                                print(f"  {key}: {val/1e6:.2f}M")
+                                print(f"  {key}: {val / 1e6:.2f}M")
                             elif val > 1e3:
-                                print(f"  {key}: {val/1e3:.2f}K")
+                                print(f"  {key}: {val / 1e3:.2f}K")
                             else:
                                 print(f"  {key}: {val}")
                         else:
@@ -142,7 +143,7 @@ def analyze_compiled_function(fn, args, name: str, output_dir: Optional[Path] = 
 
             # Save HLO text
             hlo_file = output_dir / f"{name}_hlo.txt"
-            with open(hlo_file, 'w') as f:
+            with open(hlo_file, "w") as f:
                 f.write(hlo_text)
             print(f"\nHLO text saved to: {hlo_file}")
 
@@ -151,7 +152,7 @@ def analyze_compiled_function(fn, args, name: str, output_dir: Optional[Path] = 
                 # Create jaxpr from the unwrapped function if possible
                 jaxpr_text = str(jax.make_jaxpr(fn)(*args))
                 jaxpr_file = output_dir / f"{name}_jaxpr.txt"
-                with open(jaxpr_file, 'w') as f:
+                with open(jaxpr_file, "w") as f:
                     f.write(jaxpr_text)
                 print(f"JAXPR saved to: {jaxpr_file}")
             except Exception:
@@ -159,6 +160,7 @@ def analyze_compiled_function(fn, args, name: str, output_dir: Optional[Path] = 
 
     except Exception as e:
         import traceback
+
         print(f"Failed to analyze: {e}")
         traceback.print_exc()
 
@@ -172,13 +174,13 @@ def analyze_compiled_function(fn, args, name: str, output_dir: Optional[Path] = 
 # These serve as reference when VACASK binary is not available (e.g., GPU-only CI)
 VACASK_REFERENCE_TIMES = {
     # rc: 0.94s / 1005006 steps = 0.935µs/step
-    'rc': 0.94 / 1005006 * 1000,  # 0.000935 ms/step
+    "rc": 0.94 / 1005006 * 1000,  # 0.000935 ms/step
     # graetz: 1.89s / 1000003 steps = 1.89µs/step
-    'graetz': 1.89 / 1000003 * 1000,  # 0.00189 ms/step
+    "graetz": 1.89 / 1000003 * 1000,  # 0.00189 ms/step
     # ring: 1.18s / 26066 steps = 45.3µs/step
-    'ring': 1.18 / 26066 * 1000,  # 0.0453 ms/step
+    "ring": 1.18 / 26066 * 1000,  # 0.0453 ms/step
     # c6288: 57.98s / 1021 steps = 56.8ms/step
-    'c6288': 57.98 / 1021 * 1000,  # 56.8 ms/step
+    "c6288": 57.98 / 1021 * 1000,  # 56.8 ms/step
 }
 
 
@@ -206,25 +208,23 @@ def run_vacask(config: BenchmarkInfo, num_steps: int) -> Optional[Tuple[float, f
     # Modify the analysis line to use our t_stop
     # Pattern: analysis <name> tran step=... stop=... maxstep=...
     modified = re.sub(
-        r'(analysis\s+\w+\s+tran\s+.*?stop=)[^\s]+',
-        f'\\g<1>{t_stop:.2e}',
-        sim_content
+        r"(analysis\s+\w+\s+tran\s+.*?stop=)[^\s]+", f"\\g<1>{t_stop:.2e}", sim_content
     )
 
     # Write to temp file
-    temp_sim = sim_dir / 'compare_temp.sim'
-    with open(temp_sim, 'w') as f:
+    temp_sim = sim_dir / "compare_temp.sim"
+    with open(temp_sim, "w") as f:
         f.write(modified)
 
     try:
         # Run VACASK with temp sim file
         start = time.perf_counter()
         result = subprocess.run(
-            [str(vacask_bin), 'compare_temp.sim'],  # Use relative path in cwd
+            [str(vacask_bin), "compare_temp.sim"],  # Use relative path in cwd
             cwd=sim_dir,
             capture_output=True,
             text=True,
-            timeout=300
+            timeout=300,
         )
         elapsed = time.perf_counter() - start
 
@@ -232,7 +232,7 @@ def run_vacask(config: BenchmarkInfo, num_steps: int) -> Optional[Tuple[float, f
         # but still succeed. Look for elapsed time in stdout.
 
         # Check for VACASK elapsed time (most reliable)
-        elapsed_match = re.search(r'Elapsed time:\s*([\d.]+)', result.stdout)
+        elapsed_match = re.search(r"Elapsed time:\s*([\d.]+)", result.stdout)
         if elapsed_match:
             vacask_elapsed = float(elapsed_match.group(1))
             # Use the number of timesteps we requested for fair comparison
@@ -259,12 +259,17 @@ def run_vacask(config: BenchmarkInfo, num_steps: int) -> Optional[Tuple[float, f
             temp_sim.unlink()
 
 
-def run_jax_spice(config: BenchmarkInfo, num_steps: int, use_scan: bool,
-                  use_sparse: bool = False, force_gpu: bool = False,
-                  profile_config: Optional[ProfileConfig] = None,
-                  profile_full: bool = False, analyze: bool = False,
-                  analyze_output_dir: Optional[Path] = None
-                  ) -> Tuple[float, float, Dict]:
+def run_jax_spice(
+    config: BenchmarkInfo,
+    num_steps: int,
+    use_scan: bool,
+    use_sparse: bool = False,
+    force_gpu: bool = False,
+    profile_config: Optional[ProfileConfig] = None,
+    profile_full: bool = False,
+    analyze: bool = False,
+    analyze_output_dir: Optional[Path] = None,
+) -> Tuple[float, float, Dict]:
     """Run JAX-SPICE and return (time_per_step_ms, wall_time_s, stats).
 
     Args:
@@ -320,7 +325,8 @@ def run_jax_spice(config: BenchmarkInfo, num_steps: int, use_scan: bool,
         adaptive_config = AdaptiveConfig(max_dt=config.dt * 10, min_dt=1e-15)
         startup_start = time.perf_counter()
         engine.run_transient(
-            t_stop=t_stop, dt=config.dt,
+            t_stop=t_stop,
+            dt=config.dt,
             max_steps=num_steps,
             use_sparse=use_sparse,
             backend=backend,
@@ -329,21 +335,21 @@ def run_jax_spice(config: BenchmarkInfo, num_steps: int, use_scan: bool,
         startup_time = time.perf_counter() - startup_start
 
         # Run analysis on compiled scan function if requested
-        if analyze and use_scan and hasattr(engine, '_cached_scan_fn'):
+        if analyze and use_scan and hasattr(engine, "_cached_scan_fn"):
             print("\n  Running JAX analysis...")
             # Get example inputs for the scan function
             # The scan function signature is: (V_init, Q_init, all_vsource, all_isource, device_arrays)
             # Must use total nodes (external + internal) from transient setup cache
-            setup_cache = getattr(engine, '_transient_setup_cache', None)
-            device_arrays = getattr(engine, '_device_arrays', None)
+            setup_cache = getattr(engine, "_transient_setup_cache", None)
+            device_arrays = getattr(engine, "_device_arrays", None)
 
             if setup_cache is None or device_arrays is None:
                 print("  Warning: transient setup cache not found - analysis skipped")
             else:
-                n_total = setup_cache['n_total']
-                n_unknowns = setup_cache['n_unknowns']
-                n_vsources = len([d for d in engine.devices if d['model'] == 'vsource'])
-                n_isources = len([d for d in engine.devices if d['model'] == 'isource'])
+                n_total = setup_cache["n_total"]
+                n_unknowns = setup_cache["n_unknowns"]
+                n_vsources = len([d for d in engine.devices if d["model"] == "vsource"])
+                n_isources = len([d for d in engine.devices if d["model"] == "isource"])
 
                 # Create example arrays matching actual shapes
                 V_init = jnp.zeros(n_total, dtype=jnp.float64)
@@ -359,7 +365,7 @@ def run_jax_spice(config: BenchmarkInfo, num_steps: int, use_scan: bool,
                     engine._cached_scan_fn,
                     (V_init, Q_init, all_vsource, all_isource, device_arrays),
                     f"{config.name}_scan_simulation",
-                    out_dir
+                    out_dir,
                 )
         elif analyze and use_scan:
             print("\n  Warning: _cached_scan_fn not found - analysis skipped")
@@ -368,7 +374,8 @@ def run_jax_spice(config: BenchmarkInfo, num_steps: int, use_scan: bool,
         start = time.perf_counter()
         print(f"TIMED_RUN_START: {start:.6f}")
         result = engine.run_transient(
-            t_stop=t_stop, dt=config.dt,
+            t_stop=t_stop,
+            dt=config.dt,
             max_steps=num_steps,
             use_sparse=use_sparse,
             backend=backend,
@@ -376,23 +383,27 @@ def run_jax_spice(config: BenchmarkInfo, num_steps: int, use_scan: bool,
             adaptive_config=adaptive_config,
         )
         after_transient = time.perf_counter()
-        print(f"AFTER_RUN_TRANSIENT: {after_transient:.6f} (elapsed: {after_transient - start:.6f}s)")
+        print(
+            f"AFTER_RUN_TRANSIENT: {after_transient:.6f} (elapsed: {after_transient - start:.6f}s)"
+        )
         # Force completion of async JAX operations
         first_node = next(iter(result.voltages))
         _ = float(result.voltages[first_node][0])
         end = time.perf_counter()
         external_elapsed = end - start
-        print(f"TIMED_RUN_END: {end:.6f} (elapsed: {external_elapsed:.6f}s, sync took: {end - after_transient:.6f}s)")
+        print(
+            f"TIMED_RUN_END: {end:.6f} (elapsed: {external_elapsed:.6f}s, sync took: {end - after_transient:.6f}s)"
+        )
 
         # Use wall_time from stats (excludes trace saving overhead)
         # Fall back to external timing if not available
         stats = result.stats
-        elapsed = stats.get('wall_time', external_elapsed)
+        elapsed = stats.get("wall_time", external_elapsed)
         actual_steps = result.num_steps - 1  # Exclude t=0 initial condition
         time_per_step = elapsed / actual_steps * 1000
 
         # Add startup time to stats
-        stats['startup_time'] = startup_time
+        stats["startup_time"] = startup_time
 
         return time_per_step, elapsed, stats
 
@@ -501,10 +512,12 @@ def main():
         # Build nsys-jax command
         nsys_cmd = [
             "nsys-jax",
-            "-o", str(nsys_output / "profile"),
+            "-o",
+            str(nsys_output / "profile"),
             "--capture-range=cudaProfilerApi",
             "--capture-range-end=stop",
-            "python", sys.argv[0],
+            "python",
+            sys.argv[0],
         ]
         # Pass through arguments, but change profile-mode to jax if both
         for i, arg in enumerate(sys.argv[1:]):
@@ -544,17 +557,13 @@ def main():
     use_cuda_markers = os.environ.get("JAX_SPICE_NSYS_MARKERS") == "1"
 
     if profile_mode in ("jax", "both") or use_cuda_markers:
-        has_gpu = any(d.platform != 'cpu' for d in jax.devices())
+        has_gpu = any(d.platform != "cpu" for d in jax.devices())
         # JAX profiling works on both CPU and GPU
         enable_jax = profile_mode in ("jax", "both")
         # CUDA markers only make sense with GPU
         enable_cuda = has_gpu and (use_cuda_markers or running_under_nsys)
 
-        profile_config = ProfileConfig(
-            jax=enable_jax,
-            cuda=enable_cuda,
-            trace_dir=args.profile_dir
-        )
+        profile_config = ProfileConfig(jax=enable_jax, cuda=enable_cuda, trace_dir=args.profile_dir)
         if enable_jax:
             print(f"JAX Profiling: ENABLED (traces -> {args.profile_dir})")
         if enable_cuda:
@@ -563,7 +572,7 @@ def main():
 
     # Select benchmarks
     if args.benchmark:
-        benchmark_names = [b.strip() for b in args.benchmark.split(',')]
+        benchmark_names = [b.strip() for b in args.benchmark.split(",")]
     else:
         # Default: all discovered benchmarks
         benchmark_names = list_benchmarks()
@@ -574,6 +583,7 @@ def main():
     # Memory profiling setup
     import tracemalloc
     import gc
+
     if not tracemalloc.is_tracing():
         tracemalloc.start()
     prev_snapshot = tracemalloc.take_snapshot()
@@ -598,7 +608,9 @@ def main():
         print("  JAX-SPICE warmup...", end=" ", flush=True)
         analyze_dir = Path(args.profile_dir) / "analysis" if args.analyze else None
         jax_ms, jax_wall, stats = run_jax_spice(
-            config, num_steps, args.use_scan,
+            config,
+            num_steps,
+            args.use_scan,
             use_sparse=use_sparse,
             force_gpu=args.force_gpu,
             profile_config=profile_config,
@@ -606,9 +618,11 @@ def main():
             analyze=args.analyze,
             analyze_output_dir=analyze_dir,
         )
-        startup_time = stats.get('startup_time', 0)
+        startup_time = stats.get("startup_time", 0)
         print(f"done")
-        print(f"  JAX-SPICE: {jax_ms:.3f} ms/step ({jax_wall:.3f}s total, startup: {startup_time:.1f}s)")
+        print(
+            f"  JAX-SPICE: {jax_ms:.3f} ms/step ({jax_wall:.3f}s total, startup: {startup_time:.1f}s)"
+        )
 
         # Run VACASK or use reference times
         vacask_ms = None
@@ -619,7 +633,7 @@ def main():
             vacask_result = run_vacask(config, num_steps)
             if vacask_result is not None:
                 vacask_ms, vacask_wall = vacask_result
-                vacask_source = 'run'
+                vacask_source = "run"
                 print(f"done")
                 print(f"  VACASK: {vacask_ms:.3f} ms/step ({vacask_wall:.3f}s total)")
                 ratio = jax_ms / vacask_ms
@@ -630,41 +644,45 @@ def main():
             # Use published reference times when VACASK binary isn't available
             vacask_ms = VACASK_REFERENCE_TIMES[name]
             vacask_wall = vacask_ms * num_steps / 1000  # Convert to seconds
-            vacask_source = 'reference'
+            vacask_source = "reference"
             print(f"  VACASK (reference): {vacask_ms:.3f} ms/step (AMD Threadripper 7970)")
             ratio = jax_ms / vacask_ms
             print(f"  Ratio: {ratio:.2f}x {'slower' if ratio > 1 else 'faster'}")
 
-        results.append({
-            'name': name,
-            'steps': num_steps,
-            'jax_ms': jax_ms,
-            'jax_wall': jax_wall,
-            'startup_time': startup_time,
-            'vacask_ms': vacask_ms,
-            'vacask_wall': vacask_wall,
-            'vacask_source': vacask_source,
-        })
+        results.append(
+            {
+                "name": name,
+                "steps": num_steps,
+                "jax_ms": jax_ms,
+                "jax_wall": jax_wall,
+                "startup_time": startup_time,
+                "vacask_ms": vacask_ms,
+                "vacask_wall": vacask_wall,
+                "vacask_source": vacask_source,
+            }
+        )
 
         # Memory analysis after each benchmark
         gc.collect()  # Force GC before snapshot
         current_snapshot = tracemalloc.take_snapshot()
         current_mem, _ = tracemalloc.get_traced_memory()
-        print(f"  Memory: {current_mem/1024/1024:.1f}MB total")
+        print(f"  Memory: {current_mem / 1024 / 1024:.1f}MB total")
 
         # Show top memory diffs from previous benchmark
-        top_diffs = current_snapshot.compare_to(prev_snapshot, 'lineno')
+        top_diffs = current_snapshot.compare_to(prev_snapshot, "lineno")
         if top_diffs:
             increases = [d for d in top_diffs if d.size_diff > 0]
             if increases[:3]:
                 print(f"  Top memory increases since last benchmark:")
                 for stat in increases[:3]:
-                    print(f"    +{stat.size_diff/1024:.1f}KB: {stat.traceback.format()[0] if stat.traceback else 'unknown'}")
+                    print(
+                        f"    +{stat.size_diff / 1024:.1f}KB: {stat.traceback.format()[0] if stat.traceback else 'unknown'}"
+                    )
         prev_snapshot = current_snapshot
         print()
 
     # Summary table
-    has_reference = any(r.get('vacask_source') == 'reference' for r in results)
+    has_reference = any(r.get("vacask_source") == "reference" for r in results)
     print("=" * 70)
     print("Summary (per-step timing)")
     print("=" * 70)
@@ -672,16 +690,18 @@ def main():
     print("| Benchmark | Steps | JAX-SPICE (ms) | VACASK (ms) | Ratio |")
     print("|-----------|-------|----------------|-------------|-------|")
     for r in results:
-        if r['vacask_ms']:
+        if r["vacask_ms"]:
             # Add asterisk for reference times
-            ref_marker = "*" if r.get('vacask_source') == 'reference' else ""
+            ref_marker = "*" if r.get("vacask_source") == "reference" else ""
             vacask_str = f"{r['vacask_ms']:.3f}{ref_marker}"
-            ratio = r['jax_ms'] / r['vacask_ms']
+            ratio = r["jax_ms"] / r["vacask_ms"]
             ratio_str = f"{ratio:.2f}x"
         else:
             vacask_str = "N/A"
             ratio_str = "N/A"
-        print(f"| {r['name']:9} | {r['steps']:5} | {r['jax_ms']:14.3f} | {vacask_str:11} | {ratio_str:5} |")
+        print(
+            f"| {r['name']:9} | {r['steps']:5} | {r['jax_ms']:14.3f} | {vacask_str:11} | {ratio_str:5} |"
+        )
 
     print()
     print("=" * 70)
@@ -692,17 +712,19 @@ def main():
     print("|-----------|-------|----------------|-------------|-------|")
     for r in results:
         # Convert wall time from seconds to milliseconds for better precision
-        jax_wall_ms = r['jax_wall'] * 1000
-        if r['vacask_wall']:
-            vacask_wall_ms = r['vacask_wall'] * 1000
-            ref_marker = "*" if r.get('vacask_source') == 'reference' else ""
+        jax_wall_ms = r["jax_wall"] * 1000
+        if r["vacask_wall"]:
+            vacask_wall_ms = r["vacask_wall"] * 1000
+            ref_marker = "*" if r.get("vacask_source") == "reference" else ""
             vacask_str = f"{vacask_wall_ms:.1f}{ref_marker}"
-            ratio = r['jax_wall'] / r['vacask_wall']
+            ratio = r["jax_wall"] / r["vacask_wall"]
             ratio_str = f"{ratio:.2f}x"
         else:
             vacask_str = "N/A"
             ratio_str = "N/A"
-        print(f"| {r['name']:9} | {r['steps']:5} | {jax_wall_ms:14.1f} | {vacask_str:11} | {ratio_str:5} |")
+        print(
+            f"| {r['name']:9} | {r['steps']:5} | {jax_wall_ms:14.1f} | {vacask_str:11} | {ratio_str:5} |"
+        )
 
     if has_reference:
         print()
@@ -717,15 +739,19 @@ def main():
     print("| Benchmark | Startup (s) | Per-step speedup | Breakeven steps |")
     print("|-----------|-------------|------------------|-----------------|")
     for r in results:
-        startup_s = r.get('startup_time', 0)
-        if r['vacask_ms'] and r['jax_ms'] < r['vacask_ms']:
+        startup_s = r.get("startup_time", 0)
+        if r["vacask_ms"] and r["jax_ms"] < r["vacask_ms"]:
             # JAX is faster per-step, calculate breakeven
             # breakeven = startup / (vacask_time - jax_time) per step
-            speedup_per_step_ms = r['vacask_ms'] - r['jax_ms']
-            breakeven = int(startup_s * 1000 / speedup_per_step_ms) if speedup_per_step_ms > 0 else float('inf')
+            speedup_per_step_ms = r["vacask_ms"] - r["jax_ms"]
+            breakeven = (
+                int(startup_s * 1000 / speedup_per_step_ms)
+                if speedup_per_step_ms > 0
+                else float("inf")
+            )
             speedup_str = f"{r['vacask_ms'] / r['jax_ms']:.1f}x faster"
             breakeven_str = f"{breakeven:,}"
-        elif r['vacask_ms']:
+        elif r["vacask_ms"]:
             # JAX is slower per-step
             speedup_str = f"{r['jax_ms'] / r['vacask_ms']:.1f}x slower"
             breakeven_str = "N/A (slower)"
@@ -762,5 +788,5 @@ def main():
     print("=" * 70)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

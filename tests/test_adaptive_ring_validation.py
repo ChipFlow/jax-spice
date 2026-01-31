@@ -28,9 +28,9 @@ from jax_spice.utils import find_vacask_binary, rawread
 VACASK_PERIOD_NS = 3.453
 
 
-def find_oscillation_period(time: np.ndarray, voltage: np.ndarray,
-                            threshold: float = 0.6,
-                            min_time: float = 10e-9) -> Optional[float]:
+def find_oscillation_period(
+    time: np.ndarray, voltage: np.ndarray, threshold: float = 0.6, min_time: float = 10e-9
+) -> Optional[float]:
     """Find the oscillation period from voltage waveform.
 
     Uses zero-crossing detection on rising edges after initial transient.
@@ -96,7 +96,7 @@ def run_vacask_ring(vacask_bin: Path, t_stop: float = 50e-9, dt: float = 5e-11) 
     Returns:
         Dict with 'time', 'voltage', 'period' keys
     """
-    info = get_benchmark('ring')
+    info = get_benchmark("ring")
     if info is None:
         raise FileNotFoundError("Ring benchmark not found")
 
@@ -104,44 +104,49 @@ def run_vacask_ring(vacask_bin: Path, t_stop: float = 50e-9, dt: float = 5e-11) 
     sim_content = info.sim_path.read_text()
 
     # Modify analysis parameters
-    modified = re.sub(r'(analysis\s+\w+\s+tran\s+.*?stop=)[^\s]+', f'\\g<1>{t_stop:.2e}', sim_content)
-    modified = re.sub(r'(step=)[^\s]+', f'\\g<1>{dt:.2e}', modified)
+    modified = re.sub(
+        r"(analysis\s+\w+\s+tran\s+.*?stop=)[^\s]+", f"\\g<1>{t_stop:.2e}", sim_content
+    )
+    modified = re.sub(r"(step=)[^\s]+", f"\\g<1>{dt:.2e}", modified)
 
-    temp_sim = sim_dir / 'test_adaptive.sim'
+    temp_sim = sim_dir / "test_adaptive.sim"
     temp_sim.write_text(modified)
 
     try:
         result = subprocess.run(
-            [str(vacask_bin), 'test_adaptive.sim'],
-            cwd=sim_dir, capture_output=True, text=True, timeout=600
+            [str(vacask_bin), "test_adaptive.sim"],
+            cwd=sim_dir,
+            capture_output=True,
+            text=True,
+            timeout=600,
         )
 
-        raw_files = list(sim_dir.glob('*.raw'))
+        raw_files = list(sim_dir.glob("*.raw"))
         if not raw_files:
             raise RuntimeError(f"VACASK did not produce .raw file")
 
         raw = rawread(str(raw_files[0])).get()
-        time = np.array(raw['time'])
+        time = np.array(raw["time"])
         # Node 2 in VACASK - try different name formats
         voltage = None
-        for name in ['2', 'v(2)']:
+        for name in ["2", "v(2)"]:
             if name in raw.names:
                 voltage = np.array(raw[name])
                 break
         if voltage is None:
             # Use first non-time variable
             for name in raw.names:
-                if name != 'time':
+                if name != "time":
                     voltage = np.array(raw[name])
                     break
 
         period = find_oscillation_period(time, voltage)
 
-        return {'time': time, 'voltage': voltage, 'period': period}
+        return {"time": time, "voltage": voltage, "period": period}
     finally:
         if temp_sim.exists():
             temp_sim.unlink()
-        for raw_file in sim_dir.glob('*.raw'):
+        for raw_file in sim_dir.glob("*.raw"):
             raw_file.unlink()
 
 
@@ -151,7 +156,7 @@ class TestRingPeriodWithAdaptive:
     @pytest.fixture
     def ring_info(self):
         """Get ring benchmark info, skip if not available."""
-        info = get_benchmark('ring')
+        info = get_benchmark("ring")
         if info is None or not info.sim_path.exists():
             pytest.skip("Ring benchmark not found")
         return info
@@ -180,7 +185,7 @@ class TestRingPeriodWithAdaptive:
 
         time = np.array(result.times)
         # Node '1' in JAX-SPICE corresponds to node '2' in VACASK
-        voltage = np.array(result.voltages.get('1', []))
+        voltage = np.array(result.voltages.get("1", []))
 
         period = find_oscillation_period(time, voltage)
         assert period is not None, "Could not measure oscillation period"
@@ -226,7 +231,7 @@ class TestRingPeriodWithAdaptive:
         )
 
         time = np.array(result.times)
-        voltage = np.array(result.voltages.get('1', []))
+        voltage = np.array(result.voltages.get("1", []))
 
         period = find_oscillation_period(time, voltage)
         assert period is not None, "Could not measure oscillation period"
@@ -236,22 +241,23 @@ class TestRingPeriodWithAdaptive:
 
         # Get adaptive statistics
         stats = result.stats
-        min_dt = stats.get('min_dt_used', 0)
-        max_dt = stats.get('max_dt_used', 0)
-        rejected = stats.get('rejected_steps', 0)
-        accepted = stats.get('accepted_steps', 0)
+        min_dt = stats.get("min_dt_used", 0)
+        max_dt = stats.get("max_dt_used", 0)
+        rejected = stats.get("rejected_steps", 0)
+        accepted = stats.get("accepted_steps", 0)
 
         print(f"\nAdaptive timestep:")
         print(f"  Measured period: {period_ns:.3f} ns")
         print(f"  VACASK reference: {VACASK_PERIOD_NS:.3f} ns")
         print(f"  Error: {error_pct:+.2f}%")
         print(f"  Timesteps: accepted={accepted}, rejected={rejected}")
-        print(f"  dt range: [{min_dt*1e12:.2f}, {max_dt*1e12:.2f}] ps")
+        print(f"  dt range: [{min_dt * 1e12:.2f}, {max_dt * 1e12:.2f}] ps")
 
         # With adaptive timestep, error should be significantly reduced
         # Target: <1% error (was ~2.3% with fixed timestep)
-        assert abs(error_pct) < 1.5, \
+        assert abs(error_pct) < 1.5, (
             f"Period error {error_pct:.2f}% exceeds 1.5% threshold with adaptive timestep"
+        )
 
     def test_adaptive_timestep_variation(self, ring_info):
         """Test that adaptive timestep actually varies during transitions.
@@ -277,19 +283,20 @@ class TestRingPeriodWithAdaptive:
         )
 
         stats = result.stats
-        min_dt = stats.get('min_dt_used', 0)
-        max_dt = stats.get('max_dt_used', 0)
+        min_dt = stats.get("min_dt_used", 0)
+        max_dt = stats.get("max_dt_used", 0)
 
         print(f"\nTimestep variation:")
-        print(f"  Min dt: {min_dt*1e12:.2f} ps")
-        print(f"  Max dt: {max_dt*1e12:.2f} ps")
-        print(f"  Ratio: {max_dt/max(min_dt, 1e-20):.1f}x")
+        print(f"  Min dt: {min_dt * 1e12:.2f} ps")
+        print(f"  Max dt: {max_dt * 1e12:.2f} ps")
+        print(f"  Ratio: {max_dt / max(min_dt, 1e-20):.1f}x")
 
         # Check that timestep varies significantly (at least 2x range)
         if max_dt > 0 and min_dt > 0:
             ratio = max_dt / min_dt
-            assert ratio > 1.5, \
+            assert ratio > 1.5, (
                 f"Timestep should vary significantly during transients (ratio={ratio:.1f})"
+            )
 
 
 class TestAdaptiveVsVACASK:
@@ -306,7 +313,7 @@ class TestAdaptiveVsVACASK:
     @pytest.fixture
     def ring_info(self):
         """Get ring benchmark info."""
-        info = get_benchmark('ring')
+        info = get_benchmark("ring")
         if info is None:
             pytest.skip("Ring benchmark not found")
         return info
@@ -315,7 +322,7 @@ class TestAdaptiveVsVACASK:
         """Test that adaptive timestep period matches VACASK within tolerance."""
         # Run VACASK
         vacask_result = run_vacask_ring(vacask_bin, t_stop=50e-9, dt=5e-11)
-        vacask_period = vacask_result['period']
+        vacask_period = vacask_result["period"]
         assert vacask_period is not None, "Could not measure VACASK period"
 
         # Run JAX-SPICE with adaptive
@@ -337,7 +344,7 @@ class TestAdaptiveVsVACASK:
         )
 
         jax_time = np.array(result.times)
-        jax_voltage = np.array(result.voltages.get('1', []))
+        jax_voltage = np.array(result.voltages.get("1", []))
         jax_period = find_oscillation_period(jax_time, jax_voltage)
         assert jax_period is not None, "Could not measure JAX-SPICE period"
 
@@ -352,8 +359,7 @@ class TestAdaptiveVsVACASK:
         print(f"  Error: {error_pct:+.2f}%")
 
         # Target: <1% error compared to VACASK
-        assert abs(error_pct) < 1.0, \
-            f"Period error {error_pct:.2f}% exceeds 1% compared to VACASK"
+        assert abs(error_pct) < 1.0, f"Period error {error_pct:.2f}% exceeds 1% compared to VACASK"
 
 
 if __name__ == "__main__":

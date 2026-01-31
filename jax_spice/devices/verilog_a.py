@@ -55,6 +55,7 @@ class VerilogADevice:
         param_kinds: List of parameter kinds (param, voltage, hidden_state, etc.)
         default_params: Default values for model parameters
     """
+
     name: str
     va_path: str
     terminals: List[str]
@@ -70,7 +71,7 @@ class VerilogADevice:
         cls,
         va_path: str,
         default_params: Optional[Dict[str, float]] = None,
-        allow_analog_in_cond: bool = False
+        allow_analog_in_cond: bool = False,
     ) -> "VerilogADevice":
         """Create a device from a Verilog-A file
 
@@ -95,18 +96,18 @@ class VerilogADevice:
         # Build default params from module
         defaults = {}
         for name, kind in zip(module.param_names, module.param_kinds):
-            if kind == 'param':
+            if kind == "param":
                 # Set sensible defaults for common parameters
-                if name in ('tnom',):
+                if name in ("tnom",):
                     defaults[name] = 300.0
-                elif name in ('mfactor',):
+                elif name in ("mfactor",):
                     defaults[name] = 1.0
                 else:
                     defaults[name] = 0.0
-            elif kind == 'temperature':
+            elif kind == "temperature":
                 defaults[name] = 300.15
-            elif kind == 'sysfun':
-                if name == 'mfactor':
+            elif kind == "sysfun":
+                if name == "mfactor":
                     defaults[name] = 1.0
                 else:
                     defaults[name] = 0.0
@@ -123,7 +124,7 @@ class VerilogADevice:
             default_params=defaults,
             _module=module,
             _translator=translator,
-            _eval_fn=eval_fn
+            _eval_fn=eval_fn,
         )
 
     def set_parameters(self, **params):
@@ -150,7 +151,7 @@ class VerilogADevice:
         self,
         voltages: Dict[str, float],
         params: Optional[Dict[str, float]] = None,
-        temperature: float = DEFAULT_TEMPERATURE_K
+        temperature: float = DEFAULT_TEMPERATURE_K,
     ) -> List[float]:
         """Build input array for the eval function
 
@@ -169,15 +170,15 @@ class VerilogADevice:
 
         inputs = []
         for name, kind in zip(self.param_names, self.param_kinds):
-            if kind == 'voltage':
+            if kind == "voltage":
                 # Look up voltage by name
                 inputs.append(voltages.get(name, 0.0))
-            elif kind == 'temperature':
+            elif kind == "temperature":
                 inputs.append(temperature)
-            elif kind == 'hidden_state':
+            elif kind == "hidden_state":
                 # Hidden states should be pre-computed or use defaults
                 inputs.append(all_params.get(name, 0.0))
-            elif kind == 'current':
+            elif kind == "current":
                 inputs.append(all_params.get(name, 0.0))
             else:
                 # Model parameters
@@ -189,7 +190,7 @@ class VerilogADevice:
         self,
         voltages: Dict[str, float],
         params: Optional[Dict[str, float]] = None,
-        temperature: float = DEFAULT_TEMPERATURE_K
+        temperature: float = DEFAULT_TEMPERATURE_K,
     ) -> Tuple[Dict, Dict]:
         """Evaluate the device at given voltages
 
@@ -210,7 +211,7 @@ class VerilogADevice:
         self,
         voltages: Dict[str, float],
         params: Optional[Dict[str, float]] = None,
-        temperature: float = DEFAULT_TEMPERATURE_K
+        temperature: float = DEFAULT_TEMPERATURE_K,
     ) -> Tuple[Any, Any]:
         """Evaluate using the MIR interpreter (for validation)
 
@@ -232,9 +233,9 @@ class VerilogADevice:
         # Build param dict by name
         param_dict = {}
         for name, kind in zip(self.param_names, self.param_kinds):
-            if kind == 'voltage':
+            if kind == "voltage":
                 param_dict[name] = voltages.get(name, 0.0)
-            elif kind == 'temperature':
+            elif kind == "temperature":
                 param_dict[name] = temperature
             else:
                 param_dict[name] = all_params.get(name, 0.0)
@@ -246,7 +247,7 @@ class VerilogADevice:
         node_indices: Dict[str, int],
         voltages: Dict[str, float],
         params: Optional[Dict[str, float]] = None,
-        temperature: float = DEFAULT_TEMPERATURE_K
+        temperature: float = DEFAULT_TEMPERATURE_K,
     ) -> Tuple[Dict[Tuple[int, int], float], Dict[int, float]]:
         """Get conductance matrix stamps and RHS contributions
 
@@ -272,28 +273,26 @@ class VerilogADevice:
         # Convert residuals to current stamps
         for sim_node, res in residuals.items():
             # Map sim_node to actual node name
-            if sim_node in dae.get('unknowns', {}):
-                node_name = dae['unknowns'][sim_node]
+            if sim_node in dae.get("unknowns", {}):
+                node_name = dae["unknowns"][sim_node]
                 if node_name in node_indices:
                     idx = node_indices[node_name]
-                    I_stamps[idx] = float(res.get('resist', 0.0))
+                    I_stamps[idx] = float(res.get("resist", 0.0))
 
         # Convert jacobian to conductance stamps
         for (row_sim, col_sim), entry in jacobian.items():
-            row_name = dae.get('unknowns', {}).get(row_sim)
-            col_name = dae.get('unknowns', {}).get(col_sim)
+            row_name = dae.get("unknowns", {}).get(row_sim)
+            col_name = dae.get("unknowns", {}).get(col_sim)
             if row_name in node_indices and col_name in node_indices:
                 row_idx = node_indices[row_name]
                 col_idx = node_indices[col_name]
-                G_stamps[(row_idx, col_idx)] = float(entry.get('resist', 0.0))
+                G_stamps[(row_idx, col_idx)] = float(entry.get("resist", 0.0))
 
         return G_stamps, I_stamps
 
 
 def compile_va(
-    va_path: str,
-    allow_analog_in_cond: bool = False,
-    **default_params
+    va_path: str, allow_analog_in_cond: bool = False, **default_params
 ) -> VerilogADevice:
     """Convenience function to compile a Verilog-A file
 
@@ -306,7 +305,5 @@ def compile_va(
         VerilogADevice instance
     """
     return VerilogADevice.from_va_file(
-        va_path,
-        default_params or None,
-        allow_analog_in_cond=allow_analog_in_cond
+        va_path, default_params or None, allow_analog_in_cond=allow_analog_in_cond
     )

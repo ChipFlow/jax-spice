@@ -16,8 +16,8 @@ Example usage:
     # options nr_damping=0.5 tran_method="trap"
 """
 
-from dataclasses import dataclass, field, fields
-from typing import Any, Dict, Optional, Union
+from dataclasses import dataclass, fields
+from typing import Any, Dict, Optional
 
 from jax_spice.analysis.integration import IntegrationMethod
 
@@ -27,7 +27,7 @@ def _parse_bool(value: Any) -> bool:
     if isinstance(value, bool):
         return value
     if isinstance(value, str):
-        return value.lower() in ('true', '1', 'yes', 'on')
+        return value.lower() in ("true", "1", "yes", "on")
     return bool(value)
 
 
@@ -91,7 +91,7 @@ class SimulationOptions:
     maxstep: Optional[float] = None
     """Maximum internal timestep."""
 
-    icmode: str = 'op'
+    icmode: str = "op"
     """Initial condition mode: 'op' (DC operating point), 'ic' (use .ic), or 'uic' (use IC)."""
 
     def __post_init__(self):
@@ -101,27 +101,27 @@ class SimulationOptions:
     def __setattr__(self, name: str, value: Any) -> None:
         """Set attribute with validation."""
         # Validate specific fields before setting to avoid partial state
-        if name == 'nr_damping' and not (0 < value <= 1.0):
+        if name == "nr_damping" and not (0 < value <= 1.0):
             raise ValueError(f"nr_damping must be in (0, 1], got {value}")
-        if name == 'nr_convtol' and value <= 0:
+        if name == "nr_convtol" and value <= 0:
             raise ValueError(f"nr_convtol must be positive, got {value}")
-        if name == 'tran_lteratio' and value <= 0:
+        if name == "tran_lteratio" and value <= 0:
             raise ValueError(f"tran_lteratio must be positive, got {value}")
-        if name == 'tran_redofactor' and value <= 1:
+        if name == "tran_redofactor" and value <= 1:
             raise ValueError(f"tran_redofactor must be > 1, got {value}")
-        if name == 'tran_fs' and not (0 < value <= 1.0):
+        if name == "tran_fs" and not (0 < value <= 1.0):
             raise ValueError(f"tran_fs must be in (0, 1], got {value}")
-        if name == 'tran_minpts' and value < 1:
+        if name == "tran_minpts" and value < 1:
             raise ValueError(f"tran_minpts must be >= 1, got {value}")
-        if name == 'reltol' and value <= 0:
+        if name == "reltol" and value <= 0:
             raise ValueError(f"reltol must be positive, got {value}")
-        if name == 'abstol' and value <= 0:
+        if name == "abstol" and value <= 0:
             raise ValueError(f"abstol must be positive, got {value}")
-        if name == 'gmin' and value < 0:
+        if name == "gmin" and value < 0:
             raise ValueError(f"gmin must be non-negative, got {value}")
-        if name == 'tran_gshunt' and value < 0:
+        if name == "tran_gshunt" and value < 0:
             raise ValueError(f"tran_gshunt must be non-negative, got {value}")
-        if name == 'icmode' and value not in ('op', 'ic', 'uic'):
+        if name == "icmode" and value not in ("op", "ic", "uic"):
             raise ValueError(f"icmode must be 'op', 'ic', or 'uic', got {value}")
 
         # Use object.__setattr__ to set the value
@@ -166,7 +166,7 @@ class SimulationOptions:
             raise ValueError(f"tran_gshunt must be non-negative, got {self.tran_gshunt}")
 
         # icmode: must be valid
-        if self.icmode not in ('op', 'ic', 'uic'):
+        if self.icmode not in ("op", "ic", "uic"):
             raise ValueError(f"icmode must be 'op', 'ic', or 'uic', got {self.icmode}")
 
     def set(self, name: str, value: Any) -> None:
@@ -197,7 +197,7 @@ class SimulationOptions:
         elif field_type == bool:
             value = _parse_bool(value)
         elif field_type == str:
-            value = str(value).strip('"\'')
+            value = str(value).strip("\"'")
         elif field_type == IntegrationMethod:
             if isinstance(value, str):
                 value = IntegrationMethod.from_string(value)
@@ -241,18 +241,30 @@ class SimulationOptions:
 
             # Parse numeric values using SPICE number parser
             try:
-                if field_name in ('step', 'stop', 'maxstep', 'nr_damping', 'nr_convtol',
-                                  'tran_lteratio', 'tran_redofactor', 'tran_fs',
-                                  'reltol', 'abstol', 'tran_gshunt', 'gmin'):
+                if field_name in (
+                    "step",
+                    "stop",
+                    "maxstep",
+                    "nr_damping",
+                    "nr_convtol",
+                    "tran_lteratio",
+                    "tran_redofactor",
+                    "tran_fs",
+                    "reltol",
+                    "abstol",
+                    "tran_gshunt",
+                    "gmin",
+                ):
                     opt_value = parse_number(opt_value)
-                elif field_name == 'tran_minpts':
+                elif field_name == "tran_minpts":
                     opt_value = int(parse_number(opt_value))
 
                 self.set(field_name, opt_value)
             except (ValueError, TypeError) as e:
                 # Log warning but don't fail - allows forward compatibility
                 import logging
-                logging.getLogger('jax_spice').warning(
+
+                logging.getLogger("jax_spice").warning(
                     f"Failed to parse option {opt_name}={opt_value}: {e}"
                 )
 
@@ -271,7 +283,7 @@ class SimulationOptions:
             result[f.name] = value
         return result
 
-    def copy(self) -> 'SimulationOptions':
+    def copy(self) -> "SimulationOptions":
         """Create a copy of these options.
 
         Returns:

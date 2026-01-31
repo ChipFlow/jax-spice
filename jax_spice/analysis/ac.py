@@ -28,6 +28,7 @@ from typing import Dict, List, Optional
 import jax
 import jax.numpy as jnp
 from jax import Array
+
 from jax_spice import get_float_dtype
 
 logger = logging.getLogger(__name__)
@@ -45,10 +46,11 @@ class ACConfig:
         step: Frequency step (for 'lin' mode)
         values: Explicit frequency list (for 'list' mode)
     """
+
     freq_start: float = 1.0
     freq_stop: float = 1e6
-    mode: str = 'dec'  # 'lin', 'dec', 'oct', 'list'
-    points: int = 10   # points per decade/octave
+    mode: str = "dec"  # 'lin', 'dec', 'oct', 'list'
+    points: int = 10  # points per decade/octave
     step: Optional[float] = None  # for linear mode
     values: Optional[List[float]] = None  # for list mode
 
@@ -64,6 +66,7 @@ class ACResult:
         currents: Dict mapping branch name to complex current array, shape (n_freqs,)
         dc_voltages: DC operating point voltages
     """
+
     frequencies: Array
     voltages: Dict[str, Array]
     currents: Dict[str, Array]
@@ -79,37 +82,29 @@ def generate_frequencies(config: ACConfig) -> Array:
     Returns:
         JAX array of frequencies in Hz
     """
-    if config.mode == 'list':
+    if config.mode == "list":
         if config.values is None:
             raise ValueError("'values' must be provided for 'list' mode")
         return jnp.array(config.values, dtype=get_float_dtype())
 
-    elif config.mode == 'lin':
+    elif config.mode == "lin":
         if config.step is None:
             raise ValueError("'step' must be provided for 'lin' mode")
         n_points = int((config.freq_stop - config.freq_start) / config.step) + 1
         return jnp.linspace(config.freq_start, config.freq_stop, n_points)
 
-    elif config.mode == 'dec':
+    elif config.mode == "dec":
         # points per decade
         n_decades = jnp.log10(config.freq_stop / config.freq_start)
         n_points = int(n_decades * config.points) + 1
-        return jnp.logspace(
-            jnp.log10(config.freq_start),
-            jnp.log10(config.freq_stop),
-            n_points
-        )
+        return jnp.logspace(jnp.log10(config.freq_start), jnp.log10(config.freq_stop), n_points)
 
-    elif config.mode == 'oct':
+    elif config.mode == "oct":
         # points per octave (octave = factor of 2)
         n_octaves = jnp.log2(config.freq_stop / config.freq_start)
         n_points = int(n_octaves * config.points) + 1
         # logspace with base 2
-        exponents = jnp.linspace(
-            jnp.log2(config.freq_start),
-            jnp.log2(config.freq_stop),
-            n_points
-        )
+        exponents = jnp.linspace(jnp.log2(config.freq_start), jnp.log2(config.freq_stop), n_points)
         return jnp.power(2.0, exponents)
 
     else:
@@ -150,15 +145,15 @@ def build_ac_excitation(
     G = 1e12
 
     for source in ac_sources:
-        mag = source.get('mag', 1.0)
-        phase_deg = source.get('phase', 0.0)
+        mag = source.get("mag", 1.0)
+        phase_deg = source.get("phase", 0.0)
         phase_rad = jnp.deg2rad(phase_deg)
 
         # Complex phasor: mag * e^(j*phase)
         phasor = mag * jnp.exp(1j * phase_rad)
 
-        pos_node = source.get('pos_node', 0)
-        neg_node = source.get('neg_node', 0)
+        pos_node = source.get("pos_node", 0)
+        neg_node = source.get("neg_node", 0)
 
         # For voltage source with high conductance model:
         # Residual: I = G * (V_pos - V_neg - V_target)
@@ -261,8 +256,10 @@ def run_ac_analysis(
 
     # Generate frequency sweep
     frequencies = generate_frequencies(config)
-    logger.info(f"AC analysis: {len(frequencies)} frequencies, "
-                f"{config.freq_start:.2e} to {config.freq_stop:.2e} Hz")
+    logger.info(
+        f"AC analysis: {len(frequencies)} frequencies, "
+        f"{config.freq_start:.2e} to {config.freq_stop:.2e} Hz"
+    )
 
     # Build excitation vector
     U = build_ac_excitation(ac_sources, node_names or {}, n_unknowns)

@@ -309,9 +309,9 @@ class TestRCBenchmark:
     def test_resistor_param_trace(self, rc_engine):
         """Trace resistor 'r' parameter."""
         # Find a resistor instance
-        resistors = [d for d in rc_engine.devices if 'resistor' in d.get('model', '').lower()]
+        resistors = [d for d in rc_engine.devices if "resistor" in d.get("model", "").lower()]
         if resistors:
-            name = resistors[0]['name']
+            name = resistors[0]["name"]
             trace = trace_param(rc_engine, name, "r")
 
             assert trace.param_name == "r"
@@ -321,9 +321,9 @@ class TestRCBenchmark:
     def test_capacitor_param_trace(self, rc_engine):
         """Trace capacitor 'c' parameter."""
         # Find a capacitor instance
-        capacitors = [d for d in rc_engine.devices if 'capacitor' in d.get('model', '').lower()]
+        capacitors = [d for d in rc_engine.devices if "capacitor" in d.get("model", "").lower()]
         if capacitors:
-            name = capacitors[0]['name']
+            name = capacitors[0]["name"]
             trace = trace_param(rc_engine, name, "c")
 
             assert trace.param_name == "c"

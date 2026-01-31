@@ -48,7 +48,7 @@ def discover_ngspice_tests() -> List[NgspiceTestCase]:
         return tests
 
     # Scan for test files
-    for pattern in ['**/*.sp', '**/*.cir', '**/*.spice']:
+    for pattern in ["**/*.sp", "**/*.cir", "**/*.spice"]:
         for netlist in NGSPICE_TESTS.glob(pattern):
             test_case = analyze_netlist(netlist)
             if test_case:
@@ -74,17 +74,17 @@ def analyze_netlist(netlist_path: Path) -> Optional[NgspiceTestCase]:
     content_lower = content.lower()
 
     # Skip files without analysis commands
-    if not any(x in content_lower for x in ['.tran', '.dc', '.ac', '.op']):
+    if not any(x in content_lower for x in [".tran", ".dc", ".ac", ".op"]):
         return None
 
     # Determine analysis type (priority: tran > dc > ac > op)
-    analysis_type = 'op'
-    if '.tran' in content_lower:
-        analysis_type = 'tran'
-    elif '.ac' in content_lower:
-        analysis_type = 'ac'
-    elif '.dc' in content_lower:
-        analysis_type = 'dc'
+    analysis_type = "op"
+    if ".tran" in content_lower:
+        analysis_type = "tran"
+    elif ".ac" in content_lower:
+        analysis_type = "ac"
+    elif ".dc" in content_lower:
+        analysis_type = "dc"
 
     # Detect device types
     device_types = _detect_device_types(content)
@@ -97,14 +97,14 @@ def analyze_netlist(netlist_path: Path) -> Optional[NgspiceTestCase]:
 
     # Generate test name from path
     rel_path = netlist_path.relative_to(NGSPICE_TESTS)
-    name = str(rel_path).replace('/', '_').replace('\\', '_').replace('.', '_')
+    name = str(rel_path).replace("/", "_").replace("\\", "_").replace(".", "_")
 
     return NgspiceTestCase(
         name=name,
         netlist_path=netlist_path,
         analysis_type=analysis_type,
         device_types=device_types,
-        expected_nodes=expected_nodes or ['1'],  # Default to node 1
+        expected_nodes=expected_nodes or ["1"],  # Default to node 1
         reference_path=reference_path,
     )
 
@@ -123,7 +123,7 @@ def _find_reference_file(netlist_path: Path) -> Optional[Path]:
         Path to reference file or None if not found
     """
     # Check for .out file in same directory
-    out_path = netlist_path.with_suffix('.out')
+    out_path = netlist_path.with_suffix(".out")
     if out_path.exists():
         return out_path
 
@@ -152,31 +152,31 @@ def _detect_device_types(content: str) -> Set[str]:
 
     # Device patterns (first character of instance name)
     device_patterns = {
-        'r': 'resistor',
-        'c': 'capacitor',
-        'l': 'inductor',
-        'd': 'diode',
-        'm': 'mosfet',
-        'q': 'bjt',
-        'j': 'jfet',
-        'v': 'vsource',
-        'i': 'isource',
-        'e': 'vcvs',
-        'f': 'cccs',
-        'g': 'vccs',
-        'h': 'ccvs',
-        'x': 'subckt',
-        'b': 'bsource',
-        't': 'tline',
+        "r": "resistor",
+        "c": "capacitor",
+        "l": "inductor",
+        "d": "diode",
+        "m": "mosfet",
+        "q": "bjt",
+        "j": "jfet",
+        "v": "vsource",
+        "i": "isource",
+        "e": "vcvs",
+        "f": "cccs",
+        "g": "vccs",
+        "h": "ccvs",
+        "x": "subckt",
+        "b": "bsource",
+        "t": "tline",
     }
 
-    for line in content.split('\n'):
+    for line in content.split("\n"):
         line = line.strip().lower()
         # Skip comments and directives
-        if line.startswith('*') or line.startswith('.') or not line:
+        if line.startswith("*") or line.startswith(".") or not line:
             continue
 
-        first_char = line[0] if line else ''
+        first_char = line[0] if line else ""
         if first_char in device_patterns:
             device_types.add(device_patterns[first_char])
 
@@ -196,9 +196,7 @@ def _extract_output_signals(content: str) -> List[str]:
 
     # Match v(node) patterns
     for match in re.finditer(
-        r'(?:\.print|\.plot)\s+(?:tran|ac|dc)?\s+.*?(v\(\w+\))',
-        content,
-        re.IGNORECASE
+        r"(?:\.print|\.plot)\s+(?:tran|ac|dc)?\s+.*?(v\(\w+\))", content, re.IGNORECASE
     ):
         sig = match.group(1).lower()
         if sig not in signals:
@@ -206,13 +204,11 @@ def _extract_output_signals(content: str) -> List[str]:
 
     # Match i(source) patterns - these map to source#branch in ngspice output
     for match in re.finditer(
-        r'(?:\.print|\.plot)\s+(?:tran|ac|dc)?\s+.*?i\((\w+)\)',
-        content,
-        re.IGNORECASE
+        r"(?:\.print|\.plot)\s+(?:tran|ac|dc)?\s+.*?i\((\w+)\)", content, re.IGNORECASE
     ):
         source = match.group(1).lower()
         # ngspice outputs current as source#branch
-        sig = f'{source}#branch'
+        sig = f"{source}#branch"
         if sig not in signals:
             signals.append(sig)
 
@@ -233,16 +229,15 @@ def _extract_output_nodes(content: str) -> List[str]:
 
 # Devices supported by JAX-SPICE (via OpenVAF or built-in)
 SUPPORTED_DEVICES = {
-    'resistor',
-    'capacitor',
-    'inductor',
-    'diode',
-    'vsource',
-    'isource',
-    'mosfet',  # Via PSP103 or other VA models
-    'subckt',  # Subcircuit instantiation
+    "resistor",
+    "capacitor",
+    "inductor",
+    "diode",
+    "vsource",
+    "isource",
+    "mosfet",  # Via PSP103 or other VA models
+    "subckt",  # Subcircuit instantiation
 }
-
 
 
 def get_compatible_tests(
@@ -262,7 +257,7 @@ def get_compatible_tests(
         List of compatible test cases
     """
     if analysis_types is None:
-        analysis_types = ['tran']  # Start with transient only
+        analysis_types = ["tran"]  # Start with transient only
 
     if device_types is None:
         device_types = SUPPORTED_DEVICES
@@ -297,7 +292,7 @@ def get_tests_by_category() -> Dict[str, List[NgspiceTestCase]]:
     for test in tests:
         # Use parent directory as category
         rel_path = test.netlist_path.relative_to(NGSPICE_TESTS)
-        category = rel_path.parts[0] if rel_path.parts else 'unknown'
+        category = rel_path.parts[0] if rel_path.parts else "unknown"
 
         if category not in by_category:
             by_category[category] = []

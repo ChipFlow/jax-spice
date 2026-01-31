@@ -19,6 +19,7 @@ Arguments:
 Example:
     nsys-jax -o /tmp/profile.zip python scripts/nsys_profile_target.py ring 100
 """
+
 import argparse
 import sys
 from pathlib import Path

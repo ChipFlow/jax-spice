@@ -56,9 +56,7 @@ def get_gpu_devices() -> list:
         return []
 
 
-def select_backend(
-    num_nodes: int, config: Optional[BackendConfig] = None
-) -> str:
+def select_backend(num_nodes: int, config: Optional[BackendConfig] = None) -> str:
     """Select optimal backend based on circuit size and availability.
 
     Args:
@@ -149,14 +147,10 @@ def backend_info() -> dict:
         "default_backend": jax.default_backend(),
         "gpu_available": is_gpu_available(),
         "gpu_devices": [
-            {"name": d.device_kind, "platform": d.platform}
-            for d in devices
-            if d.platform != "cpu"
+            {"name": d.device_kind, "platform": d.platform} for d in devices if d.platform != "cpu"
         ],
         "cpu_devices": [
-            {"name": d.device_kind, "platform": d.platform}
-            for d in devices
-            if d.platform == "cpu"
+            {"name": d.device_kind, "platform": d.platform} for d in devices if d.platform == "cpu"
         ],
         "default_threshold": _default_config.gpu_threshold,
     }

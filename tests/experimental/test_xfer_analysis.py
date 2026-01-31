@@ -60,7 +60,7 @@ endc
         result = engine.run_dcinc()
 
         # Incremental voltage at node 2 should be 0.5 (half of mag=1)
-        v2_inc = result.incremental_voltages.get('2')
+        v2_inc = result.incremental_voltages.get("2")
         assert v2_inc is not None
         assert v2_inc == pytest.approx(0.5, rel=0.01)
 
@@ -102,8 +102,8 @@ endc
         result = engine.run_dcinc()
 
         # Should have incremental voltage at node 2
-        assert '2' in result.incremental_voltages
-        v2_inc = result.incremental_voltages['2']
+        assert "2" in result.incremental_voltages
+        v2_inc = result.incremental_voltages["2"]
 
         # Value should be between 0 and 1 (voltage divider with diode)
         assert 0 < v2_inc < 1
@@ -142,8 +142,8 @@ endc
         result = engine.run_dcxf(out=2)
 
         # Transfer function from v1 to node 2 should be 0.5
-        assert 'v1' in result.tf
-        tf_v1 = result.tf['v1']
+        assert "v1" in result.tf
+        tf_v1 = result.tf["v1"]
         assert tf_v1 == pytest.approx(0.5, rel=0.01)
 
     def test_dcxf_input_impedance(self, resistor_divider_netlist):
@@ -154,8 +154,8 @@ endc
 
         # Input impedance seen by v1 = R1 + R2 = 2k
         # Note: High-G voltage source model causes some numerical variation
-        assert 'v1' in result.zin
-        zin_v1 = result.zin['v1']
+        assert "v1" in result.zin
+        zin_v1 = result.zin["v1"]
         assert zin_v1 == pytest.approx(2000.0, rel=0.15)  # Allow 15% tolerance
 
     def test_dcxf_input_admittance(self, resistor_divider_netlist):
@@ -166,8 +166,8 @@ endc
 
         # Input admittance = 1 / 2k = 0.5e-3 S
         # Note: High-G voltage source model causes some numerical variation
-        assert 'v1' in result.yin
-        yin_v1 = result.yin['v1']
+        assert "v1" in result.yin
+        yin_v1 = result.yin["v1"]
         assert yin_v1 == pytest.approx(0.5e-3, rel=0.15)  # Allow 15% tolerance
 
     @pytest.fixture
@@ -208,17 +208,17 @@ endc
         result = engine.run_dcxf(out=2)
 
         # Should have tf for both v1 and v2
-        assert 'v1' in result.tf
-        assert 'v2' in result.tf
+        assert "v1" in result.tf
+        assert "v2" in result.tf
 
         # Both should be positive (contributing to output)
         # v1 drives through resistor, v2 drives through diode
-        assert result.tf['v1'] > 0
-        assert result.tf['v2'] > 0
+        assert result.tf["v1"] > 0
+        assert result.tf["v2"] > 0
 
         # Sum should be ~1 (superposition at same node)
         # This is true for this particular circuit topology
-        total_tf = result.tf['v1'] + result.tf['v2']
+        total_tf = result.tf["v1"] + result.tf["v2"]
         assert total_tf == pytest.approx(1.0, rel=0.05)
 
 
@@ -270,11 +270,11 @@ endc
         """ACXF at very low frequency should give TF ~= 1."""
         engine = CircuitEngine(rc_lowpass_netlist)
         engine.parse()
-        result = engine.run_acxf(out=2, freq_start=0.1, freq_stop=0.1, mode='list', values=[0.1])
+        result = engine.run_acxf(out=2, freq_start=0.1, freq_stop=0.1, mode="list", values=[0.1])
 
         # At f~0, TF should be ~1
-        assert 'v1' in result.tf
-        tf_v1 = result.tf['v1']
+        assert "v1" in result.tf
+        tf_v1 = result.tf["v1"]
         assert len(tf_v1) == 1
         assert abs(tf_v1[0]) == pytest.approx(1.0, rel=0.1)
 
@@ -286,10 +286,10 @@ endc
         # Cutoff frequency: fc = 1/(2*pi*R*C) = 159.15 Hz
         fc = 1.0 / (2 * math.pi * 1000 * 1e-6)
 
-        result = engine.run_acxf(out=2, freq_start=fc, freq_stop=fc, mode='list', values=[fc])
+        result = engine.run_acxf(out=2, freq_start=fc, freq_stop=fc, mode="list", values=[fc])
 
-        assert 'v1' in result.tf
-        tf_v1 = result.tf['v1']
+        assert "v1" in result.tf
+        tf_v1 = result.tf["v1"]
         mag = abs(tf_v1[0])
 
         # At cutoff, |TF| = 1/sqrt(2) = 0.707
@@ -303,9 +303,9 @@ endc
 
         fc = 1.0 / (2 * math.pi * 1000 * 1e-6)
 
-        result = engine.run_acxf(out=2, freq_start=fc, freq_stop=fc, mode='list', values=[fc])
+        result = engine.run_acxf(out=2, freq_start=fc, freq_stop=fc, mode="list", values=[fc])
 
-        tf_v1 = result.tf['v1']
+        tf_v1 = result.tf["v1"]
         phase_deg = float(jnp.angle(tf_v1[0]) * 180 / jnp.pi)
 
         # At cutoff, phase = -45 degrees
@@ -316,10 +316,10 @@ endc
         engine = CircuitEngine(rc_lowpass_netlist)
         engine.parse()
 
-        result = engine.run_acxf(out=2, freq_start=0.1, freq_stop=0.1, mode='list', values=[0.1])
+        result = engine.run_acxf(out=2, freq_start=0.1, freq_stop=0.1, mode="list", values=[0.1])
 
-        assert 'v1' in result.zin
-        zin = result.zin['v1']
+        assert "v1" in result.zin
+        zin = result.zin["v1"]
 
         # At very low frequency, Zin ~= R = 1k (capacitor is effectively open)
         # Actually for this circuit: Zin = R + 1/(jwC), at very low freq this is very high
@@ -331,11 +331,12 @@ endc
         engine = CircuitEngine(rc_lowpass_netlist)
         engine.parse()
 
-        result = engine.run_acxf(out=2, freq_start=100000.0, freq_stop=100000.0,
-                                  mode='list', values=[100000.0])
+        result = engine.run_acxf(
+            out=2, freq_start=100000.0, freq_stop=100000.0, mode="list", values=[100000.0]
+        )
 
-        assert 'v1' in result.zin
-        zin = result.zin['v1']
+        assert "v1" in result.zin
+        zin = result.zin["v1"]
 
         # At very high frequency, Zin ~= R = 1k (capacitor is effectively short)
         assert abs(zin[0]) == pytest.approx(1000.0, rel=0.1)
@@ -376,8 +377,8 @@ endc
         result = engine.run_acxf(out=3, freq_start=1.0, freq_stop=10000.0)
 
         # Should have tf for both sources
-        assert 'v2' in result.tf
-        assert 'v3' in result.tf
+        assert "v2" in result.tf
+        assert "v3" in result.tf
 
         # Should have frequency sweep
         assert len(result.frequencies) > 10
@@ -389,33 +390,33 @@ class TestXferResultStructures:
     def test_dcinc_result_has_voltages(self):
         """DCIncResult should have incremental voltages dict."""
         result = DCIncResult(
-            incremental_voltages={'1': 0.5, '2': 0.3},
+            incremental_voltages={"1": 0.5, "2": 0.3},
             dc_voltages=None,
         )
-        assert '1' in result.incremental_voltages
-        assert result.incremental_voltages['1'] == 0.5
+        assert "1" in result.incremental_voltages
+        assert result.incremental_voltages["1"] == 0.5
 
     def test_dcxf_result_has_metrics(self):
         """DCXFResult should have tf, zin, yin dicts."""
         result = DCXFResult(
-            tf={'v1': 0.5},
-            zin={'v1': 2000.0},
-            yin={'v1': 0.5e-3},
+            tf={"v1": 0.5},
+            zin={"v1": 2000.0},
+            yin={"v1": 0.5e-3},
             out_node=2,
         )
-        assert result.tf['v1'] == 0.5
-        assert result.zin['v1'] == 2000.0
-        assert result.yin['v1'] == 0.5e-3
+        assert result.tf["v1"] == 0.5
+        assert result.zin["v1"] == 2000.0
+        assert result.yin["v1"] == 0.5e-3
 
     def test_acxf_result_has_complex_arrays(self):
         """ACXFResult should have complex tf, zin, yin arrays."""
         result = ACXFResult(
             frequencies=jnp.array([1.0, 10.0, 100.0]),
-            tf={'v1': jnp.array([1+0j, 0.9+0.1j, 0.5+0.5j])},
-            zin={'v1': jnp.array([1000+0j, 900+100j, 500+500j])},
-            yin={'v1': jnp.array([0.001+0j, 0.0009-0.0001j, 0.0005-0.0005j])},
+            tf={"v1": jnp.array([1 + 0j, 0.9 + 0.1j, 0.5 + 0.5j])},
+            zin={"v1": jnp.array([1000 + 0j, 900 + 100j, 500 + 500j])},
+            yin={"v1": jnp.array([0.001 + 0j, 0.0009 - 0.0001j, 0.0005 - 0.0005j])},
             out_node=2,
         )
         assert len(result.frequencies) == 3
-        assert jnp.iscomplexobj(result.tf['v1'])
-        assert jnp.iscomplexobj(result.zin['v1'])
+        assert jnp.iscomplexobj(result.tf["v1"])
+        assert jnp.iscomplexobj(result.zin["v1"])

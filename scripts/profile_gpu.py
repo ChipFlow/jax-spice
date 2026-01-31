@@ -35,9 +35,9 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 # Configure JAX memory allocation BEFORE importing JAX
 # Disable preallocation to avoid grabbing all GPU memory at startup
-os.environ.setdefault('XLA_PYTHON_CLIENT_PREALLOCATE', 'false')
+os.environ.setdefault("XLA_PYTHON_CLIENT_PREALLOCATE", "false")
 # Use memory growth instead of fixed allocation
-os.environ.setdefault('XLA_PYTHON_CLIENT_ALLOCATOR', 'platform')
+os.environ.setdefault("XLA_PYTHON_CLIENT_ALLOCATOR", "platform")
 
 import jax
 import jax.numpy as jnp
@@ -75,9 +75,16 @@ class GPUProfiler:
             return self.end_time - self.start_time
         return 0.0
 
-    def run_benchmark(self, sim_path: Path, name: str, use_sparse: bool,
-                      num_steps: int = 20, trace_ctx=None, full: bool = False,
-                      warmup_steps: int = 5) -> BenchmarkResult:
+    def run_benchmark(
+        self,
+        sim_path: Path,
+        name: str,
+        use_sparse: bool,
+        num_steps: int = 20,
+        trace_ctx=None,
+        full: bool = False,
+        warmup_steps: int = 5,
+    ) -> BenchmarkResult:
         """Run a single benchmark configuration.
 
         Args:
@@ -93,6 +100,7 @@ class GPUProfiler:
             BenchmarkResult with timing information
         """
         import sys
+
         logger.info("      starting...")
         sys.stdout.flush()
         sys.stderr.flush()
@@ -113,16 +121,18 @@ class GPUProfiler:
 
             nodes = engine.num_nodes
             devices = len(engine.devices)
-            openvaf_devices = sum(1 for d in engine.devices if d.get('is_openvaf'))
+            openvaf_devices = sum(1 for d in engine.devices if d.get("is_openvaf"))
 
             # Estimate total nodes including internal nodes from OpenVAF devices
             # PSP103 has 8 internal nodes per device (13 total - 4 external - 1 branch)
             estimated_internal = openvaf_devices * 8  # Conservative estimate for PSP103
             total_nodes_estimate = nodes + estimated_internal
-            logger.info(f"      nodes: {nodes} external, ~{estimated_internal} internal ({total_nodes_estimate} total)")
+            logger.info(
+                f"      nodes: {nodes} external, ~{estimated_internal} internal ({total_nodes_estimate} total)"
+            )
 
             # Use GPU if available, otherwise CPU
-            selected_backend = "gpu" if any(d.platform == 'gpu' for d in jax.devices()) else "cpu"
+            selected_backend = "gpu" if any(d.platform == "gpu" for d in jax.devices()) else "cpu"
 
             # Skip sparse for non-OpenVAF circuits (they use JIT solver)
             if use_sparse and not engine._has_openvaf_devices:
@@ -134,21 +144,23 @@ class GPUProfiler:
                     timesteps=0,
                     total_time_s=0,
                     time_per_step_ms=0,
-                    solver='sparse',
+                    solver="sparse",
                     backend=backend,
                     converged=True,
-                    error="Sparse not applicable (no OpenVAF devices)"
+                    error="Sparse not applicable (no OpenVAF devices)",
                 )
 
             # Get analysis params from .sim file
-            dt = engine.analysis_params.get('step', 1e-12)
-            t_stop_original = engine.analysis_params.get('stop', 1e-9)
+            dt = engine.analysis_params.get("step", 1e-12)
+            t_stop_original = engine.analysis_params.get("stop", 1e-9)
 
             if full:
                 # Use original VACASK parameters for comparable benchmarking
                 t_stop = t_stop_original
                 expected_steps = int(t_stop / dt)
-                logger.info(f"      FULL mode: t_stop={t_stop:.2e}s, dt={dt:.2e}s ({expected_steps} steps)")
+                logger.info(
+                    f"      FULL mode: t_stop={t_stop:.2e}s, dt={dt:.2e}s ({expected_steps} steps)"
+                )
             else:
                 # Use reduced parameters for quick testing
                 t_stop = dt * num_steps
@@ -160,9 +172,13 @@ class GPUProfiler:
                 sys.stdout.flush()
                 sys.stderr.flush()
                 warmup_start = time.perf_counter()
-                engine.run_transient(t_stop=dt * warmup_steps, dt=dt,
-                                    max_steps=warmup_steps, use_sparse=use_sparse,
-                                    backend=selected_backend)
+                engine.run_transient(
+                    t_stop=dt * warmup_steps,
+                    dt=dt,
+                    max_steps=warmup_steps,
+                    use_sparse=use_sparse,
+                    backend=selected_backend,
+                )
                 warmup_time = time.perf_counter() - warmup_start
                 logger.info(f"      warmup done ({warmup_time:.1f}s)")
             else:
@@ -176,17 +192,18 @@ class GPUProfiler:
             with ctx:
                 start = time.perf_counter()
                 result = engine.run_transient(
-                    t_stop=t_stop, dt=dt,
+                    t_stop=t_stop,
+                    dt=dt,
                     max_steps=expected_steps * 2,  # Allow some margin
                     use_sparse=use_sparse,
-                    backend=selected_backend
+                    backend=selected_backend,
                 )
                 elapsed = time.perf_counter() - start
 
             actual_steps = result.num_steps
             time_per_step = (elapsed / actual_steps * 1000) if actual_steps > 0 else 0
 
-            solver = 'sparse' if use_sparse else 'dense'
+            solver = "sparse" if use_sparse else "dense"
 
             # Log in VACASK-comparable format
             logger.info(f"")
@@ -214,6 +231,7 @@ class GPUProfiler:
 
         except Exception as e:
             import traceback
+
             traceback.print_exc()
             return BenchmarkResult(
                 name=name,
@@ -223,10 +241,10 @@ class GPUProfiler:
                 timesteps=0,
                 total_time_s=0,
                 time_per_step_ms=0,
-                solver='sparse' if use_sparse else 'dense',
+                solver="sparse" if use_sparse else "dense",
                 backend=backend,
                 converged=False,
-                error=str(e)
+                error=str(e),
             )
 
     def generate_report(self) -> str:
@@ -239,7 +257,7 @@ class GPUProfiler:
         lines.append(f"- **JAX Backend**: `{jax.default_backend()}`")
         lines.append(f"- **Devices**: `{[str(d) for d in jax.devices()]}`")
 
-        gpu_devices = [d for d in jax.devices() if d.platform != 'cpu']
+        gpu_devices = [d for d in jax.devices() if d.platform != "cpu"]
         if gpu_devices:
             lines.append(f"- **GPU**: `{gpu_devices[0]}`")
         else:
@@ -272,8 +290,12 @@ class GPUProfiler:
 
             # Detailed results table
             lines.append("## Detailed Results\n")
-            lines.append("| Benchmark | Nodes | Devices | OpenVAF | Solver | Per Step (ms) | Backend |")
-            lines.append("|-----------|-------|---------|---------|--------|---------------|---------|")
+            lines.append(
+                "| Benchmark | Nodes | Devices | OpenVAF | Solver | Per Step (ms) | Backend |"
+            )
+            lines.append(
+                "|-----------|-------|---------|---------|--------|---------------|---------|"
+            )
 
             for r in self.results:
                 if r.converged and not r.error:
@@ -284,8 +306,12 @@ class GPUProfiler:
             lines.append("")
 
             # Dense vs Sparse comparison
-            dense_results = [r for r in self.results if r.solver == 'dense' and r.converged and not r.error]
-            sparse_results = [r for r in self.results if r.solver == 'sparse' and r.converged and not r.error]
+            dense_results = [
+                r for r in self.results if r.solver == "dense" and r.converged and not r.error
+            ]
+            sparse_results = [
+                r for r in self.results if r.solver == "sparse" and r.converged and not r.error
+            ]
 
             if dense_results and sparse_results:
                 lines.append("## Dense vs Sparse Comparison\n")
@@ -311,18 +337,18 @@ class GPUProfiler:
 def run_single_benchmark(args):
     """Run a single benchmark in subprocess mode and output JSON result."""
     # Parse the single benchmark spec: "name:dense" or "name:sparse"
-    parts = args.single.split(':')
+    parts = args.single.split(":")
     if len(parts) != 2:
-        print(json.dumps({'error': f'Invalid --single format: {args.single}'}))
+        print(json.dumps({"error": f"Invalid --single format: {args.single}"}))
         sys.exit(1)
 
     name, solver = parts
-    use_sparse = solver == 'sparse'
+    use_sparse = solver == "sparse"
 
     # Find the benchmark
     benchmarks = get_vacask_benchmarks([name])
     if not benchmarks:
-        print(json.dumps({'error': f'Benchmark not found: {name}'}))
+        print(json.dumps({"error": f"Benchmark not found: {name}"}))
         sys.exit(1)
 
     _, sim_path = benchmarks[0]
@@ -330,7 +356,9 @@ def run_single_benchmark(args):
     # Run the benchmark
     profiler = GPUProfiler()
     result = profiler.run_benchmark(
-        sim_path, name, use_sparse=use_sparse,
+        sim_path,
+        name,
+        use_sparse=use_sparse,
         num_steps=args.timesteps,
         full=args.full,
         warmup_steps=args.warmup_steps,
@@ -340,23 +368,28 @@ def run_single_benchmark(args):
     print(json.dumps(asdict(result)))
 
 
-def run_benchmark_subprocess(name: str, solver: str, timesteps: int, warmup_steps: int,
-                              full: bool = False, cpu: bool = False) -> Optional[BenchmarkResult]:
+def run_benchmark_subprocess(
+    name: str, solver: str, timesteps: int, warmup_steps: int, full: bool = False, cpu: bool = False
+) -> Optional[BenchmarkResult]:
     """Run a benchmark in a separate subprocess to ensure memory cleanup.
 
     Streams stdout/stderr in real-time and captures the JSON result from the last line.
     """
     script_path = Path(__file__)
     cmd = [
-        sys.executable, str(script_path),
-        '--single', f'{name}:{solver}',
-        '--timesteps', str(timesteps),
-        '--warmup-steps', str(warmup_steps),
+        sys.executable,
+        str(script_path),
+        "--single",
+        f"{name}:{solver}",
+        "--timesteps",
+        str(timesteps),
+        "--warmup-steps",
+        str(warmup_steps),
     ]
     if full:
-        cmd.append('--full')
+        cmd.append("--full")
     if cpu:
-        cmd.append('--cpu')
+        cmd.append("--cpu")
 
     try:
         # Start subprocess with pipes for streaming
@@ -372,7 +405,7 @@ def run_benchmark_subprocess(name: str, solver: str, timesteps: int, warmup_step
         # Stream output and capture lines
         output_lines = []
         for line in proc.stdout:
-            line = line.rstrip('\n')
+            line = line.rstrip("\n")
             output_lines.append(line)
             # Print with indent to show it's from subprocess
             print(f"      {line}", flush=True)
@@ -387,7 +420,7 @@ def run_benchmark_subprocess(name: str, solver: str, timesteps: int, warmup_step
         json_line = output_lines[-1]
         try:
             data = json.loads(json_line)
-            if 'error' in data and data.get('nodes') is None:
+            if "error" in data and data.get("nodes") is None:
                 logger.error(f"  Subprocess error: {data['error']}")
                 return None
             return BenchmarkResult(**data)
@@ -400,10 +433,17 @@ def run_benchmark_subprocess(name: str, solver: str, timesteps: int, warmup_step
         proc.kill()
         logger.error(f"  Benchmark timed out after 30 minutes")
         return BenchmarkResult(
-            name=name, nodes=0, devices=0, openvaf_devices=0,
-            timesteps=0, total_time_s=0, time_per_step_ms=0,
-            solver=solver, backend='gpu', converged=False,
-            error="Timeout after 30 minutes"
+            name=name,
+            nodes=0,
+            devices=0,
+            openvaf_devices=0,
+            timesteps=0,
+            total_time_s=0,
+            time_per_step_ms=0,
+            solver=solver,
+            backend="gpu",
+            converged=False,
+            error="Timeout after 30 minutes",
         )
     except Exception as e:
         logger.error(f"  Subprocess failed: {e}")
@@ -411,9 +451,7 @@ def run_benchmark_subprocess(name: str, solver: str, timesteps: int, warmup_step
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        description="Profile VACASK benchmarks on CPU/GPU"
-    )
+    parser = argparse.ArgumentParser(description="Profile VACASK benchmarks on CPU/GPU")
     parser.add_argument(
         "--benchmark",
         type=str,
@@ -487,7 +525,7 @@ def main():
     logger.info(f"  Float64 enabled: {jax.config.jax_enable_x64}")
 
     # Check for GPU backend
-    has_gpu = any(d.platform == 'gpu' for d in jax.devices())
+    has_gpu = any(d.platform == "gpu" for d in jax.devices())
     if not has_gpu and not args.cpu:
         logger.error("ERROR: No GPU device found. Use --cpu flag for CPU-only profiling.")
         sys.exit(1)
@@ -498,7 +536,7 @@ def main():
     # Parse benchmark names
     benchmark_names = None
     if args.benchmark:
-        benchmark_names = [b.strip() for b in args.benchmark.split(',')]
+        benchmark_names = [b.strip() for b in args.benchmark.split(",")]
 
     logger.info("[Stage 2/4] Discovering benchmarks...")
     benchmarks = get_vacask_benchmarks(benchmark_names)
@@ -521,7 +559,11 @@ def main():
     logger.info("")
 
     # Use trace context for entire benchmark suite if tracing
-    trace_manager = jax.profiler.trace(args.trace_dir, create_perfetto_link=False) if args.trace else nullcontext()
+    trace_manager = (
+        jax.profiler.trace(args.trace_dir, create_perfetto_link=False)
+        if args.trace
+        else nullcontext()
+    )
 
     with trace_manager:
         for name, sim_path in benchmarks:
@@ -532,10 +574,10 @@ def main():
             # Determine which solvers to run
             # c6288 has ~86k total nodes (5k external + 81k internal from PSP103)
             # Dense matrix would be 86k x 86k x 8 bytes = ~56GB - skip dense
-            run_dense = not args.sparse_only and name != 'c6288'
+            run_dense = not args.sparse_only and name != "c6288"
             run_sparse = not args.dense_only
 
-            if name == 'c6288':
+            if name == "c6288":
                 logger.info(f"    Note: ~86k total nodes (5k external + 81k internal)")
                 if not args.sparse_only:
                     logger.info(f"    Skipping dense (would need ~56GB memory)")
@@ -544,13 +586,17 @@ def main():
             if run_dense:
                 logger.info(f"    dense:  running in subprocess...")
                 sys.stdout.flush()
-                result_dense = run_benchmark_subprocess(name, 'dense', args.timesteps, args.warmup_steps, args.full, args.cpu)
+                result_dense = run_benchmark_subprocess(
+                    name, "dense", args.timesteps, args.warmup_steps, args.full, args.cpu
+                )
                 if result_dense:
                     profiler.results.append(result_dense)
                     if result_dense.error:
                         logger.info(f"    dense:  ERROR - {result_dense.error}")
                     else:
-                        logger.info(f"    dense:  {result_dense.total_time_s:.3f}s total, {result_dense.timesteps} steps")
+                        logger.info(
+                            f"    dense:  {result_dense.total_time_s:.3f}s total, {result_dense.timesteps} steps"
+                        )
                 else:
                     logger.info(f"    dense:  FAILED (subprocess error)")
 
@@ -558,13 +604,17 @@ def main():
             if run_sparse:
                 logger.info(f"    sparse: running in subprocess...")
                 sys.stdout.flush()
-                result_sparse = run_benchmark_subprocess(name, 'sparse', args.timesteps, args.warmup_steps, args.full, args.cpu)
+                result_sparse = run_benchmark_subprocess(
+                    name, "sparse", args.timesteps, args.warmup_steps, args.full, args.cpu
+                )
                 if result_sparse:
                     profiler.results.append(result_sparse)
                     if result_sparse.error:
                         logger.info(f"    sparse: {result_sparse.error}")
                     else:
-                        logger.info(f"    sparse: {result_sparse.total_time_s:.3f}s total, {result_sparse.timesteps} steps")
+                        logger.info(
+                            f"    sparse: {result_sparse.total_time_s:.3f}s total, {result_sparse.timesteps} steps"
+                        )
                 else:
                     logger.info(f"    sparse: FAILED (subprocess error)")
 
@@ -585,34 +635,34 @@ def main():
     logger.info(f"Report written to: {report_path}")
 
     # Write to GitHub step summary if available
-    if 'GITHUB_STEP_SUMMARY' in os.environ:
-        with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as f:
+    if "GITHUB_STEP_SUMMARY" in os.environ:
+        with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as f:
             f.write(report)
         logger.info("Report appended to GitHub step summary")
 
     # JSON report
     json_report = {
-        'environment': {
-            'backend': jax.default_backend(),
-            'devices': [str(d) for d in jax.devices()],
+        "environment": {
+            "backend": jax.default_backend(),
+            "devices": [str(d) for d in jax.devices()],
         },
-        'results': [
+        "results": [
             {
-                'name': r.name,
-                'nodes': r.nodes,
-                'devices': r.devices,
-                'openvaf_devices': r.openvaf_devices,
-                'timesteps': r.timesteps,
-                'total_time_s': r.total_time_s,
-                'time_per_step_ms': r.time_per_step_ms,
-                'solver': r.solver,
-                'backend': r.backend,
-                'converged': r.converged,
-                'error': r.error,
+                "name": r.name,
+                "nodes": r.nodes,
+                "devices": r.devices,
+                "openvaf_devices": r.openvaf_devices,
+                "timesteps": r.timesteps,
+                "total_time_s": r.total_time_s,
+                "time_per_step_ms": r.time_per_step_ms,
+                "solver": r.solver,
+                "backend": r.backend,
+                "converged": r.converged,
+                "error": r.error,
             }
             for r in profiler.results
         ],
-        'total_time_s': profiler.total_time_s,
+        "total_time_s": profiler.total_time_s,
     }
 
     json_path = Path(__file__).parent.parent / "profile_report.json"
@@ -632,13 +682,14 @@ def main():
     logger.info("=" * 70)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     try:
         main()
     except Exception as e:
         print(f"\n*** FATAL ERROR ***")
         print(f"Unhandled exception: {e}")
         import traceback
+
         traceback.print_exc()
         sys.stdout.flush()
         sys.exit(1)

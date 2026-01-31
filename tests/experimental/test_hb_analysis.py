@@ -203,7 +203,7 @@ class TestHBConfig:
 
         assert config.freq == [1e3]
         assert config.nharm == 4
-        assert config.truncation == 'diamond'
+        assert config.truncation == "diamond"
         assert config.max_iterations == 100
 
     def test_custom_config(self):
@@ -211,13 +211,13 @@ class TestHBConfig:
         config = HBConfig(
             freq=[1e3, 2e3],
             nharm=6,
-            truncation='box',
+            truncation="box",
             max_iterations=50,
         )
 
         assert config.freq == [1e3, 2e3]
         assert config.nharm == 6
-        assert config.truncation == 'box'
+        assert config.truncation == "box"
 
 
 class TestHBResult:
@@ -227,7 +227,7 @@ class TestHBResult:
         """Test that result has expected fields."""
         result = HBResult(
             frequencies=jnp.array([0.0, 1e3]),
-            phasors={'out': jnp.array([1.0 + 0j, 0.5 + 0.5j])},
+            phasors={"out": jnp.array([1.0 + 0j, 0.5 + 0.5j])},
             dc_voltages=jnp.array([1.0, 0.5]),
             converged=True,
             iterations=10,
@@ -235,7 +235,7 @@ class TestHBResult:
         )
 
         assert len(result.frequencies) == 2
-        assert 'out' in result.phasors
+        assert "out" in result.phasors
         assert result.converged
         assert result.iterations == 10
 
@@ -251,22 +251,27 @@ class TestHBAnalysis:
         C = 1e-6
 
         # 1 node (excluding ground)
-        Jr = jnp.array([[1/R]])  # Resistive Jacobian
-        Jc = jnp.array([[C]])    # Reactive Jacobian
+        Jr = jnp.array([[1 / R]])  # Resistive Jacobian
+        Jc = jnp.array([[C]])  # Reactive Jacobian
 
         # Source at fundamental frequency
-        sources = [{
-            'type': 'vsource',
-            'pos_node': 1,
-            'neg_node': 0,
-            'params': {'ampl': 1.0, 'freq': 1e3, 'type': 'sine'},
-        }]
+        sources = [
+            {
+                "type": "vsource",
+                "pos_node": 1,
+                "neg_node": 0,
+                "params": {"ampl": 1.0, "freq": 1e3, "type": "sine"},
+            }
+        ]
 
         config = HBConfig(freq=[1e3], nharm=3)
 
         result = run_hb_analysis(
-            Jr, Jc, sources, config,
-            node_names={'out': 1},
+            Jr,
+            Jc,
+            sources,
+            config,
+            node_names={"out": 1},
             dc_voltages=jnp.array([0.0]),
         )
 
@@ -275,7 +280,7 @@ class TestHBAnalysis:
 
     def test_hb_frequency_grid_config(self):
         """Test that HB uses correct frequency grid."""
-        config = HBConfig(freq=[1e3], nharm=4, truncation='box')
+        config = HBConfig(freq=[1e3], nharm=4, truncation="box")
         freqs, _ = build_frequency_grid(config)
 
         # Box truncation: 0, f0, 2f0, 3f0, 4f0
@@ -284,7 +289,7 @@ class TestHBAnalysis:
 
     def test_hb_diamond_two_tone(self):
         """Test two-tone HB with diamond truncation."""
-        config = HBConfig(freq=[1e3, 1.1e3], nharm=2, truncation='diamond')
+        config = HBConfig(freq=[1e3, 1.1e3], nharm=2, truncation="diamond")
         freqs, _ = build_frequency_grid(config)
 
         # Diamond with immax=2: DC, f1, f2, 2f1, 2f2, f1+f2 (if |k1|+|k2|<=2)

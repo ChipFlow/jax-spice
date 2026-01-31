@@ -621,13 +621,24 @@ class InstructionTranslator:
         #
         # When use_limit_functions is True:
         #   - BuiltinLimit generates calls to limit_funcs['pnjlim'](vnew, vold, vt, vcrit)
-        #   - StoreLimit/LoadLimit pass through the input voltage unchanged
+        #   - StoreLimit writes to limit_state_out[idx] and returns the value
+        #   - LoadLimit reads from limit_state_in[idx]
         #
         # When use_limit_functions is False (default):
         #   - All limit operations pass through the input voltage unchanged
-        if 'storelimit' in func_name.lower() or 'loadlimit' in func_name.lower():
+        if 'storelimit' in func_name.lower():
+            if self.ctx.use_limit_functions:
+                return self._translate_store_limit(func_name, inst)
+            # Pass through the input voltage when limiting disabled
             if inst.operands:
-                # Pass through the input voltage
+                return self.ctx.get_operand(inst.operands[0])
+            return self.ctx.zero()
+
+        if 'loadlimit' in func_name.lower():
+            if self.ctx.use_limit_functions:
+                return self._translate_load_limit(func_name, inst)
+            # Pass through the input voltage when limiting disabled
+            if inst.operands:
                 return self.ctx.get_operand(inst.operands[0])
             return self.ctx.zero()
 
@@ -736,6 +747,84 @@ class InstructionTranslator:
         args = [self.ctx.get_operand(op) for op in inst.operands]
 
         return ast_call(limit_func, args)
+
+    def _parse_limit_state_index(self, func_name: str) -> int:
+        """Parse limit state index from StoreLimit/LoadLimit MIR function name.
+
+        MIR format examples:
+            "StoreLimit { state: LimState(0) }"
+            "LoadLimit { state: LimState(1) }"
+
+        Args:
+            func_name: The MIR function name
+
+        Returns:
+            Limit state index (0, 1, 2, ...), or 0 as default
+        """
+        import re
+        # Look for LimState(N) pattern
+        match = re.search(r'LimState\((\d+)\)', func_name)
+        if match:
+            return int(match.group(1))
+        # Fallback: look for any number
+        match = re.search(r'(\d+)', func_name)
+        if match:
+            return int(match.group(1))
+        return 0
+
+    def _translate_store_limit(self, func_name: str, inst: MIRInstruction) -> ast.expr:
+        """Translate StoreLimit to store value in limit_state_out.
+
+        StoreLimit stores the limited voltage value to be used as vold
+        in the next NR iteration.
+
+        Args:
+            func_name: MIR function name containing the limit state index
+            inst: The MIR instruction with the value to store
+
+        Returns:
+            AST expression that stores to limit_state_out and returns the value
+        """
+        idx = self._parse_limit_state_index(func_name)
+
+        # Register this limit state
+        state_name = f'lim_state{idx}'
+        self.ctx.register_limit(state_name)
+
+        # Get the value to store (first operand)
+        if not inst.operands:
+            return self.ctx.zero()
+
+        # Track this store for building limit_state_out later
+        # We store the MIR operand ID so we can reference it in function_builder
+        operand_id = inst.operands[0]
+        self.ctx.limit_store_operands[idx] = operand_id
+
+        # Get and return the value expression (StoreLimit passes through)
+        value_expr = self.ctx.get_operand(operand_id)
+        return value_expr
+
+    def _translate_load_limit(self, func_name: str, inst: MIRInstruction) -> ast.expr:
+        """Translate LoadLimit to read from limit_state_in.
+
+        LoadLimit retrieves the previous NR iteration's limited voltage
+        to be used as vold in BuiltinLimit.
+
+        Args:
+            func_name: MIR function name containing the limit state index
+            inst: The MIR instruction (operands not used for load)
+
+        Returns:
+            AST expression reading from limit_state_in[idx]
+        """
+        idx = self._parse_limit_state_index(func_name)
+
+        # Register this limit state
+        state_name = f'lim_state{idx}'
+        self.ctx.register_limit(state_name)
+
+        # Return limit_state_in[idx]
+        return subscript(ast_name('limit_state_in'), ast_const(idx))
 
     def _translate_copy(self, inst: MIRInstruction) -> ast.expr:
         """Translate copy (simple value forwarding)."""

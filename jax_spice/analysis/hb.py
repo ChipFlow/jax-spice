@@ -52,9 +52,10 @@ class HBConfig:
         abstol: Absolute tolerance for convergence
         reltol: Relative tolerance for convergence
     """
+
     freq: List[float] = field(default_factory=lambda: [1e3])
     nharm: Union[int, List[int]] = 4
-    truncation: str = 'diamond'
+    truncation: str = "diamond"
     sample_factor: float = 2.0
     n_periods: float = 3.0
     max_iterations: int = 100
@@ -74,6 +75,7 @@ class HBResult:
         iterations: Number of NR iterations
         max_residual: Maximum residual at convergence
     """
+
     frequencies: Array
     phasors: Dict[str, Array]  # node_name -> complex phasor array
     dc_voltages: Optional[Array] = None
@@ -130,7 +132,7 @@ def build_frequency_grid_box(
             valid_points.append(point)
 
     # Compute frequencies
-    fund_freqs_arr = jnp.array(fund_freqs)
+    jnp.array(fund_freqs)
     frequencies = []
     for point in valid_points:
         f = sum(k * fund_freqs[j] for j, k in enumerate(point))
@@ -226,9 +228,9 @@ def build_frequency_grid(config: HBConfig) -> Tuple[Array, Array]:
     Returns:
         (frequencies, grid) tuple
     """
-    if config.truncation == 'box':
+    if config.truncation == "box":
         return build_frequency_grid_box(config.freq, config.nharm)
-    elif config.truncation == 'diamond':
+    elif config.truncation == "diamond":
         return build_frequency_grid_diamond(config.freq, config.nharm)
     else:
         raise ValueError(f"Unknown truncation scheme: {config.truncation}")
@@ -332,7 +334,7 @@ def build_apft_matrices(
         omega_k = 2.0 * jnp.pi * frequencies[k]
         # [Re, Im] -> omega * [-Im, Re]
         Omega = Omega.at[2 * k - 1, 2 * k].set(-omega_k)  # Re <- -omega*Im
-        Omega = Omega.at[2 * k, 2 * k - 1].set(omega_k)   # Im <- omega*Re
+        Omega = Omega.at[2 * k, 2 * k - 1].set(omega_k)  # Im <- omega*Re
 
     DDT = IAPFT @ Omega @ APFT
 
@@ -483,14 +485,14 @@ def run_hb_analysis(
     # Find AC sources
     ac_sources = []
     for src in sources:
-        if src.get('type') == 'vsource':
-            ac_params = src.get('ac', {})
-            if ac_params.get('mag', 0) != 0 or ac_params.get('ampl', 0) != 0:
+        if src.get("type") == "vsource":
+            ac_params = src.get("ac", {})
+            if ac_params.get("mag", 0) != 0 or ac_params.get("ampl", 0) != 0:
                 ac_sources.append(src)
             # Also check for sine sources at fundamental frequency
-            if src.get('params', {}).get('type') == 'sine':
-                params = src.get('params', {})
-                src_freq = params.get('freq', 0)
+            if src.get("params", {}).get("type") == "sine":
+                params = src.get("params", {})
+                src_freq = params.get("freq", 0)
                 if src_freq in config.freq:
                     ac_sources.append(src)
 
@@ -511,13 +513,13 @@ def run_hb_analysis(
 
         if k == 1 and ac_sources:  # Fundamental frequency
             for src in ac_sources:
-                pos = src.get('pos_node', 0)
-                neg = src.get('neg_node', 0)
-                params = src.get('params', {})
+                pos = src.get("pos_node", 0)
+                neg = src.get("neg_node", 0)
+                params = src.get("params", {})
 
                 # Get amplitude
-                mag = params.get('ampl', params.get('mag', 1.0))
-                phase = params.get('phase', 0.0)
+                mag = params.get("ampl", params.get("mag", 1.0))
+                phase = params.get("phase", 0.0)
 
                 # High conductance for voltage source
                 G = 1e12
@@ -589,7 +591,7 @@ def run_hb_analysis(
 # - Continuation: start with large harmonic truncation and refine
 #
 # Integration with CircuitEngine:
-# - Need access to _make_gpu_resident_build_system_fn but batched over timepoints
+# - Need access to _make_full_mna_build_system_fn but batched over timepoints
 # - Each device model's vmapped function needs additional time dimension
 # =============================================================================
 
@@ -644,15 +646,15 @@ def run_hb_nonlinear(
 
     # Get number of nodes from DC solution
     if V_dc is not None:
-        n_nodes = len(V_dc)
+        len(V_dc)
     else:
-        n_nodes = 0
+        pass
 
     # Initialize solution: replicate DC across all timepoints
     if V_dc is not None:
-        V_td = jnp.tile(V_dc[:, None], (1, nt))
+        jnp.tile(V_dc[:, None], (1, nt))
     else:
-        V_td = None
+        pass
 
     # TODO: Implement full NR loop
     # For now, return unconverged result to indicate not implemented
@@ -664,5 +666,5 @@ def run_hb_nonlinear(
         dc_voltages=V_dc,
         converged=False,
         iterations=0,
-        max_residual=float('inf'),
+        max_residual=float("inf"),
     )

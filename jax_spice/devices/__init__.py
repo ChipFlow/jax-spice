@@ -15,6 +15,7 @@ from jax_spice.devices.vsource import (
 # Optional Verilog-A support (requires openvaf_py)
 try:
     from jax_spice.devices.verilog_a import VerilogADevice, compile_va
+
     _HAS_VERILOG_A = True
 except ImportError:
     VerilogADevice = None

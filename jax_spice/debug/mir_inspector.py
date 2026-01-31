@@ -13,11 +13,11 @@ Usage:
 """
 
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Dict, List, Optional, Tuple
 
-os.environ.setdefault('JAX_ENABLE_X64', 'true')
+os.environ.setdefault("JAX_ENABLE_X64", "true")
 
 
 @dataclass
@@ -82,7 +82,7 @@ class MIRInspector:
             self._init_params = list(zip(names, kinds))
         return self._init_params
 
-    def get_param_summary(self, func: str = 'eval') -> ParamSummary:
+    def get_param_summary(self, func: str = "eval") -> ParamSummary:
         """Get summary of parameters.
 
         Args:
@@ -91,7 +91,7 @@ class MIRInspector:
         Returns:
             ParamSummary with categorized parameters
         """
-        params = self.eval_params if func == 'eval' else self.init_params
+        params = self.eval_params if func == "eval" else self.init_params
 
         by_kind: Dict[str, int] = {}
         voltage_params = []
@@ -100,23 +100,24 @@ class MIRInspector:
         for i, (name, kind) in enumerate(params):
             by_kind[kind] = by_kind.get(kind, 0) + 1
 
-            if kind == 'voltage':
+            if kind == "voltage":
                 voltage_params.append((i, name))
-            elif kind == 'hidden_state':
+            elif kind == "hidden_state":
                 hidden_state_params.append((i, name))
 
         # Check for missing defaults (init only)
         missing_defaults = []
-        if func == 'init':
+        if func == "init":
             import openvaf_jax
+
             translator = openvaf_jax.OpenVAFToJAX(self.module)
             _, init_metadata = translator.translate_init()
-            defaults = init_metadata.get('param_defaults', {})
-            param_names = init_metadata.get('param_names', [])
+            defaults = init_metadata.get("param_defaults", {})
+            param_names = init_metadata.get("param_names", [])
 
             for i, name in enumerate(param_names):
                 if name not in defaults and name.lower() not in defaults:
-                    if name not in ['$temperature', 'mfactor']:
+                    if name not in ["$temperature", "mfactor"]:
                         missing_defaults.append((i, name))
 
         return ParamSummary(
@@ -127,7 +128,7 @@ class MIRInspector:
             missing_defaults=missing_defaults,
         )
 
-    def print_param_summary(self, func: str = 'eval'):
+    def print_param_summary(self, func: str = "eval"):
         """Print parameter summary."""
         summary = self.get_param_summary(func)
 
@@ -149,7 +150,7 @@ class MIRInspector:
             for i, name in summary.missing_defaults:
                 print(f"  [{i}] {name}")
 
-    def get_constants(self, func: str = 'eval') -> Dict[str, float]:
+    def get_constants(self, func: str = "eval") -> Dict[str, float]:
         """Get MIR constants.
 
         Args:
@@ -158,14 +159,14 @@ class MIRInspector:
         Returns:
             Dict mapping value names to constant values
         """
-        mir_data = self._mir_data if func == 'eval' else self._init_mir_data
-        return dict(mir_data.get('constants', {}))
+        mir_data = self._mir_data if func == "eval" else self._init_mir_data
+        return dict(mir_data.get("constants", {}))
 
     def find_constants_near(
         self,
         target: float,
         tolerance: float = 0.01,
-        func: str = 'eval',
+        func: str = "eval",
     ) -> List[Tuple[str, float]]:
         """Find constants near a target value.
 
@@ -188,7 +189,7 @@ class MIRInspector:
 
         return results
 
-    def get_phi_nodes(self, func: str = 'eval') -> List[PHIInfo]:
+    def get_phi_nodes(self, func: str = "eval") -> List[PHIInfo]:
         """Get all PHI nodes.
 
         Args:
@@ -197,32 +198,34 @@ class MIRInspector:
         Returns:
             List of PHIInfo for each PHI node
         """
-        mir_data = self._mir_data if func == 'eval' else self._init_mir_data
-        instructions = mir_data.get('instructions', [])
+        mir_data = self._mir_data if func == "eval" else self._init_mir_data
+        instructions = mir_data.get("instructions", [])
 
         phi_nodes = []
         for inst in instructions:
-            if inst.get('opcode') == 'phi':
+            if inst.get("opcode") == "phi":
                 operands = []
-                phi_ops = inst.get('phi_operands', [])
+                phi_ops = inst.get("phi_operands", [])
                 for op in phi_ops:
-                    operands.append((op.get('block', ''), op.get('value', '')))
+                    operands.append((op.get("block", ""), op.get("value", "")))
 
-                has_zero = any(v == 'v3' for _, v in operands)  # v3 is typically 0.0
+                has_zero = any(v == "v3" for _, v in operands)  # v3 is typically 0.0
 
-                phi_nodes.append(PHIInfo(
-                    result=inst.get('result', ''),
-                    block=inst.get('block', ''),
-                    operands=operands,
-                    has_zero_operand=has_zero,
-                ))
+                phi_nodes.append(
+                    PHIInfo(
+                        result=inst.get("result", ""),
+                        block=inst.get("block", ""),
+                        operands=operands,
+                        has_zero_operand=has_zero,
+                    )
+                )
 
         return phi_nodes
 
     def find_phi_nodes_with_value(
         self,
         value: str,
-        func: str = 'eval',
+        func: str = "eval",
     ) -> List[PHIInfo]:
         """Find PHI nodes that have a specific value as an operand.
 
@@ -237,12 +240,9 @@ class MIRInspector:
             List of PHIInfo for matching PHI nodes
         """
         all_phis = self.get_phi_nodes(func)
-        return [
-            phi for phi in all_phis
-            if any(v == value for _, v in phi.operands)
-        ]
+        return [phi for phi in all_phis if any(v == value for _, v in phi.operands)]
 
-    def print_phi_summary(self, func: str = 'eval'):
+    def print_phi_summary(self, func: str = "eval"):
         """Print summary of PHI nodes."""
         phi_nodes = self.get_phi_nodes(func)
 
@@ -268,26 +268,26 @@ class MIRInspector:
             for phi in zero_phis[:5]:
                 print(f"  {phi.result} in {phi.block}:")
                 for pred, val in phi.operands:
-                    marker = " <-- ZERO" if val == 'v3' else ""
+                    marker = " <-- ZERO" if val == "v3" else ""
                     print(f"    {pred} -> {val}{marker}")
 
-    def get_block_count(self, func: str = 'eval') -> int:
+    def get_block_count(self, func: str = "eval") -> int:
         """Get number of basic blocks."""
-        mir_data = self._mir_data if func == 'eval' else self._init_mir_data
-        return len(mir_data.get('blocks', {}))
+        mir_data = self._mir_data if func == "eval" else self._init_mir_data
+        return len(mir_data.get("blocks", {}))
 
     def print_mir_stats(self):
         """Print overall MIR statistics."""
         print("\n=== MIR Statistics ===")
 
-        for func in ['init', 'eval']:
-            mir_data = self._mir_data if func == 'eval' else self._init_mir_data
+        for func in ["init", "eval"]:
+            mir_data = self._mir_data if func == "eval" else self._init_mir_data
 
-            blocks = mir_data.get('blocks', {})
-            instructions = mir_data.get('instructions', [])
-            constants = mir_data.get('constants', {})
+            blocks = mir_data.get("blocks", {})
+            instructions = mir_data.get("instructions", [])
+            constants = mir_data.get("constants", {})
 
-            phi_count = sum(1 for i in instructions if i.get('opcode') == 'phi')
+            phi_count = sum(1 for i in instructions if i.get("opcode") == "phi")
 
             print(f"\n{func.upper()}:")
             print(f"  Blocks: {len(blocks)}")
@@ -302,7 +302,7 @@ class MIRInspector:
             Tuple of (index, name, kind) or None if not found
         """
         for i, (name, kind) in enumerate(self.eval_params):
-            if name.upper() == 'TYPE':
+            if name.upper() == "TYPE":
                 return (i, name, kind)
         return None
 
@@ -317,7 +317,7 @@ class MIRInspector:
 
             # Check if TYPE is in init params too
             for i, (n, k) in enumerate(self.init_params):
-                if n.upper() == 'TYPE':
+                if n.upper() == "TYPE":
                     print(f"In init: [{i}] {n} ({k})")
         else:
             print("TYPE parameter not found")
@@ -331,6 +331,6 @@ def inspect_model(va_path: Path):
     """
     inspector = MIRInspector(va_path)
     inspector.print_mir_stats()
-    inspector.print_param_summary('eval')
-    inspector.print_phi_summary('eval')
+    inspector.print_param_summary("eval")
+    inspector.print_phi_summary("eval")
     inspector.print_type_param_info()

@@ -12,10 +12,10 @@ from jax_spice.config import DEFAULT_TEMPERATURE_K
 @dataclass
 class AnalysisContext:
     """Context passed to device evaluations during analysis
-    
+
     Provides simulation state like current time, timestep, and
     analysis-specific parameters.
-    
+
     Attributes:
         time: Current simulation time (None for DC analysis)
         dt: Current timestep (None for DC analysis)
@@ -24,10 +24,11 @@ class AnalysisContext:
         iteration: Current Newton-Raphson iteration number
         prev_solution: Previous timepoint solution (for transient)
     """
+
     time: Optional[float] = None
     dt: Optional[float] = None
     temperature: float = DEFAULT_TEMPERATURE_K  # Room temp in Kelvin (27°C)
-    analysis_type: str = 'dc'
+    analysis_type: str = "dc"
     iteration: int = 0
     prev_solution: Optional[Dict[str, float]] = None
 

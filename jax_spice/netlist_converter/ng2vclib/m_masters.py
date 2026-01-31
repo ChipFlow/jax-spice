@@ -11,7 +11,7 @@ from .patterns import *
 
 
 class MastersMixin:
-    pat_paramassign = re.compile(r'^[A-Za-z_][A-Za-z0-9_]*=')
+    pat_paramassign = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
 
     def sanitize_identifier(self, name):
         """Sanitize an identifier for VACASK compatibility.
@@ -26,29 +26,29 @@ class MastersMixin:
 
     def split_instance(self, line, orig_line, in_sub=None):
         """
-        Splits an instance into fragments, extract model position. 
+        Splits an instance into fragments, extract model position.
 
-        Returns 
+        Returns
         * name
         * name with original case
-        * a list of parts 
+        * a list of parts
         * a list of parts with original case
-        * index of first model in the list of parts, None if no model found. 
+        * index of first model in the list of parts, None if no model found.
 
-        Tracks model usage. 
+        Tracks model usage.
         """
         parts = line.split()
         orig_parts = orig_line.split()
 
         # Is it a subcircuit instance?
         name = parts[0]
-        issubinst = name[0]=="x"
+        issubinst = name[0] == "x"
 
         # Find first model
         mod_index = None
         for ndx, part in enumerate(parts):
             # Skip first fragment (name)
-            if ndx==0:
+            if ndx == 0:
                 continue
 
             if issubinst:
@@ -56,7 +56,7 @@ class MastersMixin:
                 # Look for first entry of the form name=value
                 if "=" in part:
                     # Found first parameter
-                    mod_index = ndx-1
+                    mod_index = ndx - 1
                     break
             else:
                 # Device instance
@@ -83,18 +83,18 @@ class MastersMixin:
         # No parameters found for a subcircuit instance
         if issubinst and mod_index is None:
             # Last word is the subcircuit definition name
-            mod_index = len(parts)-1
+            mod_index = len(parts) - 1
 
         return parts, orig_parts, mod_index
 
     def preprocess_instance(self, lnum, lws, line, eol, annot, in_sub):
         """
-        First stage of instance procesing. 
-        
-        Split card into name and words list, find model. 
-        Store name, list of words, and model index in annotations. 
-        
-        Track used models. 
+        First stage of instance procesing.
+
+        Split card into name and words list, find model.
+        Store name, list of words, and model index in annotations.
+
+        Track used models.
         """
         parts, orig_parts, mod_index = self.split_instance(line, annot["origline"], in_sub)
 
@@ -136,7 +136,7 @@ class MastersMixin:
 
     def collect_masters(self):
         """
-        Colects defined subcircuits and models from deck.  
+        Colects defined subcircuits and models from deck.
         """
         deck = self.data["deck"]
 
@@ -145,7 +145,9 @@ class MastersMixin:
         # Pass 1 - collect models
         # Pass 2 - preprocess instances, construct model usage table
         for passno in [1, 2]:
-            for history, line, depth, in_control_block in traverse(deck, depth=self.cfg.get("process_depth", None)):
+            for history, line, depth, in_control_block in traverse(
+                deck, depth=self.cfg.get("process_depth", None)
+            ):
                 if in_control_block:
                     # In control block - skip in both passes, except for pre_osdi in pass 1
                     if passno == 1:
@@ -168,14 +170,14 @@ class MastersMixin:
                 elif l.startswith("*"):
                     # Comment
                     continue
-                elif len(l)==0:
+                elif len(l) == 0:
                     # Empty line
                     continue
                 elif pat_cidotsubckt.match(l):
                     parts = l.split(" ")
                     in_sub = parts[1]
 
-                    if passno==1:
+                    if passno == 1:
                         # Find first parameter
                         first_param = len(parts)
                         for ndx, s in enumerate(parts):
@@ -187,7 +189,7 @@ class MastersMixin:
                         terminals = [self.sanitize_identifier(t) for t in parts[2:first_param]]
 
                         # Get parameters, split into name and value
-                        sub_params = [ p.split("=") for p in parts[first_param:]]
+                        sub_params = [p.split("=") for p in parts[first_param:]]
 
                         # Store with sanitized subcircuit name
                         sanitized_sub = self.sanitize_identifier(in_sub)
@@ -196,7 +198,7 @@ class MastersMixin:
                     # End of subcircuit
                     in_sub = None
                 elif pat_cidotmodel.match(l):
-                    if passno==1:
+                    if passno == 1:
                         # Detect model
                         parts = l.split(" ")
                         name = parts[1]
@@ -219,16 +221,18 @@ class MastersMixin:
                         if mtype in self.cfg["type_map"]:
                             # Builtins needs special handling
                             builtin = True
-                            extra_params, family, remove_level, remove_version = self.cfg["type_map"][mtype]
+                            extra_params, family, remove_level, remove_version = self.cfg[
+                                "type_map"
+                            ][mtype]
 
                             # Collect level and version and remove them if requested
                             pnew = []
                             for pname, pval in params:
-                                if pname=="level":
+                                if pname == "level":
                                     level = int(pval)
                                     if remove_level:
                                         continue
-                                elif pname=="version":
+                                elif pname == "version":
                                     version = int(pval)
                                     if remove_version:
                                         continue
@@ -241,19 +245,18 @@ class MastersMixin:
                         if in_sub not in self.data["models"]:
                             self.data["models"][in_sub] = {}
                         self.data["models"][in_sub][name] = (
-                            builtin, mtype, family, level, version, params
+                            builtin,
+                            mtype,
+                            family,
+                            level,
+                            version,
+                            params,
                         )
                 elif not l.startswith("."):
-                    if passno==2:
+                    if passno == 2:
                         # Not a dot command, must be an instance
                         # Preprocess it
                         try:
                             self.preprocess_instance(*line, in_sub)
                         except ConverterError as e:
                             raise ConverterError(str(e), history, lnum)
-
-
-
-
-
-

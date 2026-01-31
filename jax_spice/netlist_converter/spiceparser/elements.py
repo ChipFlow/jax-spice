@@ -116,17 +116,11 @@ OSDI_MODULES: dict[tuple[str, int | None, str | None], OsdiModuleInfo] = {
     ("mos", 8, "3.3.0"): OsdiModuleInfo("spice/bsim3v3.osdi", "sp_bsim3v3"),
     ("mos", 8, "3.2"): OsdiModuleInfo("spice/bsim3v2.osdi", "sp_bsim3v2", {"version": '"3.2"'}),
     ("mos", 8, "3.20"): OsdiModuleInfo("spice/bsim3v2.osdi", "sp_bsim3v2", {"version": '"3.20"'}),
-    ("mos", 8, "3.2.2"): OsdiModuleInfo(
-        "spice/bsim3v2.osdi", "sp_bsim3v2", {"version": '"3.2.2"'}
-    ),
+    ("mos", 8, "3.2.2"): OsdiModuleInfo("spice/bsim3v2.osdi", "sp_bsim3v2", {"version": '"3.2.2"'}),
     ("mos", 8, "3.22"): OsdiModuleInfo("spice/bsim3v2.osdi", "sp_bsim3v2", {"version": '"3.22"'}),
-    ("mos", 8, "3.2.3"): OsdiModuleInfo(
-        "spice/bsim3v2.osdi", "sp_bsim3v2", {"version": '"3.2.3"'}
-    ),
+    ("mos", 8, "3.2.3"): OsdiModuleInfo("spice/bsim3v2.osdi", "sp_bsim3v2", {"version": '"3.2.3"'}),
     ("mos", 8, "3.23"): OsdiModuleInfo("spice/bsim3v2.osdi", "sp_bsim3v2", {"version": '"3.23"'}),
-    ("mos", 8, "3.2.4"): OsdiModuleInfo(
-        "spice/bsim3v2.osdi", "sp_bsim3v2", {"version": '"3.2.4"'}
-    ),
+    ("mos", 8, "3.2.4"): OsdiModuleInfo("spice/bsim3v2.osdi", "sp_bsim3v2", {"version": '"3.2.4"'}),
     ("mos", 8, "3.24"): OsdiModuleInfo("spice/bsim3v2.osdi", "sp_bsim3v2", {"version": '"3.24"'}),
     ("mos", 8, "3.1"): OsdiModuleInfo("spice/bsim3v1.osdi", "sp_bsim3v1"),
     ("mos", 8, "3.0"): OsdiModuleInfo("spice/bsim3v0.osdi", "sp_bsim3v0"),

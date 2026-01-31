@@ -63,25 +63,29 @@ def parse_analysis_commands(sim_path: Path) -> List[Dict]:
     analyses = []
 
     # Find control block
-    control_match = re.search(r'control\s*(.*?)endc', text, re.DOTALL | re.IGNORECASE)
+    control_match = re.search(r"control\s*(.*?)endc", text, re.DOTALL | re.IGNORECASE)
     if not control_match:
         return analyses
 
     control_block = control_match.group(1)
 
     # Match: analysis <name> op [options]
-    for m in re.finditer(r'analysis\s+(\w+)\s+op\b', control_block):
-        analyses.append({'name': m.group(1), 'type': 'op'})
+    for m in re.finditer(r"analysis\s+(\w+)\s+op\b", control_block):
+        analyses.append({"name": m.group(1), "type": "op"})
 
     # Match: analysis <name> tran stop=<time> step=<step> [icmode=<mode>]
-    for m in re.finditer(r'analysis\s+(\w+)\s+tran\s+stop=(\S+)\s+step=(\S+)(?:\s+icmode="(\w+)")?', control_block):
-        analyses.append({
-            'name': m.group(1),
-            'type': 'tran',
-            'stop': m.group(2),
-            'step': m.group(3),
-            'icmode': m.group(4) or 'op'
-        })
+    for m in re.finditer(
+        r'analysis\s+(\w+)\s+tran\s+stop=(\S+)\s+step=(\S+)(?:\s+icmode="(\w+)")?', control_block
+    ):
+        analyses.append(
+            {
+                "name": m.group(1),
+                "type": "tran",
+                "stop": m.group(2),
+                "step": m.group(3),
+                "icmode": m.group(4) or "op",
+            }
+        )
 
     return analyses
 
@@ -117,49 +121,55 @@ def categorize_test(sim_path: Path) -> Tuple[str, List[str]]:
     skip_reasons = []
 
     # Check for unsupported features
-    if 'hb' in name or any(a.get('type') == 'hb' for a in analyses if isinstance(a, dict) and 'type' in a):
+    if "hb" in name or any(
+        a.get("type") == "hb" for a in analyses if isinstance(a, dict) and "type" in a
+    ):
         skip_reasons.append("harmonic balance not implemented")
-        return 'hb', skip_reasons
+        return "hb", skip_reasons
 
-    if 'ac' in name or ('analysis' in text and ' ac ' in text.lower()):
+    if "ac" in name or ("analysis" in text and " ac " in text.lower()):
         skip_reasons.append("AC analysis not implemented")
-        return 'ac', skip_reasons
+        return "ac", skip_reasons
 
-    if 'mutual' in name:
+    if "mutual" in name:
         skip_reasons.append("mutual inductors not implemented")
-        return 'unsupported', skip_reasons
+        return "unsupported", skip_reasons
 
-    if 'noise' in name:
+    if "noise" in name:
         skip_reasons.append("noise analysis not implemented")
-        return 'unsupported', skip_reasons
+        return "unsupported", skip_reasons
 
-    if 'sweep' in name:
+    if "sweep" in name:
         skip_reasons.append("parameter sweeps not yet implemented")
-        return 'unsupported', skip_reasons
+        return "unsupported", skip_reasons
 
-    if 'xf' in name:
+    if "xf" in name:
         skip_reasons.append("transfer function analysis not implemented")
-        return 'unsupported', skip_reasons
+        return "unsupported", skip_reasons
 
     # Check for unsupported models
-    unsupported_models = {'bsimsoi', 'hicum', 'mextram'}
+    unsupported_models = {"bsimsoi", "hicum", "mextram"}
     for model in models:
         if model.lower() in unsupported_models:
             skip_reasons.append(f"model {model} not supported")
-            return 'unsupported', skip_reasons
+            return "unsupported", skip_reasons
 
     # Categorize by analysis type
-    has_tran = any(a.get('type') == 'tran' for a in analyses if isinstance(a, dict))
-    has_op = any(a.get('type') == 'op' for a in analyses if isinstance(a, dict))
+    has_tran = any(a.get("type") == "tran" for a in analyses if isinstance(a, dict))
+    has_op = any(a.get("type") == "op" for a in analyses if isinstance(a, dict))
 
     if has_tran:
-        return 'tran', skip_reasons
+        return "tran", skip_reasons
     elif has_op:
-        if len(analyses) == 1 and models and all(m in ['resistor', 'vsource', 'isource'] for m in models):
-            return 'op_basic', skip_reasons
-        return 'op_complex', skip_reasons
+        if (
+            len(analyses) == 1
+            and models
+            and all(m in ["resistor", "vsource", "isource"] for m in models)
+        ):
+            return "op_basic", skip_reasons
+        return "op_complex", skip_reasons
 
-    return 'unsupported', ["no recognized analysis type"]
+    return "unsupported", ["no recognized analysis type"]
 
 
 # parse_si_value is imported from conftest
@@ -224,8 +234,8 @@ class TestVACASKParsing:
         """Should extract expected values from embedded Python."""
         result = parse_embedded_python(sim_file)
         # Just verify it doesn't crash - not all files have expectations
-        assert 'expectations' in result
-        assert 'analysis_type' in result
+        assert "expectations" in result
+        assert "analysis_type" in result
 
 
 class TestVACASKSubcircuit:
@@ -240,14 +250,14 @@ class TestVACASKSubcircuit:
         circuit = parse_netlist(sim_file)
 
         # Check that subcircuits are parsed
-        assert hasattr(circuit, 'subckts'), "Circuit should have subckts attribute"
+        assert hasattr(circuit, "subckts"), "Circuit should have subckts attribute"
         assert len(circuit.subckts) >= 2, "Should have at least 2 subcircuits"
 
         # Check par1 subcircuit
-        assert 'par1' in circuit.subckts
-        par1 = circuit.subckts['par1']
+        assert "par1" in circuit.subckts
+        par1 = circuit.subckts["par1"]
         assert len(par1.instances) == 1, "par1 should have 1 instance"
-        assert par1.instances[0].model == 'resistor'
+        assert par1.instances[0].model == "resistor"
 
         print(f"Found {len(circuit.subckts)} subcircuits:")
         for name, sub in circuit.subckts.items():
@@ -260,30 +270,30 @@ class TestVACASKSubcircuit:
         Uses direct Newton-Raphson solving for validation.
         """
         # Define a simple voltage divider subcircuit
-        Instance = namedtuple('Instance', ['name', 'model', 'terminals', 'params'])
-        Subcircuit = namedtuple('Subcircuit', ['name', 'terminals', 'instances', 'params'])
-        Circuit = namedtuple('Circuit', ['ground', 'top_instances', 'subckts'])
+        Instance = namedtuple("Instance", ["name", "model", "terminals", "params"])
+        Subcircuit = namedtuple("Subcircuit", ["name", "terminals", "instances", "params"])
+        Circuit = namedtuple("Circuit", ["ground", "top_instances", "subckts"])
 
         # Voltage divider subcircuit: in -> out with R1=1k, R2=1k (output = in/2)
         divider_subckt = Subcircuit(
-            name='divider',
-            terminals=['in', 'out', 'gnd'],
+            name="divider",
+            terminals=["in", "out", "gnd"],
             instances=[
-                Instance('r1', 'resistor', ['in', 'out'], {'r': 1000}),
-                Instance('r2', 'resistor', ['out', 'gnd'], {'r': 1000}),
+                Instance("r1", "resistor", ["in", "out"], {"r": 1000}),
+                Instance("r2", "resistor", ["out", "gnd"], {"r": 1000}),
             ],
-            params={}
+            params={},
         )
 
         # Main circuit: V1 (2V) -> divider -> GND
         # Expected output: 1V
         circuit_with_subckt = Circuit(
-            ground='0',
+            ground="0",
             top_instances=[
-                Instance('v1', 'vsource', ['1', '0'], {'dc': 2}),
-                Instance('div1', 'divider', ['1', '2', '0'], {}),
+                Instance("v1", "vsource", ["1", "0"], {"dc": 2}),
+                Instance("div1", "divider", ["1", "2", "0"], {}),
             ],
-            subckts={'divider': divider_subckt}
+            subckts={"divider": divider_subckt},
         )
 
         # Flatten subcircuit: expand div1 into its component instances
@@ -299,15 +309,18 @@ class TestVACASKSubcircuit:
 
                 for sub_inst in subckt.instances:
                     # Create new terminals by mapping
-                    new_terminals = [term_map.get(t, f'{inst.name}.{t}')
-                                     for t in sub_inst.terminals]
+                    new_terminals = [
+                        term_map.get(t, f"{inst.name}.{t}") for t in sub_inst.terminals
+                    ]
 
-                    flattened_instances.append(Instance(
-                        name=f'{inst.name}.{sub_inst.name}',
-                        model=sub_inst.model,
-                        terminals=new_terminals,
-                        params=sub_inst.params,
-                    ))
+                    flattened_instances.append(
+                        Instance(
+                            name=f"{inst.name}.{sub_inst.name}",
+                            model=sub_inst.model,
+                            terminals=new_terminals,
+                            params=sub_inst.params,
+                        )
+                    )
             else:
                 flattened_instances.append(inst)
 
@@ -316,11 +329,11 @@ class TestVACASKSubcircuit:
             print(f"  {inst.name}: {inst.model} {inst.terminals}")
 
         # Now solve the flattened circuit using direct Newton-Raphson
-        node_names = {'0': 0}
+        node_names = {"0": 0}
         node_idx = 1
         for inst in flattened_instances:
             for t in inst.terminals:
-                if t not in node_names and t != '0':
+                if t not in node_names and t != "0":
                     node_names[t] = node_idx
                     node_idx += 1
 
@@ -329,13 +342,17 @@ class TestVACASKSubcircuit:
 
         devices = []
         for inst in flattened_instances:
-            devices.append({
-                'name': inst.name,
-                'model': inst.model,
-                'nodes': [node_names.get(t, 0) for t in inst.terminals],
-                'params': {k: (parse_si_value(str(v)) if isinstance(v, str) else v)
-                           for k, v in inst.params.items()},
-            })
+            devices.append(
+                {
+                    "name": inst.name,
+                    "model": inst.model,
+                    "nodes": [node_names.get(t, 0) for t in inst.terminals],
+                    "params": {
+                        k: (parse_si_value(str(v)) if isinstance(v, str) else v)
+                        for k, v in inst.params.items()
+                    },
+                }
+            )
 
         # Solve DC using simple Newton-Raphson
         V = np.zeros(num_nodes)
@@ -344,12 +361,12 @@ class TestVACASKSubcircuit:
             f = np.zeros(num_nodes - 1)
 
             for dev in devices:
-                model = dev['model']
-                nodes = dev['nodes']
-                params = dev['params']
+                model = dev["model"]
+                nodes = dev["nodes"]
+                params = dev["params"]
 
-                if model == 'vsource':
-                    V_target = params.get('dc', 0)
+                if model == "vsource":
+                    V_target = params.get("dc", 0)
                     np_idx, nn_idx = nodes[0], nodes[1]
                     G = 1e12
                     I = G * (V[np_idx] - V[nn_idx] - V_target)
@@ -363,8 +380,8 @@ class TestVACASKSubcircuit:
                         f[nn_idx - 1] -= I
                         J[nn_idx - 1, nn_idx - 1] += G
 
-                elif model == 'resistor':
-                    R = params.get('r', 1000)
+                elif model == "resistor":
+                    R = params.get("r", 1000)
                     G = 1.0 / max(R, 1e-12)
                     np_idx, nn_idx = nodes[0], nodes[1]
                     Vd = V[np_idx] - V[nn_idx]
@@ -388,8 +405,8 @@ class TestVACASKSubcircuit:
             V[1:] += delta
 
         # Check result
-        v_in = V[node_names['1']]
-        v_out = V[node_names['2']]
+        v_in = V[node_names["1"]]
+        v_out = V[node_names["2"]]
 
         print(f"V(in) = {v_in:.3f}V")
         print(f"V(out) = {v_out:.3f}V (expected 1.0V)")

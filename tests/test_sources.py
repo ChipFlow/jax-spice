@@ -48,7 +48,7 @@ endc
         # Test at various times
         for t in [0.0, 1e-6, 1e-3, 1.0]:
             values = source_fn(t)
-            assert jnp.isclose(values['v1'], 5.0), f"DC source should be 5.0 at t={t}"
+            assert jnp.isclose(values["v1"], 5.0), f"DC source should be 5.0 at t={t}"
 
 
 class TestPulseSource:
@@ -106,7 +106,7 @@ endc
 
         # Before delay
         values = source_fn(0.0)
-        assert jnp.isclose(values['v1'], 0.0), "Should be at val0 before delay"
+        assert jnp.isclose(values["v1"], 0.0), "Should be at val0 before delay"
 
     def test_pulse_high_value(self, pulse_netlist_no_delay):
         """PULSE source should be at val1 during pulse width."""
@@ -116,7 +116,7 @@ endc
 
         # During pulse (after rise, before fall)
         values = source_fn(0.5e-6)
-        assert jnp.isclose(values['v1'], 5.0, atol=0.01), "Should be at val1 during pulse"
+        assert jnp.isclose(values["v1"], 5.0, atol=0.01), "Should be at val1 during pulse"
 
     def test_pulse_periodicity(self, pulse_netlist_no_delay):
         """PULSE source should repeat with given period."""
@@ -125,8 +125,8 @@ endc
         source_fn = engine._build_source_fn()
 
         # Values should be similar at t and t+period
-        v1 = source_fn(0.5e-6)['v1']
-        v2 = source_fn(2.5e-6)['v1']
+        v1 = source_fn(0.5e-6)["v1"]
+        v2 = source_fn(2.5e-6)["v1"]
         assert jnp.isclose(v1, v2, atol=0.01), "Should repeat with period"
 
 
@@ -163,7 +163,7 @@ endc
 
         # At t=0 with phase=0, sin(0)=0, so value should be DC offset
         values = source_fn(0.0)
-        assert jnp.isclose(values['v1'], 2.5, atol=0.01), "Should be at DC offset when sin=0"
+        assert jnp.isclose(values["v1"], 2.5, atol=0.01), "Should be at DC offset when sin=0"
 
     def test_sine_amplitude(self, sine_netlist):
         """SINE source should have correct amplitude."""
@@ -174,7 +174,9 @@ endc
         # At quarter period, sin=1, so value = dc + ampl = 2.5 + 2 = 4.5
         t_quarter = 0.25 / 1e6
         values = source_fn(t_quarter)
-        assert jnp.isclose(values['v1'], 4.5, atol=0.01), "Should be at DC+amplitude at quarter period"
+        assert jnp.isclose(values["v1"], 4.5, atol=0.01), (
+            "Should be at DC+amplitude at quarter period"
+        )
 
     def test_sine_frequency(self, sine_netlist):
         """SINE source should complete full cycle in 1/freq."""
@@ -183,8 +185,8 @@ endc
         source_fn = engine._build_source_fn()
 
         # After one period, should be back to initial value
-        v0 = source_fn(0.0)['v1']
-        v1 = source_fn(1e-6)['v1']  # 1/freq
+        v0 = source_fn(0.0)["v1"]
+        v1 = source_fn(1e-6)["v1"]  # 1/freq
         assert jnp.isclose(v0, v1, atol=0.01), "Should repeat after one period"
 
 
@@ -286,11 +288,11 @@ endc
         source_fn = engine._build_source_fn()
 
         # Start
-        assert jnp.isclose(source_fn(0.0)['v1'], 0.0, atol=0.01)
+        assert jnp.isclose(source_fn(0.0)["v1"], 0.0, atol=0.01)
         # Middle
-        assert jnp.isclose(source_fn(0.5e-6)['v1'], 2.5, atol=0.01)
+        assert jnp.isclose(source_fn(0.5e-6)["v1"], 2.5, atol=0.01)
         # End
-        assert jnp.isclose(source_fn(1e-6)['v1'], 5.0, atol=0.01)
+        assert jnp.isclose(source_fn(1e-6)["v1"], 5.0, atol=0.01)
 
     def test_pwl_multi_segment(self, pwl_trapezoid_netlist):
         """PWL with multiple segments."""
@@ -299,11 +301,11 @@ endc
         source_fn = engine._build_source_fn()
 
         # Ramp up
-        assert jnp.isclose(source_fn(0.5e-6)['v1'], 2.5, atol=0.01)
+        assert jnp.isclose(source_fn(0.5e-6)["v1"], 2.5, atol=0.01)
         # Plateau
-        assert jnp.isclose(source_fn(1.5e-6)['v1'], 5.0, atol=0.01)
+        assert jnp.isclose(source_fn(1.5e-6)["v1"], 5.0, atol=0.01)
         # Ramp down
-        assert jnp.isclose(source_fn(2.5e-6)['v1'], 2.5, atol=0.01)
+        assert jnp.isclose(source_fn(2.5e-6)["v1"], 2.5, atol=0.01)
 
     def test_pwl_extrapolation(self, pwl_ramp_netlist):
         """PWL should hold last value beyond defined points."""
@@ -312,7 +314,7 @@ endc
         source_fn = engine._build_source_fn()
 
         # Beyond last point - jnp.interp holds last value
-        assert jnp.isclose(source_fn(2e-6)['v1'], 5.0, atol=0.01)
+        assert jnp.isclose(source_fn(2e-6)["v1"], 5.0, atol=0.01)
 
     def test_pwl_scale_and_offset(self, pwl_scaled_netlist):
         """PWL scale and offset parameters."""
@@ -321,9 +323,9 @@ endc
         source_fn = engine._build_source_fn()
 
         # At t=0: value=0*2+1=1
-        assert jnp.isclose(source_fn(0.0)['v1'], 1.0, atol=0.01)
+        assert jnp.isclose(source_fn(0.0)["v1"], 1.0, atol=0.01)
         # At t=1e-6: value=1*2+1=3
-        assert jnp.isclose(source_fn(1e-6)['v1'], 3.0, atol=0.01)
+        assert jnp.isclose(source_fn(1e-6)["v1"], 3.0, atol=0.01)
 
     def test_pwl_periodicity(self, pwl_periodic_netlist):
         """PWL periodicity with pwlperiod parameter."""
@@ -332,9 +334,9 @@ endc
         source_fn = engine._build_source_fn()
 
         # At t=0.5e-6: in first period
-        v1 = source_fn(0.5e-6)['v1']
+        v1 = source_fn(0.5e-6)["v1"]
         # At t=2.5e-6: should wrap to 0.5e-6
-        v2 = source_fn(2.5e-6)['v1']
+        v2 = source_fn(2.5e-6)["v1"]
         assert jnp.isclose(v1, v2, atol=0.01), "Should repeat with period"
 
 
@@ -415,7 +417,7 @@ endc
 
         # Before delay
         values = source_fn(0.0)
-        assert jnp.isclose(values['v1'], 0.0), "Should be at val0 before delay"
+        assert jnp.isclose(values["v1"], 0.0), "Should be at val0 before delay"
 
     def test_exp_rising_phase(self, exp_netlist_rising):
         """EXP source should rise toward val1 after delay."""
@@ -427,7 +429,7 @@ endc
         # At t=5*tau1=5e-6, should be ~99.3% of (val1-val0)
         values = source_fn(5e-6)
         expected = 5 * (1 - jnp.exp(-5))  # 0 + 5*(1-exp(-5)) ~ 4.97
-        assert jnp.isclose(values['v1'], expected, atol=0.1)
+        assert jnp.isclose(values["v1"], expected, atol=0.1)
 
     def test_exp_falling_phase(self, exp_netlist_falling):
         """EXP source should fall back toward val0 after td2."""
@@ -436,11 +438,11 @@ endc
         source_fn = engine._build_source_fn()
 
         # Fast rise (tau1=1e-9), at t=delay+td2=1e-6 should be ~val1
-        v_at_fall_start = source_fn(1e-6)['v1']
+        v_at_fall_start = source_fn(1e-6)["v1"]
         assert jnp.isclose(v_at_fall_start, 5.0, atol=0.1)
 
         # After falling for 5*tau2, should be close to val0
-        v_after_fall = source_fn(6e-6)['v1']
+        v_after_fall = source_fn(6e-6)["v1"]
         assert v_after_fall < v_at_fall_start, "Should be falling"
 
 
@@ -500,7 +502,7 @@ endc
         # At quarter period of carrier
         t_quarter = 0.25 / 1e6
         values = source_fn(t_quarter)
-        assert jnp.isclose(values['v1'], 1.0, atol=0.1), "No modulation should give sine"
+        assert jnp.isclose(values["v1"], 1.0, atol=0.1), "No modulation should give sine"
 
     def test_am_modulation_effect(self, am_modulated_netlist):
         """AM modulation should vary amplitude."""
@@ -512,7 +514,7 @@ endc
         peaks = []
         for i in range(10):
             t = (i + 0.25) / 1e6  # At carrier peaks
-            peaks.append(float(source_fn(t)['v1']))
+            peaks.append(float(source_fn(t)["v1"]))
 
         # Peaks should vary due to modulation
         assert max(peaks) > min(peaks) + 0.1, "AM should vary amplitude"
@@ -574,7 +576,7 @@ endc
         # At quarter period of carrier
         t_quarter = 0.25 / 1e6
         values = source_fn(t_quarter)
-        assert jnp.isclose(values['v1'], 1.0, atol=0.1), "No modulation should give sine"
+        assert jnp.isclose(values["v1"], 1.0, atol=0.1), "No modulation should give sine"
 
     def test_fm_modulation_effect(self, fm_modulated_netlist):
         """FM modulation should vary instantaneous frequency."""
@@ -584,7 +586,7 @@ endc
 
         # Sample values - FM changes phase, not amplitude
         # The output should still swing between -1 and +1
-        samples = [float(source_fn(i * 0.1e-6)['v1']) for i in range(100)]
+        samples = [float(source_fn(i * 0.1e-6)["v1"]) for i in range(100)]
 
         # Amplitude should stay bounded
         assert max(samples) <= 1.1, "FM amplitude should be bounded"
@@ -653,7 +655,7 @@ endc
         # Check that simulation completed
         assert result.times is not None
         assert len(result.times) > 0
-        assert result.stats.get('converged', False) or len(result.times) > 10
+        assert result.stats.get("converged", False) or len(result.times) > 10
 
     def test_exp_in_transient(self, exp_transient_netlist):
         """EXP source should work in transient simulation."""

@@ -111,30 +111,29 @@ class Converter(
         self.debug = debug
 
     def convert(self, fromFile, toFile=None):
-      _, deck, canonical_file_path = self.read_file(fromFile)
-      self.data["deck"] = deck
-      self.data["canonical_input_path"] = canonical_file_path
+        _, deck, canonical_file_path = self.read_file(fromFile)
+        self.data["deck"] = deck
+        self.data["canonical_input_path"] = canonical_file_path
 
-      self.collect_masters()
+        self.collect_masters()
 
-      out = self.vacask_file()
+        out = self.vacask_file()
 
-      if toFile is None:
-        for l in out:
-          print(l)
-      else:
-        if not os.path.isabs(toFile):
-            # Relative path, get directory of input file
-            dest = os.path.join(os.path.dirname(self.data["canonical_input_path"]), toFile)
+        if toFile is None:
+            for l in out:
+                print(l)
         else:
-            dest = toFile
+            if not os.path.isabs(toFile):
+                # Relative path, get directory of input file
+                dest = os.path.join(os.path.dirname(self.data["canonical_input_path"]), toFile)
+            else:
+                dest = toFile
 
-        # Create destination directory
-        destdir = os.path.dirname(dest)
-        os.makedirs(destdir, exist_ok=True)
+            # Create destination directory
+            destdir = os.path.dirname(dest)
+            os.makedirs(destdir, exist_ok=True)
 
-        with open(dest, "w") as f:
-          for l in out:
-            f.write(l)
-            f.write("\n")
-
+            with open(dest, "w") as f:
+                for l in out:
+                    f.write(l)
+                    f.write("\n")

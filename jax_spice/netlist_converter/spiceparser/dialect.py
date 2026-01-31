@@ -90,6 +90,7 @@ def detect_dialect(content: str) -> str:
         hspice_score += 2
     # Single-quoted expressions (common in HSPICE)
     import re
+
     if re.search(r"=\s*'[^']+[+\-*/][^']+'", content):
         hspice_score += 2
     # Spaces around = in parameters (HSPICE style)

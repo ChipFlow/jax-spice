@@ -26,12 +26,19 @@ from typing import Dict, List, Tuple, Union
 
 import numpy as np
 
-__all__ = ['rawread', 'RawFile', 'RawData']
+__all__ = ["rawread", "RawFile", "RawData"]
 
 BSIZE_SP = 512  # Max size of a line of data
 HEADER_ENTRY_NAMES = {
-    b'title', b'date', b'plotname', b'flags', b'no. variables',
-    b'no. points', b'dimensions', b'command', b'option'
+    b"title",
+    b"date",
+    b"plotname",
+    b"flags",
+    b"no. variables",
+    b"no. points",
+    b"dimensions",
+    b"command",
+    b"option",
 }
 
 
@@ -39,12 +46,12 @@ class RawFile:
     """Parsed SPICE raw file data."""
 
     def __init__(self, header: Dict, data: np.ndarray, sweeps: int = 0):
-        self.title = header['title'].decode('ascii')
-        self.date = header['date'].decode('ascii')
-        self.plotname = header['plotname'].decode('ascii')
-        self.flags = header['flags'].decode('ascii')
-        self.names: List[str] = header['varnames']
-        self.units: List[str] = header['varunits']
+        self.title = header["title"].decode("ascii")
+        self.date = header["date"].decode("ascii")
+        self.plotname = header["plotname"].decode("ascii")
+        self.flags = header["flags"].decode("ascii")
+        self.names: List[str] = header["varnames"]
+        self.units: List[str] = header["varunits"]
         self.data = data
         ndata, nvars = data.shape
 
@@ -54,11 +61,11 @@ class RawFile:
         # Split sweeps
         self.sweeps = sweeps
         if sweeps > 0:
-            allends = np.array([], dtype='int64')
+            allends = np.array([], dtype="int64")
             for ii in range(sweeps):
                 # ii-th outermost sweep
                 var = data[:, ii]
-                ends = (np.where(var[1:] != var[:-1])[0] + 1)
+                ends = np.where(var[1:] != var[:-1])[0] + 1
                 ends = np.append(ends, ndata)
                 allends = np.append(allends, ends)
 
@@ -74,8 +81,8 @@ class RawFile:
             # Sweep groups
             self.sweepGroups = self.allbegins.size
         else:
-            self.allbegins = np.array([0], dtype='int64')
-            self.allends = np.array([ndata], dtype='int64')
+            self.allbegins = np.array([0], dtype="int64")
+            self.allends = np.array([ndata], dtype="int64")
             self.sweepGroups = 1
 
     def __getitem__(self, key: Union[str, int, Tuple[int, Union[str, int]]]) -> np.ndarray:
@@ -174,7 +181,7 @@ def rawread(fname: str) -> RawData:
     #         2       v(in)   voltage
     # Binary:
 
-    with open(fname, 'rb') as fp:
+    with open(fname, "rb") as fp:
         plot: Dict = {}
         arrs: List[Tuple[Dict, np.ndarray]] = []
 
@@ -183,7 +190,7 @@ def rawread(fname: str) -> RawData:
                 line = fp.readline(BSIZE_SP)
                 if not line:
                     break
-                splitLine = line.split(b':', maxsplit=1)
+                splitLine = line.split(b":", maxsplit=1)
             except Exception as e:
                 raise RuntimeError(f"Failed to read a line from file: {e}")
 
@@ -192,45 +199,45 @@ def rawread(fname: str) -> RawData:
 
                 # Ordinary header entries
                 if key in HEADER_ENTRY_NAMES:
-                    plot[key.decode('ascii')] = splitLine[1].strip()
+                    plot[key.decode("ascii")] = splitLine[1].strip()
 
                 # Variable list
-                if key == b'variables':
-                    nvars = int(plot['no. variables'])
-                    npoints = int(plot['no. points'])
-                    plot['no. variables'] = nvars
-                    plot['no. points'] = npoints
-                    plot['varnames'] = []
-                    plot['varunits'] = []
+                if key == b"variables":
+                    nvars = int(plot["no. variables"])
+                    npoints = int(plot["no. points"])
+                    plot["no. variables"] = nvars
+                    plot["no. points"] = npoints
+                    plot["varnames"] = []
+                    plot["varunits"] = []
 
                     for ii in range(nvars):
                         # Get variable description, split it at spaces
-                        txt = fp.readline(BSIZE_SP).strip().decode('ascii')
+                        txt = fp.readline(BSIZE_SP).strip().decode("ascii")
                         varDesc = txt.split(maxsplit=3)
-                        if len(varDesc) > 3 and 'dims' in varDesc[3]:
+                        if len(varDesc) > 3 and "dims" in varDesc[3]:
                             raise NotImplementedError(
                                 "Raw files with different length vectors are not supported."
                             )
                         # Check variable numbering
                         assert ii == int(varDesc[0])
                         # Get name and units
-                        plot['varnames'].append(varDesc[1])
-                        plot['varunits'].append(varDesc[2])
+                        plot["varnames"].append(varDesc[1])
+                        plot["varunits"].append(varDesc[2])
 
                 # Binary data start
-                if key == b'binary':
+                if key == b"binary":
                     # Check for unpadded
-                    if b'unpadded' in plot['flags']:
+                    if b"unpadded" in plot["flags"]:
                         raise NotImplementedError("Unpadded raw files are not supported.")
 
-                    dtype = np.complex128 if b'complex' in plot['flags'] else np.float64
+                    dtype = np.complex128 if b"complex" in plot["flags"] else np.float64
                     arr = np.fromfile(fp, dtype=dtype, count=npoints * nvars)
                     arr = arr.reshape((npoints, nvars))
                     arrs.append((plot.copy(), arr))
                     fp.readline()  # Read to the end of line
                     plot = {}  # Reset for next plot
 
-                if key == b'ascii':
+                if key == b"ascii":
                     raise NotImplementedError("ASCII raw files are not supported.")
             else:
                 # Header line does not have two parts, check for end

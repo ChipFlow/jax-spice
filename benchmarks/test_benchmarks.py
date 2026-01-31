@@ -22,11 +22,11 @@ BENCHMARK_ROOT = Path(__file__).parent.parent / "vendor" / "VACASK" / "benchmark
 
 # All benchmarks with their configurations
 BENCHMARKS = {
-    'rc': {'use_sparse': False, 'max_steps': 100},
-    'graetz': {'use_sparse': False, 'max_steps': 100},
-    'mul': {'use_sparse': False, 'max_steps': 100},
-    'ring': {'use_sparse': False, 'max_steps': 50},
-    'c6288': {'use_sparse': True, 'max_steps': 10},  # Sparse required for 86k nodes
+    "rc": {"use_sparse": False, "max_steps": 100},
+    "graetz": {"use_sparse": False, "max_steps": 100},
+    "mul": {"use_sparse": False, "max_steps": 100},
+    "ring": {"use_sparse": False, "max_steps": 50},
+    "c6288": {"use_sparse": True, "max_steps": 10},  # Sparse required for 86k nodes
 }
 
 
@@ -37,9 +37,9 @@ def get_benchmark_sim_file(name: str) -> Path:
 
 def write_github_summary(content: str):
     """Write content to GitHub step summary if available."""
-    summary_path = os.environ.get('GITHUB_STEP_SUMMARY')
+    summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
     if summary_path:
-        with open(summary_path, 'a') as f:
+        with open(summary_path, "a") as f:
             f.write(content)
 
 
@@ -49,20 +49,32 @@ class BenchmarkResults:
     def __init__(self):
         self.results: List[dict] = []
 
-    def add(self, name: str, nodes: int, devices: int, openvaf: int,
-            timesteps: int, time_s: float, solver: str, passed: bool, error: str = None):
-        self.results.append({
-            'name': name,
-            'nodes': nodes,
-            'devices': devices,
-            'openvaf': openvaf,
-            'timesteps': timesteps,
-            'time_s': time_s,
-            'time_per_step_ms': (time_s / timesteps * 1000) if timesteps > 0 else 0,
-            'solver': solver,
-            'passed': passed,
-            'error': error,
-        })
+    def add(
+        self,
+        name: str,
+        nodes: int,
+        devices: int,
+        openvaf: int,
+        timesteps: int,
+        time_s: float,
+        solver: str,
+        passed: bool,
+        error: str = None,
+    ):
+        self.results.append(
+            {
+                "name": name,
+                "nodes": nodes,
+                "devices": devices,
+                "openvaf": openvaf,
+                "timesteps": timesteps,
+                "time_s": time_s,
+                "time_per_step_ms": (time_s / timesteps * 1000) if timesteps > 0 else 0,
+                "solver": solver,
+                "passed": passed,
+                "error": error,
+            }
+        )
 
     def to_markdown(self) -> str:
         """Generate markdown report."""
@@ -77,11 +89,15 @@ class BenchmarkResults:
 
         # Results table
         lines.append("## Results\n")
-        lines.append("| Benchmark | Nodes | Devices | OpenVAF | Solver | Steps | Time (s) | ms/step | Status |")
-        lines.append("|-----------|-------|---------|---------|--------|-------|----------|---------|--------|")
+        lines.append(
+            "| Benchmark | Nodes | Devices | OpenVAF | Solver | Steps | Time (s) | ms/step | Status |"
+        )
+        lines.append(
+            "|-----------|-------|---------|---------|--------|-------|----------|---------|--------|"
+        )
 
         for r in self.results:
-            status = "PASS" if r['passed'] else f"FAIL: {r['error']}"
+            status = "PASS" if r["passed"] else f"FAIL: {r['error']}"
             if len(status) > 20:
                 status = status[:17] + "..."
             lines.append(
@@ -121,12 +137,12 @@ class TestVACASKBenchmarks:
             pytest.skip(f"Benchmark {benchmark_name} not found at {sim_file}")
 
         config = BENCHMARKS[benchmark_name]
-        use_sparse = config['use_sparse']
-        max_steps = config['max_steps']
+        use_sparse = config["use_sparse"]
+        max_steps = config["max_steps"]
 
-        print(f"\n{'='*60}")
+        print(f"\n{'=' * 60}")
         print(f"Running {benchmark_name} benchmark")
-        print(f"{'='*60}")
+        print(f"{'=' * 60}")
 
         try:
             # Parse circuit
@@ -135,11 +151,11 @@ class TestVACASKBenchmarks:
 
             nodes = engine.num_nodes
             devices = len(engine.devices)
-            openvaf = sum(1 for d in engine.devices if d.get('is_openvaf'))
-            solver = 'sparse' if use_sparse else 'dense'
+            openvaf = sum(1 for d in engine.devices if d.get("is_openvaf"))
+            solver = "sparse" if use_sparse else "dense"
 
             # Get timestep from analysis params
-            dt = engine.analysis_params.get('step', 1e-12)
+            dt = engine.analysis_params.get("step", 1e-12)
             t_stop = dt * max_steps
 
             print(f"Circuit: {nodes} nodes, {devices} devices ({openvaf} OpenVAF)")
@@ -153,7 +169,9 @@ class TestVACASKBenchmarks:
             elapsed = time.perf_counter() - start
 
             timesteps = result.num_steps
-            print(f"Completed: {timesteps} timesteps in {elapsed:.2f}s ({elapsed/timesteps*1000:.1f}ms/step)")
+            print(
+                f"Completed: {timesteps} timesteps in {elapsed:.2f}s ({elapsed / timesteps * 1000:.1f}ms/step)"
+            )
 
             # Verify correctness
             all_voltages = np.concatenate([v for v in result.voltages.values()])
@@ -183,12 +201,12 @@ class TestVACASKBenchmarks:
             # Record failure
             benchmark_results.add(
                 name=benchmark_name,
-                nodes=nodes if 'nodes' in dir() else 0,
-                devices=devices if 'devices' in dir() else 0,
-                openvaf=openvaf if 'openvaf' in dir() else 0,
+                nodes=nodes if "nodes" in dir() else 0,
+                devices=devices if "devices" in dir() else 0,
+                openvaf=openvaf if "openvaf" in dir() else 0,
                 timesteps=0,
                 time_s=0,
-                solver=solver if 'solver' in dir() else 'unknown',
+                solver=solver if "solver" in dir() else "unknown",
                 passed=False,
                 error=str(e),
             )

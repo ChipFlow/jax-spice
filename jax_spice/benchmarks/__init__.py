@@ -7,4 +7,4 @@ Exports:
 
 from .runner import BenchmarkRunner, CircuitEngine
 
-__all__ = ['CircuitEngine', 'BenchmarkRunner']
+__all__ = ["CircuitEngine", "BenchmarkRunner"]
