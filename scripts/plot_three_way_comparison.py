@@ -69,17 +69,44 @@ class BenchmarkConfig:
 
 
 BENCHMARKS = {
+    'rc': BenchmarkConfig(
+        name='RC Low-Pass Filter',
+        vacask_sim=Path('vendor/VACASK/benchmark/rc/vacask/runme.sim'),
+        ngspice_sim=Path('vendor/VACASK/benchmark/rc/ngspice/runme.sim'),
+        voltage_nodes=['1', '2'],
+        current_source='vs',
+        t_stop=10e-3,  # 10ms (netlist is 1s - too long)
+        plot_window=(0, 10e-3),
+    ),
+    'graetz': BenchmarkConfig(
+        name='Graetz Bridge Rectifier',
+        vacask_sim=Path('vendor/VACASK/benchmark/graetz/vacask/runme.sim'),
+        ngspice_sim=Path('vendor/VACASK/benchmark/graetz/ngspice/runme.sim'),
+        voltage_nodes=['inp', 'outp'],
+        current_source='vs',
+        t_stop=100e-3,  # 100ms (netlist is 1s - show 5 cycles at 50Hz)
+        plot_window=(0, 100e-3),
+    ),
+    'mul': BenchmarkConfig(
+        name='Diode Voltage Multiplier',
+        vacask_sim=Path('vendor/VACASK/benchmark/mul/vacask/runme.sim'),
+        ngspice_sim=Path('vendor/VACASK/benchmark/mul/ngspice/runme.sim'),
+        voltage_nodes=['1', '2', '10', '20'],
+        current_source='vs',
+        t_stop=100e-6,  # 100us (netlist is 5ms - show 10 cycles at 100kHz)
+        plot_window=(0, 100e-6),
+    ),
     'ring': BenchmarkConfig(
-        name='Ring Oscillator',
+        name='PSP103 Ring Oscillator',
         vacask_sim=Path('vendor/VACASK/benchmark/ring/vacask/runme.sim'),
         ngspice_sim=Path('vendor/VACASK/benchmark/ring/ngspice/runme.sim'),
         voltage_nodes=['1', '2'],
         current_source='vdd',
-        t_stop=20e-9,  # Override netlist's 1us - too long for quick comparison
-        plot_window=(2e-9, 15e-9),
+        t_stop=20e-9,  # 20ns (netlist is 1us - show several oscillation periods)
+        plot_window=(2e-9, 18e-9),
     ),
     'c6288': BenchmarkConfig(
-        name='C6288 16x16 Multiplier',
+        name='C6288 16-bit Multiplier (PSP103)',
         vacask_sim=Path('vendor/VACASK/benchmark/c6288/vacask/runme.sim'),
         ngspice_sim=Path('vendor/VACASK/benchmark/c6288/ngspice/runme.sim'),
         voltage_nodes=[f'top.p{n}' for n in range(32)],

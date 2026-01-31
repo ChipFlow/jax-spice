@@ -23,6 +23,32 @@ JAX-SPICE is in active development as a proof-of-concept. All VACASK benchmark c
 - Sparse matrix support auto-activates for circuits >1000 nodes
 - OpenVAF-compiled PSP103 MOSFETs validated against MIR interpreter
 
+## Validation: Three-Way Comparison
+
+JAX-SPICE results are validated against VACASK (reference simulator) and ngspice.
+All simulators use identical netlists and device models (PSP103 MOSFETs via OSDI).
+
+### RC Low-Pass Filter
+Simple RC circuit demonstrating basic transient behavior. JAX-SPICE matches VACASK and ngspice exactly.
+
+![RC Comparison](docs/images/rc_three_way_comparison.png)
+
+### PSP103 Ring Oscillator
+7-stage ring oscillator with production PSP103 MOSFET models. Shows excellent agreement in oscillation frequency and waveform shape.
+
+![Ring Oscillator Comparison](docs/images/ring_three_way_comparison.png)
+
+### C6288 16-bit Multiplier
+Large-scale benchmark with ~86,000 nodes. Uses sparse solver for memory efficiency. Demonstrates JAX-SPICE scaling to production-sized circuits.
+
+![C6288 Comparison](docs/images/c6288_three_way_comparison.png)
+
+Generate comparison plots:
+```bash
+uv run scripts/plot_three_way_comparison.py --benchmark ring --output-dir docs/images
+uv run scripts/plot_three_way_comparison.py --benchmark c6288 --output-dir docs/images --skip-ngspice
+```
+
 ## Quick Start
 
 ```bash

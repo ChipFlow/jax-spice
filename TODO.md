@@ -2,44 +2,12 @@
 
 Central tracking for development tasks and known issues.
 
-## Critical - Blocking Transient Analysis
-
-### ddt() Operator Returns Zero
-
-**Status**: CRITICAL BUG - All capacitive/charge contributions are ignored
-
-**Problem**: The `ddt()` operator in openvaf_jax.py always returns zero regardless of analysis type.
-This means:
-- Capacitors don't charge/discharge in transient
-- MOSFET charge contributions (Qg, Qd, Qb) are zero
-- Ring oscillator settles to DC instead of oscillating
-- Any circuit relying on energy storage fails
-
-**Locations** (TWO places!):
-- `openvaf-py/openvaf_jax.py:3069-3071` - `_translate_callback_result()` returns `'_ZERO'`
-- `openvaf-py/openvaf_jax.py:3280-3281` - eval function translation returns `expr_builder.zero()`
-
-**Fix required**: Return the charge expression instead of zero. The transient solver computes `dQ/dt = (Q - Q_prev) / dt`.
-
-**Test**: Run ring benchmark - should show oscillation with ~578 zero crossings (currently shows 1).
-
 ## High Priority
 
 ### Make jitted function to *not* change with number of steps
 
-When used as an API, we should expect that a user would ask for different lengths of simuation of the same model.
+When used as an API, we should expect that a user would ask for different lengths of simulation of the same model.
 This issue is likely caused by the array sizes for the while loop (scan mode)
-
-### Branch Current Computation
-
-**Status**: Not implemented - JAX-SPICE only returns node voltages
-
-**Problem**: Many ngspice tests print `I(V1)` (source currents) which map to `v1#branch` in output.
-JAX-SPICE's `TransientResult` only contains `voltages` dict, not branch currents.
-
-**Impact**: Tests with only current outputs are skipped (no comparable signals).
-
-**Fix needed**: Compute and return branch currents through voltage sources.
 
 ### Analysis Type Support
 
@@ -85,8 +53,6 @@ JAX-SPICE's `TransientResult` only contains `voltages` dict, not branch currents
 - Finds reference files in same directory (`.out`) or `reference/` subdir (`.standard`)
 
 **Current Blockers**:
-- [ ] **ddt() bug** - Capacitors/MOSFETs don't work in transient
-- [ ] **Branch currents** - Many tests print `I(source)`, not `V(node)`
 - [ ] **Behavioral sources** - 'b' devices not supported by converter
 - [ ] **ASCII plot format** - Some `.out` files use plot format, not tabular
 
@@ -117,8 +83,7 @@ JAX-SPICE's `TransientResult` only contains `voltages` dict, not branch currents
 - Matches with expected output in `OutputData/<category>/<file>.cir.prn`
 - Detects analysis type and device types
 
-**Current Blockers** (same as ngspice):
-- [ ] **ddt() bug** - Capacitor/MOSFET transients broken
+**Current Blockers**:
 - [ ] **Device gaps** - BJT, JFET, controlled sources, PDE devices
 
 **Xyce-specific devices**:
@@ -139,20 +104,18 @@ JAX-SPICE's `TransientResult` only contains `voltages` dict, not branch currents
 
 **Note**: These are rarely-used fallback methods for difficult convergence cases. Low priority.
 
-### Simplify Transient Analysis Paths
+### Clean Up Legacy Transient Code Paths
 
-**Current state**: Multiple overlapping implementations exist:
-- `PythonLoopStrategy` - Python for-loop with per-step debugging
-- `ScanStrategy` - lax.scan for full JIT compilation (5x faster)
-- `_run_transient_hybrid` - another Python loop (duplicates PythonLoopStrategy)
-- `_run_transient_while_loop` - lax.while_loop version
+**Current state**: The transient module has been refactored to use `FullMNAStrategy` as the primary
+implementation (`jax_spice/analysis/transient/`), but legacy code paths remain in `engine.py`:
+- `_run_transient_hybrid` - Python loop implementation
+- `_run_transient_while_loop` - lax.while_loop wrapper
 
 **GPU status**: GPU is ~4x faster than CPU (working correctly).
 
 **Tasks**:
-- [ ] Change default from `use_while_loop=False` to `use_while_loop=True`
-- [ ] Remove duplicated Python loop code in `_run_transient_hybrid`
-- [ ] Keep `PythonLoopStrategy` as opt-in debugging mode only
+- [ ] Consolidate `_run_transient_hybrid` and `_run_transient_while_loop` into the strategy pattern
+- [ ] Remove duplicated code between engine.py and transient/ module
 
 ## Needed for release
 
@@ -165,9 +128,24 @@ JAX-SPICE's `TransientResult` only contains `voltages` dict, not branch currents
 
 ### Code Cleanup
 - [x] ~~**Remove xfail markers** from PSP/JUNCAP/diode_cmc tests~~ (all pass)
-- [ ] **Consolidate test files** in `openvaf-py/tests/` (some at root level)
+- [ ] **Consolidate test files** in `openvaf_jax/openvaf_py/` (some at root level, some in tests/)
 
 ## Completed
+
+- [x] ~~ddt() operator fixed~~ (2025-01)
+  - `openvaf_jax/codegen/instruction.py` now returns charge value instead of zero
+  - Ring oscillator shows proper oscillation behavior
+  - All VACASK benchmarks pass including transient with capacitors/MOSFETs
+
+- [x] ~~Branch current computation~~ (2025-01)
+  - `TransientResult` now includes `currents: Dict[str, Array]` field
+  - Branch currents through voltage sources are computed and returned
+  - Full MNA with explicit branch current unknowns implemented
+
+- [x] ~~Transient analysis refactored~~ (2025-01)
+  - Unified `FullMNAStrategy` in `jax_spice/analysis/transient/`
+  - Adaptive timestep control based on local truncation error
+  - JIT-compiled simulation loop using lax.while_loop
 
 - [x] ~~Test suite auto-discovery~~ (2025-01)
   - ngspice: 70 tests discovered, 65 with reference files
@@ -262,16 +240,15 @@ JAX-SPICE's `TransientResult` only contains `voltages` dict, not branch currents
 | Purpose | Location |
 |---------|----------|
 | **Newton-Raphson solver** | `jax_spice/analysis/solver.py` |
-| **System builder** | `jax_spice/analysis/system.py` |
-| DC operating point | `jax_spice/analysis/dc.py` |
-| Transient solver | `jax_spice/analysis/transient.py` |
+| **Circuit engine (main API)** | `jax_spice/analysis/engine.py` |
+| Transient strategies | `jax_spice/analysis/transient/` |
 | MNA system | `jax_spice/analysis/mna.py` |
 | GPU backend selection | `jax_spice/analysis/gpu_backend.py` |
 | Benchmark runner | `jax_spice/benchmarks/runner.py` |
 | Benchmark profiling | `scripts/profile_gpu.py` |
 | Cloud Run profiling | `scripts/profile_gpu_cloudrun.py` |
-| **OpenVAF batched eval** | `jax_spice/devices/openvaf_device.py` |
-| **OpenVAF→JAX translator** | `openvaf-py/openvaf_jax.py` |
+| **Verilog-A device wrapper** | `jax_spice/devices/verilog_a.py` |
+| **OpenVAF→JAX codegen** | `openvaf_jax/codegen/` |
 | VACASK parser | `jax_spice/netlist/parser.py` |
 | VACASK suite tests | `tests/test_vacask_suite.py` |
 | **ngspice regression tests** | `tests/test_ngspice_regression.py` |
@@ -296,8 +273,8 @@ JAX_PLATFORMS=cpu JAX_ENABLE_X64=1 uv run pytest tests/test_ngspice_regression.p
 # Run Xyce regression tests
 JAX_PLATFORMS=cpu JAX_ENABLE_X64=1 uv run pytest tests/test_xyce_regression.py -v
 
-# Run openvaf-py tests
-cd openvaf-py && JAX_PLATFORMS=cpu ../.venv/bin/python -m pytest tests/ -v
+# Run openvaf_jax tests
+cd openvaf_jax/openvaf_py && JAX_PLATFORMS=cpu ../../.venv/bin/python -m pytest tests/ -v
 
 # Run local benchmark profiling
 JAX_PLATFORMS=cpu uv run python scripts/profile_gpu.py --benchmark ring
