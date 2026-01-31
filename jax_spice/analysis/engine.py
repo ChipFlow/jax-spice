@@ -3322,8 +3322,9 @@ class CircuitEngine:
             logger.info("  Direct NR failed, trying homotopy chain...")
 
             # Configure homotopy with conservative settings
+            # Use netlist GMIN (from self.options.gmin) for proper device conductances
             homotopy_config = HomotopyConfig(
-                gmin=1e-12,
+                gmin=self.options.gmin,
                 gdev_start=1e-3,   # Start from moderate GMIN
                 gdev_target=1e-13,
                 gmin_factor=3.0,   # Conservative stepping factor
@@ -3994,6 +3995,10 @@ class CircuitEngine:
             # Store device_cache (or full cache if not split) - this is passed to build_system
             device_arrays[model_type] = compiled.get('device_cache', cache)
 
+        # Capture options.gmin for diagonal regularization
+        # Use at least 1e-6, but respect larger netlist GMIN for ill-conditioned circuits
+        min_diag_reg = max(1e-6, self.options.gmin)
+
         def build_system(V: jax.Array, vsource_vals: jax.Array, isource_vals: jax.Array,
                         Q_prev: jax.Array, integ_c0: float | jax.Array,
                         device_arrays_arg: Dict[str, jax.Array],
@@ -4302,23 +4307,22 @@ class CircuitEngine:
                     all_j_vals, flat_indices, num_segments=n_unknowns * n_unknowns
                 )
                 J = J_flat.reshape((n_unknowns, n_unknowns))
-                # Add regularization (1e-6) + gshunt to diagonal
-                # NOTE: 1e-6 is needed (not 1e-9) to prevent near-singular matrices for
-                # circuits with floating capacitors (like Graetz bridge at off-state).
-                # Smaller values (1e-9) leave the matrix rank-deficient, causing
-                # scipy spsolve and numpy solve to find different solutions.
-                J = J + (1e-6 + gshunt) * jnp.eye(n_unknowns, dtype=get_float_dtype())
+                # Add regularization (min_diag_reg) + gshunt to diagonal
+                # NOTE: min_diag_reg is at least 1e-6, but uses netlist GMIN if larger.
+                # This prevents near-singular matrices for circuits with floating capacitors
+                # (like Graetz bridge at off-state) or large ill-conditioned circuits (c6288).
+                J = J + (min_diag_reg + gshunt) * jnp.eye(n_unknowns, dtype=get_float_dtype())
             else:
                 # Sparse path - build BCOO sparse matrix
                 from jax.experimental.sparse import BCOO
 
-                # Add diagonal entries: regularization (1e-6) + gshunt
-                # NOTE: 1e-6 is needed (not 1e-9) to prevent near-singular matrices for
-                # circuits with floating capacitors. Must match dense solver's regularization.
+                # Add diagonal entries: regularization (min_diag_reg) + gshunt
+                # NOTE: min_diag_reg is at least 1e-6, but uses netlist GMIN if larger.
+                # This prevents near-singular matrices for ill-conditioned circuits (c6288).
                 diag_idx = jnp.arange(n_unknowns, dtype=jnp.int32)
                 all_j_rows = jnp.concatenate([all_j_rows, diag_idx])
                 all_j_cols = jnp.concatenate([all_j_cols, diag_idx])
-                all_j_vals = jnp.concatenate([all_j_vals, jnp.full(n_unknowns, 1e-6 + gshunt)])
+                all_j_vals = jnp.concatenate([all_j_vals, jnp.full(n_unknowns, min_diag_reg + gshunt)])
 
                 # Build BCOO with duplicates (BCSR.from_bcoo handles them)
                 indices = jnp.stack([all_j_rows, all_j_cols], axis=1)
@@ -4448,6 +4452,10 @@ class CircuitEngine:
         else:
             vsource_node_p = jnp.zeros(0, dtype=jnp.int32)
             vsource_node_n = jnp.zeros(0, dtype=jnp.int32)
+
+        # Capture options.gmin for diagonal regularization
+        # Use at least 1e-6, but respect larger netlist GMIN for ill-conditioned circuits
+        min_diag_reg = max(1e-6, self.options.gmin)
 
         def build_system_full_mna(
             X: jax.Array,  # Augmented solution: [V; I_branch] of size n_total + n_vsources
@@ -4768,8 +4776,9 @@ class CircuitEngine:
                 J = J_flat.reshape((n_augmented, n_augmented))
                 # Add regularization to node equations (upper-left block)
                 # Note: branch equations should NOT have diagonal regularization (they're exact)
+                # min_diag_reg is at least 1e-6, but uses netlist GMIN if larger.
                 diag_reg = jnp.concatenate([
-                    jnp.full(n_unknowns, 1e-6 + gshunt),
+                    jnp.full(n_unknowns, min_diag_reg + gshunt),
                     jnp.zeros(n_vsources)
                 ])
                 J = J + jnp.diag(diag_reg)
@@ -4778,10 +4787,11 @@ class CircuitEngine:
                 from jax.experimental.sparse import BCOO
 
                 # Add diagonal regularization for node equations only
+                # min_diag_reg is at least 1e-6, but uses netlist GMIN if larger.
                 diag_idx = jnp.arange(n_unknowns, dtype=jnp.int32)
                 all_j_rows = jnp.concatenate([all_j_rows, diag_idx])
                 all_j_cols = jnp.concatenate([all_j_cols, diag_idx])
-                all_j_vals = jnp.concatenate([all_j_vals, jnp.full(n_unknowns, 1e-6 + gshunt)])
+                all_j_vals = jnp.concatenate([all_j_vals, jnp.full(n_unknowns, min_diag_reg + gshunt)])
 
                 indices = jnp.stack([all_j_rows, all_j_cols], axis=1)
                 J = BCOO((all_j_vals, indices), shape=(n_augmented, n_augmented))
@@ -5031,8 +5041,9 @@ class CircuitEngine:
             # Fall back to homotopy chain using the cached NR solver
             logger.info("  AC DC: Direct NR failed, trying homotopy chain...")
 
+            # Use netlist GMIN (from self.options.gmin) for proper device conductances
             homotopy_config = HomotopyConfig(
-                gmin=1e-12,
+                gmin=self.options.gmin,
                 gdev_start=1e-3,
                 gdev_target=1e-13,
                 gmin_factor=3.0,
