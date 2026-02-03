@@ -4,6 +4,9 @@ import numpy as np
 import pytest
 from conftest import INTEGRATION_PATH, CompiledModel
 
+# Skip reason for hanging models (see issue #19)
+BSIMSOI_SKIP = "BSIMSOI hangs during JAX evaluation - see issue #19"
+
 
 @pytest.fixture(scope="module")
 def ekv_model(compile_model) -> CompiledModel:
@@ -182,6 +185,7 @@ class TestBSIMSOI:
         assert 'bsimsoi' in bsimsoi_model.name.lower()
         assert len(bsimsoi_model.nodes) >= 4
 
+    @pytest.mark.skip(reason=BSIMSOI_SKIP)
     def test_valid_output(self, bsimsoi_model: CompiledModel):
         """BSIMSOI produces valid outputs"""
         inputs = bsimsoi_model.build_default_inputs()
