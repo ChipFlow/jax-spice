@@ -210,11 +210,6 @@ def _parse_benchmark(sim_path: Path, name: str) -> BenchmarkInfo:
             info.max_steps = 20
             info.xfail = True
             info.xfail_reason = "Node count mismatch - need node collapse"
-        elif name == "ring":
-            # Ring's JIT compilation takes ~100s with cold cache, too slow for CI
-            # Test with GPU workflow or locally
-            info.xfail = True
-            info.xfail_reason = "JIT compilation too slow for CI timeouts"
         elif name == "tb_dp":
             # Large SRAM, should use sparse solver
             info.max_steps = 10
