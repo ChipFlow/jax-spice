@@ -1095,6 +1095,120 @@ def make_umfpack_ffi_full_mna_solver(
 
     logger.info("Creating UMFPACK FFI full MNA solver with zero callback overhead")
 
+    # Define body_fn and cond_fn at factory level to enable JAX tracing cache.
+    # These are created once per solver instance, not per solve call.
+    # The varying parameters are passed through the state tuple.
+    def cond_fn(state):
+        # State: (X, iteration, converged, max_f, max_delta, Q, <solver_params...>)
+        _, iteration, converged, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _ = state
+        return jnp.logical_and(~converged, iteration < max_iterations)
+
+    def body_fn(state):
+        # Unpack state - includes both iteration state and solver parameters
+        (
+            X,
+            iteration,
+            _,
+            _,
+            _,
+            _,
+            vsource_vals,
+            isource_vals,
+            Q_prev,
+            integ_c0,
+            device_arrays_arg,
+            gmin,
+            gshunt,
+            integ_c1,
+            integ_d1,
+            _dQdt_prev,
+            integ_c2,
+            _Q_prev2,
+        ) = state
+
+        J_bcoo, f, Q, _, _ = build_system_jit(
+            X,
+            vsource_vals,
+            isource_vals,
+            Q_prev,
+            integ_c0,
+            device_arrays_arg,
+            gmin,
+            gshunt,
+            integ_c1,
+            integ_d1,
+            _dQdt_prev,
+            integ_c2,
+            _Q_prev2,
+            None,  # limit_state_in not used in NR loop
+        )
+
+        if residual_mask is not None:
+            f_masked = jnp.where(residual_mask, f, 0.0)
+            max_f = jnp.max(jnp.abs(f_masked))
+        else:
+            max_f = jnp.max(jnp.abs(f))
+        residual_converged = max_f < abstol
+
+        if use_precomputed:
+            coo_vals = J_bcoo.data
+            sorted_vals = coo_vals[coo_sort_perm]
+            csr_data = jax.ops.segment_sum(sorted_vals, csr_segment_ids, num_segments=nse)
+        else:
+            J_bcoo_dedup = J_bcoo.sum_duplicates(nse=nse)
+            J_bcsr = BCSR.from_bcoo(J_bcoo_dedup)
+            csr_data = J_bcsr.data
+
+        f_solve = f
+        if noi_row_mask is not None:
+            csr_data = csr_data.at[noi_row_mask].set(0.0)
+            csr_data = csr_data.at[noi_col_mask].set(0.0)
+            csr_data = csr_data.at[noi_diag_indices].set(1.0)
+            f_solve = f.at[noi_res_indices_arr].set(0.0)
+
+        # Use FFI-based UMFPACK solve (no pure_callback overhead)
+        delta = umfpack_jax.solve(bcsr_indptr, bcsr_indices, csr_data, -f_solve)
+
+        max_delta = jnp.max(jnp.abs(delta))
+        scale = jnp.where(max_delta > max_step, max_step / max_delta, 1.0)
+        delta = delta * scale
+
+        # Update X with damping for node voltages
+        V_candidate = X[1:n_total] + delta[:n_unknowns]
+        V_damped = apply_voltage_damping(
+            V_candidate, X[1:n_total], DAMPING_VT, DAMPING_VCRIT, nr_damping=_NR_DAMPING
+        )
+        X_new = X.at[1:n_total].set(V_damped)
+        X_new = X_new.at[n_total:].add(delta[n_unknowns:])
+
+        if noi_indices is not None and len(noi_indices) > 0:
+            X_new = X_new.at[noi_indices].set(0.0)
+
+        delta_converged = max_delta < 1e-12
+        converged = jnp.logical_or(residual_converged, delta_converged)
+
+        # Return updated state with same solver params (unchanged)
+        return (
+            X_new,
+            iteration + 1,
+            converged,
+            max_f,
+            max_delta,
+            Q,
+            vsource_vals,
+            isource_vals,
+            Q_prev,
+            integ_c0,
+            device_arrays_arg,
+            gmin,
+            gshunt,
+            integ_c1,
+            integ_d1,
+            _dQdt_prev,
+            integ_c2,
+            _Q_prev2,
+        )
+
     def nr_solve(
         X_init: Array,
         vsource_vals: Array,
@@ -1117,6 +1231,7 @@ def make_umfpack_ffi_full_mna_solver(
         _Q_prev2 = Q_prev2 if Q_prev2 is not None else jnp.zeros(n_unknowns, dtype=jnp.float64)
 
         init_Q = jnp.zeros(n_unknowns, dtype=jnp.float64)
+        # State includes both iteration state and solver parameters
         init_state = (
             X_init,
             jnp.array(0, dtype=jnp.int32),
@@ -1124,80 +1239,23 @@ def make_umfpack_ffi_full_mna_solver(
             jnp.array(jnp.inf),
             jnp.array(jnp.inf),
             init_Q,
+            vsource_vals,
+            isource_vals,
+            Q_prev,
+            integ_c0,
+            device_arrays_arg,
+            gmin,
+            gshunt,
+            integ_c1,
+            integ_d1,
+            _dQdt_prev,
+            integ_c2,
+            _Q_prev2,
         )
 
-        def cond_fn(state):
-            X, iteration, converged, max_f, max_delta, Q = state
-            return jnp.logical_and(~converged, iteration < max_iterations)
-
-        def body_fn(state):
-            X, iteration, _, _, _, _ = state
-
-            J_bcoo, f, Q, _, _ = build_system_jit(
-                X,
-                vsource_vals,
-                isource_vals,
-                Q_prev,
-                integ_c0,
-                device_arrays_arg,
-                gmin,
-                gshunt,
-                integ_c1,
-                integ_d1,
-                _dQdt_prev,
-                integ_c2,
-                _Q_prev2,
-                limit_state_in,
-            )
-
-            if residual_mask is not None:
-                f_masked = jnp.where(residual_mask, f, 0.0)
-                max_f = jnp.max(jnp.abs(f_masked))
-            else:
-                max_f = jnp.max(jnp.abs(f))
-            residual_converged = max_f < abstol
-
-            if use_precomputed:
-                coo_vals = J_bcoo.data
-                sorted_vals = coo_vals[coo_sort_perm]
-                csr_data = jax.ops.segment_sum(sorted_vals, csr_segment_ids, num_segments=nse)
-            else:
-                J_bcoo_dedup = J_bcoo.sum_duplicates(nse=nse)
-                J_bcsr = BCSR.from_bcoo(J_bcoo_dedup)
-                csr_data = J_bcsr.data
-
-            f_solve = f
-            if noi_row_mask is not None:
-                csr_data = csr_data.at[noi_row_mask].set(0.0)
-                csr_data = csr_data.at[noi_col_mask].set(0.0)
-                csr_data = csr_data.at[noi_diag_indices].set(1.0)
-                f_solve = f.at[noi_res_indices_arr].set(0.0)
-
-            # Use FFI-based UMFPACK solve (no pure_callback overhead)
-            delta = umfpack_jax.solve(bcsr_indptr, bcsr_indices, csr_data, -f_solve)
-
-            max_delta = jnp.max(jnp.abs(delta))
-            scale = jnp.where(max_delta > max_step, max_step / max_delta, 1.0)
-            delta = delta * scale
-
-            # Update X with damping for node voltages
-            V_candidate = X[1:n_total] + delta[:n_unknowns]
-            V_damped = apply_voltage_damping(
-                V_candidate, X[1:n_total], DAMPING_VT, DAMPING_VCRIT, nr_damping=_NR_DAMPING
-            )
-            X_new = X.at[1:n_total].set(V_damped)
-            X_new = X_new.at[n_total:].add(delta[n_unknowns:])
-
-            if noi_indices is not None and len(noi_indices) > 0:
-                X_new = X_new.at[noi_indices].set(0.0)
-
-            delta_converged = max_delta < 1e-12
-            converged = jnp.logical_or(residual_converged, delta_converged)
-
-            return (X_new, iteration + 1, converged, max_f, max_delta, Q)
-
-        X_final, iterations, converged, max_f, max_delta, _ = lax.while_loop(
-            cond_fn, body_fn, init_state
+        result_state = lax.while_loop(cond_fn, body_fn, init_state)
+        X_final, iterations, converged, max_f, max_delta, _, _, _, _, _, _, _, _, _, _, _, _, _ = (
+            result_state
         )
 
         _, _, Q_final, I_vsource, limit_state_final = build_system_jit(
