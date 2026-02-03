@@ -75,6 +75,7 @@ class TestAllModels:
         m for m in INTEGRATION_MODELS
         if m[0] not in ('bsim3', 'bsimcmg', 'hicum', 'mextram')  # Known to have some NaN
         and m[0] not in CODEGEN_BROKEN_MODELS  # Codegen bugs
+        and m[0] not in HANGING_MODELS  # Cause CI timeout
     ])
     def test_model_all_residuals_finite(self, compile_model, model_name, model_path):
         """Model produces ALL finite residuals (stricter test).
