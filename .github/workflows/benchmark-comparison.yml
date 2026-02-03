@@ -132,12 +132,14 @@ jobs:
 
       - name: Cache VACASK build
         uses: actions/cache@v4
+        id: cache-vacask
         with:
           path: vendor/VACASK/build
           # Include OpenVAF sources since openvaf-r changes affect OSDI compilation
           key: vacask-build-${{ runner.os }}-${{ hashFiles('vendor/VACASK/CMakeLists.txt', 'vendor/VACASK/lib/**', 'vendor/VACASK/simulator/**', 'vendor/VACASK/devices/**', 'vendor/OpenVAF/Cargo.lock') }}
 
       - name: Build VACASK
+        if: steps.cache-vacask.outputs.cache-hit != 'true'
         run: |
           cd vendor/VACASK
           mkdir -p build && cd build
