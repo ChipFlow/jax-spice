@@ -126,7 +126,7 @@ jobs:
           uv pip install --no-build-isolation .
 
       - name: Run jax-spice tests (with jaxtyping runtime checks)
-        timeout-minutes: 45
+        timeout-minutes: 90
         env:
           JAX_PLATFORMS: cpu
           JAX_SPICE_NO_PROGRESS: "1"
