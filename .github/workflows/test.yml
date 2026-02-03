@@ -59,11 +59,25 @@ jobs:
 
       - name: Run tests
         working-directory: openvaf_jax/openvaf_py
-        timeout-minutes: 60
+        timeout-minutes: 90
         run: uv run pytest tests/ -v --tb=short --durations=20 --log-cli-level=INFO
 
   test-jax-spice:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        test-group:
+          - name: unit
+            tests: "tests/test_vacask_suite.py tests/test_vacask_jax.py tests/test_ac_analysis.py tests/test_hb_analysis.py tests/test_noise_analysis.py tests/test_xfer_analysis.py"
+            timeout: 30
+          - name: benchmark-dense
+            tests: "tests/test_vacask_benchmarks.py -k 'dense'"
+            timeout: 45
+          - name: benchmark-sparse
+            tests: "tests/test_vacask_benchmarks.py -k 'sparse'"
+            timeout: 45
+    name: test-jax-spice (${{ matrix.test-group.name }})
     steps:
       - name: Checkout with submodules
         uses: actions/checkout@v4
@@ -125,14 +139,15 @@ jobs:
           uv pip install scikit-build-core nanobind
           uv pip install --no-build-isolation .
 
-      - name: Run jax-spice tests (with jaxtyping runtime checks)
-        timeout-minutes: 90
+      - name: Run jax-spice tests (${{ matrix.test-group.name }})
+        timeout-minutes: ${{ matrix.test-group.timeout }}
         env:
           JAX_PLATFORMS: cpu
           JAX_SPICE_NO_PROGRESS: "1"
-        run: uv run pytest tests/test_vacask_suite.py tests/test_vacask_jax.py tests/test_vacask_benchmarks.py tests/test_ac_analysis.py tests/test_hb_analysis.py tests/test_noise_analysis.py tests/test_xfer_analysis.py -v --tb=short
+        run: uv run pytest ${{ matrix.test-group.tests }} -v --tb=short
 
       - name: Run benchmark tests
+        if: matrix.test-group.name == 'unit'
         env:
           JAX_PLATFORMS: cpu
           JAX_SPICE_NO_PROGRESS: "1"
