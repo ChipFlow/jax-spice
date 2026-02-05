@@ -34,6 +34,39 @@ from jax_spice import get_float_dtype
 logger = logging.getLogger(__name__)
 
 
+def extract_ac_sources(devices: List[Dict]) -> List[Dict]:
+    """Extract AC source specifications from devices.
+
+    Args:
+        devices: List of device dictionaries from circuit parsing
+
+    Returns:
+        List of AC source specifications with mag, phase, node indices
+    """
+    ac_sources = []
+
+    for dev in devices:
+        if dev.get("model") == "vsource":
+            params = dev.get("params", {})
+            mag = params.get("mag", 0.0)
+            phase = params.get("phase", 0.0)
+
+            # Only include sources with non-zero AC magnitude
+            if mag != 0.0:
+                nodes = dev.get("nodes", [0, 0])
+                ac_sources.append(
+                    {
+                        "name": dev["name"],
+                        "pos_node": nodes[0] if len(nodes) > 0 else 0,
+                        "neg_node": nodes[1] if len(nodes) > 1 else 0,
+                        "mag": float(mag),
+                        "phase": float(phase),
+                    }
+                )
+
+    return ac_sources
+
+
 @dataclass
 class ACConfig:
     """AC analysis configuration.

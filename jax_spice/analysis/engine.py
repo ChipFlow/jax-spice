@@ -3949,33 +3949,10 @@ class CircuitEngine:
         return Jr, Jc
 
     def _extract_ac_sources(self) -> List[Dict]:
-        """Extract AC source specifications from devices.
+        """Extract AC source specifications from devices."""
+        from jax_spice.analysis.ac import extract_ac_sources
 
-        Returns:
-            List of AC source specifications with mag, phase, node indices
-        """
-        ac_sources = []
-
-        for dev in self.devices:
-            if dev["model"] == "vsource":
-                params = dev["params"]
-                mag = params.get("mag", 0.0)
-                phase = params.get("phase", 0.0)
-
-                # Only include sources with non-zero AC magnitude
-                if mag != 0.0:
-                    nodes = dev.get("nodes", [0, 0])
-                    ac_sources.append(
-                        {
-                            "name": dev["name"],
-                            "pos_node": nodes[0] if len(nodes) > 0 else 0,
-                            "neg_node": nodes[1] if len(nodes) > 1 else 0,
-                            "mag": float(mag),
-                            "phase": float(phase),
-                        }
-                    )
-
-        return ac_sources
+        return extract_ac_sources(self.devices)
 
     # =========================================================================
     # Transfer Function Analyses (DCINC, DCXF, ACXF)
@@ -4251,46 +4228,10 @@ class CircuitEngine:
         return result
 
     def _extract_dc_currents(self, V_dc: Array) -> Dict[str, float]:
-        """Extract DC currents through devices from operating point.
+        """Extract DC currents through devices from operating point."""
+        from jax_spice.analysis.noise import extract_dc_currents
 
-        Args:
-            V_dc: DC operating point voltages
-
-        Returns:
-            Dict mapping device name to DC current
-        """
-        dc_currents = {}
-
-        for dev in self.devices:
-            name = dev.get("name", "")
-            model = dev.get("model", "")
-            params = dev.get("params", {})
-            nodes = dev.get("nodes", [0, 0])
-
-            pos_node = nodes[0] if len(nodes) > 0 else 0
-            neg_node = nodes[1] if len(nodes) > 1 else 0
-
-            # Get node voltages
-            v_pos = float(V_dc[pos_node - 1]) if pos_node > 0 and pos_node <= len(V_dc) else 0.0
-            v_neg = float(V_dc[neg_node - 1]) if neg_node > 0 and neg_node <= len(V_dc) else 0.0
-            v_diff = v_pos - v_neg
-
-            if model == "resistor":
-                r = float(params.get("r", 1000.0))
-                if r > 0:
-                    dc_currents[name] = v_diff / r
-
-            elif model in ("diode", "d"):
-                # Diode current: I = Is * (exp(V/nVT) - 1)
-                Is = float(params.get("is", 1e-14))
-                n = float(params.get("n", 1.0))
-                vt = 0.0259  # Thermal voltage at 300K
-                if v_diff > -5 * n * vt:  # Avoid overflow
-                    dc_currents[name] = Is * (jnp.exp(v_diff / (n * vt)) - 1)
-                else:
-                    dc_currents[name] = -Is
-
-        return dc_currents
+        return extract_dc_currents(self.devices, V_dc)
 
     # =========================================================================
     # Corner Analysis

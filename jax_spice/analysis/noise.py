@@ -38,6 +38,58 @@ logger = logging.getLogger(__name__)
 
 T_NOMINAL = 300.15  # 27°C in Kelvin
 
+# Thermal voltage at 300K for DC current estimation
+_VT_300K = K_BOLTZMANN * T_NOMINAL / Q_ELECTRON
+
+
+def extract_dc_currents(
+    devices: List[Dict],
+    V_dc: Array,
+) -> Dict[str, float]:
+    """Extract DC currents through devices from operating point.
+
+    Used for noise analysis to determine shot/flicker noise levels.
+
+    Args:
+        devices: List of device dictionaries from circuit parsing
+        V_dc: DC operating point voltages (excluding ground, so node i -> V_dc[i-1])
+
+    Returns:
+        Dict mapping device name to DC current
+    """
+    dc_currents: Dict[str, float] = {}
+
+    for dev in devices:
+        name = dev.get("name", "")
+        model = dev.get("model", "")
+        params = dev.get("params", {})
+        nodes = dev.get("nodes", [0, 0])
+
+        pos_node = nodes[0] if len(nodes) > 0 else 0
+        neg_node = nodes[1] if len(nodes) > 1 else 0
+
+        # Get node voltages (index adjusted for ground exclusion)
+        v_pos = float(V_dc[pos_node - 1]) if pos_node > 0 and pos_node <= len(V_dc) else 0.0
+        v_neg = float(V_dc[neg_node - 1]) if neg_node > 0 and neg_node <= len(V_dc) else 0.0
+        v_diff = v_pos - v_neg
+
+        if model == "resistor":
+            r = float(params.get("r", 1000.0))
+            if r > 0:
+                dc_currents[name] = v_diff / r
+
+        elif model in ("diode", "d"):
+            # Diode current: I = Is * (exp(V/nVT) - 1)
+            Is = float(params.get("is", 1e-14))
+            n = float(params.get("n", 1.0))
+            vt = _VT_300K
+            if v_diff > -5 * n * vt:  # Avoid overflow
+                dc_currents[name] = float(Is * (jnp.exp(v_diff / (n * vt)) - 1))
+            else:
+                dc_currents[name] = -Is
+
+    return dc_currents
+
 
 @dataclass
 class NoiseConfig:
