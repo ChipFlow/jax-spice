@@ -59,8 +59,6 @@ from jax_spice.analysis.integration import (
     get_method_from_options,
 )
 from jax_spice.analysis.mna import (
-    COOMatrix,
-    COOVector,
     assemble_coo_vector,
     assemble_dense_jacobian,
     assemble_jacobian_coo,
@@ -70,6 +68,8 @@ from jax_spice.analysis.mna import (
     build_vsource_kcl_contribution,
     combine_transient_residual,
     compute_vsource_current_from_kcl,
+    mask_coo_matrix,
+    mask_coo_vector,
 )
 from jax_spice.analysis.options import SimulationOptions
 from jax_spice.analysis.parsing import (
@@ -2931,75 +2931,33 @@ class CircuitEngine:
                         batch_limit_state_out.ravel()
                     )
 
-                res_idx = stamp_indices["res_indices"]
-                jac_row_idx = stamp_indices["jac_row_indices"]
-                jac_col_idx = stamp_indices["jac_col_indices"]
+                # Extract stamp indices (flattened for COO format)
+                res_idx = stamp_indices["res_indices"].ravel()
+                jac_row_idx = stamp_indices["jac_row_indices"].ravel()
+                jac_col_idx = stamp_indices["jac_col_indices"].ravel()
 
-                flat_res_idx = res_idx.ravel()
-                flat_res_resist_val = batch_res_resist.ravel()
-                valid_res = flat_res_idx >= 0
-                flat_res_idx_masked = jnp.where(valid_res, flat_res_idx, 0)
-                flat_res_resist_masked = jnp.where(valid_res, flat_res_resist_val, 0.0)
-                flat_res_resist_masked = jnp.where(
-                    jnp.isnan(flat_res_resist_masked), 0.0, flat_res_resist_masked
-                )
-                f_resist_parts.append((flat_res_idx_masked, flat_res_resist_masked))
+                # Mask and collect residual contributions (COOVector)
+                f_resist_parts.append(mask_coo_vector(res_idx, batch_res_resist.ravel()))
+                f_react_parts.append(mask_coo_vector(res_idx, batch_res_react.ravel()))
 
-                flat_res_react_val = batch_res_react.ravel()
-                flat_res_react_masked = jnp.where(valid_res, flat_res_react_val, 0.0)
-                flat_res_react_masked = jnp.where(
-                    jnp.isnan(flat_res_react_masked), 0.0, flat_res_react_masked
-                )
-                f_react_parts.append((flat_res_idx_masked, flat_res_react_masked))
+                # Mask and collect Jacobian contributions (COOMatrix)
+                j_resist_parts.append(mask_coo_matrix(
+                    jac_row_idx, jac_col_idx, batch_jac_resist.ravel()
+                ))
+                j_react_parts.append(mask_coo_matrix(
+                    jac_row_idx, jac_col_idx, batch_jac_react.ravel()
+                ))
 
-                flat_jac_rows = jac_row_idx.ravel()
-                flat_jac_cols = jac_col_idx.ravel()
-                flat_jac_resist_vals = batch_jac_resist.ravel()
-                valid_jac = (flat_jac_rows >= 0) & (flat_jac_cols >= 0)
-                flat_jac_rows_masked = jnp.where(valid_jac, flat_jac_rows, 0)
-                flat_jac_cols_masked = jnp.where(valid_jac, flat_jac_cols, 0)
-                flat_jac_resist_masked = jnp.where(valid_jac, flat_jac_resist_vals, 0.0)
-                flat_jac_resist_masked = jnp.where(
-                    jnp.isnan(flat_jac_resist_masked), 0.0, flat_jac_resist_masked
-                )
-                j_resist_parts.append(
-                    (flat_jac_rows_masked, flat_jac_cols_masked, flat_jac_resist_masked)
-                )
-
-                flat_jac_react_vals = batch_jac_react.ravel()
-                flat_jac_react_masked = jnp.where(valid_jac, flat_jac_react_vals, 0.0)
-                flat_jac_react_masked = jnp.where(
-                    jnp.isnan(flat_jac_react_masked), 0.0, flat_jac_react_masked
-                )
-                j_react_parts.append(
-                    (flat_jac_rows_masked, flat_jac_cols_masked, flat_jac_react_masked)
-                )
-
-                flat_lim_rhs_resist_val = batch_lim_rhs_resist.ravel()
-                flat_lim_rhs_resist_masked = jnp.where(valid_res, flat_lim_rhs_resist_val, 0.0)
-                flat_lim_rhs_resist_masked = jnp.where(
-                    jnp.isnan(flat_lim_rhs_resist_masked), 0.0, flat_lim_rhs_resist_masked
-                )
-                lim_rhs_resist_parts.append((flat_res_idx_masked, flat_lim_rhs_resist_masked))
-
-                flat_lim_rhs_react_val = batch_lim_rhs_react.ravel()
-                flat_lim_rhs_react_masked = jnp.where(valid_res, flat_lim_rhs_react_val, 0.0)
-                flat_lim_rhs_react_masked = jnp.where(
-                    jnp.isnan(flat_lim_rhs_react_masked), 0.0, flat_lim_rhs_react_masked
-                )
-                lim_rhs_react_parts.append((flat_res_idx_masked, flat_lim_rhs_react_masked))
+                # Mask and collect limiting RHS contributions
+                lim_rhs_resist_parts.append(mask_coo_vector(res_idx, batch_lim_rhs_resist.ravel()))
+                lim_rhs_react_parts.append(mask_coo_vector(res_idx, batch_lim_rhs_react.ravel()))
 
             # Build device contribution vectors using helper functions
-            # Convert tuple parts to COOVector for assembly
-            f_resist_coo = [COOVector(p[0], p[1]) for p in f_resist_parts]
-            f_react_coo = [COOVector(p[0], p[1]) for p in f_react_parts]
-            lim_resist_coo = [COOVector(p[0], p[1]) for p in lim_rhs_resist_parts]
-            lim_react_coo = [COOVector(p[0], p[1]) for p in lim_rhs_react_parts]
-
-            f_resist = assemble_coo_vector(f_resist_coo, n_unknowns)
-            Q = assemble_coo_vector(f_react_coo, n_unknowns)
-            lim_rhs_resist = assemble_coo_vector(lim_resist_coo, n_unknowns)
-            lim_rhs_react = assemble_coo_vector(lim_react_coo, n_unknowns)
+            # Parts are already COOVector/COOMatrix from mask_coo_* helpers
+            f_resist = assemble_coo_vector(f_resist_parts, n_unknowns)
+            Q = assemble_coo_vector(f_react_parts, n_unknowns)
+            lim_rhs_resist = assemble_coo_vector(lim_rhs_resist_parts, n_unknowns)
+            lim_rhs_react = assemble_coo_vector(lim_rhs_react_parts, n_unknowns)
 
             f_resist = f_resist - lim_rhs_resist
 
@@ -3037,13 +2995,11 @@ class CircuitEngine:
             f_augmented = jnp.concatenate([f_node, f_branch])
 
             # Build augmented Jacobian using helper functions
-            # Convert tuple parts to COOMatrix for assembly
-            j_resist_coo = [COOMatrix(p[0], p[1], p[2]) for p in j_resist_parts]
-            j_react_coo = [COOMatrix(p[0], p[1], p[2]) for p in j_react_parts]
+            # Parts are already COOMatrix from mask_coo_matrix helper
 
             # Combine device Jacobian contributions: J = G + c0*C
             all_j_rows, all_j_cols, all_j_vals = assemble_jacobian_coo(
-                j_resist_coo, j_react_coo, integ_c0
+                j_resist_parts, j_react_parts, integ_c0
             )
 
             # Add B and B^T blocks for voltage sources
