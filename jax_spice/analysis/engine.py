@@ -28,7 +28,6 @@ if TYPE_CHECKING:
 
 import jax
 import jax.numpy as jnp
-import numpy as np
 from jax import Array
 
 # Suppress scipy's MatrixRankWarning from spsolve - this is expected for circuits
@@ -53,7 +52,7 @@ from jax_spice.analysis.integration import (
     IntegrationMethod,
     get_method_from_options,
 )
-from jax_spice.analysis.mna_builder import make_mna_build_system_fn
+from jax_spice.analysis.mna_builder import build_stamp_index_mapping, make_mna_build_system_fn
 from jax_spice.analysis.node_setup import setup_internal_nodes
 from jax_spice.analysis.openvaf_models import (
     MODEL_PATHS,
@@ -536,234 +535,6 @@ class CircuitEngine:
                 compiled_models=self._compiled_models,
             )
 
-    def _build_stamp_index_mapping(
-        self,
-        model_type: str,
-        device_contexts: List[Dict],
-        ground: int,
-    ) -> Dict[str, jax.Array]:
-        """Pre-compute index mappings for COO-based stamping.
-
-        Called once per model type during setup. Returns arrays that map
-        (device_idx, entry_idx) to global matrix indices.
-
-        Args:
-            model_type: OpenVAF model type (e.g., 'psp103')
-            device_contexts: List of device context dicts with node_map
-            ground: Ground node index
-
-        Returns:
-            Dict with:
-                res_indices: (n_devices, n_residuals) row indices for f vector, -1 for ground
-                jac_row_indices: (n_devices, n_jac_entries) row indices for J
-                jac_col_indices: (n_devices, n_jac_entries) col indices for J
-        """
-        compiled = self._compiled_models.get(model_type)
-        if not compiled:
-            return {}
-
-        metadata = compiled["dae_metadata"]
-        node_names = metadata["node_names"]  # Residual node names
-        jacobian_keys = metadata["jacobian_keys"]  # (row_name, col_name) pairs
-
-        n_devices = len(device_contexts)
-        n_residuals = len(node_names)
-        n_jac_entries = len(jacobian_keys)
-
-        # Build residual index array
-        res_indices = np.full((n_devices, n_residuals), -1, dtype=np.int32)
-
-        for dev_idx, ctx in enumerate(device_contexts):
-            node_map = ctx["node_map"]
-            for res_idx, node_name in enumerate(node_names):
-                # Map node name to global index
-                # V2 API provides clean names like 'D', 'G', 'S', 'B', 'NOI', etc.
-                node_idx = node_map.get(node_name, None)
-
-                if node_idx is not None and node_idx != ground and node_idx > 0:
-                    res_indices[dev_idx, res_idx] = node_idx - 1  # 0-indexed residual
-
-        # Build Jacobian index arrays
-        jac_row_indices = np.full((n_devices, n_jac_entries), -1, dtype=np.int32)
-        jac_col_indices = np.full((n_devices, n_jac_entries), -1, dtype=np.int32)
-
-        for dev_idx, ctx in enumerate(device_contexts):
-            node_map = ctx["node_map"]
-            for jac_idx, (row_name, col_name) in enumerate(jacobian_keys):
-                # Map row/col nodes - V2 API provides clean names
-                row_idx = node_map.get(row_name, None)
-                col_idx = node_map.get(col_name, None)
-
-                if (
-                    row_idx is not None
-                    and col_idx is not None
-                    and row_idx != ground
-                    and col_idx != ground
-                    and row_idx > 0
-                    and col_idx > 0
-                ):
-                    jac_row_indices[dev_idx, jac_idx] = row_idx - 1
-                    jac_col_indices[dev_idx, jac_idx] = col_idx - 1
-
-        return {
-            "res_indices": jnp.array(res_indices),
-            "jac_row_indices": jnp.array(jac_row_indices),
-            "jac_col_indices": jnp.array(jac_col_indices),
-        }
-
-    def _precompute_sparse_structure(
-        self,
-        n_unknowns: int,
-        openvaf_by_type: Dict[str, List[Dict]],
-        static_inputs_cache: Dict[str, Tuple],
-        source_device_data: Dict[str, Any],
-    ) -> Dict[str, Any]:
-        """Pre-compute the merged sparse matrix structure for all devices.
-
-        This is called once during setup. The sparsity pattern is fixed for the
-        circuit, so we can pre-compute:
-        - Merged COO indices for all devices
-        - CSR structure (indptr, indices)
-        - Mappings from device outputs to value positions
-
-        Each NR iteration only needs to update values, not rebuild indices.
-
-        Returns:
-            Dict with pre-computed structure for efficient NR iterations.
-        """
-        from jax.experimental.sparse import BCOO, BCSR
-
-        # Collect all COO indices (once, during setup)
-        all_j_rows = []
-        all_j_cols = []
-
-        # Track positions for each device type's contributions
-        openvaf_jac_slices = {}  # model_type -> (start, end) in merged arrays
-
-        pos = 0
-        for model_type in openvaf_by_type:
-            if model_type not in static_inputs_cache:
-                continue
-
-            _, stamp_indices, _, _, _, _ = static_inputs_cache[model_type]
-            jac_row_idx = stamp_indices["jac_row_indices"]  # (n_devices, n_jac_entries)
-            jac_col_idx = stamp_indices["jac_col_indices"]
-
-            # Flatten and filter valid entries
-            flat_rows = jac_row_idx.ravel()
-            flat_cols = jac_col_idx.ravel()
-            valid = (flat_rows >= 0) & (flat_cols >= 0)
-
-            # Get valid indices as numpy for efficient indexing
-            valid_rows = np.asarray(flat_rows[valid])
-            valid_cols = np.asarray(flat_cols[valid])
-
-            n_valid = len(valid_rows)
-            openvaf_jac_slices[model_type] = (pos, pos + n_valid, valid)
-            pos += n_valid
-
-            all_j_rows.append(valid_rows)
-            all_j_cols.append(valid_cols)
-
-        # Add source device contributions
-        source_jac_slices = {}
-        for src_type in ("vsource",):  # isource has no Jacobian
-            if src_type not in source_device_data:
-                continue
-            d = source_device_data[src_type]
-            j_rows = d["j_rows"].ravel()
-            j_cols = d["j_cols"].ravel()
-            valid = j_rows >= 0
-
-            valid_rows = np.asarray(j_rows[valid])
-            valid_cols = np.asarray(j_cols[valid])
-
-            n_valid = len(valid_rows)
-            source_jac_slices[src_type] = (pos, pos + n_valid, valid)
-            pos += n_valid
-
-            all_j_rows.append(valid_rows)
-            all_j_cols.append(valid_cols)
-
-        # Add diagonal regularization
-        diag_start = pos
-        diag_rows = np.arange(n_unknowns, dtype=np.int32)
-        all_j_rows.append(diag_rows)
-        all_j_cols.append(diag_rows)
-
-        # Merge all indices
-        if all_j_rows:
-            merged_rows = np.concatenate(all_j_rows)
-            merged_cols = np.concatenate(all_j_cols)
-        else:
-            merged_rows = np.array([], dtype=np.int32)
-            merged_cols = np.array([], dtype=np.int32)
-
-        n_entries = len(merged_rows)
-
-        # Build BCOO with dummy values to get structure
-        dummy_vals = np.ones(n_entries, dtype=get_float_dtype())
-        indices = np.stack([merged_rows, merged_cols], axis=1)
-
-        J_bcoo = BCOO((jnp.array(dummy_vals), jnp.array(indices)), shape=(n_unknowns, n_unknowns))
-        J_bcoo_summed = J_bcoo.sum_duplicates()
-
-        # Convert to BCSR to get the fixed structure
-        J_bcsr = BCSR.from_bcoo(J_bcoo_summed)
-
-        # Pre-compute COO→CSR permutation for fast assembly
-        # This avoids sorting on every NR iteration!
-        #
-        # Algorithm:
-        # 1. Compute linear index: linear = row * n_cols + col
-        # 2. Sort by linear index to group duplicates
-        # 3. Find unique entries and segment IDs for summing duplicates
-        # 4. Sort by row (CSR format) to get final data order
-        #
-        # In NR loop: csr_data = segment_sum(values[coo_to_csr_perm], csr_segment_ids)
-
-        linear_idx = merged_rows * n_unknowns + merged_cols
-
-        # Sort COO by linear index (groups duplicates together)
-        coo_sort_perm = np.argsort(linear_idx)
-        sorted_linear = linear_idx[coo_sort_perm]
-        merged_rows[coo_sort_perm]
-
-        # Find unique entries and inverse mapping for segment_sum
-        unique_linear, coo_to_unique = np.unique(sorted_linear, return_inverse=True)
-        n_unique = len(unique_linear)
-
-        # Get row indices for unique entries (for CSR row ordering)
-        unique_rows = unique_linear // n_unknowns
-
-        # Sort unique entries by row to get CSR order
-        unique_to_csr = np.argsort(unique_rows)
-        csr_to_unique = np.argsort(unique_to_csr)  # Inverse permutation
-
-        # Final segment IDs: maps sorted COO values to CSR data positions
-        csr_segment_ids = csr_to_unique[coo_to_unique]
-
-        # Store the structure
-        return {
-            "n_entries": n_entries,
-            "n_unknowns": n_unknowns,
-            "merged_rows": jnp.array(merged_rows),
-            "merged_cols": jnp.array(merged_cols),
-            "openvaf_jac_slices": openvaf_jac_slices,
-            "source_jac_slices": source_jac_slices,
-            "diag_start": diag_start,
-            # BCSR structure (fixed)
-            "bcsr_indices": J_bcsr.indices,
-            "bcsr_indptr": J_bcsr.indptr,
-            "bcsr_n_data": J_bcsr.data.shape[0],
-            # For sum_duplicates mapping
-            "bcoo_summed_indices": J_bcoo_summed.indices,
-            # Pre-computed COO→CSR mapping (avoids sorting in NR loop!)
-            "coo_sort_perm": jnp.array(coo_sort_perm, dtype=jnp.int32),
-            "csr_segment_ids": jnp.array(csr_segment_ids, dtype=jnp.int32),
-            "csr_n_segments": n_unique,
-        }
-
     def _parse_voltage_param(
         self, name: str, node_map: Dict[str, int], model_nodes: List[str], ground: int
     ) -> Tuple[int, int]:
@@ -844,71 +615,6 @@ class CircuitEngine:
         node2_idx = resolve_node(node2_name) if node2_name else ground
 
         return (node1_idx, node2_idx)
-
-    def _stamp_batched_results(
-        self,
-        model_type: str,
-        batch_residuals: jax.Array,
-        batch_jacobian: jax.Array,
-        device_contexts: List[Dict],
-        f: jax.Array,
-        J: jax.Array,
-        ground: int,
-    ) -> Tuple[jax.Array, jax.Array]:
-        """Stamp batched evaluation results into system matrices using pure JAX.
-
-        Args:
-            model_type: The model type (e.g., 'psp103')
-            batch_residuals: Shape (num_devices, num_nodes) residuals
-            batch_jacobian: Shape (num_devices, num_jac_entries) jacobian values
-            device_contexts: List of context dicts from _prepare_batched_inputs
-            f: Residual vector to stamp into (JAX array)
-            J: Jacobian matrix to stamp into (JAX array)
-            ground: Ground node index
-
-        Returns:
-            Updated (f, J) tuple
-        """
-        compiled = self._compiled_models.get(model_type)
-        if not compiled:
-            return f, J
-
-        metadata = compiled["dae_metadata"]
-        node_names = metadata["node_names"]
-        jacobian_keys = metadata["jacobian_keys"]
-
-        for dev_idx, ctx in enumerate(device_contexts):
-            node_map = ctx["node_map"]
-
-            # Stamp residuals - V2 API provides clean names like 'D', 'G', 'S'
-            for res_idx, node_name in enumerate(node_names):
-                node_idx = node_map.get(node_name, None)
-                if node_idx is None or node_idx == ground:
-                    continue
-
-                if node_idx > 0 and node_idx - 1 < f.shape[0]:
-                    resist = batch_residuals[dev_idx, res_idx]
-                    resist_safe = jnp.where(jnp.isnan(resist), 0.0, resist)
-                    f = f.at[node_idx - 1].add(resist_safe)
-
-            # Stamp Jacobian - V2 API provides clean names
-            for jac_idx, (row_name, col_name) in enumerate(jacobian_keys):
-                row_idx = node_map.get(row_name, None)
-                col_idx = node_map.get(col_name, None)
-
-                if row_idx is None or col_idx is None:
-                    continue
-                if row_idx == ground or col_idx == ground:
-                    continue
-
-                ri = row_idx - 1
-                ci = col_idx - 1
-                if 0 <= ri < f.shape[0] and 0 <= ci < J.shape[1]:
-                    resist = batch_jacobian[dev_idx, jac_idx]
-                    resist_safe = jnp.where(jnp.isnan(resist), 0.0, resist)
-                    J = J.at[ri, ci].add(resist_safe)
-
-        return f, J
 
     def _extract_analysis_params(self):
         """Extract analysis parameters from parsed control block.
@@ -1340,7 +1046,9 @@ class CircuitEngine:
                         ground=ground,
                     )
                 )
-                stamp_indices = self._build_stamp_index_mapping(model_type, device_contexts, ground)
+                stamp_indices = build_stamp_index_mapping(
+                    model_type, device_contexts, ground, self._compiled_models
+                )
                 voltage_node1 = jnp.array(
                     [[n1 for n1, n2 in ctx["voltage_node_pairs"]] for ctx in device_contexts],
                     dtype=jnp.int32,

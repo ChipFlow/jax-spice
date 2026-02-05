@@ -11,6 +11,7 @@ the system for solving.
 from typing import Any, Callable, Dict, List, Tuple
 
 import jax.numpy as jnp
+import numpy as np
 from jax import Array
 
 from jax_spice import get_float_dtype
@@ -27,6 +28,83 @@ from jax_spice.analysis.mna import (
     mask_coo_matrix,
     mask_coo_vector,
 )
+
+
+def build_stamp_index_mapping(
+    model_type: str,
+    device_contexts: List[Dict],
+    ground: int,
+    compiled_models: Dict[str, Any],
+) -> Dict[str, Array]:
+    """Pre-compute index mappings for COO-based stamping.
+
+    Called once per model type during setup. Returns arrays that map
+    (device_idx, entry_idx) to global matrix indices.
+
+    Args:
+        model_type: OpenVAF model type (e.g., 'psp103')
+        device_contexts: List of device context dicts with node_map
+        ground: Ground node index
+        compiled_models: Dict of compiled model info
+
+    Returns:
+        Dict with:
+            res_indices: (n_devices, n_residuals) row indices for f vector, -1 for ground
+            jac_row_indices: (n_devices, n_jac_entries) row indices for J
+            jac_col_indices: (n_devices, n_jac_entries) col indices for J
+    """
+    compiled = compiled_models.get(model_type)
+    if not compiled:
+        return {}
+
+    metadata = compiled["dae_metadata"]
+    node_names = metadata["node_names"]  # Residual node names
+    jacobian_keys = metadata["jacobian_keys"]  # (row_name, col_name) pairs
+
+    n_devices = len(device_contexts)
+    n_residuals = len(node_names)
+    n_jac_entries = len(jacobian_keys)
+
+    # Build residual index array
+    res_indices = np.full((n_devices, n_residuals), -1, dtype=np.int32)
+
+    for dev_idx, ctx in enumerate(device_contexts):
+        node_map = ctx["node_map"]
+        for res_idx, node_name in enumerate(node_names):
+            # Map node name to global index
+            # V2 API provides clean names like 'D', 'G', 'S', 'B', 'NOI', etc.
+            node_idx = node_map.get(node_name, None)
+
+            if node_idx is not None and node_idx != ground and node_idx > 0:
+                res_indices[dev_idx, res_idx] = node_idx - 1  # 0-indexed residual
+
+    # Build Jacobian index arrays
+    jac_row_indices = np.full((n_devices, n_jac_entries), -1, dtype=np.int32)
+    jac_col_indices = np.full((n_devices, n_jac_entries), -1, dtype=np.int32)
+
+    for dev_idx, ctx in enumerate(device_contexts):
+        node_map = ctx["node_map"]
+        for jac_idx, (row_name, col_name) in enumerate(jacobian_keys):
+            # Map row/col nodes - V2 API provides clean names
+            row_idx = node_map.get(row_name, None)
+            col_idx = node_map.get(col_name, None)
+
+            if (
+                row_idx is not None
+                and col_idx is not None
+                and row_idx != ground
+                and col_idx != ground
+                and row_idx > 0
+                and col_idx > 0
+            ):
+                jac_row_indices[dev_idx, jac_idx] = row_idx - 1
+                jac_col_indices[dev_idx, jac_idx] = col_idx - 1
+
+    return {
+        "res_indices": jnp.array(res_indices),
+        "jac_row_indices": jnp.array(jac_row_indices),
+        "jac_col_indices": jnp.array(jac_col_indices),
+    }
 
 
 def make_mna_build_system_fn(
