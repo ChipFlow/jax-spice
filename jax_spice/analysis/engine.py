@@ -19,8 +19,6 @@ if TYPE_CHECKING:
     from jax_spice.analysis.corners import (
         CornerConfig,
         CornerSweepResult,
-        ProcessCorner,
-        VoltageCorner,
     )
     from jax_spice.analysis.noise import NoiseResult
     from jax_spice.analysis.transient import AdaptiveConfig
@@ -1976,7 +1974,12 @@ class CircuitEngine:
             for r in results.converged_results():
                 print(f"{r.corner.name}: max voltage = {r.result.voltages['out'].max()}")
         """
-        from jax_spice.analysis.corners import CornerResult, CornerSweepResult
+        from jax_spice.analysis.corners import (
+            CornerResult,
+            CornerSweepResult,
+            apply_process_corner,
+            apply_voltage_corner,
+        )
 
         results = []
 
@@ -1986,8 +1989,8 @@ class CircuitEngine:
 
             try:
                 # Apply corner modifications
-                self._apply_process_corner(corner.process)
-                self._apply_voltage_corner(corner.voltage)
+                apply_process_corner(self.devices, corner.process)
+                apply_voltage_corner(self.devices, corner.voltage)
 
                 # Set temperature (this invalidates cache)
                 if corner.temperature != self._simulation_temperature:
@@ -2049,74 +2052,3 @@ class CircuitEngine:
         """
         for dev, params in zip(self.devices, saved):
             dev["params"] = params
-
-    def _apply_process_corner(self, corner: Optional["ProcessCorner"]) -> None:
-        """Apply process corner scaling to device parameters.
-
-        Modifies device parameters in place based on corner specification.
-
-        Args:
-            corner: Process corner to apply (or None for nominal)
-        """
-        if corner is None:
-            return
-
-        for dev in self.devices:
-            if not dev.get("is_openvaf", False):
-                continue
-
-            params = dev.get("params", {})
-            model = dev.get("model", "")
-
-            # Apply mobility scaling
-            mobility_params = ("uo", "mu0", "u0", "betn", "betp", "mue")
-            for param in mobility_params:
-                if param in params:
-                    params[param] = float(params[param]) * corner.mobility_scale
-
-            # Apply Vth shift
-            vth_params = ("vth0", "vfb", "delvto", "dvt0")
-            for param in vth_params:
-                if param in params:
-                    params[param] = float(params[param]) + corner.vth_shift
-
-            # Apply Tox scaling
-            tox_params = ("tox", "toxe", "toxo", "toxp")
-            for param in tox_params:
-                if param in params:
-                    params[param] = float(params[param]) * corner.tox_scale
-
-            # Apply length delta
-            if corner.length_delta != 0:
-                if "l" in params:
-                    params["l"] = float(params["l"]) + corner.length_delta
-
-            # Apply model-specific overrides
-            if model in corner.model_params:
-                for param, value in corner.model_params[model].items():
-                    params[param] = value
-
-    def _apply_voltage_corner(self, corner: Optional["VoltageCorner"]) -> None:
-        """Apply voltage corner scaling to source devices.
-
-        Modifies voltage source DC values based on corner specification.
-
-        Args:
-            corner: Voltage corner to apply (or None for nominal)
-        """
-        if corner is None:
-            return
-
-        for dev in self.devices:
-            if dev.get("model") != "vsource":
-                continue
-
-            name = dev.get("name", "")
-            params = dev.get("params", {})
-
-            # Check for explicit source value
-            if name in corner.source_values:
-                params["dc"] = corner.source_values[name]
-            elif "dc" in params:
-                # Apply general VDD scaling
-                params["dc"] = float(params["dc"]) * corner.vdd_scale

@@ -260,6 +260,81 @@ def create_standard_corners(
     return corners
 
 
+def apply_process_corner(devices: List[Dict[str, Any]], corner: Optional[ProcessCorner]) -> None:
+    """Apply process corner scaling to device parameters.
+
+    Modifies device parameters in place based on corner specification.
+
+    Args:
+        devices: List of device dicts with 'params', 'is_openvaf', 'model' keys
+        corner: Process corner to apply (or None for nominal)
+    """
+    if corner is None:
+        return
+
+    for dev in devices:
+        if not dev.get("is_openvaf", False):
+            continue
+
+        params = dev.get("params", {})
+        model = dev.get("model", "")
+
+        # Apply mobility scaling
+        mobility_params = ("uo", "mu0", "u0", "betn", "betp", "mue")
+        for param in mobility_params:
+            if param in params:
+                params[param] = float(params[param]) * corner.mobility_scale
+
+        # Apply Vth shift
+        vth_params = ("vth0", "vfb", "delvto", "dvt0")
+        for param in vth_params:
+            if param in params:
+                params[param] = float(params[param]) + corner.vth_shift
+
+        # Apply Tox scaling
+        tox_params = ("tox", "toxe", "toxo", "toxp")
+        for param in tox_params:
+            if param in params:
+                params[param] = float(params[param]) * corner.tox_scale
+
+        # Apply length delta
+        if corner.length_delta != 0:
+            if "l" in params:
+                params["l"] = float(params["l"]) + corner.length_delta
+
+        # Apply model-specific overrides
+        if model in corner.model_params:
+            for param, value in corner.model_params[model].items():
+                params[param] = value
+
+
+def apply_voltage_corner(devices: List[Dict[str, Any]], corner: Optional[VoltageCorner]) -> None:
+    """Apply voltage corner scaling to source devices.
+
+    Modifies voltage source DC values based on corner specification.
+
+    Args:
+        devices: List of device dicts with 'model', 'name', 'params' keys
+        corner: Voltage corner to apply (or None for nominal)
+    """
+    if corner is None:
+        return
+
+    for dev in devices:
+        if dev.get("model") != "vsource":
+            continue
+
+        name = dev.get("name", "")
+        params = dev.get("params", {})
+
+        # Check for explicit source value
+        if name in corner.source_values:
+            params["dc"] = corner.source_values[name]
+        elif "dc" in params:
+            # Apply general VDD scaling
+            params["dc"] = float(params["dc"]) * corner.vdd_scale
+
+
 def create_pvt_corners(
     processes: Optional[List[str]] = None,
     temperatures: Optional[List[str]] = None,
