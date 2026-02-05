@@ -59,6 +59,14 @@ from jax_spice.analysis.options import SimulationOptions
 from jax_spice.analysis.solver_factories import (
     make_dense_full_mna_solver,
 )
+from jax_spice.analysis.sources import (
+    build_source_fn,
+    collect_source_devices_coo,
+    get_dc_source_values,
+    get_source_fn_for_device,
+    get_vdd_value,
+    prepare_source_devices_coo,
+)
 from jax_spice.config import DEFAULT_TEMPERATURE_K
 from jax_spice.netlist.parser import VACASKParser
 from jax_spice.profiling import ProfileConfig, profile
@@ -2185,197 +2193,7 @@ class CircuitEngine:
 
     def _build_source_fn(self):
         """Build time-varying source function from device parameters."""
-        sources = {}
-
-        for dev in self.devices:
-            if dev["model"] not in ("vsource", "isource"):
-                continue
-
-            params = dev["params"]
-            source_type = str(params.get("type", "dc")).lower()
-
-            logger.debug(f"  Source {dev['name']}: type={source_type}")
-
-            if source_type in ("dc", "0", "0.0", ""):
-                # DC source - constant value
-                dc_val = params.get("dc", 0)
-                sources[dev["name"]] = lambda t, v=dc_val: v
-
-            elif source_type == "pulse":
-                # Pulse source - using jnp.where for GPU compatibility
-                # Parse values with SI suffix support (e.g., "1u" -> 1e-6)
-                val0 = self.parse_spice_number(params.get("val0", 0))
-                val1 = self.parse_spice_number(params.get("val1", 1))
-                rise = self.parse_spice_number(params.get("rise", 1e-9))
-                fall = self.parse_spice_number(params.get("fall", 1e-9))
-                width = self.parse_spice_number(params.get("width", 1e-6))
-                period = self.parse_spice_number(params.get("period", 2e-6))
-                delay = self.parse_spice_number(params.get("delay", 0))
-
-                def pulse_fn(t, v0=val0, v1=val1, r=rise, f=fall, w=width, p=period, d=delay):
-                    # Use jnp.where for GPU-friendly conditionals
-                    t_in_period = (t - d) % p
-                    # Rising edge
-                    rising = v0 + (v1 - v0) * t_in_period / r
-                    # Falling edge
-                    falling = v1 - (v1 - v0) * (t_in_period - r - w) / f
-                    # Select based on phase
-                    return jnp.where(
-                        t < d,
-                        v0,
-                        jnp.where(
-                            t_in_period < r,
-                            rising,
-                            jnp.where(
-                                t_in_period < r + w,
-                                v1,
-                                jnp.where(t_in_period < r + w + f, falling, v0),
-                            ),
-                        ),
-                    )
-
-                sources[dev["name"]] = pulse_fn
-
-            elif source_type == "sine":
-                # Sine source - parse values with SI suffix support
-                ampl = self.parse_spice_number(params.get("ampl", 1))
-                freq = self.parse_spice_number(params.get("freq", 1e3))
-                sinedc = self.parse_spice_number(params.get("sinedc", 0))
-                phase = self.parse_spice_number(params.get("phase", 0))
-
-                def sine_fn(t, a=ampl, f=freq, dc=sinedc, ph=phase):
-                    return dc + a * jnp.sin(2 * jnp.pi * f * t + ph)
-
-                sources[dev["name"]] = sine_fn
-
-            elif source_type == "pwl":
-                # Piecewise linear source
-                # wave format: [t1, v1, t2, v2, t3, v3, ...]
-                wave = params.get("wave", [0, 0])
-                offset = self.parse_spice_number(params.get("offset", 0))
-                scale = self.parse_spice_number(params.get("scale", 1))
-                stretch = self.parse_spice_number(params.get("stretch", 1))
-                pwlperiod = self.parse_spice_number(params.get("pwlperiod", 0))
-
-                # Parse wave if it's a string (from netlist parser)
-                if isinstance(wave, str):
-                    import ast
-
-                    try:
-                        wave = ast.literal_eval(wave)
-                    except (ValueError, SyntaxError) as e:
-                        raise ValueError(f"Invalid PWL wave format '{wave}': {e}") from e
-
-                # Convert wave to JAX arrays
-                wave_arr = jnp.array(wave, dtype=get_float_dtype())
-                times = wave_arr[0::2] * stretch
-                values = wave_arr[1::2] * scale + offset
-
-                def pwl_fn(t, times=times, values=values, period=pwlperiod):
-                    # Handle periodicity
-                    if period > 0:
-                        t = t % period
-                    # Linear interpolation - jnp.interp handles edge cases
-                    return jnp.interp(t, times, values)
-
-                sources[dev["name"]] = pwl_fn
-
-            elif source_type == "exp":
-                # Exponential source (rise then fall) - parse values with SI suffix support
-                val0 = self.parse_spice_number(params.get("val0", 0))
-                val1 = self.parse_spice_number(params.get("val1", 1))
-                delay = self.parse_spice_number(params.get("delay", 0))
-                td2 = self.parse_spice_number(params.get("td2", 1e-9))  # time to start falling
-                tau1 = self.parse_spice_number(params.get("tau1", 1e-10))  # rise time constant
-                tau2 = self.parse_spice_number(params.get("tau2", 1e-10))  # fall time constant
-
-                def exp_fn(t, v0=val0, v1=val1, d=delay, td=td2, t1=tau1, t2=tau2):
-                    t_fall = d + td  # Time when fall begins
-                    # Rising phase
-                    rising = v0 + (v1 - v0) * (1 - jnp.exp(-(t - d) / t1))
-                    # Falling phase (starts from rising value at t_fall)
-                    rising_at_fall = v0 + (v1 - v0) * (1 - jnp.exp(-td / t1))
-                    falling = rising_at_fall + (v0 - rising_at_fall) * (
-                        1 - jnp.exp(-(t - t_fall) / t2)
-                    )
-
-                    return jnp.where(t < d, v0, jnp.where(t < t_fall, rising, falling))
-
-                sources[dev["name"]] = exp_fn
-
-            elif source_type == "am":
-                # Amplitude modulation source - parse values with SI suffix support
-                sinedc = self.parse_spice_number(params.get("sinedc", 0))
-                ampl = self.parse_spice_number(params.get("ampl", 1))
-                freq = self.parse_spice_number(params.get("freq", 1e3))
-                phase = self.parse_spice_number(params.get("phase", params.get("sinephase", 0)))
-                delay = self.parse_spice_number(params.get("delay", 0))
-                modfreq = self.parse_spice_number(params.get("modfreq", 1e3))
-                modphase = self.parse_spice_number(params.get("modphase", 0))
-                modindex = self.parse_spice_number(params.get("modindex", 0.5))
-
-                def am_fn(
-                    t,
-                    dc=sinedc,
-                    a=ampl,
-                    f=freq,
-                    ph=phase,
-                    d=delay,
-                    mf=modfreq,
-                    mph=modphase,
-                    mi=modindex,
-                ):
-                    # Before delay, use initial value
-                    initial = dc + a * jnp.sin(ph * jnp.pi / 180) * (
-                        1 + mi * jnp.sin(mph * jnp.pi / 180)
-                    )
-                    # AM: carrier * (1 + modulation)
-                    carrier = jnp.sin(2 * jnp.pi * f * (t - d) + ph * jnp.pi / 180)
-                    modulation = 1 + mi * jnp.sin(2 * jnp.pi * mf * (t - d) + mph * jnp.pi / 180)
-                    return jnp.where(t < d, initial, dc + a * carrier * modulation)
-
-                sources[dev["name"]] = am_fn
-
-            elif source_type == "fm":
-                # Frequency modulation source - parse values with SI suffix support
-                sinedc = self.parse_spice_number(params.get("sinedc", 0))
-                ampl = self.parse_spice_number(params.get("ampl", 1))
-                freq = self.parse_spice_number(params.get("freq", 1e3))
-                phase = self.parse_spice_number(params.get("phase", params.get("sinephase", 0)))
-                delay = self.parse_spice_number(params.get("delay", 0))
-                modfreq = self.parse_spice_number(params.get("modfreq", 1e3))
-                modphase = self.parse_spice_number(params.get("modphase", 0))
-                modindex = self.parse_spice_number(params.get("modindex", 0.5))
-
-                def fm_fn(
-                    t,
-                    dc=sinedc,
-                    a=ampl,
-                    f=freq,
-                    ph=phase,
-                    d=delay,
-                    mf=modfreq,
-                    mph=modphase,
-                    mi=modindex,
-                ):
-                    # Before delay, use initial value
-                    initial = dc + a * jnp.sin(ph * jnp.pi / 180 + mi * jnp.sin(mph * jnp.pi / 180))
-                    # FM: sin(carrier_phase + modulation)
-                    carrier_phase = 2 * jnp.pi * f * (t - d) + ph * jnp.pi / 180
-                    mod_contribution = mi * jnp.sin(2 * jnp.pi * mf * (t - d) + mph * jnp.pi / 180)
-                    return jnp.where(
-                        t < d, initial, dc + a * jnp.sin(carrier_phase + mod_contribution)
-                    )
-
-                sources[dev["name"]] = fm_fn
-
-            else:
-                raise ValueError(f"Unknown source type '{source_type}' for device {dev['name']}")
-
-        def source_fn(t):
-            return {name: fn(t) for name, fn in sources.items()}
-
-        return source_fn
+        return build_source_fn(self.devices, self.parse_spice_number)
 
     @profile
     def run_transient(
@@ -2861,42 +2679,12 @@ class CircuitEngine:
     def _get_dc_source_values(
         self, n_vsources: int, n_isources: int
     ) -> Tuple[jax.Array, jax.Array]:
-        """Extract DC values from voltage and current sources.
-
-        Args:
-            n_vsources: Number of voltage sources
-            n_isources: Number of current sources
-
-        Returns:
-            Tuple of (vsource_dc_vals, isource_dc_vals) as JAX arrays
-        """
-        vsource_dc_vals = jnp.zeros(n_vsources, dtype=get_float_dtype())
-        isource_dc_vals = jnp.zeros(n_isources, dtype=get_float_dtype())
-
-        vsource_idx = 0
-        isource_idx = 0
-        for dev in self.devices:
-            if dev["model"] == "vsource":
-                dc_val = dev["params"].get("dc", 0.0)
-                vsource_dc_vals = vsource_dc_vals.at[vsource_idx].set(float(dc_val))
-                vsource_idx += 1
-            elif dev["model"] == "isource":
-                source_type = str(dev["params"].get("type", "dc")).lower()
-                dc_val = dev["params"].get("val0" if source_type == "pulse" else "dc", 0.0)
-                isource_dc_vals = isource_dc_vals.at[isource_idx].set(float(dc_val))
-                isource_idx += 1
-
-        return vsource_dc_vals, isource_dc_vals
+        """Extract DC values from voltage and current sources."""
+        return get_dc_source_values(self.devices, n_vsources, n_isources)
 
     def _get_vdd_value(self) -> float:
         """Find the maximum DC voltage from voltage sources (VDD)."""
-        vdd_value = 0.0
-        for dev in self.devices:
-            if dev["model"] == "vsource":
-                dc_val = dev["params"].get("dc", 0.0)
-                if dc_val > vdd_value:
-                    vdd_value = dc_val
-        return vdd_value
+        return get_vdd_value(self.devices)
 
     def _compute_dc_operating_point(
         self,
@@ -3103,56 +2891,7 @@ class CircuitEngine:
 
     def _get_source_fn_for_device(self, dev: Dict):
         """Get the source function for a device, or None if not a source."""
-        if dev["model"] not in ("vsource", "isource"):
-            return None
-
-        params = dev["params"]
-        source_type = str(params.get("type", "dc")).lower()
-
-        if source_type in ("dc", "0", "0.0", ""):
-            dc_val = params.get("dc", 0)
-            return lambda t, v=dc_val: v
-
-        elif source_type == "pulse":
-            # Parse values with SI suffix support (e.g., "1u" -> 1e-6)
-            val0 = self.parse_spice_number(params.get("val0", 0))
-            val1 = self.parse_spice_number(params.get("val1", 1))
-            rise = self.parse_spice_number(params.get("rise", 1e-9))
-            fall = self.parse_spice_number(params.get("fall", 1e-9))
-            width = self.parse_spice_number(params.get("width", 1e-6))
-            period = self.parse_spice_number(params.get("period", 2e-6))
-            delay = self.parse_spice_number(params.get("delay", 0))
-
-            def pulse_fn(t, v0=val0, v1=val1, r=rise, f=fall, w=width, p=period, d=delay):
-                t_in_period = (t - d) % p
-                rising = v0 + (v1 - v0) * t_in_period / r
-                falling = v1 - (v1 - v0) * (t_in_period - r - w) / f
-                return jnp.where(
-                    t < d,
-                    v0,
-                    jnp.where(
-                        t_in_period < r,
-                        rising,
-                        jnp.where(
-                            t_in_period < r + w, v1, jnp.where(t_in_period < r + w + f, falling, v0)
-                        ),
-                    ),
-                )
-
-            return pulse_fn
-
-        elif source_type == "sine":
-            sinedc = self.parse_spice_number(params.get("sinedc", 0))
-            ampl = self.parse_spice_number(params.get("ampl", 1))
-            freq = self.parse_spice_number(params.get("freq", 1e6))
-            phase = self.parse_spice_number(params.get("phase", 0))
-
-            def sine_fn(t, dc=sinedc, a=ampl, f=freq, ph=phase):
-                return dc + a * jnp.sin(2 * jnp.pi * f * t + ph)
-
-            return sine_fn
-
-        return None
+        return get_source_fn_for_device(dev, self.parse_spice_number)
 
     def _prepare_source_devices_coo(
         self,
@@ -3160,103 +2899,8 @@ class CircuitEngine:
         ground: int,
         n_unknowns: int,
     ) -> Dict[str, Any]:
-        """Pre-compute data structures and stamp templates for source devices.
-
-        All other devices (resistor, capacitor, diode) are handled via OpenVAF.
-        This function only handles vsource and isource.
-
-        Pre-computes static index arrays so runtime collection is fully vectorized
-        with no Python loops.
-
-        For 2-terminal devices (p, n), the stamp pattern is:
-        - Residual: f[p] += I, f[n] -= I (2 entries, masked by ground)
-        - Jacobian: J[p,p] += G, J[p,n] -= G, J[n,p] -= G, J[n,n] += G (4 entries)
-
-        Returns dict with device data and pre-computed stamp templates.
-        """
-        # Group by model type (only vsource and isource expected)
-        logger.debug("Preparing source devices COO")
-        by_type: Dict[str, List[Dict]] = {}
-        for dev in source_devices:
-            model = dev["model"]
-            if model in ("vsource", "isource"):
-                if model not in by_type:
-                    by_type[model] = []
-                by_type[model].append(dev)
-
-        result = {}
-        for model, devs in by_type.items():
-            logger.debug(f"COO for {model}")
-            n = len(devs)
-            # Extract node indices as JAX arrays
-            node_p = jnp.array([d["nodes"][0] for d in devs], dtype=jnp.int32)
-            node_n = jnp.array([d["nodes"][1] for d in devs], dtype=jnp.int32)
-            names = [d["name"] for d in devs]
-
-            # Pre-compute stamp templates for 2-terminal devices
-            # Residual indices: [p-1, n-1] for each device, -1 if grounded
-            logger.debug("Pre-computing stamp templates")
-            f_idx_p = jnp.where(node_p != ground, node_p - 1, -1)
-            f_idx_n = jnp.where(node_n != ground, node_n - 1, -1)
-            # Stack to shape (n, 2): [[p0, n0], [p1, n1], ...]
-            f_indices = jnp.stack([f_idx_p, f_idx_n], axis=1)
-            f_signs = jnp.array([1.0, -1.0])  # I at p, -I at n
-
-            # Jacobian indices for 4-entry stamp pattern
-            # Entries: (p,p), (p,n), (n,n), (n,p)
-            mask_p = node_p != ground
-            mask_n = node_n != ground
-            mask_both = mask_p & mask_n
-
-            # Row indices: p, p, n, n (or -1 if invalid)
-            j_row_pp = jnp.where(mask_p, node_p - 1, -1)
-            j_row_pn = jnp.where(mask_both, node_p - 1, -1)
-            j_row_nn = jnp.where(mask_n, node_n - 1, -1)
-            j_row_np = jnp.where(mask_both, node_n - 1, -1)
-
-            # Col indices: p, n, n, p
-            j_col_pp = jnp.where(mask_p, node_p - 1, -1)
-            j_col_pn = jnp.where(mask_both, node_n - 1, -1)
-            j_col_nn = jnp.where(mask_n, node_n - 1, -1)
-            j_col_np = jnp.where(mask_both, node_p - 1, -1)
-
-            # Stack to shape (n, 4)
-            j_rows = jnp.stack([j_row_pp, j_row_pn, j_row_nn, j_row_np], axis=1)
-            j_cols = jnp.stack([j_col_pp, j_col_pn, j_col_nn, j_col_np], axis=1)
-            j_signs = jnp.array([1.0, -1.0, 1.0, -1.0])  # +G, -G, +G, -G
-
-            base_data = {
-                "node_p": node_p,
-                "node_n": node_n,
-                "n": n,
-                "f_indices": f_indices,  # (n, 2)
-                "f_signs": f_signs,  # (2,)
-                "j_rows": j_rows,  # (n, 4)
-                "j_cols": j_cols,  # (n, 4)
-                "j_signs": j_signs,  # (4,)
-            }
-
-            if model == "vsource":
-                dc = jnp.array([d["params"].get("dc", 0.0) for d in devs], dtype=get_float_dtype())
-                result["vsource"] = {**base_data, "dc": dc, "names": names}
-            elif model == "isource":
-                dc = jnp.array([d["params"].get("dc", 0.0) for d in devs], dtype=get_float_dtype())
-                # Current sources have no Jacobian contribution
-                result["isource"] = {
-                    "node_p": node_p,
-                    "node_n": node_n,
-                    "n": n,
-                    "names": names,
-                    "dc": dc,
-                    "f_indices": f_indices,
-                    "f_signs": f_signs,
-                    # No Jacobian for current sources
-                    "j_rows": jnp.zeros((n, 0), dtype=jnp.int32),
-                    "j_cols": jnp.zeros((n, 0), dtype=jnp.int32),
-                    "j_signs": jnp.array([]),
-                }
-            logger.debug("Stamp templates complete")
-        return result
+        """Pre-compute data structures and stamp templates for source devices."""
+        return prepare_source_devices_coo(source_devices, ground, n_unknowns)
 
     def _collect_source_devices_coo(
         self,
@@ -3270,66 +2914,11 @@ class CircuitEngine:
         j_cols: List,
         j_vals: List,
     ):
-        """Collect COO triplets from source devices using fully vectorized operations.
-
-        All other devices (resistor, capacitor, diode) are handled via OpenVAF.
-        This function only handles vsource and isource.
-
-        Uses pre-computed stamp templates from _prepare_source_devices_coo.
-        Fully vectorized - no Python loops, all JAX operations.
-
-        Args:
-            device_data: Pre-computed stamp templates from _prepare_source_devices_coo
-            V: Current voltage vector
-            vsource_vals: JAX array of voltage source target values (built once per timestep)
-            isource_vals: JAX array of current source values (built once per timestep)
-        """
-
-        def _stamp_two_terminal(d: Dict, I: jax.Array, G: jax.Array):
-            """Vectorized stamp for 2-terminal devices with current I and conductance G."""
-            # Residual: shape (n, 2) -> flatten to (2*n,)
-            f_vals = I[:, None] * d["f_signs"][None, :]  # (n, 2)
-            f_idx = d["f_indices"].ravel()  # (2*n,)
-            f_val = f_vals.ravel()  # (2*n,)
-
-            # Jacobian: shape (n, 4) -> flatten to (4*n,)
-            j_vals_arr = G[:, None] * d["j_signs"][None, :]  # (n, 4)
-            j_row = d["j_rows"].ravel()  # (4*n,)
-            j_col = d["j_cols"].ravel()  # (4*n,)
-            j_val = j_vals_arr.ravel()  # (4*n,)
-
-            # Filter valid entries (index >= 0)
-            f_valid = f_idx >= 0
-            j_valid = j_row >= 0
-
-            f_indices.append(jnp.where(f_valid, f_idx, 0))
-            f_values.append(jnp.where(f_valid, f_val, 0.0))
-            j_rows.append(jnp.where(j_valid, j_row, 0))
-            j_cols.append(jnp.where(j_valid, j_col, 0))
-            j_vals.append(jnp.where(j_valid, j_val, 0.0))
-
-        # Voltage sources: I = G * (Vp - Vn - Vtarget), G = 1e12
-        if "vsource" in device_data and vsource_vals.size > 0:
-            d = device_data["vsource"]
-            G = 1e12
-            Vp, Vn = V[d["node_p"]], V[d["node_n"]]
-            # vsource_vals is pre-built JAX array - no Python loop here
-            I = G * (Vp - Vn - vsource_vals)
-            G_arr = jnp.full(d["n"], G)
-            _stamp_two_terminal(d, I, G_arr)
-
-        # Current sources (residual only, no Jacobian)
-        if "isource" in device_data and isource_vals.size > 0:
-            d = device_data["isource"]
-            # isource_vals is pre-built JAX array - no Python loop here
-            # Residual: +I at p (current leaves), -I at n (current enters)
-            # For KCL: f[i] = sum of currents LEAVING node i
-            f_vals = isource_vals[:, None] * jnp.array([1.0, -1.0])[None, :]  # (n, 2)
-            f_idx = d["f_indices"].ravel()
-            f_val = f_vals.ravel()
-            f_valid = f_idx >= 0
-            f_indices.append(jnp.where(f_valid, f_idx, 0))
-            f_values.append(jnp.where(f_valid, f_val, 0.0))
+        """Collect COO triplets from source devices using fully vectorized operations."""
+        collect_source_devices_coo(
+            device_data, V, vsource_vals, isource_vals,
+            f_indices, f_values, j_rows, j_cols, j_vals
+        )
 
     def _collect_openvaf_coo(
         self,
