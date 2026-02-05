@@ -348,7 +348,7 @@ class FullMNAStrategy(TransientStrategy):
 
         # Create full MNA build_system function
         build_system_fn, device_arrays, total_limit_states = (
-            self.runner._make_full_mna_build_system_fn(
+            self.runner._make_mna_build_system_fn(
                 setup.source_device_data,
                 setup.vmapped_fns,
                 setup.static_inputs_cache,

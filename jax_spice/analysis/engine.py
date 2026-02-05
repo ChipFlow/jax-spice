@@ -58,19 +58,7 @@ from jax_spice.analysis.integration import (
     IntegrationMethod,
     get_method_from_options,
 )
-from jax_spice.analysis.mna import (
-    assemble_coo_vector,
-    assemble_dense_jacobian,
-    assemble_jacobian_coo,
-    assemble_sparse_jacobian,
-    build_vsource_equations,
-    build_vsource_incidence_coo,
-    build_vsource_kcl_contribution,
-    combine_transient_residual,
-    compute_vsource_current_from_kcl,
-    mask_coo_matrix,
-    mask_coo_vector,
-)
+from jax_spice.analysis.mna_builder import make_mna_build_system_fn
 from jax_spice.analysis.options import SimulationOptions
 from jax_spice.analysis.parsing import (
     build_devices as _build_devices_impl,
@@ -2655,7 +2643,7 @@ class CircuitEngine:
         j_cols.append(flat_jac_cols[valid_jac])
         j_vals.append(flat_jac_vals[valid_jac])
 
-    def _make_full_mna_build_system_fn(
+    def _make_mna_build_system_fn(
         self,
         source_device_data: Dict,
         vmapped_fns: Dict,
@@ -2663,374 +2651,21 @@ class CircuitEngine:
         n_unknowns: int,
         use_dense: bool = True,
     ) -> Tuple[Callable, Dict, int]:
-        """Create GPU-resident build_system function for full MNA formulation.
+        """Create GPU-resident build_system function for MNA formulation.
 
-        Uses true Modified Nodal Analysis with branch currents as explicit unknowns,
-        providing more accurate current extraction than the high-G (G=1e12) approximation.
+        This is a thin wrapper around make_mna_build_system_fn that passes
+        the compiled models and options from self.
 
-        Full MNA augments the system from n×n to (n+m)×(n+m) where m = number
-        of voltage sources. The branch currents become primary unknowns:
-
-            ┌───────────────┐   ┌───┐   ┌───────┐
-            │  G + c0*C   B │   │ V │   │ f_node│
-            │               │ × │   │ = │       │
-            │    B^T      0 │   │ J │   │ E - V │
-            └───────────────┘   └───┘   └───────┘
-
-        Where:
-        - G = device conductance matrix (n×n)
-        - C = device capacitance matrix (n×n)
-        - B = incidence matrix mapping currents to nodes (n×m)
-        - V = node voltages (n×1)
-        - J = branch currents (m×1) - these are the primary unknowns for vsources
-        - f_node = device current contributions
-        - E = voltage source values (m×1)
-
-        Benefits over high-G approximation:
-        - More accurate current extraction (no numerical noise from G=1e12)
-        - Smoother dI/dt transitions matching VACASK reference
-        - Better conditioned matrices for ill-conditioned circuits
-
-        Args:
-            source_device_data: Pre-computed source device stamp templates
-            vmapped_fns: Dict of vmapped OpenVAF functions per model type
-            static_inputs_cache: Dict of static inputs per model type
-            n_unknowns: Number of node voltage unknowns (n_total - 1)
-            use_dense: Whether to use dense or sparse matrix assembly
-
-        Returns:
-            Tuple of:
-            - build_system function with signature:
-                build_system(X, vsource_vals, isource_vals, Q_prev, integ_c0, device_arrays,
-                             gmin, gshunt, ...) -> (J, f, Q, I_vsource)
-              where X = [V; I_branch] is the augmented solution vector
-            - device_arrays: Dict[model_type, cache] to pass to build_system
+        See jax_spice.analysis.mna_builder.make_mna_build_system_fn for full docs.
         """
-        # Get number of voltage sources for augmentation
-        n_vsources = len(source_device_data.get("vsource", {}).get("names", []))
-        n_augmented = n_unknowns + n_vsources
-
-        # Capture model types as static list (unrolled at trace time)
-        model_types = list(static_inputs_cache.keys())
-
-        # Split cache into metadata (captured) and arrays (passed as argument)
-        static_metadata = {}
-        device_arrays = {}
-        split_eval_info = {}
-        for model_type in model_types:
-            voltage_indices, stamp_indices, voltage_node1, voltage_node2, cache, _ = (
-                static_inputs_cache[model_type]
-            )
-            static_metadata[model_type] = (
-                voltage_indices,
-                stamp_indices,
-                voltage_node1,
-                voltage_node2,
-            )
-
-            compiled = self._compiled_models.get(model_type, {})
-            n_devices = compiled["device_params"].shape[0]
-            num_limit_states = compiled.get("num_limit_states", 0)
-            split_eval_info[model_type] = {
-                "vmapped_split_eval": compiled["vmapped_split_eval"],
-                "shared_params": compiled["shared_params"],
-                "device_params": compiled["device_params"],
-                "voltage_positions": compiled["voltage_positions_in_varying"],
-                "shared_cache": compiled["shared_cache"],
-                "default_simparams": compiled.get(
-                    "default_simparams", jnp.array([0.0, 1.0, 1e-12])
-                ),
-                # Device-level limiting info
-                "use_device_limiting": compiled.get("use_device_limiting", False),
-                "num_limit_states": num_limit_states,
-                "n_devices": n_devices,
-            }
-            device_arrays[model_type] = compiled["device_cache"]
-
-        # Pre-compute vsource node indices as JAX arrays (captured in closure)
-        if n_vsources > 0:
-            vsource_node_p = jnp.array(source_device_data["vsource"]["node_p"], dtype=jnp.int32)
-            vsource_node_n = jnp.array(source_device_data["vsource"]["node_n"], dtype=jnp.int32)
-        else:
-            vsource_node_p = jnp.zeros(0, dtype=jnp.int32)
-            vsource_node_n = jnp.zeros(0, dtype=jnp.int32)
-
-        # Capture options.gmin for diagonal regularization
-        # Use at least 1e-6 for dense, 1e-4 for sparse (GPU sparse solvers are more sensitive)
-        # Also respect larger netlist GMIN for ill-conditioned circuits
-        min_floor = 1e-4 if not use_dense else 1e-6
-        min_diag_reg = max(min_floor, self.options.gmin)
-
-        # Compute total limit state size and offsets per model type
-        # limit_state is a flat array: [model0_device0_states, model0_device1_states, ..., model1_device0_states, ...]
-        total_limit_states = 0
-        limit_state_offsets = {}  # model_type -> (start_offset, n_devices, num_limit_states)
-        for model_type in model_types:
-            if model_type in split_eval_info:
-                info = split_eval_info[model_type]
-                if info.get("use_device_limiting", False) and info.get("num_limit_states", 0) > 0:
-                    n_devices = info["n_devices"]
-                    num_limit_states = info["num_limit_states"]
-                    limit_state_offsets[model_type] = (
-                        total_limit_states,
-                        n_devices,
-                        num_limit_states,
-                    )
-                    total_limit_states += n_devices * num_limit_states
-
-        def build_system_full_mna(
-            X: jax.Array,  # Augmented solution: [V; I_branch] of size n_total + n_vsources
-            vsource_vals: jax.Array,
-            isource_vals: jax.Array,
-            Q_prev: jax.Array,
-            integ_c0: float | jax.Array,
-            device_arrays_arg: Dict[str, jax.Array],
-            gmin: float | jax.Array = 1e-12,
-            gshunt: float | jax.Array = 0.0,
-            integ_c1: float | jax.Array = 0.0,
-            integ_d1: float | jax.Array = 0.0,
-            dQdt_prev: jax.Array | None = None,
-            integ_c2: float | jax.Array = 0.0,
-            Q_prev2: jax.Array | None = None,
-            limit_state_in: jax.Array | None = None,  # Flat array of all limit states
-        ) -> Tuple[Any, jax.Array, jax.Array, jax.Array, jax.Array]:
-            """Build augmented Jacobian J and residual f for full MNA.
-
-            The solution vector X has structure: [V1, V2, ..., Vn, I_vs1, I_vs2, ..., I_vsm]
-            where V are node voltages (ground excluded) and I_vs are branch currents.
-
-            Args:
-                X: Augmented solution vector of size n_total + n_vsources
-                   X[:n_total] = node voltages (including ground at index 0)
-                   X[n_total:] = branch currents for voltage sources
-                vsource_vals: Voltage source target values
-                isource_vals: Current source values
-                Q_prev: Charges from previous timestep
-                integ_c0: Integration coefficient for current charges
-                device_arrays_arg: Device cache arrays
-                gmin, gshunt: Regularization parameters
-                integ_c1, integ_d1, dQdt_prev, integ_c2, Q_prev2: Integration history
-
-            Returns:
-                J: Augmented Jacobian matrix of size (n_unknowns+n_vsources) × (n_unknowns+n_vsources)
-                f: Augmented residual vector of size (n_unknowns+n_vsources)
-                Q: Current charges (size n_unknowns)
-                I_vsource: Branch currents (extracted directly from X)
-            """
-            # Extract voltage and current parts from augmented solution
-            # X has structure: [V_ground=0, V_1, ..., V_n, I_vs1, ..., I_vsm]
-            n_total = n_unknowns + 1  # Total nodes including ground
-            V = X[:n_total]
-            I_branch = X[n_total:] if n_vsources > 0 else jnp.zeros(0, dtype=get_float_dtype())
-
-            # =====================================================================
-            # Device contributions (same as high-G version, but without vsource stamps)
-            # =====================================================================
-            f_resist_parts = []
-            f_react_parts = []
-            j_resist_parts = []
-            j_react_parts = []
-            lim_rhs_resist_parts = []
-            lim_rhs_react_parts = []
-            # Pre-allocate limit_state_out with static size (filled via slice assignments)
-            limit_state_out = jnp.zeros(total_limit_states, dtype=get_float_dtype())
-
-            # Current sources (residual only, no Jacobian)
-            if "isource" in source_device_data and isource_vals.size > 0:
-                d = source_device_data["isource"]
-                f_vals = isource_vals[:, None] * jnp.array([1.0, -1.0])[None, :]
-                f_idx = d["f_indices"].ravel()
-                f_val = f_vals.ravel()
-                f_valid = f_idx >= 0
-                f_resist_parts.append(
-                    (jnp.where(f_valid, f_idx, 0), jnp.where(f_valid, f_val, 0.0))
-                )
-
-            # OpenVAF devices (same as before)
-            for model_type in model_types:
-                voltage_indices, stamp_indices, voltage_node1, voltage_node2 = static_metadata[
-                    model_type
-                ]
-                cache = device_arrays_arg[model_type]
-
-                voltage_updates = V[voltage_node1] - V[voltage_node2]
-
-                uses_analysis = self._compiled_models.get(model_type, {}).get(
-                    "uses_analysis", False
-                )
-                uses_simparam_gmin = self._compiled_models.get(model_type, {}).get(
-                    "uses_simparam_gmin", False
-                )
-
-                split_info = split_eval_info[model_type]
-                shared_params = split_info["shared_params"]
-                device_params = split_info["device_params"]
-                voltage_positions = split_info["voltage_positions"]
-                shared_cache = split_info["shared_cache"]
-
-                device_params_updated = device_params.at[:, voltage_positions].set(voltage_updates)
-
-                if uses_analysis:
-                    analysis_type_val = jnp.where(integ_c0 > 0, 2.0, 0.0)
-                    device_params_updated = device_params_updated.at[:, -2].set(analysis_type_val)
-                    device_params_updated = device_params_updated.at[:, -1].set(gmin)
-                elif uses_simparam_gmin:
-                    device_params_updated = device_params_updated.at[:, -1].set(gmin)
-
-                vmapped_split_eval = split_info["vmapped_split_eval"]
-                default_simparams = split_info["default_simparams"]
-                use_device_limiting = split_info.get("use_device_limiting", False)
-                num_limit_states = split_info.get("num_limit_states", 0)
-
-                analysis_type_val = jnp.where(integ_c0 > 0, 2.0, 0.0)
-                simparams = default_simparams.at[0].set(analysis_type_val).at[2].set(gmin)
-
-                # Get limit_state slice for this model type (always needed for uniform interface)
-                # vmapped function expects limit_state_in argument
-                n_dev = split_info["n_devices"]
-                n_lim = max(1, num_limit_states)
-                if (
-                    use_device_limiting
-                    and num_limit_states > 0
-                    and model_type in limit_state_offsets
-                    and limit_state_in is not None
-                ):
-                    offset, _, n_lim = limit_state_offsets[model_type]
-                    # Extract and reshape: flat -> (n_devices, num_limit_states)
-                    model_limit_state_in = limit_state_in[offset : offset + n_dev * n_lim].reshape(
-                        n_dev, n_lim
-                    )
-                else:
-                    # Use zeros - model has no limits or no valid input
-                    model_limit_state_in = jnp.zeros((n_dev, n_lim), dtype=get_float_dtype())
-
-                # Uniform interface: always pass shared_cache, device_cache, limit_state_in
-                (
-                    batch_res_resist,
-                    batch_res_react,
-                    batch_jac_resist,
-                    batch_jac_react,
-                    batch_lim_rhs_resist,
-                    batch_lim_rhs_react,
-                    _,
-                    _,
-                    batch_limit_state_out,
-                ) = vmapped_split_eval(
-                    shared_params,
-                    device_params_updated,
-                    shared_cache,
-                    cache,
-                    simparams,
-                    model_limit_state_in,
-                )
-
-                # Store limit_state_out at pre-computed offset (static slice assignment)
-                if use_device_limiting and model_type in limit_state_offsets:
-                    offset, _, n_lim = limit_state_offsets[model_type]
-                    limit_state_out = limit_state_out.at[offset : offset + n_dev * n_lim].set(
-                        batch_limit_state_out.ravel()
-                    )
-
-                # Extract stamp indices (flattened for COO format)
-                res_idx = stamp_indices["res_indices"].ravel()
-                jac_row_idx = stamp_indices["jac_row_indices"].ravel()
-                jac_col_idx = stamp_indices["jac_col_indices"].ravel()
-
-                # Mask and collect residual contributions (COOVector)
-                f_resist_parts.append(mask_coo_vector(res_idx, batch_res_resist.ravel()))
-                f_react_parts.append(mask_coo_vector(res_idx, batch_res_react.ravel()))
-
-                # Mask and collect Jacobian contributions (COOMatrix)
-                j_resist_parts.append(mask_coo_matrix(
-                    jac_row_idx, jac_col_idx, batch_jac_resist.ravel()
-                ))
-                j_react_parts.append(mask_coo_matrix(
-                    jac_row_idx, jac_col_idx, batch_jac_react.ravel()
-                ))
-
-                # Mask and collect limiting RHS contributions
-                lim_rhs_resist_parts.append(mask_coo_vector(res_idx, batch_lim_rhs_resist.ravel()))
-                lim_rhs_react_parts.append(mask_coo_vector(res_idx, batch_lim_rhs_react.ravel()))
-
-            # Build device contribution vectors using helper functions
-            # Parts are already COOVector/COOMatrix from mask_coo_* helpers
-            f_resist = assemble_coo_vector(f_resist_parts, n_unknowns)
-            Q = assemble_coo_vector(f_react_parts, n_unknowns)
-            lim_rhs_resist = assemble_coo_vector(lim_rhs_resist_parts, n_unknowns)
-            lim_rhs_react = assemble_coo_vector(lim_rhs_react_parts, n_unknowns)
-
-            f_resist = f_resist - lim_rhs_resist
-
-            # Compute I_vsource from device residuals via KCL (before adding I_branch)
-            # This provides the correct initial current for UIC mode where I_branch=0
-            I_vsource_kcl = compute_vsource_current_from_kcl(f_resist, vsource_node_p)
-
-            _dQdt_prev = (
-                dQdt_prev
-                if dQdt_prev is not None
-                else jnp.zeros(n_unknowns, dtype=get_float_dtype())
-            )
-            _Q_prev2 = (
-                Q_prev2 if Q_prev2 is not None else jnp.zeros(n_unknowns, dtype=get_float_dtype())
-            )
-
-            # Full MNA: Add branch current contribution to KCL at vsource nodes
-            if n_vsources > 0:
-                f_branch_contrib = build_vsource_kcl_contribution(
-                    I_branch, vsource_node_p, vsource_node_n, n_unknowns
-                )
-                f_resist = f_resist + f_branch_contrib
-
-            # Combine for transient using helper function
-            f_node = combine_transient_residual(
-                f_resist, Q, jnp.zeros_like(f_resist), lim_rhs_react,
-                Q_prev, integ_c0, integ_c1, integ_d1, _dQdt_prev,
-                integ_c2, _Q_prev2, gshunt, V[1:]
-            )
-
-            # Voltage source equations: V_p - V_n - E = 0
-            f_branch = build_vsource_equations(V, vsource_vals, vsource_node_p, vsource_node_n)
-
-            # Combine node and branch residuals
-            f_augmented = jnp.concatenate([f_node, f_branch])
-
-            # Build augmented Jacobian using helper functions
-            # Parts are already COOMatrix from mask_coo_matrix helper
-
-            # Combine device Jacobian contributions: J = G + c0*C
-            all_j_rows, all_j_cols, all_j_vals = assemble_jacobian_coo(
-                j_resist_parts, j_react_parts, integ_c0
-            )
-
-            # Add B and B^T blocks for voltage sources
-            if n_vsources > 0:
-                b_rows, b_cols, b_vals = build_vsource_incidence_coo(
-                    vsource_node_p, vsource_node_n, n_unknowns, n_vsources
-                )
-                all_j_rows = jnp.concatenate([all_j_rows, b_rows])
-                all_j_cols = jnp.concatenate([all_j_cols, b_cols])
-                all_j_vals = jnp.concatenate([all_j_vals, b_vals])
-
-            # Assemble final Jacobian matrix
-            if use_dense:
-                J = assemble_dense_jacobian(
-                    all_j_rows, all_j_cols, all_j_vals,
-                    n_augmented, n_unknowns, n_vsources, min_diag_reg, gshunt
-                )
-            else:
-                J = assemble_sparse_jacobian(
-                    all_j_rows, all_j_cols, all_j_vals,
-                    n_augmented, n_unknowns, min_diag_reg, gshunt
-                )
-
-            # Use KCL-computed current (always correct) instead of I_branch from X
-            # This is critical for UIC mode where I_branch starts at 0
-            I_vsource = I_vsource_kcl
-
-            # limit_state_out was pre-allocated and filled via slice assignments
-            return J, f_augmented, Q, I_vsource, limit_state_out
-
-        return build_system_full_mna, device_arrays, total_limit_states
+        return make_mna_build_system_fn(
+            source_device_data=source_device_data,
+            static_inputs_cache=static_inputs_cache,
+            compiled_models=self._compiled_models,
+            gmin=self.options.gmin,
+            n_unknowns=n_unknowns,
+            use_dense=use_dense,
+        )
 
     def _compute_voltage_param(
         self, name: str, V: jax.Array, node_map: Dict[str, int], model_nodes: List[str], ground: int
@@ -3193,7 +2828,7 @@ class CircuitEngine:
 
         # Create full MNA NR solver for DC operating point
         # Uses true MNA with branch currents as explicit unknowns
-        build_system_fn, device_arrays, total_limit_states = self._make_full_mna_build_system_fn(
+        build_system_fn, device_arrays, total_limit_states = self._make_mna_build_system_fn(
             source_device_data, vmapped_fns, static_inputs_cache, n_unknowns, use_dense=True
         )
         build_system_jit = jax.jit(build_system_fn)
