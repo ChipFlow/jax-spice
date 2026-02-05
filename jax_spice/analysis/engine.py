@@ -58,6 +58,19 @@ from jax_spice.analysis.integration import (
     IntegrationMethod,
     get_method_from_options,
 )
+from jax_spice.analysis.mna import (
+    COOMatrix,
+    COOVector,
+    assemble_coo_vector,
+    assemble_dense_jacobian,
+    assemble_jacobian_coo,
+    assemble_sparse_jacobian,
+    build_vsource_equations,
+    build_vsource_incidence_coo,
+    build_vsource_kcl_contribution,
+    combine_transient_residual,
+    compute_vsource_current_from_kcl,
+)
 from jax_spice.analysis.options import SimulationOptions
 from jax_spice.analysis.parsing import (
     build_devices as _build_devices_impl,
@@ -2976,57 +2989,23 @@ class CircuitEngine:
                 )
                 lim_rhs_react_parts.append((flat_res_idx_masked, flat_lim_rhs_react_masked))
 
-            # Build device contribution vectors (size n_unknowns)
-            if f_resist_parts:
-                all_f_resist_idx = jnp.concatenate([p[0] for p in f_resist_parts])
-                all_f_resist_val = jnp.concatenate([p[1] for p in f_resist_parts])
-                f_resist = jax.ops.segment_sum(
-                    all_f_resist_val, all_f_resist_idx, num_segments=n_unknowns
-                )
-            else:
-                f_resist = jnp.zeros(n_unknowns, dtype=get_float_dtype())
+            # Build device contribution vectors using helper functions
+            # Convert tuple parts to COOVector for assembly
+            f_resist_coo = [COOVector(p[0], p[1]) for p in f_resist_parts]
+            f_react_coo = [COOVector(p[0], p[1]) for p in f_react_parts]
+            lim_resist_coo = [COOVector(p[0], p[1]) for p in lim_rhs_resist_parts]
+            lim_react_coo = [COOVector(p[0], p[1]) for p in lim_rhs_react_parts]
 
-            if f_react_parts:
-                all_f_react_idx = jnp.concatenate([p[0] for p in f_react_parts])
-                all_f_react_val = jnp.concatenate([p[1] for p in f_react_parts])
-                Q = jax.ops.segment_sum(all_f_react_val, all_f_react_idx, num_segments=n_unknowns)
-            else:
-                Q = jnp.zeros(n_unknowns, dtype=get_float_dtype())
-
-            if lim_rhs_resist_parts:
-                all_lim_rhs_resist_idx = jnp.concatenate([p[0] for p in lim_rhs_resist_parts])
-                all_lim_rhs_resist_val = jnp.concatenate([p[1] for p in lim_rhs_resist_parts])
-                lim_rhs_resist = jax.ops.segment_sum(
-                    all_lim_rhs_resist_val, all_lim_rhs_resist_idx, num_segments=n_unknowns
-                )
-            else:
-                lim_rhs_resist = jnp.zeros(n_unknowns, dtype=get_float_dtype())
-
-            if lim_rhs_react_parts:
-                all_lim_rhs_react_idx = jnp.concatenate([p[0] for p in lim_rhs_react_parts])
-                all_lim_rhs_react_val = jnp.concatenate([p[1] for p in lim_rhs_react_parts])
-                lim_rhs_react = jax.ops.segment_sum(
-                    all_lim_rhs_react_val, all_lim_rhs_react_idx, num_segments=n_unknowns
-                )
-            else:
-                lim_rhs_react = jnp.zeros(n_unknowns, dtype=get_float_dtype())
+            f_resist = assemble_coo_vector(f_resist_coo, n_unknowns)
+            Q = assemble_coo_vector(f_react_coo, n_unknowns)
+            lim_rhs_resist = assemble_coo_vector(lim_resist_coo, n_unknowns)
+            lim_rhs_react = assemble_coo_vector(lim_react_coo, n_unknowns)
 
             f_resist = f_resist - lim_rhs_resist
 
-            # =====================================================================
             # Compute I_vsource from device residuals via KCL (before adding I_branch)
             # This provides the correct initial current for UIC mode where I_branch=0
-            # =====================================================================
-            if n_vsources > 0 and "vsource" in source_device_data:
-                # Extract device contribution at vsource positive nodes (0-indexed in MNA)
-                vsource_node_p_mna = vsource_node_p - 1
-                # Handle ground (index 0) - if positive terminal is ground, contribution is 0
-                valid_nodes = vsource_node_p > 0
-                f_device_at_p = jnp.where(valid_nodes, f_resist[vsource_node_p_mna], 0.0)
-                # Vsource current = -device_contribution (by KCL: sum of currents = 0)
-                I_vsource_kcl = -f_device_at_p
-            else:
-                I_vsource_kcl = jnp.zeros(0, dtype=get_float_dtype())
+            I_vsource_kcl = compute_vsource_current_from_kcl(f_resist, vsource_node_p)
 
             _dQdt_prev = (
                 dQdt_prev
@@ -3037,156 +3016,56 @@ class CircuitEngine:
                 Q_prev2 if Q_prev2 is not None else jnp.zeros(n_unknowns, dtype=get_float_dtype())
             )
 
-            # =====================================================================
             # Full MNA: Add branch current contribution to KCL at vsource nodes
-            # =====================================================================
-            # For each vsource i connecting nodes p and n:
-            # - At node p: add +I_branch[i] to residual
-            # - At node n: add -I_branch[i] to residual
             if n_vsources > 0:
-                # Build B @ I_branch contribution to node residuals
-                # B has shape (n_unknowns, n_vsources) with ±1 at (p-1, i) and (n-1, i)
-                # We use scatter to add I_branch to the appropriate nodes
-
-                # Positive terminals (add +I_branch)
-                p_mna = vsource_node_p - 1  # Convert to 0-indexed MNA
-                valid_p = vsource_node_p > 0  # Ground (0) doesn't contribute
-
-                # Negative terminals (add -I_branch)
-                n_mna = vsource_node_n - 1
-                valid_n = vsource_node_n > 0
-
-                # Create index and value arrays for both terminals
-                all_b_idx = jnp.concatenate(
-                    [jnp.where(valid_p, p_mna, 0), jnp.where(valid_n, n_mna, 0)]
-                )
-                all_b_val = jnp.concatenate(
-                    [jnp.where(valid_p, I_branch, 0.0), jnp.where(valid_n, -I_branch, 0.0)]
-                )
-
-                # Add B @ I_branch to node residuals
-                f_branch_contrib = jax.ops.segment_sum(
-                    all_b_val, all_b_idx, num_segments=n_unknowns
+                f_branch_contrib = build_vsource_kcl_contribution(
+                    I_branch, vsource_node_p, vsource_node_n, n_unknowns
                 )
                 f_resist = f_resist + f_branch_contrib
 
-            # Combine for transient
-            f_node = (
-                f_resist
-                + integ_c0 * (Q - lim_rhs_react)
-                + integ_c1 * Q_prev
-                + integ_d1 * _dQdt_prev
-                + integ_c2 * _Q_prev2
+            # Combine for transient using helper function
+            f_node = combine_transient_residual(
+                f_resist, Q, jnp.zeros_like(f_resist), lim_rhs_react,
+                Q_prev, integ_c0, integ_c1, integ_d1, _dQdt_prev,
+                integ_c2, _Q_prev2, gshunt, V[1:]
             )
-            f_node = f_node + gshunt * V[1:]
 
-            # =====================================================================
-            # Voltage source equations (rows n_unknowns to n_augmented-1)
-            # For each vsource i: V_p - V_n - E_i = 0
-            # =====================================================================
-            if n_vsources > 0:
-                Vp = V[vsource_node_p]
-                Vn = V[vsource_node_n]
-                f_branch = Vp - Vn - vsource_vals
-            else:
-                f_branch = jnp.zeros(0, dtype=get_float_dtype())
+            # Voltage source equations: V_p - V_n - E = 0
+            f_branch = build_vsource_equations(V, vsource_vals, vsource_node_p, vsource_node_n)
 
             # Combine node and branch residuals
             f_augmented = jnp.concatenate([f_node, f_branch])
 
-            # =====================================================================
-            # Build augmented Jacobian
-            # =====================================================================
-            # Device contributions to upper-left G block
-            if j_resist_parts:
-                all_j_resist_rows = jnp.concatenate([p[0] for p in j_resist_parts])
-                all_j_resist_cols = jnp.concatenate([p[1] for p in j_resist_parts])
-                all_j_resist_vals = jnp.concatenate([p[2] for p in j_resist_parts])
-            else:
-                all_j_resist_rows = jnp.zeros(0, dtype=jnp.int32)
-                all_j_resist_cols = jnp.zeros(0, dtype=jnp.int32)
-                all_j_resist_vals = jnp.zeros(0, dtype=get_float_dtype())
+            # Build augmented Jacobian using helper functions
+            # Convert tuple parts to COOMatrix for assembly
+            j_resist_coo = [COOMatrix(p[0], p[1], p[2]) for p in j_resist_parts]
+            j_react_coo = [COOMatrix(p[0], p[1], p[2]) for p in j_react_parts]
 
-            if j_react_parts:
-                all_j_react_rows = jnp.concatenate([p[0] for p in j_react_parts])
-                all_j_react_cols = jnp.concatenate([p[1] for p in j_react_parts])
-                all_j_react_vals = jnp.concatenate([p[2] for p in j_react_parts])
-            else:
-                all_j_react_rows = jnp.zeros(0, dtype=jnp.int32)
-                all_j_react_cols = jnp.zeros(0, dtype=jnp.int32)
-                all_j_react_vals = jnp.zeros(0, dtype=get_float_dtype())
+            # Combine device Jacobian contributions: J = G + c0*C
+            all_j_rows, all_j_cols, all_j_vals = assemble_jacobian_coo(
+                j_resist_coo, j_react_coo, integ_c0
+            )
 
-            # Combine G and c0*C contributions
-            all_j_rows = jnp.concatenate([all_j_resist_rows, all_j_react_rows])
-            all_j_cols = jnp.concatenate([all_j_resist_cols, all_j_react_cols])
-            all_j_vals = jnp.concatenate([all_j_resist_vals, integ_c0 * all_j_react_vals])
-
+            # Add B and B^T blocks for voltage sources
             if n_vsources > 0:
-                # =====================================================================
-                # B block: df_node/dI_branch = B (incidence matrix)
-                # At node p: df/dI = +1
-                # At node n: df/dI = -1
-                # =====================================================================
-                valid_p = vsource_node_p > 0
-                valid_n = vsource_node_n > 0
+                b_rows, b_cols, b_vals = build_vsource_incidence_coo(
+                    vsource_node_p, vsource_node_n, n_unknowns, n_vsources
+                )
+                all_j_rows = jnp.concatenate([all_j_rows, b_rows])
+                all_j_cols = jnp.concatenate([all_j_cols, b_cols])
+                all_j_vals = jnp.concatenate([all_j_vals, b_vals])
 
-                branch_indices = jnp.arange(n_vsources, dtype=jnp.int32)
-
-                # B block entries
-                b_rows_p = jnp.where(valid_p, vsource_node_p - 1, 0)  # node index (0-indexed)
-                b_cols_p = jnp.where(valid_p, n_unknowns + branch_indices, 0)  # branch column
-                b_vals_p = jnp.where(valid_p, 1.0, 0.0)
-
-                b_rows_n = jnp.where(valid_n, vsource_node_n - 1, 0)
-                b_cols_n = jnp.where(valid_n, n_unknowns + branch_indices, 0)
-                b_vals_n = jnp.where(valid_n, -1.0, 0.0)
-
-                # =====================================================================
-                # B^T block: df_branch/dV = B^T
-                # For vsource i: df_i/dV_p = +1, df_i/dV_n = -1
-                # =====================================================================
-                bt_rows_p = jnp.where(valid_p, n_unknowns + branch_indices, 0)  # branch row
-                bt_cols_p = jnp.where(valid_p, vsource_node_p - 1, 0)  # node column
-                bt_vals_p = jnp.where(valid_p, 1.0, 0.0)
-
-                bt_rows_n = jnp.where(valid_n, n_unknowns + branch_indices, 0)
-                bt_cols_n = jnp.where(valid_n, vsource_node_n - 1, 0)
-                bt_vals_n = jnp.where(valid_n, -1.0, 0.0)
-
-                # Append B and B^T entries
-                all_j_rows = jnp.concatenate([all_j_rows, b_rows_p, b_rows_n, bt_rows_p, bt_rows_n])
-                all_j_cols = jnp.concatenate([all_j_cols, b_cols_p, b_cols_n, bt_cols_p, bt_cols_n])
-                all_j_vals = jnp.concatenate([all_j_vals, b_vals_p, b_vals_n, bt_vals_p, bt_vals_n])
-
+            # Assemble final Jacobian matrix
             if use_dense:
-                # Dense: COO -> dense matrix via segment_sum
-                flat_indices = all_j_rows * n_augmented + all_j_cols
-                J_flat = jax.ops.segment_sum(
-                    all_j_vals, flat_indices, num_segments=n_augmented * n_augmented
+                J = assemble_dense_jacobian(
+                    all_j_rows, all_j_cols, all_j_vals,
+                    n_augmented, n_unknowns, n_vsources, min_diag_reg, gshunt
                 )
-                J = J_flat.reshape((n_augmented, n_augmented))
-                # Add regularization to node equations (upper-left block)
-                # Note: branch equations should NOT have diagonal regularization (they're exact)
-                # min_diag_reg is at least 1e-6, but uses netlist GMIN if larger.
-                diag_reg = jnp.concatenate(
-                    [jnp.full(n_unknowns, min_diag_reg + gshunt), jnp.zeros(n_vsources)]
-                )
-                J = J + jnp.diag(diag_reg)
             else:
-                # Sparse path - build BCOO sparse matrix
-                from jax.experimental.sparse import BCOO
-
-                # Add diagonal regularization for node equations only
-                # min_diag_reg is at least 1e-6, but uses netlist GMIN if larger.
-                diag_idx = jnp.arange(n_unknowns, dtype=jnp.int32)
-                all_j_rows = jnp.concatenate([all_j_rows, diag_idx])
-                all_j_cols = jnp.concatenate([all_j_cols, diag_idx])
-                all_j_vals = jnp.concatenate(
-                    [all_j_vals, jnp.full(n_unknowns, min_diag_reg + gshunt)]
+                J = assemble_sparse_jacobian(
+                    all_j_rows, all_j_cols, all_j_vals,
+                    n_augmented, n_unknowns, min_diag_reg, gshunt
                 )
-
-                indices = jnp.stack([all_j_rows, all_j_cols], axis=1)
-                J = BCOO((all_j_vals, indices), shape=(n_augmented, n_augmented))
 
             # Use KCL-computed current (always correct) instead of I_branch from X
             # This is critical for UIC mode where I_branch starts at 0
