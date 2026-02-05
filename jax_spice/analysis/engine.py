@@ -523,98 +523,17 @@ class CircuitEngine:
 
         # Compile OpenVAF models if needed
         if self._has_openvaf_devices:
-            self._compile_openvaf_models()
+            compile_openvaf_models(
+                devices=self.devices,
+                compiled_models=self._compiled_models,
+                model_paths=self.OPENVAF_MODELS,
+                log_fn=lambda msg: logger.info(msg),
+            )
             # Compute collapse decisions early using init_fn
-            self._compute_early_collapse_decisions()
-
-    def _compile_openvaf_models(self, log_fn=None):
-        """Compile OpenVAF models needed by the circuit.
-
-        Uses module-level cache to reuse jitted functions across runner instances.
-        Models are only compiled once per process.
-
-        Args:
-            log_fn: Optional logging function for progress output
-        """
-        # Delegate to standalone function from openvaf_models module
-        compile_openvaf_models(
-            devices=self.devices,
-            compiled_models=self._compiled_models,
-            model_paths=self.OPENVAF_MODELS,
-            log_fn=log_fn if log_fn else lambda msg: logger.info(msg),
-        )
-
-    def _compute_early_collapse_decisions(self):
-        """Compute collapse decisions for all devices using OpenVAF vmapped_init.
-
-        This is called early (before _setup_internal_nodes) to determine which
-        node pairs should collapse for each device. Uses OpenVAF's generic
-        collapse mechanism instead of model-specific code.
-
-        OPTIMIZATION: Groups devices by unique parameter combinations and computes
-        collapse decisions once per unique combo. For c6288, this reduces from
-        ~10k evaluations to just 2 (one for pmos, one for nmos).
-
-        Stores results in self._device_collapse_decisions: Dict[device_name, List[Tuple[int, int]]]
-        where each tuple is (node1_idx, node2_idx) that should be collapsed.
-        """
-        # Delegate to standalone function from openvaf_models module
-        self._device_collapse_decisions = compute_early_collapse_decisions(
-            devices=self.devices,
-            compiled_models=self._compiled_models,
-        )
-
-    def _prepare_static_inputs(
-        self,
-        model_type: str,
-        openvaf_devices: List[Dict],
-        device_internal_nodes: Dict[str, Dict[str, int]],
-        ground: int,
-    ) -> Tuple[List[int], List[Dict], jax.Array, jax.Array]:
-        """Prepare device inputs and generate split eval function.
-
-        This is called once per simulation. It analyzes parameter constancy across
-        devices and generates optimized split eval functions that separate constant
-        (shared) params from varying (per-device) params.
-
-        Returns:
-            (voltage_indices, device_contexts, cache, collapse_decisions) where:
-            - voltage_indices is list of param indices that are voltages
-            - device_contexts is list of dicts with node_map, voltage_node_pairs for fast update
-            - cache is shape (num_devices, cache_size) JAX array with init-computed values
-            - collapse_decisions is shape (num_devices, num_collapsible) JAX array with collapse booleans
-
-        Side effects:
-            Stores in compiled dict: shared_params, device_params, vmapped_split_eval, etc.
-        """
-        # Delegate to standalone function from openvaf_models module
-        return prepare_static_inputs(
-            model_type=model_type,
-            openvaf_devices=openvaf_devices,
-            device_internal_nodes=device_internal_nodes,
-            compiled_models=self._compiled_models,
-            simulation_temperature=self._simulation_temperature,
-            use_device_limiting=getattr(self, "use_device_limiting", False),
-            parse_voltage_param_fn=self._parse_voltage_param,
-            ground=ground,
-        )
-
-    def warmup_device_models(self, static_inputs_cache: Dict[str, Tuple]) -> None:
-        """Trigger XLA compilation of vmapped device functions.
-
-        This method calls each vmapped_split_eval function with actual inputs
-        to trigger XLA compilation. The compiled artifacts are stored in JAX's
-        persistent cache (if configured) and can be reused across sessions.
-
-        Args:
-            static_inputs_cache: Dict mapping model_type to cached static inputs:
-                (voltage_indices, stamp_indices, voltage_node1, voltage_node2, cache, collapse_decisions)
-        """
-        # Delegate to standalone function from openvaf_models module
-        _warmup_device_models_impl(
-            compiled_models=self._compiled_models,
-            static_inputs_cache=static_inputs_cache,
-        )
+            self._device_collapse_decisions = compute_early_collapse_decisions(
+                devices=self.devices,
+                compiled_models=self._compiled_models,
+            )
 
     def _build_stamp_index_mapping(
         self,
@@ -1541,8 +1460,15 @@ class CircuitEngine:
             if compiled and "dae_metadata" in compiled:
                 logger.debug(f"{model_type} already compiled")
                 voltage_indices, device_contexts, cache, collapse_decisions = (
-                    self._prepare_static_inputs(
-                        model_type, openvaf_by_type[model_type], device_internal_nodes, ground
+                    prepare_static_inputs(
+                        model_type=model_type,
+                        openvaf_devices=openvaf_by_type[model_type],
+                        device_internal_nodes=device_internal_nodes,
+                        compiled_models=self._compiled_models,
+                        simulation_temperature=self._simulation_temperature,
+                        use_device_limiting=getattr(self, "use_device_limiting", False),
+                        parse_voltage_param_fn=self._parse_voltage_param,
+                        ground=ground,
                     )
                 )
                 stamp_indices = self._build_stamp_index_mapping(model_type, device_contexts, ground)
@@ -1590,7 +1516,10 @@ class CircuitEngine:
         logger.info("Cached transient setup for reuse")
 
         # Warm up device models
-        self.warmup_device_models(static_inputs_cache)
+        _warmup_device_models_impl(
+            compiled_models=self._compiled_models,
+            static_inputs_cache=static_inputs_cache,
+        )
 
         return self._transient_setup_cache
 
@@ -1875,7 +1804,12 @@ class CircuitEngine:
         """
         # Compile OpenVAF models if not already done
         if not self._compiled_models:
-            self._compile_openvaf_models()
+            compile_openvaf_models(
+                devices=self.devices,
+                compiled_models=self._compiled_models,
+                model_paths=self.OPENVAF_MODELS,
+                log_fn=lambda msg: logger.info(msg),
+            )
 
         # Reuse transient setup infrastructure
         setup = self._build_transient_setup(backend="cpu", use_dense=True)
