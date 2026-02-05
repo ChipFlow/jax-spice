@@ -83,6 +83,7 @@ class AdaptiveConfig:
     )  # Report progress every N steps (0 to disable, or set JAX_SPICE_NO_PROGRESS=1)
     debug_lte: bool = False  # Print detailed LTE debug info (top contributors)
     tran_fs: float = 0.25  # Initial timestep scale factor (VACASK default)
+    tran_ft: float = 0.25  # Timestep cut factor on NR failure (VACASK default 0.25)
     debug_steps: bool = False  # Print per-step info (time, dt, NR iters, LTE)
     integration_method: IntegrationMethod = (
         IntegrationMethod.TRAPEZOIDAL

@@ -32,11 +32,10 @@ import jax
 import jax.numpy as jnp
 from jax import Array
 
+from jax_spice.config import K_BOLTZMANN, Q_ELECTRON
+
 logger = logging.getLogger(__name__)
 
-# Physical constants
-K_BOLTZMANN = 1.380649e-23  # J/K
-Q_ELECTRON = 1.602176634e-19  # C
 T_NOMINAL = 300.15  # 27°C in Kelvin
 
 

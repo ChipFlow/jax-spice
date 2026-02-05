@@ -97,9 +97,6 @@ def fetlim(vnew: Array, vold: Array, vto: float = 0.5) -> Array:
     return limited
 
 
-# Default NR damping factor (1.0 = no damping, 0.5 = half steps)
-DEFAULT_NR_DAMPING = 1.0
-
 
 def apply_voltage_damping(
     V_new: Array,

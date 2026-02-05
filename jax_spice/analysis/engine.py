@@ -59,9 +59,6 @@ from jax_spice.analysis.options import SimulationOptions
 from jax_spice.analysis.solver_factories import (
     make_dense_full_mna_solver,
 )
-from jax_spice.analysis.solver_factories import (
-    set_nr_damping as _set_global_nr_damping,
-)
 from jax_spice.config import DEFAULT_TEMPERATURE_K
 from jax_spice.netlist.parser import VACASKParser
 from jax_spice.profiling import ProfileConfig, profile
@@ -96,13 +93,6 @@ _COMPILED_MODEL_CACHE: Dict[str, Any] = {}
 # These are circuit-independent and can be shared across all CircuitEngine instances
 _SPICE_NUMBER_CACHE: Dict[str, float] = {}
 
-# Newton-Raphson solver constants
-MAX_NR_ITERATIONS = 100  # Maximum Newton-Raphson iterations per timestep
-# Absolute tolerance for NR convergence (current in Amperes)
-# With voltage sources using G=1e12, residual = G * V_error
-# For 10nV voltage accuracy: abstol = 1e12 * 10e-9 = 1e4 (10kA)
-# Previous value of 1e-3 demanded femtovolt accuracy (unrealistic)
-DEFAULT_ABSTOL = 1e4  # 10kA - corresponds to ~10nV voltage accuracy with G=1e12
 
 
 # OpenVAF model sources (duplicated from CircuitEngine for standalone use)
@@ -1278,6 +1268,7 @@ class CircuitEngine:
             # Build param_name -> column index mapping
             param_to_cols = {}
             param_given_to_cols = {}
+            limit_param_map: Dict[int, Tuple[str, str]] = {}
             for idx, (name, kind) in enumerate(zip(param_names, param_kinds)):
                 name_lower = name.lower()
                 if kind == "param":
@@ -1288,6 +1279,9 @@ class CircuitEngine:
                     col_values[idx] = self._simulation_temperature  # Scalar - same for all devices
                 elif kind == "sysfun" and name_lower == "mfactor":
                     col_values[idx] = 1.0  # Scalar
+                elif kind in ("prev_state", "enable_lim", "new_state", "enable_integration"):
+                    # Limit-related params: handled in codegen, not in shared/device arrays
+                    limit_param_map[idx] = (kind, name)
 
             # Get unique params from devices
             all_unique = set()
@@ -1404,10 +1398,15 @@ class CircuitEngine:
         # No full (n_devices, n_params) array allocation needed!
         if n_devices >= 1 and n_params_total > 0:
             # Classify columns as shared (scalar value) or varying (array value or voltage)
+            # Limit-related params (prev_state, enable_lim, etc.) are excluded - they're
+            # handled directly in codegen via limit_param_map
+            limit_param_indices = set(limit_param_map.keys())
             shared_indices = []
             varying_indices_list = []
             for col in range(n_params_total):
-                if col in varying_cols_set:
+                if col in limit_param_indices:
+                    continue  # Handled separately in codegen
+                elif col in varying_cols_set:
                     varying_indices_list.append(col)
                 else:
                     shared_indices.append(col)
@@ -1548,6 +1547,7 @@ class CircuitEngine:
                 shared_cache_indices,
                 varying_cache_indices,
                 use_limit_functions=use_device_limiting,
+                limit_param_map=limit_param_map,
             )
             # Bind limit_funcs for uniform call signature:
             # (shared, device, shared_cache, device_cache, simparams, limit_state_in)
@@ -1590,6 +1590,12 @@ class CircuitEngine:
             compiled["varying_cache_indices"] = varying_cache_indices
             compiled["default_simparams"] = default_simparams
             compiled["use_device_limiting"] = use_device_limiting
+            compiled["limit_param_map"] = limit_param_map
+            if limit_param_map:
+                logger.info(
+                    f"{model_type}: {len(limit_param_map)} limit params mapped "
+                    f"({', '.join(f'{k}:{v[0]}' for k, v in sorted(limit_param_map.items()))})"
+                )
             # Store limit metadata for solver to manage limit_state arrays
             if use_device_limiting and split_meta.get("limit_metadata"):
                 compiled["limit_metadata"] = split_meta["limit_metadata"]
@@ -2421,12 +2427,11 @@ class CircuitEngine:
         # Update simulation temperature if changed (invalidates cached static inputs)
         if temperature != self._simulation_temperature:
             self._simulation_temperature = temperature
+            # Sync options.temp (Celsius) from internal Kelvin representation
+            self.options.temp = temperature - 273.15
             self._transient_setup_cache = None
             self._transient_setup_key = None
             logger.info(f"Temperature changed to {temperature}K ({temperature - 273.15:.1f}°C)")
-
-        # Sync nr_damping from options to global (used by JIT-compiled solvers)
-        _set_global_nr_damping(self.options.nr_damping)
 
         # Emit deprecation warnings for ignored parameters
         if use_scan:
@@ -3040,24 +3045,24 @@ class CircuitEngine:
             # This uses analytic jacobians (NOT autodiff)
             logger.info("  Direct NR failed, trying homotopy chain...")
 
-            # Configure homotopy with conservative settings
-            # Use netlist GMIN (from self.options.gmin) for proper device conductances
+            # Configure homotopy from SimulationOptions
             homotopy_config = HomotopyConfig(
                 gmin=self.options.gmin,
-                gdev_start=1e-3,  # Start from moderate GMIN
-                gdev_target=1e-13,
-                gmin_factor=3.0,  # Conservative stepping factor
-                gmin_factor_min=1.1,
-                gmin_factor_max=10.0,
-                gmin_max=1.0,
-                gmin_max_steps=100,
-                source_step=0.1,
-                source_step_min=0.001,
-                source_max_steps=100,
-                chain=("gdev", "gshunt", "src"),
-                max_iterations=max_iterations,
-                abstol=1e-9,
-                debug=0,  # Disable debug output for normal runs
+                gdev_start=self.options.homotopy_startgmin,
+                gdev_target=self.options.homotopy_mingmin,
+                gmin_factor=self.options.homotopy_gminfactor,
+                gmin_factor_min=self.options.homotopy_mingminfactor,
+                gmin_factor_max=self.options.homotopy_maxgminfactor,
+                gmin_max=self.options.homotopy_maxgmin,
+                gmin_max_steps=self.options.homotopy_gminsteps,
+                source_step=self.options.homotopy_srcstep,
+                source_step_min=self.options.homotopy_minsrcstep,
+                source_scale=self.options.homotopy_srcscale,
+                source_max_steps=self.options.homotopy_srcsteps,
+                chain=self.options.op_homotopy,
+                max_iterations=self.options.op_itlcont,
+                abstol=self.options.abstol,
+                debug=0,
             )
 
             result = run_homotopy_chain(
@@ -4100,10 +4105,11 @@ class CircuitEngine:
             n_total,
             n_vsources,
             noi_indices=noi_indices,
-            max_iterations=MAX_NR_ITERATIONS,
-            abstol=DEFAULT_ABSTOL,
+            max_iterations=self.options.op_itl,
+            abstol=self.options.abstol,
             max_step=1.0,
             total_limit_states=total_limit_states,
+            options=self.options,
         )
 
         # Initialize X (augmented: [V, I_branch])
@@ -4135,22 +4141,23 @@ class CircuitEngine:
             # Fall back to homotopy chain using the cached NR solver
             logger.info("  AC DC: Direct NR failed, trying homotopy chain...")
 
-            # Use netlist GMIN (from self.options.gmin) for proper device conductances
+            # Configure homotopy from SimulationOptions
             homotopy_config = HomotopyConfig(
                 gmin=self.options.gmin,
-                gdev_start=1e-3,
-                gdev_target=1e-13,
-                gmin_factor=3.0,
-                gmin_factor_min=1.1,
-                gmin_factor_max=10.0,
-                gmin_max=1.0,
-                gmin_max_steps=100,
-                source_step=0.1,
-                source_step_min=0.001,
-                source_max_steps=100,
-                chain=("gdev", "gshunt", "src"),
-                max_iterations=100,
-                abstol=1e-9,
+                gdev_start=self.options.homotopy_startgmin,
+                gdev_target=self.options.homotopy_mingmin,
+                gmin_factor=self.options.homotopy_gminfactor,
+                gmin_factor_min=self.options.homotopy_mingminfactor,
+                gmin_factor_max=self.options.homotopy_maxgminfactor,
+                gmin_max=self.options.homotopy_maxgmin,
+                gmin_max_steps=self.options.homotopy_gminsteps,
+                source_step=self.options.homotopy_srcstep,
+                source_step_min=self.options.homotopy_minsrcstep,
+                source_scale=self.options.homotopy_srcscale,
+                source_max_steps=self.options.homotopy_srcsteps,
+                chain=self.options.op_homotopy,
+                max_iterations=self.options.op_itlcont,
+                abstol=self.options.abstol,
                 debug=0,
             )
 
@@ -4596,6 +4603,7 @@ class CircuitEngine:
         # Update simulation temperature if changed
         if temperature != self._simulation_temperature:
             self._simulation_temperature = temperature
+            self.options.temp = temperature - 273.15
             self._transient_setup_cache = None
             self._transient_setup_key = None
 
@@ -4744,6 +4752,7 @@ class CircuitEngine:
                 # Set temperature (this invalidates cache)
                 if corner.temperature != self._simulation_temperature:
                     self._simulation_temperature = corner.temperature
+                    self.options.temp = corner.temperature - 273.15
                     self._transient_setup_cache = None
                     self._transient_setup_key = None
 

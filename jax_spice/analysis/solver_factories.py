@@ -22,7 +22,7 @@ Integration coefficient meanings:
     - dQdt_prev: Previous dQ/dt vector for trapezoidal method.
 """
 
-from typing import Callable, Dict, Optional
+from typing import TYPE_CHECKING, Callable, Dict, Optional
 
 import jax
 import jax.numpy as jnp
@@ -30,38 +30,9 @@ import numpy as np
 from jax import Array, lax
 
 from jax_spice._logging import logger
-from jax_spice.analysis.limiting import DEFAULT_NR_DAMPING, apply_voltage_damping
 
-# Newton-Raphson solver constants
-MAX_NR_ITERATIONS = 100
-DEFAULT_ABSTOL = 1e4  # Corresponds to ~10nV voltage accuracy with G=1e12
-
-# Voltage damping constants (pnjlim-style)
-# These values are based on SPICE3 pnjlim defaults
-DAMPING_VT = 0.026  # Thermal voltage at 300K
-DAMPING_VCRIT = 0.6  # Critical voltage for PN junctions
-
-# Global NR damping factor (1.0 = no damping, <1.0 = reduced step size)
-# This can be overridden by the engine via set_nr_damping()
-_NR_DAMPING = DEFAULT_NR_DAMPING
-
-
-def set_nr_damping(value: float) -> None:
-    """Set the global NR damping factor.
-
-    Args:
-        value: Damping factor (1.0 = no damping, 0.5 = half steps, etc.)
-               Must be > 0 and <= 1.0
-    """
-    global _NR_DAMPING
-    if value <= 0 or value > 1.0:
-        raise ValueError(f"nr_damping must be in (0, 1], got {value}")
-    _NR_DAMPING = value
-
-
-def get_nr_damping() -> float:
-    """Get the current global NR damping factor."""
-    return _NR_DAMPING
+if TYPE_CHECKING:
+    from jax_spice.analysis.options import SimulationOptions
 
 
 def _compute_noi_masks(
@@ -151,11 +122,11 @@ def make_dense_full_mna_solver(
     n_nodes: int,
     n_vsources: int,
     noi_indices: Optional[Array] = None,
-    max_iterations: int = MAX_NR_ITERATIONS,
-    abstol: float = DEFAULT_ABSTOL,
-    nr_convtol: float = 1.0,
+    max_iterations: int = 100,
+    abstol: float = 1e-12,
     max_step: float = 1.0,
     total_limit_states: int = 0,
+    options: Optional["SimulationOptions"] = None,
 ) -> Callable:
     """Create a JIT-compiled dense NR solver for full MNA formulation.
 
@@ -175,15 +146,20 @@ def make_dense_full_mna_solver(
         noi_indices: Optional array of NOI node indices to constrain to 0V
         max_iterations: Maximum NR iterations
         abstol: Absolute tolerance for convergence
-        nr_convtol: NR convergence tolerance factor (multiplier on abstol). Default 1.0.
         max_step: Maximum voltage/current step per iteration
+        options: SimulationOptions for NR damping and other solver parameters.
+                 If None, uses defaults (nr_damping=1.0, nr_convtol=0.01).
 
     Returns:
         JIT-compiled solver function with signature:
             (X, vsource_vals, isource_vals, Q_prev, integ_c0, device_arrays, ...)
             -> (X, iterations, converged, max_f, Q, dQdt, I_vsource)
     """
-    # Apply tolerance factor
+    # Extract options (captured at trace time, not JAX values)
+    nr_damping = options.nr_damping if options is not None else 1.0
+    nr_convtol = options.nr_convtol if options is not None else 0.01
+
+    # Effective tolerance: abstol * nr_convtol
     effective_abstol = abstol * nr_convtol
     n_unknowns = n_nodes - 1
     n_unknowns + n_vsources
@@ -304,11 +280,10 @@ def make_dense_full_mna_solver(
         # Update X: skip ground (index 0), update node voltages and branch currents
         # X has structure: [V_ground, V_1, ..., V_n, I_vs1, ..., I_vsm]
         # delta has structure: [delta_V_1, ..., delta_V_n, delta_I_vs1, ..., delta_I_vsm]
-        V_candidate = X[1:n_total] + delta[:n_unknowns]
-        V_damped = apply_voltage_damping(
-            V_candidate, X[1:n_total], DAMPING_VT, DAMPING_VCRIT, nr_damping=_NR_DAMPING
-        )
-        X_new = X.at[1:n_total].set(V_damped)  # Update node voltages with damping
+        # VACASK system-level damping: simple scalar multiply (nrsolver.cpp:363-365)
+        # Device-level $limit callbacks handle pnjlim/fetlim per-device.
+        V_damped = X[1:n_total] + delta[:n_unknowns] * nr_damping
+        X_new = X.at[1:n_total].set(V_damped)  # Update node voltages
         X_new = X_new.at[n_total:].add(delta[n_unknowns:])  # Update branch currents
 
         # Clamp NOI nodes to 0V
@@ -473,14 +448,15 @@ def make_sparse_full_mna_solver(
     n_vsources: int,
     nse: int,
     noi_indices: Optional[Array] = None,
-    max_iterations: int = MAX_NR_ITERATIONS,
-    abstol: float = DEFAULT_ABSTOL,
-    nr_convtol: float = 1.0,
+    max_iterations: int = 100,
+    abstol: float = 1e-12,
     max_step: float = 1.0,
     coo_sort_perm: Optional[Array] = None,
     csr_segment_ids: Optional[Array] = None,
     bcsr_indices: Optional[Array] = None,
     bcsr_indptr: Optional[Array] = None,
+    total_limit_states: int = 0,
+    options: Optional["SimulationOptions"] = None,
 ) -> Callable:
     """Create a JIT-compiled sparse NR solver for full MNA formulation.
 
@@ -499,7 +475,6 @@ def make_sparse_full_mna_solver(
         noi_indices: Optional array of NOI node indices to constrain to 0V
         max_iterations: Maximum NR iterations
         abstol: Absolute tolerance for convergence
-        nr_convtol: NR convergence tolerance factor (multiplier on abstol). Default 1.0.
         max_step: Maximum voltage/current step per iteration
         coo_sort_perm: Pre-computed COO→CSR permutation
         csr_segment_ids: Pre-computed segment IDs for duplicate summing
@@ -509,7 +484,11 @@ def make_sparse_full_mna_solver(
     Returns:
         JIT-compiled solver function with same signature as make_dense_full_mna_solver
     """
-    # Apply tolerance factor
+    # Extract options (captured at trace time, not JAX values)
+    nr_damping = options.nr_damping if options is not None else 1.0
+    nr_convtol = options.nr_convtol if options is not None else 0.01
+
+    # Effective tolerance: abstol * nr_convtol
     effective_abstol = abstol * nr_convtol
     from jax.experimental.sparse import BCSR
     from jax.experimental.sparse.linalg import spsolve
@@ -563,6 +542,7 @@ def make_sparse_full_mna_solver(
             _,
             _,
             _,
+            _,
         ) = state
         return jnp.logical_and(~converged, iteration < max_iterations)
 
@@ -584,6 +564,7 @@ def make_sparse_full_mna_solver(
             gshunt,
             integ_c1,
             integ_d1,
+            integ_c2,
             _dQdt_prev,
             _Q_prev2,
         ) = state
@@ -600,7 +581,7 @@ def make_sparse_full_mna_solver(
             integ_c1,
             integ_d1,
             _dQdt_prev,
-            jnp.asarray(0.0, dtype=jnp.float64),  # integ_c2 (not used in sparse)
+            integ_c2,
             _Q_prev2,
             None,
         )
@@ -648,10 +629,8 @@ def make_sparse_full_mna_solver(
         delta = delta * scale
 
         # Update X: skip ground (index 0), update node voltages and branch currents
-        V_candidate = X[1:n_total] + delta[:n_unknowns]
-        V_damped = apply_voltage_damping(
-            V_candidate, X[1:n_total], DAMPING_VT, DAMPING_VCRIT, nr_damping=_NR_DAMPING
-        )
+        # VACASK system-level damping: simple scalar multiply
+        V_damped = X[1:n_total] + delta[:n_unknowns] * nr_damping
         X_new = X.at[1:n_total].set(V_damped)
         X_new = X_new.at[n_total:].add(delta[n_unknowns:])
 
@@ -679,6 +658,7 @@ def make_sparse_full_mna_solver(
             gshunt,
             integ_c1,
             integ_d1,
+            integ_c2,
             _dQdt_prev,
             _Q_prev2,
         )
@@ -730,6 +710,7 @@ def make_sparse_full_mna_solver(
             _gshunt,
             _integ_c1,
             _integ_d1,
+            _integ_c2,
             _dQdt_prev,
             _Q_prev2,
         )
@@ -740,6 +721,7 @@ def make_sparse_full_mna_solver(
             iterations,
             converged,
             max_f,
+            _,
             _,
             _,
             _,
@@ -803,11 +785,13 @@ def make_umfpack_full_mna_solver(
     bcsr_indptr: Array,
     bcsr_indices: Array,
     noi_indices: Optional[Array] = None,
-    max_iterations: int = MAX_NR_ITERATIONS,
-    abstol: float = DEFAULT_ABSTOL,
+    max_iterations: int = 100,
+    abstol: float = 1e-12,
     max_step: float = 1.0,
     coo_sort_perm: Optional[Array] = None,
     csr_segment_ids: Optional[Array] = None,
+    total_limit_states: int = 0,
+    options: Optional["SimulationOptions"] = None,
 ) -> Callable:
     """Create a JIT-compiled UMFPACK NR solver for full MNA formulation.
 
@@ -827,10 +811,19 @@ def make_umfpack_full_mna_solver(
         max_step: Maximum voltage/current step per iteration
         coo_sort_perm: Pre-computed COO→CSR permutation
         csr_segment_ids: Pre-computed segment IDs
+        options: SimulationOptions for NR damping and other solver parameters.
+                 If None, uses defaults (nr_damping=1.0, nr_convtol=0.01).
 
     Returns:
         JIT-compiled UMFPACK solver function with full MNA augmented system
     """
+    # Extract options (captured at trace time, not JAX values)
+    nr_damping = options.nr_damping if options is not None else 1.0
+    nr_convtol = options.nr_convtol if options is not None else 0.01
+
+    # Effective tolerance: abstol * nr_convtol
+    effective_abstol = abstol * nr_convtol
+
     from jax.experimental.sparse import BCSR
 
     from jax_spice.analysis.umfpack_solver import UMFPACKSolver
@@ -880,6 +873,7 @@ def make_umfpack_full_mna_solver(
             _,
             _,
             _,
+            _,
         ) = state
         return jnp.logical_and(~converged, iteration < max_iterations)
 
@@ -900,6 +894,7 @@ def make_umfpack_full_mna_solver(
             gshunt,
             integ_c1,
             integ_d1,
+            integ_c2,
             _dQdt_prev,
             _Q_prev2,
         ) = state
@@ -916,7 +911,7 @@ def make_umfpack_full_mna_solver(
             integ_c1,
             integ_d1,
             _dQdt_prev,
-            jnp.asarray(0.0, dtype=jnp.float64),  # integ_c2
+            integ_c2,
             _Q_prev2,
             None,
         )
@@ -927,7 +922,7 @@ def make_umfpack_full_mna_solver(
             max_f = jnp.max(jnp.abs(f_masked))
         else:
             max_f = jnp.max(jnp.abs(f))
-        residual_converged = max_f < abstol
+        residual_converged = max_f < effective_abstol
 
         if use_precomputed:
             coo_vals = J_bcoo.data
@@ -952,11 +947,9 @@ def make_umfpack_full_mna_solver(
         scale = jnp.where(max_delta > max_step, max_step / max_delta, 1.0)
         delta = delta * scale
 
-        # Update X: node voltages and branch currents with damping
-        V_candidate = X[1:n_total] + delta[:n_unknowns]
-        V_damped = apply_voltage_damping(
-            V_candidate, X[1:n_total], DAMPING_VT, DAMPING_VCRIT, nr_damping=_NR_DAMPING
-        )
+        # Update X: node voltages and branch currents
+        # VACASK system-level damping: simple scalar multiply
+        V_damped = X[1:n_total] + delta[:n_unknowns] * nr_damping
         X_new = X.at[1:n_total].set(V_damped)
         X_new = X_new.at[n_total:].add(delta[n_unknowns:])
 
@@ -982,6 +975,7 @@ def make_umfpack_full_mna_solver(
             gshunt,
             integ_c1,
             integ_d1,
+            integ_c2,
             _dQdt_prev,
             _Q_prev2,
         )
@@ -1031,6 +1025,7 @@ def make_umfpack_full_mna_solver(
             _gshunt,
             _integ_c1,
             _integ_d1,
+            _integ_c2,
             _dQdt_prev,
             _Q_prev2,
         )
@@ -1041,6 +1036,7 @@ def make_umfpack_full_mna_solver(
             iterations,
             converged,
             max_f,
+            _,
             _,
             _,
             _,
@@ -1100,11 +1096,13 @@ def make_spineax_full_mna_solver(
     bcsr_indptr: Array,
     bcsr_indices: Array,
     noi_indices: Optional[Array] = None,
-    max_iterations: int = MAX_NR_ITERATIONS,
-    abstol: float = DEFAULT_ABSTOL,
+    max_iterations: int = 100,
+    abstol: float = 1e-12,
     max_step: float = 1.0,
     coo_sort_perm: Optional[Array] = None,
     csr_segment_ids: Optional[Array] = None,
+    total_limit_states: int = 0,
+    options: Optional["SimulationOptions"] = None,
 ) -> Callable:
     """Create a JIT-compiled sparse NR solver using Spineax/cuDSS for full MNA.
 
@@ -1124,10 +1122,19 @@ def make_spineax_full_mna_solver(
         max_step: Maximum voltage/current step per iteration
         coo_sort_perm: Pre-computed COO→CSR permutation
         csr_segment_ids: Pre-computed segment IDs
+        options: SimulationOptions for NR damping and other solver parameters.
+                 If None, uses defaults (nr_damping=1.0, nr_convtol=0.01).
 
     Returns:
         JIT-compiled Spineax solver function for full MNA
     """
+    # Extract options (captured at trace time, not JAX values)
+    nr_damping = options.nr_damping if options is not None else 1.0
+    nr_convtol = options.nr_convtol if options is not None else 0.01
+
+    # Effective tolerance: abstol * nr_convtol
+    effective_abstol = abstol * nr_convtol
+
     from jax.experimental.sparse import BCSR
     from spineax.cudss.solver import CuDSSSolver
 
@@ -1228,7 +1235,7 @@ def make_spineax_full_mna_solver(
             max_f = jnp.max(jnp.abs(f_masked))
         else:
             max_f = jnp.max(jnp.abs(f))
-        residual_converged = max_f < abstol
+        residual_converged = max_f < effective_abstol
 
         if use_precomputed:
             coo_vals = J_bcoo.data
@@ -1252,11 +1259,8 @@ def make_spineax_full_mna_solver(
         scale = jnp.where(max_delta > max_step, max_step / max_delta, 1.0)
         delta = delta * scale
 
-        # Update X with damping for node voltages, direct update for branch currents
-        V_candidate = X[1:n_total] + delta[:n_unknowns]
-        V_damped = apply_voltage_damping(
-            V_candidate, X[1:n_total], DAMPING_VT, DAMPING_VCRIT, nr_damping=_NR_DAMPING
-        )
+        # Update X: VACASK system-level damping: simple scalar multiply
+        V_damped = X[1:n_total] + delta[:n_unknowns] * nr_damping
         X_new = X.at[1:n_total].set(V_damped)
         X_new = X_new.at[n_total:].add(delta[n_unknowns:])
 
@@ -1422,11 +1426,13 @@ def make_umfpack_ffi_full_mna_solver(
     bcsr_indptr: Array,
     bcsr_indices: Array,
     noi_indices: Optional[Array] = None,
-    max_iterations: int = MAX_NR_ITERATIONS,
-    abstol: float = DEFAULT_ABSTOL,
+    max_iterations: int = 100,
+    abstol: float = 1e-12,
     max_step: float = 1.0,
     coo_sort_perm: Optional[Array] = None,
     csr_segment_ids: Optional[Array] = None,
+    total_limit_states: int = 0,
+    options: Optional["SimulationOptions"] = None,
 ) -> Callable:
     """Create a JIT-compiled UMFPACK FFI NR solver for full MNA formulation.
 
@@ -1434,7 +1440,7 @@ def make_umfpack_ffi_full_mna_solver(
     Uses UMFPACK directly via XLA FFI for fast CPU solving.
 
     Args:
-        build_system_jit: JIT-wrapped full MNA function returning (J_bcoo, f, Q, I_vsource)
+        build_system_jit: JIT-wrapped full MNA function returning (J_bcoo, f, Q, I_vsource, limit_state_out)
         n_nodes: Total node count including ground
         n_vsources: Number of voltage sources (branch currents)
         nse: Number of stored elements after summing duplicates
@@ -1446,10 +1452,20 @@ def make_umfpack_ffi_full_mna_solver(
         max_step: Maximum voltage/current step per iteration
         coo_sort_perm: Pre-computed COO→CSR permutation
         csr_segment_ids: Pre-computed segment IDs
+        total_limit_states: Total number of limit states across all device models
+        options: SimulationOptions for NR damping and other solver parameters.
+                 If None, uses defaults (nr_damping=1.0, nr_convtol=0.01).
 
     Returns:
         JIT-compiled solver function
     """
+    # Extract options (captured at trace time, not JAX values)
+    nr_damping = options.nr_damping if options is not None else 1.0
+    nr_convtol = options.nr_convtol if options is not None else 0.01
+
+    # Effective tolerance: abstol * nr_convtol
+    effective_abstol = abstol * nr_convtol
+
     from jax.experimental.sparse import BCSR
 
     from jax_spice.sparse import umfpack_jax
@@ -1486,8 +1502,8 @@ def make_umfpack_ffi_full_mna_solver(
     # These are created once per solver instance, not per solve call.
     # The varying parameters are passed through the state tuple.
     def cond_fn(state):
-        # State: (X, iteration, converged, max_f, max_delta, Q, <solver_params...>)
-        _, iteration, converged, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _ = state
+        # State: (X, iteration, converged, max_f, max_delta, Q, limit_state, <solver_params...>)
+        _, iteration, converged, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _ = state
         return jnp.logical_and(~converged, iteration < max_iterations)
 
     def body_fn(state):
@@ -1499,6 +1515,7 @@ def make_umfpack_ffi_full_mna_solver(
             _,
             _,
             _,
+            limit_state,
             vsource_vals,
             isource_vals,
             Q_prev,
@@ -1513,7 +1530,7 @@ def make_umfpack_ffi_full_mna_solver(
             _Q_prev2,
         ) = state
 
-        J_bcoo, f, Q, _, _ = build_system_jit(
+        J_bcoo, f, Q, _, limit_state_out = build_system_jit(
             X,
             vsource_vals,
             isource_vals,
@@ -1527,7 +1544,7 @@ def make_umfpack_ffi_full_mna_solver(
             _dQdt_prev,
             integ_c2,
             _Q_prev2,
-            None,  # limit_state_in not used in NR loop
+            limit_state,
         )
 
         if residual_mask is not None:
@@ -1535,7 +1552,7 @@ def make_umfpack_ffi_full_mna_solver(
             max_f = jnp.max(jnp.abs(f_masked))
         else:
             max_f = jnp.max(jnp.abs(f))
-        residual_converged = max_f < abstol
+        residual_converged = max_f < effective_abstol
 
         if use_precomputed:
             coo_vals = J_bcoo.data
@@ -1560,11 +1577,8 @@ def make_umfpack_ffi_full_mna_solver(
         scale = jnp.where(max_delta > max_step, max_step / max_delta, 1.0)
         delta = delta * scale
 
-        # Update X with damping for node voltages
-        V_candidate = X[1:n_total] + delta[:n_unknowns]
-        V_damped = apply_voltage_damping(
-            V_candidate, X[1:n_total], DAMPING_VT, DAMPING_VCRIT, nr_damping=_NR_DAMPING
-        )
+        # Update X: VACASK system-level damping: simple scalar multiply
+        V_damped = X[1:n_total] + delta[:n_unknowns] * nr_damping
         X_new = X.at[1:n_total].set(V_damped)
         X_new = X_new.at[n_total:].add(delta[n_unknowns:])
 
@@ -1582,6 +1596,7 @@ def make_umfpack_ffi_full_mna_solver(
             max_f,
             max_delta,
             Q,
+            limit_state_out,
             vsource_vals,
             isource_vals,
             Q_prev,
@@ -1616,6 +1631,20 @@ def make_umfpack_ffi_full_mna_solver(
             dQdt_prev if dQdt_prev is not None else jnp.zeros(n_unknowns, dtype=jnp.float64)
         )
         _Q_prev2 = Q_prev2 if Q_prev2 is not None else jnp.zeros(n_unknowns, dtype=jnp.float64)
+        # Ensure limit_state_in is a proper array for JIT tracing
+        _limit_state = (
+            limit_state_in
+            if limit_state_in is not None
+            else jnp.zeros(total_limit_states, dtype=jnp.float64)
+        )
+
+        # Convert scalar parameters to JAX arrays to avoid weak_type retracing
+        _integ_c0 = jnp.asarray(integ_c0, dtype=jnp.float64)
+        _gmin = jnp.asarray(gmin, dtype=jnp.float64)
+        _gshunt = jnp.asarray(gshunt, dtype=jnp.float64)
+        _integ_c1 = jnp.asarray(integ_c1, dtype=jnp.float64)
+        _integ_d1 = jnp.asarray(integ_d1, dtype=jnp.float64)
+        _integ_c2 = jnp.asarray(integ_c2, dtype=jnp.float64)
 
         init_Q = jnp.zeros(n_unknowns, dtype=jnp.float64)
         # State includes both iteration state and solver parameters
@@ -1626,44 +1655,64 @@ def make_umfpack_ffi_full_mna_solver(
             jnp.array(jnp.inf),
             jnp.array(jnp.inf),
             init_Q,
+            _limit_state,
             vsource_vals,
             isource_vals,
             Q_prev,
-            integ_c0,
+            _integ_c0,
             device_arrays_arg,
-            gmin,
-            gshunt,
-            integ_c1,
-            integ_d1,
+            _gmin,
+            _gshunt,
+            _integ_c1,
+            _integ_d1,
             _dQdt_prev,
-            integ_c2,
+            _integ_c2,
             _Q_prev2,
         )
 
         result_state = lax.while_loop(cond_fn, body_fn, init_state)
-        X_final, iterations, converged, max_f, max_delta, _, _, _, _, _, _, _, _, _, _, _, _, _ = (
-            result_state
-        )
+        (
+            X_final,
+            iterations,
+            converged,
+            max_f,
+            _,
+            _,
+            limit_state_final,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+        ) = result_state
 
-        _, _, Q_final, I_vsource, limit_state_final = build_system_jit(
+        # Recompute Q and I_vsource from converged solution
+        _, _, Q_final, I_vsource, _ = build_system_jit(
             X_final,
             vsource_vals,
             isource_vals,
             Q_prev,
-            integ_c0,
+            _integ_c0,
             device_arrays_arg,
-            gmin,
-            gshunt,
-            integ_c1,
-            integ_d1,
+            _gmin,
+            _gshunt,
+            _integ_c1,
+            _integ_d1,
             _dQdt_prev,
-            integ_c2,
+            _integ_c2,
             _Q_prev2,
-            None,
+            limit_state_final,
         )
 
         dQdt_final = (
-            integ_c0 * Q_final + integ_c1 * Q_prev + integ_d1 * _dQdt_prev + integ_c2 * _Q_prev2
+            _integ_c0 * Q_final + _integ_c1 * Q_prev + _integ_d1 * _dQdt_prev + _integ_c2 * _Q_prev2
         )
 
         return (

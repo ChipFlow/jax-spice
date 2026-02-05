@@ -99,7 +99,7 @@ class VerilogADevice:
             if kind == "param":
                 # Set sensible defaults for common parameters
                 if name in ("tnom",):
-                    defaults[name] = 300.0
+                    defaults[name] = 27.0
                 elif name in ("mfactor",):
                     defaults[name] = 1.0
                 else:

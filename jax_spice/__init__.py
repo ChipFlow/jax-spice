@@ -188,7 +188,7 @@ SIMPARAM_DEFAULTS = {
     "abstol": 1e-12,  # Absolute current tolerance (A)
     "vntol": 1e-6,  # Absolute voltage tolerance (V)
     "reltol": 1e-3,  # Relative tolerance
-    "tnom": 300.15,  # Nominal temperature (K)
+    "tnom": 27.0,  # Nominal temperature (°C, VACASK convention)
     "scale": 1.0,  # Scale factor
     "shrink": 0.0,  # Shrink factor
     "imax": 1.0,  # Branch current limit (A)

@@ -277,6 +277,8 @@ class FullMNAStrategy(TransientStrategy):
         # Timestep control options
         if "tran_fs" in params:
             kwargs["tran_fs"] = float(params["tran_fs"])
+        if "tran_ft" in params:
+            kwargs["tran_ft"] = float(params["tran_ft"])
         if "tran_minpts" in params:
             kwargs["tran_minpts"] = int(params["tran_minpts"])
         if "maxstep" in params:
@@ -371,19 +373,18 @@ class FullMNAStrategy(TransientStrategy):
         noi_indices = jnp.array(noi_indices, dtype=jnp.int32) if noi_indices else None
 
         # Create full MNA solver
-        # Note: For full MNA, residuals are in Amperes (node) and Volts (branch)
-        # Use tighter tolerance than high-G version (which scales by 1e12)
-        # abstol=1e-6 means 1µA current error and 1µV voltage error
+        # Tolerance and iteration limits from SimulationOptions (tran_itl, abstol)
         if self.use_dense:
             nr_solve = make_dense_full_mna_solver(
                 build_system_jit,
                 n_nodes,
                 n_vsources,
                 noi_indices=noi_indices,
-                max_iterations=100,
-                abstol=1e-6,
+                max_iterations=self.runner.options.tran_itl,
+                abstol=self.runner.options.abstol,
                 max_step=1.0,
                 total_limit_states=total_limit_states,
+                options=self.runner.options,
             )
         else:
             # Sparse path: compute COO→CSR mapping from trial run
@@ -467,11 +468,13 @@ class FullMNAStrategy(TransientStrategy):
                     bcsr_indptr=bcsr_indptr_jax,
                     bcsr_indices=bcsr_indices_jax,
                     noi_indices=noi_indices,
-                    max_iterations=100,
-                    abstol=1e-6,
+                    max_iterations=self.runner.options.tran_itl,
+                    abstol=self.runner.options.abstol,
                     max_step=1.0,
                     coo_sort_perm=coo_sort_perm_jax,
                     csr_segment_ids=csr_segment_ids_jax,
+                    total_limit_states=total_limit_states,
+                    options=self.runner.options,
                 )
             else:
                 logger.info("Using UMFPACK FFI solver (zero callback overhead)")
@@ -483,11 +486,13 @@ class FullMNAStrategy(TransientStrategy):
                     bcsr_indptr=bcsr_indptr_jax,
                     bcsr_indices=bcsr_indices_jax,
                     noi_indices=noi_indices,
-                    max_iterations=100,
-                    abstol=1e-6,
+                    max_iterations=self.runner.options.tran_itl,
+                    abstol=self.runner.options.abstol,
                     max_step=1.0,
                     coo_sort_perm=coo_sort_perm_jax,
                     csr_segment_ids=csr_segment_ids_jax,
+                    total_limit_states=total_limit_states,
+                    options=self.runner.options,
                 )
 
         self._cached_full_mna_solver = nr_solve
@@ -1489,7 +1494,25 @@ def _make_full_mna_while_loop_fns(
         # During warmup (can_predict=False), keep current dt to avoid LTE-driven timestep collapse
         # Only use dt_lte once we have enough history for meaningful LTE estimates
         dt_from_lte = jnp.where(can_predict, dt_lte, dt_cur)
-        new_dt = jnp.where(nr_failed, jnp.maximum(dt_cur / 2, config.min_dt), dt_from_lte)
+
+        # When NR fails above min_dt: cut dt by tran_ft (VACASK default 0.25)
+        dt_nr_halved = jnp.maximum(dt_cur * config.tran_ft, config.min_dt)
+
+        # When NR fails AT min_dt (force-accept): try a recovery dt instead of staying stuck.
+        # Use a fraction of the last successful dt from history - this jumps back up
+        # to near where convergence last worked, giving the solver another chance.
+        # If that fails, normal halving will cascade back down, but each cycle
+        # advances time and eventually the circuit moves past the discontinuity.
+        last_good_dt = jnp.where(
+            state.history_count > 0, state.dt_history[0], config.min_dt * 16.0
+        )
+        dt_recovery = jnp.maximum(last_good_dt / 8.0, config.min_dt * 2.0)
+
+        new_dt = jnp.where(
+            nr_failed,
+            jnp.where(at_min_dt, dt_recovery, dt_nr_halved),
+            dt_from_lte,
+        )
         # Use state.max_dt (dynamic) instead of config.max_dt (static) for hmax
         new_dt = jnp.clip(new_dt, config.min_dt, state.max_dt)
         new_dt = jnp.minimum(new_dt, state.t_stop - t_next)
