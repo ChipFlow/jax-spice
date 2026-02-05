@@ -4,12 +4,7 @@ Core simulation engine that parses .sim circuit files and runs transient/DC
 analysis using JAX-compiled solvers. All devices are compiled from Verilog-A
 sources using OpenVAF.
 
-TODO: Split out OpenVAF model compilation and caching into a separate module
-(e.g., jax_spice/devices/openvaf_compiler.py) so it can be reused by other
-components. The key functionality is:
-- _COMPILED_MODEL_CACHE: module-level cache of compiled jitted functions
-- _compile_openvaf_models(): compiles VA files to JAX functions with vmap+jit
-- Static input preparation and batched evaluation
+OpenVAF model compilation is handled by jax_spice.analysis.openvaf_models.
 """
 
 import re
@@ -59,6 +54,16 @@ from jax_spice.analysis.integration import (
     get_method_from_options,
 )
 from jax_spice.analysis.mna_builder import make_mna_build_system_fn
+from jax_spice.analysis.openvaf_models import (
+    MODEL_PATHS,
+    compile_openvaf_models,
+    compute_early_collapse_decisions,
+    prepare_static_inputs,
+    warmup_models,  # noqa: F401 - re-exported for analysis/__init__.py
+)
+from jax_spice.analysis.openvaf_models import (
+    warmup_device_models as _warmup_device_models_impl,
+)
 from jax_spice.analysis.options import SimulationOptions
 from jax_spice.analysis.parsing import (
     build_devices as _build_devices_impl,
@@ -104,216 +109,9 @@ except ImportError:
     openvaf_jax = None
 
 
-# Module-level cache of compiled OpenVAF models
-# Keyed by (model_type, va_file_mtime) to detect changes
-_COMPILED_MODEL_CACHE: Dict[str, Any] = {}
-
 # Module-level cache for SPICE number parsing (e.g., "1k" -> 1000, "1u" -> 1e-6)
 # These are circuit-independent and can be shared across all CircuitEngine instances
 _SPICE_NUMBER_CACHE: Dict[str, float] = {}
-
-
-
-# OpenVAF model sources (duplicated from CircuitEngine for standalone use)
-# Keys are device types, values are (base_path_key, relative_path) tuples
-_OPENVAF_MODEL_PATHS = {
-    "psp103": ("integration_tests", "PSP103/psp103.va"),
-    "resistor": ("vacask", "resistor.va"),
-    "capacitor": ("vacask", "capacitor.va"),
-    "diode": ("vacask", "diode.va"),
-    "sp_diode": ("vacask", "spice/sn/diode.va"),
-}
-
-
-def warmup_models(
-    model_types: List[str] | None = None,
-    trigger_xla: bool = True,
-    log_fn: Callable[[str], None] | None = None,
-) -> Dict[str, Any]:
-    """Pre-compile OpenVAF models and optionally trigger XLA compilation.
-
-    This function compiles device models ahead of time and caches them,
-    reducing startup time for subsequent simulations. When trigger_xla=True,
-    it also runs dummy evaluations to trigger XLA compilation, which is
-    cached to disk via JAX_COMPILATION_CACHE_DIR.
-
-    Args:
-        model_types: List of model types to compile (e.g., ['psp103', 'resistor']).
-            If None, compiles all available models.
-        trigger_xla: If True, run dummy evaluations to trigger XLA compilation.
-            This takes longer but gives fastest subsequent simulation startup.
-        log_fn: Optional logging function for progress output.
-
-    Returns:
-        Dict mapping model_type to compiled model info dict.
-
-    Example:
-        >>> from jax_spice.analysis.engine import warmup_models
-        >>> # Warmup specific models
-        >>> warmup_models(['psp103', 'resistor'])
-        >>> # Warmup all models
-        >>> warmup_models()
-
-    Note:
-        This function automatically configures the XLA compilation cache
-        if not already set.
-    """
-    global _COMPILED_MODEL_CACHE
-
-    if not HAS_OPENVAF:
-        raise ImportError("OpenVAF support required but openvaf_py not available")
-
-    # Configure XLA cache
-    configure_xla_cache()
-
-    def log(msg: str):
-        if log_fn:
-            log_fn(msg)
-        else:
-            print(msg)
-
-    # Determine which models to compile
-    if model_types is None:
-        model_types = list(_OPENVAF_MODEL_PATHS.keys())
-
-    # Base paths for VA model sources
-    project_root = Path(__file__).parent.parent.parent
-    base_paths = {
-        "integration_tests": project_root / "vendor" / "OpenVAF" / "integration_tests",
-        "vacask": project_root / "vendor" / "VACASK" / "devices",
-    }
-
-    log(f"Warming up models: {model_types}")
-    results = {}
-
-    for model_type in model_types:
-        import pickle
-        import time
-
-        # Check if already cached
-        if model_type in _COMPILED_MODEL_CACHE:
-            cached = _COMPILED_MODEL_CACHE[model_type]
-            log(f"  {model_type}: already cached ({len(cached['param_names'])} params)")
-            results[model_type] = cached
-            continue
-
-        model_info = _OPENVAF_MODEL_PATHS.get(model_type)
-        if not model_info:
-            log(f"  {model_type}: unknown model type, skipping")
-            continue
-
-        base_key, va_path = model_info
-        base_path = base_paths.get(base_key)
-        if not base_path:
-            log(f"  {model_type}: unknown base path key {base_key}, skipping")
-            continue
-
-        full_path = base_path / va_path
-        if not full_path.exists():
-            log(f"  {model_type}: VA file not found at {full_path}, skipping")
-            continue
-
-        t0 = time.perf_counter()
-
-        from openvaf_jax.cache import compute_va_hash, get_model_cache_path
-
-        # Try to load from persistent MIR cache
-        va_hash = compute_va_hash(full_path)
-        cache_path = get_model_cache_path(model_type, va_hash)
-        mir_cache_file = cache_path / "mir_data.pkl"
-
-        translator = None
-
-        if mir_cache_file.exists():
-            try:
-                log(f"  {model_type}: loading from MIR cache...")
-                with open(mir_cache_file, "rb") as f:
-                    cached_data = pickle.load(f)
-                translator = openvaf_jax.OpenVAFToJAX.from_cache(cached_data)
-                t1 = time.perf_counter()
-                log(f"  {model_type}: loaded from cache in {t1 - t0:.1f}s")
-            except Exception as e:
-                log(f"  {model_type}: cache load failed ({e}), recompiling...")
-                translator = None
-
-        if translator is None:
-            # Compile from scratch
-            log(f"  {model_type}: compiling VA...")
-            modules = openvaf_py.compile_va(str(full_path))
-            t1 = time.perf_counter()
-            log(f"  {model_type}: VA compiled in {t1 - t0:.1f}s")
-
-            if not modules:
-                log(f"  {model_type}: compilation failed, skipping")
-                continue
-
-            module = modules[0]
-            translator = openvaf_jax.OpenVAFToJAX(module)
-
-            # Save to MIR cache
-            try:
-                cache_path.mkdir(parents=True, exist_ok=True)
-                cache_data = translator.to_cache()
-                with open(mir_cache_file, "wb") as f:
-                    pickle.dump(cache_data, f)
-                log(f"  {model_type}: saved MIR cache")
-            except Exception as e:
-                log(f"  {model_type}: failed to save cache: {e}")
-
-        # Generate init function
-        t2 = time.perf_counter()
-        init_fn, init_meta = translator.translate_init_array()
-        t3 = time.perf_counter()
-        log(f"  {model_type}: init_fn generated in {t3 - t2:.1f}s")
-
-        # Generate eval function with simple split (all shared, voltage varying)
-        # This is the same split used by _prepare_transient_setup
-        n_eval_params = len(translator.params)
-        eval_param_kinds = list(translator.module.param_kinds)
-        shared_indices = list(range(n_eval_params))
-        varying_indices = [i for i, kind in enumerate(eval_param_kinds) if kind == "voltage"]
-
-        eval_fn, eval_meta = translator.translate_eval_array_with_cache_split(
-            shared_indices, varying_indices
-        )
-        t4 = time.perf_counter()
-        log(f"  {model_type}: eval_fn generated in {t4 - t3:.1f}s")
-
-        # Cache the compiled model
-        compiled = {
-            "translator": translator,
-            "init_fn": init_fn,
-            "init_meta": init_meta,
-            "eval_fn": eval_fn,
-            "eval_meta": eval_meta,
-            "param_names": init_meta["param_names"],
-            "nodes": translator.module.nodes,
-        }
-        _COMPILED_MODEL_CACHE[model_type] = compiled
-        results[model_type] = compiled
-
-        # Trigger XLA compilation with dummy data
-        if trigger_xla:
-            log(f"  {model_type}: triggering XLA compilation...")
-            try:
-                n_devices = 1
-                n_init_params = len(init_meta["param_names"])
-                init_meta["cache_size"]
-
-                # Dummy init call to trigger XLA compilation
-                dummy_init_inputs = jnp.zeros((n_devices, n_init_params))
-                vmapped_init = jax.jit(jax.vmap(init_fn))
-                _ = vmapped_init(dummy_init_inputs)
-
-                t5 = time.perf_counter()
-                log(f"  {model_type}: XLA warmup done in {t5 - t4:.1f}s")
-            except Exception as e:
-                log(f"  {model_type}: XLA warmup failed: {e}")
-
-        t_total = time.perf_counter() - t0
-        log(f"  {model_type}: total warmup time {t_total:.1f}s")
-
-    return results
 
 
 @dataclass
@@ -444,16 +242,10 @@ class CircuitEngine:
         "psp103va": "psp103",  # PSP103 MOSFET
     }
 
-    # OpenVAF model sources
+    # OpenVAF model sources - imported from openvaf_models module
     # Keys are device types, values are (base_path_key, relative_path) tuples
     # base_path_key: 'integration_tests' or 'vacask'
-    OPENVAF_MODELS = {
-        "psp103": ("integration_tests", "PSP103/psp103.va"),
-        "resistor": ("vacask", "resistor.va"),
-        "capacitor": ("vacask", "capacitor.va"),
-        "diode": ("vacask", "diode.va"),
-        "sp_diode": ("vacask", "spice/sn/diode.va"),  # Full SPICE diode model
-    }
+    OPENVAF_MODELS = MODEL_PATHS
 
     # Default parameter values for OpenVAF models
     # NOTE: Parameter defaults are now extracted from Verilog-A source via openvaf-py's
@@ -744,185 +536,13 @@ class CircuitEngine:
         Args:
             log_fn: Optional logging function for progress output
         """
-        global _COMPILED_MODEL_CACHE
-
-        if not HAS_OPENVAF:
-            raise ImportError("OpenVAF support required but openvaf_py not available")
-
-        def log(msg):
-            if log_fn:
-                log_fn(msg)
-            else:
-                logger.info(msg)
-
-        # Find unique OpenVAF model types
-        openvaf_types = set()
-        for dev in self.devices:
-            if dev.get("is_openvaf"):
-                openvaf_types.add(dev["model"])
-
-        log(f"Compiling OpenVAF models: {openvaf_types}")
-
-        # Base paths for different VA model sources
-        project_root = Path(__file__).parent.parent.parent
-        base_paths = {
-            "integration_tests": project_root / "vendor" / "OpenVAF" / "integration_tests",
-            "vacask": project_root / "vendor" / "VACASK" / "devices",
-        }
-
-        for model_type in openvaf_types:
-            # Check instance cache first (for this runner)
-            if model_type in self._compiled_models:
-                continue
-
-            # Check module-level cache (shared across all runners)
-            if model_type in _COMPILED_MODEL_CACHE:
-                cached = _COMPILED_MODEL_CACHE[model_type]
-                log(
-                    f"  {model_type}: reusing cached jitted function ({len(cached['param_names'])} params, {len(cached['nodes'])} nodes)"
-                )
-                self._compiled_models[model_type] = cached
-                continue
-
-            model_info = self.OPENVAF_MODELS.get(model_type)
-            if not model_info:
-                raise ValueError(f"Unknown OpenVAF model type: {model_type}")
-
-            base_key, va_path = model_info
-            base_path = base_paths.get(base_key)
-            if not base_path:
-                raise ValueError(f"Unknown base path key: {base_key}")
-
-            full_path = base_path / va_path
-            if not full_path.exists():
-                raise FileNotFoundError(f"VA model not found: {full_path}")
-
-            import pickle
-            import time
-
-            from openvaf_jax.cache import (
-                compute_va_hash,
-                get_model_cache_path,
-            )
-
-            t0 = time.perf_counter()
-
-            # Try to load from persistent cache
-            va_hash = compute_va_hash(full_path)
-            cache_path = get_model_cache_path(model_type, va_hash)
-            mir_cache_file = cache_path / "mir_data.pkl"
-
-            translator = None
-            module = None
-
-            if mir_cache_file.exists():
-                try:
-                    log(f"  {model_type}: loading from persistent cache...")
-                    with open(mir_cache_file, "rb") as f:
-                        cached_data = pickle.load(f)
-                    translator = openvaf_jax.OpenVAFToJAX.from_cache(cached_data)
-                    t1 = time.perf_counter()
-                    log(f"  {model_type}: loaded from cache in {t1 - t0:.1f}s")
-                except Exception as e:
-                    log(f"  {model_type}: cache load failed ({e}), recompiling...")
-                    translator = None
-
-            if translator is None:
-                # Compile from scratch
-                log(f"  {model_type}: compiling VA...")
-                modules = openvaf_py.compile_va(str(full_path))
-                t1 = time.perf_counter()
-                log(f"  {model_type}: VA compiled in {t1 - t0:.1f}s")
-                if not modules:
-                    raise ValueError(f"Failed to compile {va_path}")
-
-                log(f"  {model_type}: creating translator...")
-                module = modules[0]
-                translator = openvaf_jax.OpenVAFToJAX(module)
-                t2 = time.perf_counter()
-                log(f"  {model_type}: translator created in {t2 - t1:.1f}s")
-
-                # Save to persistent cache
-                try:
-                    cache_path.mkdir(parents=True, exist_ok=True)
-                    cache_data = translator.get_cache_data()
-                    with open(mir_cache_file, "wb") as f:
-                        pickle.dump(cache_data, f)
-                    log(f"  {model_type}: saved to persistent cache (hash={va_hash})")
-                except Exception as e:
-                    log(f"  {model_type}: failed to save cache: {e}")
-
-            # Get model metadata - either from module or cached data
-            if module is not None:
-                param_names = list(module.param_names)
-                param_kinds = list(module.param_kinds)
-                nodes = list(module.nodes)
-                collapsible_pairs = list(module.collapsible_pairs)
-                num_collapsible = module.num_collapsible
-            else:
-                # Load from cached data (already loaded above)
-                param_names = cached_data["param_names"]
-                param_kinds = cached_data["param_kinds"]
-                nodes = cached_data["nodes"]
-                collapsible_pairs = cached_data["collapsible_pairs"]
-                num_collapsible = cached_data["num_collapsible"]
-
-            # Get DAE metadata (node names, jacobian keys, etc.) without generating code
-            t2 = time.perf_counter()  # Reset timer after cache load
-            dae_metadata = translator.get_dae_metadata()
-            t3 = time.perf_counter()
-            log(f"  {model_type}: DAE metadata extracted in {t3 - t2:.3f}s")
-
-            # Generate init function for cache computation and collapse decisions
-            log(f"  {model_type}: generating init function...")
-            init_fn, init_meta = translator.translate_init_array()
-            vmapped_init = jax.jit(jax.vmap(init_fn))
-            t4 = time.perf_counter()
-            log(
-                f"  {model_type}: init function done in {t4 - t3:.1f}s (cache_size={init_meta['cache_size']})"
-            )
-
-            # Build init->eval index mapping for extracting init inputs from eval inputs
-            eval_name_to_idx = {n.lower(): i for i, n in enumerate(param_names)}
-            init_to_eval_indices = []
-            for name in init_meta["param_names"]:
-                eval_idx = eval_name_to_idx.get(name.lower(), -1)
-                init_to_eval_indices.append(eval_idx)
-            init_to_eval_indices = jnp.array(init_to_eval_indices, dtype=jnp.int32)
-
-            # NOTE: MIR data release is deferred to _prepare_static_inputs()
-            # so we can generate split eval function after computing constant/varying indices
-            # This saves ~28MB for PSP103 after circuit setup is complete
-
-            compiled = {
-                "module": module,  # May be None if loaded from cache
-                "translator": translator,  # Stored for split function generation
-                "dae_metadata": dae_metadata,
-                "param_names": param_names,
-                "param_kinds": param_kinds,
-                "nodes": nodes,
-                "collapsible_pairs": collapsible_pairs,
-                "num_collapsible": num_collapsible,
-                # Init function
-                "init_fn": init_fn,
-                "vmapped_init": vmapped_init,
-                "init_param_names": list(init_meta["param_names"]),
-                "init_param_kinds": list(init_meta["param_kinds"]),
-                "cache_size": init_meta["cache_size"],
-                "cache_mapping": init_meta["cache_mapping"],
-                "init_param_defaults": init_meta.get("param_defaults", {}),
-                "init_to_eval_indices": init_to_eval_indices,
-                # Device-level features (set during init code generation)
-                "uses_simparam_gmin": translator.uses_simparam_gmin,
-                "uses_analysis": translator.uses_analysis,
-                "analysis_type_map": translator.analysis_type_map,
-            }
-
-            # Store in both instance and module-level cache
-            self._compiled_models[model_type] = compiled
-            _COMPILED_MODEL_CACHE[model_type] = compiled
-
-            log(f"  {model_type}: done ({len(param_names)} params, {len(nodes)} nodes)")
+        # Delegate to standalone function from openvaf_models module
+        compile_openvaf_models(
+            devices=self.devices,
+            compiled_models=self._compiled_models,
+            model_paths=self.OPENVAF_MODELS,
+            log_fn=log_fn if log_fn else lambda msg: logger.info(msg),
+        )
 
     def _compute_early_collapse_decisions(self):
         """Compute collapse decisions for all devices using OpenVAF vmapped_init.
@@ -938,121 +558,10 @@ class CircuitEngine:
         Stores results in self._device_collapse_decisions: Dict[device_name, List[Tuple[int, int]]]
         where each tuple is (node1_idx, node2_idx) that should be collapsed.
         """
-        import jax.numpy as jnp
-        import numpy as np
-
-        self._device_collapse_decisions: Dict[str, List[Tuple[int, int]]] = {}
-
-        # Group devices by model type
-        devices_by_type: Dict[str, List[Dict]] = {}
-        for dev in self.devices:
-            if dev.get("is_openvaf"):
-                model_type = dev["model"]
-                devices_by_type.setdefault(model_type, []).append(dev)
-
-        for model_type, devs in devices_by_type.items():
-            compiled = self._compiled_models.get(model_type)
-            if not compiled:
-                continue
-
-            init_fn = compiled.get("init_fn")
-
-            if init_fn is None:
-                # No init function - use all collapsible pairs
-                collapsible_pairs = compiled.get("collapsible_pairs", [])
-                for dev in devs:
-                    self._device_collapse_decisions[dev["name"]] = list(collapsible_pairs)
-                continue
-
-            # Get init parameters info
-            init_param_names = compiled.get("init_param_names", [])
-            init_param_defaults = compiled.get("init_param_defaults", {})
-            n_init_params = len(init_param_names)
-            collapsible_pairs = compiled.get("collapsible_pairs", [])
-            n_collapsible = len(collapsible_pairs)
-
-            if n_init_params == 0 or n_collapsible == 0:
-                # No init params or no collapsible pairs - collapse decisions are constant
-                if init_fn is not None and n_collapsible > 0:
-                    try:
-                        # Force CPU execution to avoid GPU JIT overhead for tiny computation
-                        cpu_device = jax.devices("cpu")[0]
-                        with jax.default_device(cpu_device):
-                            _, collapse_decisions = init_fn(jnp.array([]))
-                        # Convert collapse decisions to pairs (same for all devices)
-                        pairs = []
-                        for i, (n1, n2) in enumerate(collapsible_pairs):
-                            if i < len(collapse_decisions) and float(collapse_decisions[i]) > 0.5:
-                                pairs.append((n1, n2))
-                        for dev in devs:
-                            self._device_collapse_decisions[dev["name"]] = pairs
-                        continue
-                    except Exception as e:
-                        logger.warning(f"Error computing collapse decisions for {model_type}: {e}")
-                # Fallback: use all collapsible pairs
-                for dev in devs:
-                    self._device_collapse_decisions[dev["name"]] = list(collapsible_pairs)
-                continue
-
-            # OPTIMIZATION: Group devices by unique parameter combinations
-            # For c6288, this reduces 10k evaluations to just 2 (pmos, nmos)
-            def get_param_key(dev: Dict) -> Tuple:
-                """Build hashable key from device parameters."""
-                device_params = dev.get("params", {})
-                values = []
-                for pname in init_param_names:
-                    pname_lower = pname.lower()
-                    if pname_lower in device_params:
-                        values.append(float(device_params[pname_lower]))
-                    elif pname_lower in init_param_defaults:
-                        values.append(float(init_param_defaults[pname_lower]))
-                    else:
-                        values.append(0.0)
-                return tuple(values)
-
-            # Group devices by unique parameter combinations
-            unique_params: Dict[Tuple, List[Dict]] = {}
-            for dev in devs:
-                key = get_param_key(dev)
-                unique_params.setdefault(key, []).append(dev)
-
-            n_unique = len(unique_params)
-            logger.info(
-                f"Computing collapse decisions for {model_type}: "
-                f"{len(devs)} devices, {n_unique} unique param combos"
-            )
-
-            # Compute collapse decisions for each unique parameter combination
-            # Force CPU execution to avoid GPU JIT overhead for small computations
-            cpu_device = jax.devices("cpu")[0]
-            for param_key, param_devs in unique_params.items():
-                try:
-                    # Single init_fn call for this parameter combination
-                    with jax.default_device(cpu_device):
-                        init_inputs = jnp.array(param_key, dtype=get_float_dtype())
-                        _, collapse_decisions = init_fn(init_inputs)
-
-                    # Convert to pairs
-                    pairs = []
-                    collapse_np = np.asarray(collapse_decisions)
-                    for i, (n1, n2) in enumerate(collapsible_pairs):
-                        if i < len(collapse_np) and collapse_np[i] > 0.5:
-                            pairs.append((n1, n2))
-
-                    # Apply to all devices with this parameter combination
-                    for dev in param_devs:
-                        self._device_collapse_decisions[dev["name"]] = pairs
-
-                except Exception as e:
-                    logger.warning(
-                        f"Error computing collapse for {model_type} params {param_key[:3]}...: {e}"
-                    )
-                    # Fallback: use all collapsible pairs for these devices
-                    for dev in param_devs:
-                        self._device_collapse_decisions[dev["name"]] = list(collapsible_pairs)
-
-        logger.debug(
-            f"Computed collapse decisions for {len(self._device_collapse_decisions)} devices"
+        # Delegate to standalone function from openvaf_models module
+        self._device_collapse_decisions = compute_early_collapse_decisions(
+            devices=self.devices,
+            compiled_models=self._compiled_models,
         )
 
     def _prepare_static_inputs(
@@ -1068,9 +577,6 @@ class CircuitEngine:
         devices and generates optimized split eval functions that separate constant
         (shared) params from varying (per-device) params.
 
-        The full parameter array is built in numpy, analyzed, then only the needed
-        parts (shared_params, device_params, init_inputs) are converted to JAX.
-
         Returns:
             (voltage_indices, device_contexts, cache, collapse_decisions) where:
             - voltage_indices is list of param indices that are voltages
@@ -1081,413 +587,17 @@ class CircuitEngine:
         Side effects:
             Stores in compiled dict: shared_params, device_params, vmapped_split_eval, etc.
         """
-        logger.debug(f"Preparing static inputs for {model_type}")
-
-        compiled = self._compiled_models.get(model_type)
-        if not compiled:
-            raise ValueError(f"OpenVAF model {model_type} not compiled")
-
-        param_names = compiled["param_names"]
-        param_kinds = compiled["param_kinds"]
-        model_nodes = compiled["nodes"]
-
-        logger.debug(f"  {len(param_names)} param_names")
-        logger.debug(f"  {len(param_kinds)} param_kinds")
-        logger.debug(f"  {len(model_nodes)} model_nodes")
-
-        # Find which parameter indices are voltages (always varying)
-        voltage_indices = []
-        voltage_set = set()
-        for i, kind in enumerate(param_kinds):
-            if kind == "voltage":
-                voltage_indices.append(i)
-                voltage_set.add(i)
-
-        n_devices = len(openvaf_devices)
-        n_params = len(param_names)
-        device_contexts = []
-
-        # === SMART PARAM FILLING: Build only what we need ===
-        # Instead of allocating full (n_devices, n_params) array, we:
-        # 1. Identify which params vary between devices
-        # 2. Build col_values dict with scalar (shared) or array (varying)
-        # 3. Construct shared_params, device_params, init_inputs directly
-        #
-        # Memory savings for c6288: 200MB -> 70MB (4x reduction)
-
-        # col_values: maps col_idx -> scalar value (shared) or 1D array (varying)
-        col_values: Dict[int, Any] = {}
-        varying_cols_set = set(voltage_set)  # Start with voltage cols as varying
-
-        if n_devices > 0:
-            logger.debug("Filling params (smart mode)")
-            all_dev_params = [dev["params"] for dev in openvaf_devices]
-            model_defaults = compiled.get("init_param_defaults", {})
-
-            # Build param_name -> column index mapping
-            param_to_cols = {}
-            param_given_to_cols = {}
-            limit_param_map: Dict[int, Tuple[str, str]] = {}
-            for idx, (name, kind) in enumerate(zip(param_names, param_kinds)):
-                name_lower = name.lower()
-                if kind == "param":
-                    param_to_cols.setdefault(name_lower, []).append(idx)
-                elif kind == "param_given":
-                    param_given_to_cols.setdefault(name_lower, []).append(idx)
-                elif kind == "temperature":
-                    col_values[idx] = self._simulation_temperature  # Scalar - same for all devices
-                elif kind == "sysfun" and name_lower == "mfactor":
-                    col_values[idx] = 1.0  # Scalar
-                elif kind in ("prev_state", "enable_lim", "new_state", "enable_integration"):
-                    # Limit-related params: handled in codegen, not in shared/device arrays
-                    limit_param_map[idx] = (kind, name)
-
-            # Get unique params from devices
-            all_unique = set()
-            for p in all_dev_params:
-                all_unique.update(k.lower() for k in p.keys())
-
-            # Fill param values and identify varying ones
-            for pname in all_unique:
-                if pname in param_to_cols:
-                    vals = np.array(
-                        [float(p.get(pname, p.get(pname.upper(), 0.0))) for p in all_dev_params]
-                    )
-                    # Check if all values are the same
-                    if np.all(vals == vals[0]):
-                        # Shared (constant) - store scalar
-                        for col in param_to_cols[pname]:
-                            col_values[col] = float(vals[0])
-                    else:
-                        # Varying - store array and mark as varying
-                        for col in param_to_cols[pname]:
-                            col_values[col] = vals
-                            varying_cols_set.add(col)
-                if pname in param_given_to_cols:
-                    for col in param_given_to_cols[pname]:
-                        col_values[col] = 1.0  # Scalar
-
-            # Defaults for params not in any device (all shared by definition)
-            for pname, cols in param_to_cols.items():
-                if pname not in all_unique:
-                    if pname in ("tnom", "tref", "tr"):
-                        default = 27.0
-                    elif pname in ("nf", "mult", "ns", "nd"):
-                        default = 1.0
-                    else:
-                        default = model_defaults.get(pname, 0.0)
-                    for col in cols:
-                        col_values[col] = default  # Scalar
-            logger.debug("Params filled (smart mode)")
-
-        # NOTE: init_param_defaults from openvaf-py contains Verilog-A source defaults
-        # These are used in vectorized filling above when no device-level value exists
-
-        for dev_idx, dev in enumerate(openvaf_devices):
-            ext_nodes = dev["nodes"]  # [d, g, s, b]
-            dev["params"]
-            internal_nodes = device_internal_nodes.get(dev["name"], {})
-
-            # Build node map: model node name -> global circuit node index
-            # Use actual number of external terminals (not hardcoded 4 for MOSFETs)
-            node_map = {}
-            n_ext_terminals = len(ext_nodes)
-            for i in range(n_ext_terminals):
-                model_node = model_nodes[i]
-                node_map[model_node] = ext_nodes[i]
-
-            # Internal nodes
-            for model_node, global_idx in internal_nodes.items():
-                node_map[model_node] = global_idx
-
-            # Map clean VA node names from v2 API (e.g., 'D', 'G', 'S', 'B', 'NOI', ...)
-            # These are the names used in metadata['node_names'] and jacobian_keys
-            metadata = compiled.get("dae_metadata", {})
-            va_terminals = metadata.get("terminals", [])
-            va_internal = metadata.get("internal_nodes", [])
-
-            # Map terminal names: D->ext_nodes[0], G->ext_nodes[1], etc.
-            for i, va_name in enumerate(va_terminals):
-                if i < len(ext_nodes):
-                    node_map[va_name] = ext_nodes[i]
-
-            # Map internal names: NOI->internal_nodes['node4'], GP->internal_nodes['node5'], etc.
-            # The v2 internal_nodes list order matches node indices starting after terminals
-            num_terminals = len(va_terminals)
-            for i, va_name in enumerate(va_internal):
-                internal_key = f"node{num_terminals + i}"
-                if internal_key in internal_nodes:
-                    node_map[va_name] = internal_nodes[internal_key]
-
-            # Pre-compute voltage node pairs for fast update
-            voltage_node_pairs = []
-            for idx in voltage_indices:
-                name = param_names[idx]
-                node_pair = self._parse_voltage_param(name, node_map, model_nodes, ground)
-                voltage_node_pairs.append(node_pair)
-
-            # NOTE: Parameter filling is done by vectorized code above (lines 788-834).
-            # The per-device loop that was here has been removed as it was dead code.
-
-            device_contexts.append(
-                {
-                    "name": dev["name"],
-                    "node_map": node_map,
-                    "ext_nodes": ext_nodes,
-                    "voltage_node_pairs": voltage_node_pairs,
-                }
-            )
-
-        # Add analysis_type and gmin to col_values if needed
-        uses_analysis = compiled.get("uses_analysis", False)
-        uses_simparam_gmin = compiled.get("uses_simparam_gmin", False)
-        n_params_total = n_params
-
-        if uses_analysis and n_devices > 0:
-            logger.debug("Adding analysis_type and gmin to col_values")
-            # analysis_type at n_params, gmin at n_params+1
-            col_values[n_params] = 0.0  # DC analysis (scalar - same for all)
-            col_values[n_params + 1] = 1e-12  # gmin (scalar)
-            n_params_total = n_params + 2
-        elif uses_simparam_gmin and n_devices > 0:
-            col_values[n_params] = 1e-12  # gmin (scalar)
-            n_params_total = n_params + 1
-
-        # === Build shared_params and device_params from col_values ===
-        # No full (n_devices, n_params) array allocation needed!
-        if n_devices >= 1 and n_params_total > 0:
-            # Classify columns as shared (scalar value) or varying (array value or voltage)
-            # Limit-related params (prev_state, enable_lim, etc.) are excluded - they're
-            # handled directly in codegen via limit_param_map
-            limit_param_indices = set(limit_param_map.keys())
-            shared_indices = []
-            varying_indices_list = []
-            for col in range(n_params_total):
-                if col in limit_param_indices:
-                    continue  # Handled separately in codegen
-                elif col in varying_cols_set:
-                    varying_indices_list.append(col)
-                else:
-                    shared_indices.append(col)
-
-            n_const = len(shared_indices)
-            n_varying = len(varying_indices_list)
-            logger.info(
-                f"{model_type} parameter analysis: {n_const}/{n_params_total} constant columns, "
-                f"{n_varying} varying across {n_devices} devices"
-            )
-
-            # Log which parameters vary (for debugging)
-            if n_varying > 0 and n_varying <= 30:
-                varying_names = [
-                    param_names[int(i)] if i < len(param_names) else f"col_{i}"
-                    for i in varying_indices_list
-                ]
-                logger.debug(f"{model_type} varying params: {varying_names}")
-
-            # === Build arrays directly from col_values (no full array allocation) ===
-
-            # Build shared_params from scalar values
-            shared_params_list = []
-            for col in shared_indices:
-                val = col_values.get(col, 0.0)
-                if isinstance(val, np.ndarray):
-                    # Shouldn't happen for shared cols, but use first value as fallback
-                    shared_params_list.append(float(val[0]))
-                else:
-                    shared_params_list.append(float(val))
-            shared_params = jnp.array(shared_params_list, dtype=get_float_dtype())
-
-            # Build device_params from varying columns in col_values
-            if n_varying > 0:
-                device_params_cols = []
-                for col in varying_indices_list:
-                    val = col_values.get(col)
-                    if val is None:
-                        # Voltage column not yet filled - use zeros
-                        device_params_cols.append(np.zeros(n_devices, dtype=get_float_dtype()))
-                    elif isinstance(val, np.ndarray):
-                        device_params_cols.append(val)
-                    else:
-                        # Scalar that ended up in varying (shouldn't happen often)
-                        device_params_cols.append(
-                            np.full(n_devices, float(val), dtype=get_float_dtype())
-                        )
-                device_params = jnp.array(
-                    np.column_stack(device_params_cols), dtype=get_float_dtype()
-                )
-            else:
-                device_params = jnp.empty((n_devices, 0), dtype=get_float_dtype())
-
-            # Free col_values - we've extracted shared_params and device_params
-            del col_values
-
-            # Generate split functions - translator must be available
-            translator = compiled.get("translator")
-            if translator is None or translator.dae_data is None:
-                raise RuntimeError(
-                    f"{model_type}: translator.dae_data not available for split function generation. "
-                    f"This indicates a bug - MIR data was released before split funcs could be generated."
-                )
-
-            # Compute init cache using split init (avoids large init_inputs array)
-            init_to_eval = compiled.get("init_to_eval_indices")
-            if init_to_eval is not None:
-                logger.info(f"{model_type}: generating split init function...")
-                init_to_eval_list = [int(x) for x in init_to_eval]
-                split_init_fn, init_split_meta = translator.translate_init_array_split(
-                    shared_indices, varying_indices_list, init_to_eval_list
-                )
-                # vmap with in_axes=(None, 0) - shared broadcasts, device mapped
-                # Use cached vmapped+jit to avoid repeated JIT compilation
-                code_hash = init_split_meta.get("code_hash", "")
-                vmapped_split_init = openvaf_jax.get_vmapped_jit(
-                    code_hash, split_init_fn, in_axes=(None, 0)
-                )
-
-                # Compute cache using split init (no large init_inputs array needed!)
-                logger.info(
-                    f"Computing init cache for {model_type} ({n_devices} devices) via split init..."
-                )
-                cpu_device = jax.devices("cpu")[0]
-                with jax.default_device(cpu_device):
-                    cache, collapse_decisions = vmapped_split_init(shared_params, device_params)
-                logger.info(f"Init cache computed for {model_type}: shape={cache.shape}")
-                logger.debug(
-                    f"Collapse decisions for {model_type}: shape={collapse_decisions.shape}"
-                )
-
-                # Analyze cache constancy - which columns are identical across all devices?
-                n_cache_cols = cache.shape[1] if cache.ndim > 1 else 0
-                if n_cache_cols > 0 and n_devices > 1:
-                    # Move cache to numpy for constancy analysis (faster than JAX comparisons)
-                    cache_np = np.asarray(cache)
-                    # A column is constant if all values equal the first device's value
-                    const_mask = np.all(cache_np == cache_np[0:1, :], axis=0)
-                    shared_cache_indices = [int(i) for i in np.where(const_mask)[0]]
-                    varying_cache_indices = [int(i) for i in np.where(~const_mask)[0]]
-
-                    n_shared_cache = len(shared_cache_indices)
-                    n_varying_cache = len(varying_cache_indices)
-                    logger.info(
-                        f"{model_type}: cache constancy analysis: "
-                        f"{n_shared_cache}/{n_cache_cols} shared, {n_varying_cache} varying"
-                    )
-
-                else:
-                    shared_cache_indices = []
-                    varying_cache_indices = list(range(n_cache_cols))
-            else:
-                # Fallback for models without init function
-                logger.debug("Model has no init function")
-                cache = jnp.empty((n_devices, 0), dtype=get_float_dtype())
-                collapse_decisions = jnp.empty((n_devices, 0), dtype=jnp.float32)
-                shared_cache_indices = []
-                varying_cache_indices = []
-
-            # Generate eval function with param split and cache split
-            # When use_device_limiting is True, generate calls to pnjlim/fetlim
-            use_device_limiting = getattr(self, "use_device_limiting", False)
-            logger.info(
-                f"{model_type}: generating split eval function (limit_funcs={use_device_limiting})..."
-            )
-
-            # Import limit functions - always bound for uniform interface
-            from functools import partial
-
-            from jax_spice.analysis.limiting import fetlim, pnjlim
-
-            limit_funcs = {"pnjlim": pnjlim, "fetlim": fetlim}
-
-            # Always use cache split for uniform function signature
-            split_fn, split_meta = translator.translate_eval_array_with_cache_split(
-                shared_indices,
-                varying_indices_list,
-                shared_cache_indices,
-                varying_cache_indices,
-                use_limit_functions=use_device_limiting,
-                limit_param_map=limit_param_map,
-            )
-            # Bind limit_funcs for uniform call signature:
-            # (shared, device, shared_cache, device_cache, simparams, limit_state_in)
-            split_fn = partial(split_fn, limit_funcs=limit_funcs)
-            # in_axes: (None, 0, None, 0, None, 0) - limit_state_in varies per device
-            vmapped_split_fn = jax.jit(jax.vmap(split_fn, in_axes=(None, 0, None, 0, None, 0)))
-
-            # Split cache arrays (indexing with empty list gives empty array)
-            shared_cache = cache[0, shared_cache_indices]  # (n_shared_cache,) or empty
-            device_cache = cache[:, varying_cache_indices]  # (n_devices, n_varying_cache)
-
-            # Build default simparams array
-            # simparams[0] = analysis_type (0=DC, 1=AC, 2=transient, 3=noise)
-            # simparams[1+] = other simparams as registered by the model (gmin, etc.)
-            # For now, use defaults - DC analysis with gmin=1e-12, mfactor=1.0
-            default_simparams = jnp.array(
-                [0.0, 1.0, 1e-12], dtype=get_float_dtype()
-            )  # [analysis_type, mfactor, gmin]
-
-            # Compute voltage positions within device_params (varying indices)
-            varying_idx_to_pos = {
-                orig_idx: pos for pos, orig_idx in enumerate(varying_indices_list)
-            }
-            voltage_positions = [
-                varying_idx_to_pos[v] for v in voltage_indices if v in varying_idx_to_pos
-            ]
-            voltage_positions = jnp.array(voltage_positions, dtype=jnp.int32)
-
-            # Store in compiled dict
-            compiled["split_eval_fn"] = split_fn
-            compiled["vmapped_split_eval"] = vmapped_split_fn
-            compiled["shared_indices"] = shared_indices
-            compiled["varying_indices"] = varying_indices_list
-            compiled["shared_params"] = shared_params
-            compiled["device_params"] = device_params
-            compiled["voltage_positions_in_varying"] = voltage_positions
-            compiled["shared_cache"] = shared_cache
-            compiled["device_cache"] = device_cache
-            compiled["shared_cache_indices"] = shared_cache_indices
-            compiled["varying_cache_indices"] = varying_cache_indices
-            compiled["default_simparams"] = default_simparams
-            compiled["use_device_limiting"] = use_device_limiting
-            compiled["limit_param_map"] = limit_param_map
-            if limit_param_map:
-                logger.info(
-                    f"{model_type}: {len(limit_param_map)} limit params mapped "
-                    f"({', '.join(f'{k}:{v[0]}' for k, v in sorted(limit_param_map.items()))})"
-                )
-            # Store limit metadata for solver to manage limit_state arrays
-            if use_device_limiting and split_meta.get("limit_metadata"):
-                compiled["limit_metadata"] = split_meta["limit_metadata"]
-                compiled["num_limit_states"] = split_meta["limit_metadata"].get("limit_count", 0)
-            else:
-                compiled["limit_metadata"] = None
-                compiled["num_limit_states"] = 0
-
-            split_mem_mb = (
-                shared_params.nbytes / 1024 / 1024
-                + device_params.nbytes / 1024 / 1024
-                + shared_cache.nbytes / 1024 / 1024
-                + device_cache.nbytes / 1024 / 1024
-            )
-            # Compare to theoretical full array size (never allocated)
-            theoretical_full_mb = n_devices * n_params_total * 8 / 1024 / 1024
-            logger.info(
-                f"{model_type}: split eval ready "
-                f"(params: shared={len(shared_indices)}, varying={len(varying_indices_list)}; "
-                f"cache: shared={len(shared_cache_indices)}, varying={len(varying_cache_indices)}; "
-                f"mem={split_mem_mb:.1f}MB vs full={theoretical_full_mb:.1f}MB)"
-            )
-
-            # NOTE: Do NOT release MIR data here - different circuits may have different
-            # shared/varying splits and need to regenerate split functions. MIR data is
-            # small (~MB) compared to circuit data.
-        else:
-            # This branch should never be reached - all OpenVAF models have devices and parameters
-            raise AssertionError(
-                f"Cannot prepare inputs for {model_type}: n_devices={n_devices}, n_params={n_params_total}"
-            )
-
-        return voltage_indices, device_contexts, cache, collapse_decisions
+        # Delegate to standalone function from openvaf_models module
+        return prepare_static_inputs(
+            model_type=model_type,
+            openvaf_devices=openvaf_devices,
+            device_internal_nodes=device_internal_nodes,
+            compiled_models=self._compiled_models,
+            simulation_temperature=self._simulation_temperature,
+            use_device_limiting=getattr(self, "use_device_limiting", False),
+            parse_voltage_param_fn=self._parse_voltage_param,
+            ground=ground,
+        )
 
     def warmup_device_models(self, static_inputs_cache: Dict[str, Tuple]) -> None:
         """Trigger XLA compilation of vmapped device functions.
@@ -1496,58 +606,15 @@ class CircuitEngine:
         to trigger XLA compilation. The compiled artifacts are stored in JAX's
         persistent cache (if configured) and can be reused across sessions.
 
-        This separates device model compilation from main loop compilation,
-        allowing device models to be pre-compiled during setup while the main
-        loop is compiled later.
-
         Args:
             static_inputs_cache: Dict mapping model_type to cached static inputs:
                 (voltage_indices, stamp_indices, voltage_node1, voltage_node2, cache, collapse_decisions)
         """
-        import time
-
-        for model_type, compiled in self._compiled_models.items():
-            if model_type not in static_inputs_cache:
-                continue
-
-            t0 = time.perf_counter()
-            logger.info(f"Warming up device model: {model_type}...")
-
-            # Get the vmapped function and inputs
-            vmapped_split_eval = compiled["vmapped_split_eval"]
-            shared_params = compiled["shared_params"]
-            device_params = compiled["device_params"]
-            shared_cache = compiled["shared_cache"]
-            device_cache = compiled["device_cache"]
-            default_simparams = compiled.get("default_simparams", jnp.array([0.0, 1.0, 1e-12]))
-            num_limit_states = compiled.get("num_limit_states", 0)
-
-            # Prepare limit_state_in (always needed for uniform interface)
-            # Use shape (n_devices, max(1, num_limit_states)) to satisfy vmap
-            n_devices = device_params.shape[0]
-            n_lim = max(1, num_limit_states)
-            limit_state_in = jnp.zeros((n_devices, n_lim), dtype=get_float_dtype())
-
-            # Call the function with actual inputs to trigger XLA compilation
-            # Uniform interface: always pass shared_cache, device_cache, limit_state_in
-            try:
-                _ = vmapped_split_eval(
-                    shared_params,
-                    device_params,
-                    shared_cache,
-                    device_cache,
-                    default_simparams,
-                    limit_state_in,
-                )
-
-                # Block until compilation completes
-                jax.block_until_ready(_)
-
-                t1 = time.perf_counter()
-                logger.info(f"  {model_type}: XLA compilation complete ({t1 - t0:.2f}s)")
-            except Exception as e:
-                logger.warning(f"  {model_type}: warmup failed: {e}")
-            logger.info(f"{model_type} device model ready")
+        # Delegate to standalone function from openvaf_models module
+        _warmup_device_models_impl(
+            compiled_models=self._compiled_models,
+            static_inputs_cache=static_inputs_cache,
+        )
 
     def _build_stamp_index_mapping(
         self,
