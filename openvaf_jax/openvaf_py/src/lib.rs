@@ -1361,6 +1361,18 @@ fn compile_va(path: &str, allow_analog_in_cond: bool, allow_builtin_primitives: 
                 ParamKind::ImplicitUnknown(eq) => {
                     ("implicit_unknown".to_string(), format!("{:?}", eq))
                 }
+                ParamKind::PrevState(state) => {
+                    ("prev_state".to_string(), format!("prev_state_{}", u32::from(*state)))
+                }
+                ParamKind::NewState(state) => {
+                    ("new_state".to_string(), format!("new_state_{}", u32::from(*state)))
+                }
+                ParamKind::EnableLim => {
+                    ("enable_lim".to_string(), "enable_lim".to_string())
+                }
+                ParamKind::EnableIntegration => {
+                    ("enable_integration".to_string(), "enable_integration".to_string())
+                }
                 _ => ("unknown".to_string(), "unknown".to_string()),
             };
             param_kinds.push(kind_str);
@@ -1477,6 +1489,18 @@ fn compile_va(path: &str, allow_analog_in_cond: bool, allow_builtin_primitives: 
                 }
                 ParamKind::ImplicitUnknown(eq) => {
                     ("implicit_unknown".to_string(), format!("{:?}", eq))
+                }
+                ParamKind::PrevState(state) => {
+                    ("prev_state".to_string(), format!("prev_state_{}", u32::from(*state)))
+                }
+                ParamKind::NewState(state) => {
+                    ("new_state".to_string(), format!("new_state_{}", u32::from(*state)))
+                }
+                ParamKind::EnableLim => {
+                    ("enable_lim".to_string(), "enable_lim".to_string())
+                }
+                ParamKind::EnableIntegration => {
+                    ("enable_integration".to_string(), "enable_integration".to_string())
                 }
                 _ => ("unknown".to_string(), "unknown".to_string()),
             };
