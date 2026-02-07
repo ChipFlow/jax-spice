@@ -66,8 +66,8 @@ class SimulationOptions:
     op_itlcont: int = 50
     """Max NR iterations in continuation/homotopy mode. VACASK default 50."""
 
-    tran_itl: int = 10
-    """Max NR iterations per transient timepoint. VACASK default 10."""
+    tran_itl: int = 20
+    """Max NR iterations per transient timepoint. Increased from VACASK default (10) for stiff circuits."""
 
     # Timestep cut factor on NR failure
     tran_ft: float = 0.25

@@ -257,11 +257,14 @@ def compute_lte_timestep_jax(
     # Compute normalized LTE for each node
     # VACASK default (relrefAlllocal): use historic max |V| per node
     # This gives more forgiving tolerance for nodes that have seen high voltages
+    # Always include current step values to handle startup (when historic max is 0)
+    V_current = jnp.maximum(jnp.abs(V_new), jnp.abs(V_pred))
     if V_max_historic is not None:
-        V_scale = V_max_historic
+        # Use max of historic and current to handle startup gracefully
+        V_scale = jnp.maximum(V_max_historic, V_current)
     else:
         # Fallback: use max(|V_new|, |V_pred|) at current step
-        V_scale = jnp.maximum(jnp.abs(V_new), jnp.abs(V_pred))
+        V_scale = V_current
     tol = config.reltol * V_scale + config.abstol
     lte_normalized = jnp.abs(lte) / tol
     lte_norm = jnp.max(lte_normalized)

@@ -157,10 +157,10 @@ def make_dense_full_mna_solver(
     """
     # Extract options (captured at trace time, not JAX values)
     nr_damping = options.nr_damping if options is not None else 1.0
-    nr_convtol = options.nr_convtol if options is not None else 0.01
 
-    # Effective tolerance: abstol * nr_convtol
-    effective_abstol = abstol * nr_convtol
+    # System-level convergence uses abstol directly (VACASK docs: "Two Levels of Convergence")
+    # nr_convtol is only for per-instance change checks (bypass optimization), not implemented here
+    effective_abstol = abstol
     n_unknowns = n_nodes - 1
     n_unknowns + n_vsources
     n_total = n_nodes  # Size of voltage part of X
@@ -246,6 +246,7 @@ def make_dense_full_mna_solver(
             integ_c2,
             _Q_prev2,
             limit_state,
+            iteration,  # NR iteration for iniLim/iteration simparams
         )
 
         # Check residual convergence (mask NOI nodes)
@@ -418,6 +419,7 @@ def make_dense_full_mna_solver(
             _integ_c2,
             _Q_prev2,
             limit_state_final,
+            iterations,  # Use final iteration count (iniLim=0 since > 1)
         )
 
         # Compute dQdt for next timestep (needed for trapezoidal and Gear2 methods)
@@ -486,10 +488,9 @@ def make_sparse_full_mna_solver(
     """
     # Extract options (captured at trace time, not JAX values)
     nr_damping = options.nr_damping if options is not None else 1.0
-    nr_convtol = options.nr_convtol if options is not None else 0.01
-
-    # Effective tolerance: abstol * nr_convtol
-    effective_abstol = abstol * nr_convtol
+    # System-level convergence uses abstol directly (VACASK docs: "Two Levels of Convergence")
+    # nr_convtol is only for per-instance change checks (bypass optimization), not implemented here
+    effective_abstol = abstol
     from jax.experimental.sparse import BCSR
     from jax.experimental.sparse.linalg import spsolve
 
@@ -584,6 +585,7 @@ def make_sparse_full_mna_solver(
             integ_c2,
             _Q_prev2,
             None,
+            iteration,  # NR iteration for iniLim/iteration simparams
         )
 
         # Check residual convergence
@@ -753,6 +755,7 @@ def make_sparse_full_mna_solver(
             _integ_c2,
             _Q_prev2,
             None,
+            iterations,  # Use final iteration count (iniLim=0)
         )
 
         # Compute dQdt for next timestep
@@ -819,10 +822,10 @@ def make_umfpack_full_mna_solver(
     """
     # Extract options (captured at trace time, not JAX values)
     nr_damping = options.nr_damping if options is not None else 1.0
-    nr_convtol = options.nr_convtol if options is not None else 0.01
 
-    # Effective tolerance: abstol * nr_convtol
-    effective_abstol = abstol * nr_convtol
+    # System-level convergence uses abstol directly (VACASK docs: "Two Levels of Convergence")
+    # nr_convtol is only for per-instance change checks (bypass optimization), not implemented here
+    effective_abstol = abstol
 
     from jax.experimental.sparse import BCSR
 
@@ -914,6 +917,7 @@ def make_umfpack_full_mna_solver(
             integ_c2,
             _Q_prev2,
             None,
+            iteration,  # NR iteration for iniLim/iteration simparams
         )
 
         # Check residual convergence
@@ -1067,6 +1071,7 @@ def make_umfpack_full_mna_solver(
             _integ_c2,
             _Q_prev2,
             None,
+            iterations,  # Use final iteration count (iniLim=0)
         )
 
         dQdt_final = (
@@ -1130,10 +1135,9 @@ def make_spineax_full_mna_solver(
     """
     # Extract options (captured at trace time, not JAX values)
     nr_damping = options.nr_damping if options is not None else 1.0
-    nr_convtol = options.nr_convtol if options is not None else 0.01
-
-    # Effective tolerance: abstol * nr_convtol
-    effective_abstol = abstol * nr_convtol
+    # System-level convergence uses abstol directly (VACASK docs: "Two Levels of Convergence")
+    # nr_convtol is only for per-instance change checks (bypass optimization), not implemented here
+    effective_abstol = abstol
 
     from jax.experimental.sparse import BCSR
     from spineax.cudss.solver import CuDSSSolver
@@ -1228,6 +1232,7 @@ def make_spineax_full_mna_solver(
             integ_c2,
             _Q_prev2,
             None,  # limit_state_in
+            iteration,  # NR iteration for iniLim/iteration simparams
         )
 
         if residual_mask is not None:
@@ -1379,6 +1384,7 @@ def make_spineax_full_mna_solver(
             _integ_c2,
             _Q_prev2,
             None,  # limit_state_in
+            iterations,  # Use final iteration count (iniLim=0)
         )
 
         # Compute dQdt for next timestep
@@ -1461,10 +1467,9 @@ def make_umfpack_ffi_full_mna_solver(
     """
     # Extract options (captured at trace time, not JAX values)
     nr_damping = options.nr_damping if options is not None else 1.0
-    nr_convtol = options.nr_convtol if options is not None else 0.01
-
-    # Effective tolerance: abstol * nr_convtol
-    effective_abstol = abstol * nr_convtol
+    # System-level convergence uses abstol directly (VACASK docs: "Two Levels of Convergence")
+    # nr_convtol is only for per-instance change checks (bypass optimization), not implemented here
+    effective_abstol = abstol
 
     from jax.experimental.sparse import BCSR
 
@@ -1545,6 +1550,7 @@ def make_umfpack_ffi_full_mna_solver(
             integ_c2,
             _Q_prev2,
             limit_state,
+            iteration,  # NR iteration for iniLim/iteration simparams
         )
 
         if residual_mask is not None:
@@ -1709,6 +1715,7 @@ def make_umfpack_ffi_full_mna_solver(
             _integ_c2,
             _Q_prev2,
             limit_state_final,
+            iterations,  # Use final iteration count (iniLim=0)
         )
 
         dQdt_final = (
