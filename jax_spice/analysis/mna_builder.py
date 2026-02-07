@@ -312,10 +312,7 @@ def make_mna_build_system_fn(
             f_vals = isource_vals[:, None] * jnp.array([1.0, -1.0])[None, :]
             f_idx = d["f_indices"].ravel()
             f_val = f_vals.ravel()
-            f_valid = f_idx >= 0
-            f_resist_parts.append(
-                (jnp.where(f_valid, f_idx, 0), jnp.where(f_valid, f_val, 0.0))
-            )
+            f_resist_parts.append(mask_coo_vector(f_idx, f_val))
 
         # OpenVAF devices
         for model_type in model_types:
@@ -352,7 +349,8 @@ def make_mna_build_system_fn(
             # Build simparams using correct indices from the model's metadata
             analysis_type_val = jnp.where(integ_c0 > 0, 2.0, 0.0)
             # VACASK: iniLim=1 on first NR iteration, 0 otherwise (coreopnr.cpp:716)
-            iniLim_val = jnp.where(nr_iteration == 1, 1.0, 0.0)
+            # nr_iteration is 0-indexed from solver (starts at 0, incremented after eval)
+            iniLim_val = jnp.where(nr_iteration == 0, 1.0, 0.0)
 
             simparams = default_simparams
             # Set analysis_type if present

@@ -4,6 +4,37 @@ Central tracking for development tasks and known issues.
 
 ## High Priority
 
+### Graetz Benchmark - NR Convergence During Diode Turn-On
+
+**Status**: Partially fixed. Bugs in DEVpnjlim and iniLim corrected. With abstol=1e-9, simulation reaches 99.5% completion. Residual explosions still occur at some stiff transition points.
+
+**Bugs fixed**:
+1. **DEVpnjlim algorithm bug** - diode.va used ngspice's buggy `log(arg-2)` formula which produces negative values when `|vnew-vold| < 3*vt`. Fixed to use VACASK's corrected `log(1+arg)` formula.
+2. **iniLim simparam bug** - The check `nr_iteration == 1` was wrong since iteration starts at 0. Fixed to `nr_iteration == 0`.
+3. **isource COOVector bug** - isource stamping appended a plain tuple instead of COOVector to f_resist_parts.
+
+**Remaining issues**:
+- With tight abstol (1e-12), NR still fails at stiff transitions
+- With looser abstol (1e-9), simulation completes but force-accepts some steps with high residuals
+- Residual explosions (1e+5) at some transition points suggest numerical instability
+
+**Workaround**: Use `engine.options.abstol = 1e-9` for graetz benchmark.
+
+**Related files**:
+- `vendor/VACASK/devices/spice/sn/diode.va` - DEVpnjlim function (lines 403-440)
+- `jax_spice/analysis/mna_builder.py` - iniLim simparam setting (line 355)
+- `jax_spice/analysis/mna_builder.py` - isource stamping (line 316)
+
+### Spineax Solver Missing limit_state Threading
+
+**Bug**: The Spineax solver (`make_spineax_full_mna_solver` in `solver_factories.py`) does not thread `limit_state` through NR iterations. It always passes `None` for `limit_state_in`, breaking device-level $limit callbacks (pnjlim/fetlim).
+
+**Impact**: Device limiting (pnjlim for diodes, fetlim for MOSFETs) does not work with Spineax backend.
+
+**Fix needed**: Add `limit_state` to the state tuple (like dense solver does at line 219) and thread `limit_state_out` through iterations.
+
+**Workaround**: Use `backend="dense"` for circuits requiring device limiting.
+
 ### Make jitted function to *not* change with number of steps
 
 When used as an API, we should expect that a user would ask for different lengths of simulation of the same model.
@@ -134,6 +165,19 @@ have been deleted from `engine.py`.
 - [ ] **Consolidate test files** in `openvaf_jax/openvaf_py/` (some at root level, some in tests/)
 
 ## Completed
+
+- [x] ~~DEVpnjlim algorithm bug in diode.va~~ (2025-02)
+  - diode.va used ngspice's buggy `log(arg-2)` formula instead of VACASK's `log(1+arg)`
+  - When `|vnew-vold| < 3*vt`, the ngspice formula produces negative log arguments
+  - Fixed in `vendor/VACASK/devices/spice/sn/diode.va` lines 416-419
+
+- [x] ~~iniLim simparam off-by-one bug~~ (2025-02)
+  - `nr_iteration` starts at 0, but iniLim check was `== 1`, so iniLim was never 1
+  - Fixed to `nr_iteration == 0` in `jax_spice/analysis/mna_builder.py:355`
+
+- [x] ~~isource COOVector stamping bug~~ (2025-02)
+  - isource stamping appended plain tuple instead of COOVector
+  - Fixed to use `mask_coo_vector()` in `jax_spice/analysis/mna_builder.py:316`
 
 - [x] ~~ddt() operator fixed~~ (2025-01)
   - `openvaf_jax/codegen/instruction.py` now returns charge value instead of zero
