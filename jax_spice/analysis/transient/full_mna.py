@@ -373,14 +373,15 @@ class FullMNAStrategy(TransientStrategy):
         noi_indices = jnp.array(noi_indices, dtype=jnp.int32) if noi_indices else None
 
         # Create full MNA solver
-        # Tolerance and iteration limits from SimulationOptions (tran_itl, abstol)
+        # Use op_itl as safety limit — delta convergence exits early for transient
+        # timepoints (typically 3-5 iterations), while DC OP may need up to op_itl.
         if self.use_dense:
             nr_solve = make_dense_full_mna_solver(
                 build_system_jit,
                 n_nodes,
                 n_vsources,
                 noi_indices=noi_indices,
-                max_iterations=self.runner.options.tran_itl,
+                max_iterations=self.runner.options.op_itl,
                 abstol=self.runner.options.abstol,
                 max_step=1.0,
                 total_limit_states=total_limit_states,
@@ -468,7 +469,7 @@ class FullMNAStrategy(TransientStrategy):
                     bcsr_indptr=bcsr_indptr_jax,
                     bcsr_indices=bcsr_indices_jax,
                     noi_indices=noi_indices,
-                    max_iterations=self.runner.options.tran_itl,
+                    max_iterations=self.runner.options.op_itl,
                     abstol=self.runner.options.abstol,
                     max_step=1.0,
                     coo_sort_perm=coo_sort_perm_jax,
@@ -486,7 +487,7 @@ class FullMNAStrategy(TransientStrategy):
                     bcsr_indptr=bcsr_indptr_jax,
                     bcsr_indices=bcsr_indices_jax,
                     noi_indices=noi_indices,
-                    max_iterations=self.runner.options.tran_itl,
+                    max_iterations=self.runner.options.op_itl,
                     abstol=self.runner.options.abstol,
                     max_step=1.0,
                     coo_sort_perm=coo_sort_perm_jax,
@@ -739,12 +740,17 @@ class FullMNAStrategy(TransientStrategy):
                 limit_state_in=None,  # Device-level limiting state (optional)
             )
 
+            # Always use DC result — even if not "converged" by strict criteria,
+            # the NR solution is always better than the mid-rail initial guess.
+            X0 = X_dc
+            Q_init = Q_dc
             if dc_converged:
-                X0 = X_dc
-                Q_init = Q_dc
                 logger.info(f"{self.name}: DC converged, V[1]={float(X0[1]):.4f}V")
             else:
-                logger.warning(f"{self.name}: DC did not converge (residual={dc_residual:.2e})")
+                logger.warning(
+                    f"{self.name}: DC did not converge (residual={dc_residual:.2e}), "
+                    f"using best NR result"
+                )
 
         # History buffers
         max_history = config.max_order + 2

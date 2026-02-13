@@ -161,9 +161,16 @@ def make_dense_full_mna_solver(
     # System-level convergence uses abstol directly (VACASK docs: "Two Levels of Convergence")
     # nr_convtol is only for per-instance change checks (bypass optimization), not implemented here
     effective_abstol = abstol
+    vntol = options.vntol if options is not None else 1e-6
+    reltol = options.reltol if options is not None else 1e-3
     n_unknowns = n_nodes - 1
-    n_unknowns + n_vsources
     n_total = n_nodes  # Size of voltage part of X
+    # Per-unknown absolute tolerance for VACASK-style delta convergence
+    # Voltages use vntol, branch currents use abstol
+    delta_abs_tol = jnp.concatenate([
+        jnp.full(n_unknowns, vntol, dtype=jnp.float64),
+        jnp.full(n_vsources, abstol, dtype=jnp.float64),
+    ])
 
     # Compute NOI masks for node equations only
     masks = _compute_noi_masks(noi_indices, n_nodes)
@@ -273,25 +280,33 @@ def make_dense_full_mna_solver(
         # Solve linear system J @ delta = -f
         delta = jax.scipy.linalg.solve(J_reg, -f)
 
+        # VACASK-style delta convergence (before step limiting)
+        # Check the damped correction that would actually be applied
+        conv_delta = jnp.concatenate([
+            delta[:n_unknowns] * nr_damping,
+            delta[n_unknowns:],
+        ])
+        X_ref = jnp.concatenate([X[1:n_total], X[n_total:]])
+        tol = jnp.maximum(jnp.abs(X_ref) * reltol, delta_abs_tol)
+        if residual_mask is not None:
+            conv_delta = jnp.where(residual_mask, conv_delta, 0.0)
+        delta_converged = jnp.all(jnp.abs(conv_delta) < tol)
+
         # Step limiting
         max_delta = jnp.max(jnp.abs(delta))
         scale = jnp.where(max_delta > max_step, max_step / max_delta, 1.0)
         delta = delta * scale
 
         # Update X: skip ground (index 0), update node voltages and branch currents
-        # X has structure: [V_ground, V_1, ..., V_n, I_vs1, ..., I_vsm]
-        # delta has structure: [delta_V_1, ..., delta_V_n, delta_I_vs1, ..., delta_I_vsm]
         # VACASK system-level damping: simple scalar multiply (nrsolver.cpp:363-365)
-        # Device-level $limit callbacks handle pnjlim/fetlim per-device.
         V_damped = X[1:n_total] + delta[:n_unknowns] * nr_damping
-        X_new = X.at[1:n_total].set(V_damped)  # Update node voltages
-        X_new = X_new.at[n_total:].add(delta[n_unknowns:])  # Update branch currents
+        X_new = X.at[1:n_total].set(V_damped)
+        X_new = X_new.at[n_total:].add(delta[n_unknowns:])
 
         # Clamp NOI nodes to 0V
         if noi_indices is not None and len(noi_indices) > 0:
             X_new = X_new.at[noi_indices].set(0.0)
 
-        delta_converged = max_delta < 1e-12
         converged = jnp.logical_or(residual_converged, delta_converged)
 
         # Return updated state with same solver params (unchanged)
@@ -491,12 +506,17 @@ def make_sparse_full_mna_solver(
     # System-level convergence uses abstol directly (VACASK docs: "Two Levels of Convergence")
     # nr_convtol is only for per-instance change checks (bypass optimization), not implemented here
     effective_abstol = abstol
+    vntol = options.vntol if options is not None else 1e-6
+    reltol = options.reltol if options is not None else 1e-3
     from jax.experimental.sparse import BCSR
     from jax.experimental.sparse.linalg import spsolve
 
     n_unknowns = n_nodes - 1
-    n_unknowns + n_vsources
     n_total = n_nodes  # Size of voltage part of X
+    delta_abs_tol = jnp.concatenate([
+        jnp.full(n_unknowns, vntol, dtype=jnp.float64),
+        jnp.full(n_vsources, abstol, dtype=jnp.float64),
+    ])
 
     use_precomputed = (
         coo_sort_perm is not None
@@ -625,13 +645,23 @@ def make_sparse_full_mna_solver(
 
             delta = spsolve(data, J_bcsr.indices, J_bcsr.indptr, -f_solve, tol=1e-6)
 
+        # VACASK-style delta convergence (before step limiting)
+        conv_delta = jnp.concatenate([
+            delta[:n_unknowns] * nr_damping,
+            delta[n_unknowns:],
+        ])
+        X_ref = jnp.concatenate([X[1:n_total], X[n_total:]])
+        tol = jnp.maximum(jnp.abs(X_ref) * reltol, delta_abs_tol)
+        if residual_mask is not None:
+            conv_delta = jnp.where(residual_mask, conv_delta, 0.0)
+        delta_converged = jnp.all(jnp.abs(conv_delta) < tol)
+
         # Step limiting
         max_delta = jnp.max(jnp.abs(delta))
         scale = jnp.where(max_delta > max_step, max_step / max_delta, 1.0)
         delta = delta * scale
 
-        # Update X: skip ground (index 0), update node voltages and branch currents
-        # VACASK system-level damping: simple scalar multiply
+        # Update X: VACASK system-level damping: simple scalar multiply
         V_damped = X[1:n_total] + delta[:n_unknowns] * nr_damping
         X_new = X.at[1:n_total].set(V_damped)
         X_new = X_new.at[n_total:].add(delta[n_unknowns:])
@@ -640,7 +670,6 @@ def make_sparse_full_mna_solver(
         if noi_indices is not None and len(noi_indices) > 0:
             X_new = X_new.at[noi_indices].set(0.0)
 
-        delta_converged = max_delta < 1e-12
         converged = jnp.logical_or(residual_converged, delta_converged)
 
         # Return updated state with same solver params (unchanged)
@@ -826,14 +855,19 @@ def make_umfpack_full_mna_solver(
     # System-level convergence uses abstol directly (VACASK docs: "Two Levels of Convergence")
     # nr_convtol is only for per-instance change checks (bypass optimization), not implemented here
     effective_abstol = abstol
+    vntol = options.vntol if options is not None else 1e-6
+    reltol = options.reltol if options is not None else 1e-3
 
     from jax.experimental.sparse import BCSR
 
     from jax_spice.analysis.umfpack_solver import UMFPACKSolver
 
     n_unknowns = n_nodes - 1
-    n_unknowns + n_vsources
     n_total = n_nodes
+    delta_abs_tol = jnp.concatenate([
+        jnp.full(n_unknowns, vntol, dtype=jnp.float64),
+        jnp.full(n_vsources, abstol, dtype=jnp.float64),
+    ])
 
     use_precomputed = coo_sort_perm is not None and csr_segment_ids is not None
 
@@ -946,13 +980,23 @@ def make_umfpack_full_mna_solver(
 
         delta, _info = umfpack_solver(-f_solve, csr_data)
 
+        # VACASK-style delta convergence (before step limiting)
+        conv_delta = jnp.concatenate([
+            delta[:n_unknowns] * nr_damping,
+            delta[n_unknowns:],
+        ])
+        X_ref = jnp.concatenate([X[1:n_total], X[n_total:]])
+        tol = jnp.maximum(jnp.abs(X_ref) * reltol, delta_abs_tol)
+        if residual_mask is not None:
+            conv_delta = jnp.where(residual_mask, conv_delta, 0.0)
+        delta_converged = jnp.all(jnp.abs(conv_delta) < tol)
+
         # Step limiting
         max_delta = jnp.max(jnp.abs(delta))
         scale = jnp.where(max_delta > max_step, max_step / max_delta, 1.0)
         delta = delta * scale
 
-        # Update X: node voltages and branch currents
-        # VACASK system-level damping: simple scalar multiply
+        # Update X: VACASK system-level damping: simple scalar multiply
         V_damped = X[1:n_total] + delta[:n_unknowns] * nr_damping
         X_new = X.at[1:n_total].set(V_damped)
         X_new = X_new.at[n_total:].add(delta[n_unknowns:])
@@ -960,7 +1004,6 @@ def make_umfpack_full_mna_solver(
         if noi_indices is not None and len(noi_indices) > 0:
             X_new = X_new.at[noi_indices].set(0.0)
 
-        delta_converged = max_delta < 1e-12
         converged = jnp.logical_or(residual_converged, delta_converged)
 
         return (
@@ -1138,13 +1181,18 @@ def make_spineax_full_mna_solver(
     # System-level convergence uses abstol directly (VACASK docs: "Two Levels of Convergence")
     # nr_convtol is only for per-instance change checks (bypass optimization), not implemented here
     effective_abstol = abstol
+    vntol = options.vntol if options is not None else 1e-6
+    reltol = options.reltol if options is not None else 1e-3
 
     from jax.experimental.sparse import BCSR
     from spineax.cudss.solver import CuDSSSolver
 
     n_unknowns = n_nodes - 1
-    n_unknowns + n_vsources
     n_total = n_nodes
+    delta_abs_tol = jnp.concatenate([
+        jnp.full(n_unknowns, vntol, dtype=jnp.float64),
+        jnp.full(n_vsources, abstol, dtype=jnp.float64),
+    ])
     use_precomputed = coo_sort_perm is not None and csr_segment_ids is not None
 
     masks = _compute_noi_masks(noi_indices, n_nodes, bcsr_indptr, bcsr_indices)
@@ -1260,6 +1308,18 @@ def make_spineax_full_mna_solver(
 
         delta, _info = spineax_solver(-f_solve, csr_data)
 
+        # VACASK-style delta convergence (before step limiting)
+        conv_delta = jnp.concatenate([
+            delta[:n_unknowns] * nr_damping,
+            delta[n_unknowns:],
+        ])
+        X_ref = jnp.concatenate([X[1:n_total], X[n_total:]])
+        tol = jnp.maximum(jnp.abs(X_ref) * reltol, delta_abs_tol)
+        if residual_mask is not None:
+            conv_delta = jnp.where(residual_mask, conv_delta, 0.0)
+        delta_converged = jnp.all(jnp.abs(conv_delta) < tol)
+
+        # Step limiting
         max_delta = jnp.max(jnp.abs(delta))
         scale = jnp.where(max_delta > max_step, max_step / max_delta, 1.0)
         delta = delta * scale
@@ -1272,7 +1332,6 @@ def make_spineax_full_mna_solver(
         if noi_indices is not None and len(noi_indices) > 0:
             X_new = X_new.at[noi_indices].set(0.0)
 
-        delta_converged = max_delta < 1e-12
         converged = jnp.logical_or(residual_converged, delta_converged)
 
         return (
@@ -1470,6 +1529,8 @@ def make_umfpack_ffi_full_mna_solver(
     # System-level convergence uses abstol directly (VACASK docs: "Two Levels of Convergence")
     # nr_convtol is only for per-instance change checks (bypass optimization), not implemented here
     effective_abstol = abstol
+    vntol = options.vntol if options is not None else 1e-6
+    reltol = options.reltol if options is not None else 1e-3
 
     from jax.experimental.sparse import BCSR
 
@@ -1482,13 +1543,15 @@ def make_umfpack_ffi_full_mna_solver(
         )
 
     n_unknowns = n_nodes - 1
-    n_unknowns + n_vsources
     n_total = n_nodes
+    delta_abs_tol = jnp.concatenate([
+        jnp.full(n_unknowns, vntol, dtype=jnp.float64),
+        jnp.full(n_vsources, abstol, dtype=jnp.float64),
+    ])
 
     use_precomputed = coo_sort_perm is not None and csr_segment_ids is not None
 
     masks = _compute_noi_masks(noi_indices, n_nodes, bcsr_indptr, bcsr_indices)
-    masks["noi_res_idx"]
     noi_row_mask = masks["noi_row_mask"]
     noi_col_mask = masks["noi_col_mask"]
     noi_diag_indices = masks["noi_diag_indices"]
@@ -1579,6 +1642,18 @@ def make_umfpack_ffi_full_mna_solver(
         # Use FFI-based UMFPACK solve (no pure_callback overhead)
         delta = umfpack_jax.solve(bcsr_indptr, bcsr_indices, csr_data, -f_solve)
 
+        # VACASK-style delta convergence (before step limiting)
+        conv_delta = jnp.concatenate([
+            delta[:n_unknowns] * nr_damping,
+            delta[n_unknowns:],
+        ])
+        X_ref = jnp.concatenate([X[1:n_total], X[n_total:]])
+        tol = jnp.maximum(jnp.abs(X_ref) * reltol, delta_abs_tol)
+        if residual_mask is not None:
+            conv_delta = jnp.where(residual_mask, conv_delta, 0.0)
+        delta_converged = jnp.all(jnp.abs(conv_delta) < tol)
+
+        # Step limiting
         max_delta = jnp.max(jnp.abs(delta))
         scale = jnp.where(max_delta > max_step, max_step / max_delta, 1.0)
         delta = delta * scale
@@ -1591,7 +1666,6 @@ def make_umfpack_ffi_full_mna_solver(
         if noi_indices is not None and len(noi_indices) > 0:
             X_new = X_new.at[noi_indices].set(0.0)
 
-        delta_converged = max_delta < 1e-12
         converged = jnp.logical_or(residual_converged, delta_converged)
 
         # Return updated state with same solver params (unchanged)

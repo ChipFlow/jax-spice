@@ -96,7 +96,10 @@ class SimulationOptions:
     """Relative tolerance for convergence checks."""
 
     abstol: float = 1e-12
-    """Absolute tolerance for convergence checks."""
+    """Absolute current tolerance (A). VACASK default 1e-12."""
+
+    vntol: float = 1e-6
+    """Absolute voltage tolerance (V). Used for delta convergence. VACASK default 1e-6."""
 
     # Conductance options
     tran_gshunt: float = 0.0
@@ -195,6 +198,8 @@ class SimulationOptions:
             raise ValueError(f"reltol must be positive, got {value}")
         if name == "abstol" and value <= 0:
             raise ValueError(f"abstol must be positive, got {value}")
+        if name == "vntol" and value <= 0:
+            raise ValueError(f"vntol must be positive, got {value}")
         if name == "gmin" and value < 0:
             raise ValueError(f"gmin must be non-negative, got {value}")
         if name == "tran_gshunt" and value < 0:
@@ -232,6 +237,8 @@ class SimulationOptions:
             raise ValueError(f"reltol must be positive, got {self.reltol}")
         if self.abstol <= 0:
             raise ValueError(f"abstol must be positive, got {self.abstol}")
+        if self.vntol <= 0:
+            raise ValueError(f"vntol must be positive, got {self.vntol}")
         if self.gmin < 0:
             raise ValueError(f"gmin must be non-negative, got {self.gmin}")
         if self.tran_gshunt < 0:
@@ -315,6 +322,7 @@ class SimulationOptions:
             "tran_fs",
             "reltol",
             "abstol",
+            "vntol",
             "tran_gshunt",
             "gmin",
             "homotopy_gminfactor",
