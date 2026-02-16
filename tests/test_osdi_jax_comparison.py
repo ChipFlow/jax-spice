@@ -817,8 +817,16 @@ def create_jax_evaluator(
 
         varying_arr = jnp.array(varying_inputs)
 
-        # Run eval with cache and simparams
-        result = eval_fn(shared_arr, varying_arr, cache, simparams_arr)
+        # Run eval with cache split and dummy limit state
+        # Cache split: shared_cache is empty, all cache in device_cache
+        shared_cache = jnp.array([])
+        device_cache = cache
+        limit_state_in = jnp.zeros(1)
+        limit_funcs = {}
+        result = eval_fn(
+            shared_arr, varying_arr, shared_cache, device_cache,
+            simparams_arr, limit_state_in, limit_funcs,
+        )
         res_resist, res_react, jac_resist, jac_react = result[:4]
 
         print(f"Residuals for {n_nodes} nodes")
