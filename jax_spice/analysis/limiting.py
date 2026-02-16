@@ -12,7 +12,7 @@ A 1V change in junction voltage can cause current to change by a factor of
 e^(1/0.026) ≈ 2e16. By using logarithmic compression, we limit the step size
 while still making progress toward the solution.
 
-Reference: SPICE3 source code, lib/dev/diode/diotemp.c
+Reference: VACASK limitfunctions.cpp DEVpnjlim (improved Buermen algorithm)
 """
 
 import jax.numpy as jnp
@@ -22,49 +22,59 @@ from jax import Array
 def pnjlim(vnew: Array, vold: Array, vt: float = 0.026, vcrit: float = 0.6) -> Array:
     """PN junction voltage limiting (logarithmic damping).
 
-    Applies logarithmic compression to large voltage changes across PN junctions.
-    This matches SPICE3's DEVpnjlim algorithm from lib/dev/diode/diotemp.c.
+    Matches VACASK's DEVpnjlim (limitfunctions.cpp:72-146), which is the
+    Buermen-improved version of SPICE3's algorithm. Three cases:
 
-    The algorithm:
-    1. If vnew > vcrit AND |delta| > 2*vt, apply limiting
-    2. If vold >= 0 (forward bias): vnew = vold + vt * log(1 + delta/vt)
-    3. If vold < 0 (reverse recovery): vnew = vt * log(vnew/vt)
-
-    This compresses large steps while preserving the direction of change.
-    The key insight is that limiting applies based on vnew > vcrit, not vold > 0.
-    The vold check only determines which formula to use.
+    1. vnew > vcrit AND |delta| > 2*vt (forward, large change):
+       - vold > 0, delta > 0: vold + vt * log(1 + delta/vt)
+       - vold > 0, delta < 0: vold - vt * log(1 - delta/vt)
+       - vold <= 0: vt * log(vnew/vt)
+    2. vnew < 0 (negative voltage clamping):
+       - vold > 0: clamp to max(vnew, -vold - 1)
+       - vold <= 0: clamp to max(vnew, 2*vold - 1)
+    3. Otherwise: no limiting
 
     Args:
         vnew: Proposed new voltage (from NR step)
         vold: Previous voltage
-        vt: Thermal voltage (kT/q ≈ 0.026V at 300K)
+        vt: Thermal voltage (kT/q, ≈ 0.026V at 300K)
         vcrit: Critical voltage above which limiting is applied (typ. 0.6V)
 
     Returns:
         Limited voltage that is closer to vold than vnew when the step is large
     """
     delta_v = vnew - vold
+    arg = delta_v / vt
 
-    # Main condition: vnew above critical AND large change (SPICE3 outer condition)
-    needs_limiting = (vnew > vcrit) & (jnp.abs(delta_v) > 2 * vt)
+    # Case 1: vnew > vcrit AND large change → logarithmic compression
+    fwd_condition = (vnew > vcrit) & (jnp.abs(delta_v) > 2 * vt)
 
-    # Forward bias case (vold >= 0): logarithmic compression
-    # vnew = vold + vt * log(1 + delta/vt) for positive delta
-    # vnew = vold - vt * log(1 - delta/vt) for negative delta
-    arg = 1.0 + delta_v / vt
-    # Guard against log of non-positive: if arg <= 0, use vcrit
-    limited_forward = jnp.where(arg > 0, vold + vt * jnp.log(jnp.maximum(arg, 1e-30)), vcrit)
+    # Forward bias (vold > 0): separate positive/negative step branches
+    # Positive step: vold + vt * log(1 + arg)  — compresses large increases
+    # Negative step: vold - vt * log(1 - arg)  — compresses large decreases
+    # Both branches produce values closer to vold than vnew.
+    limited_fwd_pos = vold + vt * jnp.log(jnp.maximum(1.0 + arg, 1e-30))
+    limited_fwd_neg = vold - vt * jnp.log(jnp.maximum(1.0 - arg, 1e-30))
+    limited_forward = jnp.where(arg >= 0, limited_fwd_pos, limited_fwd_neg)
 
-    # Reverse recovery case (vold < 0): different formula
-    # vnew = vt * log(vnew/vt) - compresses vnew directly
-    # Guard against log of non-positive
-    limited_reverse = jnp.where(vnew > 0, vt * jnp.log(jnp.maximum(vnew / vt, 1e-30)), vcrit)
+    # Reverse recovery (vold <= 0): compress vnew directly
+    limited_reverse = jnp.where(
+        vnew > 0,
+        vt * jnp.log(jnp.maximum(vnew / vt, 1e-30)),
+        vcrit,
+    )
+    limited_fwd = jnp.where(vold > 0, limited_forward, limited_reverse)
 
-    # Choose based on vold sign (inside the needs_limiting condition)
-    limited = jnp.where(vold >= 0, limited_forward, limited_reverse)
+    # Case 2: vnew < 0 → negative voltage clamping (ngspice extension)
+    neg_clamp = jnp.where(vold > 0, -vold - 1.0, 2.0 * vold - 1.0)
+    limited_neg = jnp.maximum(vnew, neg_clamp)
 
-    # Apply limiting only where needed
-    result = jnp.where(needs_limiting, limited, vnew)
+    # Combine all cases
+    result = jnp.where(
+        fwd_condition,
+        limited_fwd,
+        jnp.where(vnew < 0, limited_neg, vnew),
+    )
 
     return result
 

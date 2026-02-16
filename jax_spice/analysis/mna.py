@@ -348,6 +348,33 @@ def assemble_coo_vector(parts: List[COOVector], size: int) -> Array:
     return jax.ops.segment_sum(all_val, all_idx, num_segments=size)
 
 
+def assemble_coo_max_abs(parts: List[COOVector], size: int) -> Array:
+    """Max absolute contribution per index (VACASK maxResidualContribution).
+
+    For each vector index, computes the maximum absolute value across all
+    COO contributions. This is used for VACASK-style relative residual
+    tolerance: tol[i] = max(maxResContrib[i] * reltol, abstol).
+
+    Nodes with no device contributions get 0.0, so their tolerance falls
+    back to abstol (since max(0 * reltol, abstol) = abstol).
+
+    Args:
+        parts: List of COOVector contributions
+        size: Size of the output vector
+
+    Returns:
+        Dense vector of shape (size,) with max |value| per index
+    """
+    if not parts:
+        return jnp.zeros(size, dtype=get_float_dtype())
+
+    all_idx = jnp.concatenate([p.indices for p in parts])
+    all_val = jnp.concatenate([jnp.abs(p.values) for p in parts])
+    # segment_max returns -inf for empty segments; clamp to 0
+    raw_max = jax.ops.segment_max(all_val, all_idx, num_segments=size)
+    return jnp.maximum(raw_max, 0.0)
+
+
 def assemble_jacobian_coo(
     resist_parts: List[COOMatrix],
     react_parts: List[COOMatrix],

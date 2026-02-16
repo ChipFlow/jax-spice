@@ -40,36 +40,57 @@ def _compute_noi_masks(
     n_nodes: int,
     bcsr_indptr: Optional[Array] = None,
     bcsr_indices: Optional[Array] = None,
+    internal_device_indices: Optional[Array] = None,
 ) -> Dict:
-    """Pre-compute masks for NOI node constraint enforcement.
+    """Pre-compute masks for NOI node constraint enforcement and internal device nodes.
 
     NOI (noise correlation) nodes have extremely high conductance (1e40) which
     causes numerical instability. We enforce delta[noi] = 0 by modifying the
     linear system before solving.
+
+    Internal device nodes are skipped in the residual convergence check
+    (VACASK coreopnr.cpp:903) because they have only one device contributing.
+    Near convergence, maxResidualContribution approaches zero, making the
+    tolerance fall to abstol which prevents convergence.
 
     Args:
         noi_indices: Array of NOI node indices (in full V vector)
         n_nodes: Total node count including ground
         bcsr_indptr: CSR row pointers (for sparse solvers)
         bcsr_indices: CSR column indices (for sparse solvers)
+        internal_device_indices: Array of ALL internal device node indices
+            (in full V vector). Used to build residual_conv_mask.
 
     Returns:
         Dict with pre-computed masks:
         - noi_res_idx: NOI residual indices (noi_indices - 1)
-        - residual_mask: Boolean mask for convergence check
+        - residual_mask: Boolean mask for NOI convergence (delta check)
+        - residual_conv_mask: Boolean mask excluding ALL internal device nodes
+          (residual convergence check only, VACASK-style)
         - noi_row_mask: CSR indices for NOI rows (sparse only)
         - noi_col_mask: CSR indices for NOI columns (sparse only)
         - noi_diag_indices: CSR indices for NOI diagonals (sparse only)
         - noi_res_indices_arr: Sorted NOI residual indices (sparse only)
     """
+    n_unknowns = n_nodes - 1
+
     result = {
         "noi_res_idx": None,
         "residual_mask": None,
+        "residual_conv_mask": None,
         "noi_row_mask": None,
         "noi_col_mask": None,
         "noi_diag_indices": None,
         "noi_res_indices_arr": None,
     }
+
+    # Build residual convergence mask that skips ALL internal device nodes
+    # (VACASK coreopnr.cpp:903: skip InternalDeviceNode in checkResidual)
+    if internal_device_indices is not None and len(internal_device_indices) > 0:
+        residual_conv_mask = jnp.ones(n_unknowns, dtype=jnp.bool_)
+        internal_res_idx = jnp.array(internal_device_indices) - 1
+        residual_conv_mask = residual_conv_mask.at[internal_res_idx].set(False)
+        result["residual_conv_mask"] = residual_conv_mask
 
     if noi_indices is None or len(noi_indices) == 0:
         return result
@@ -122,11 +143,12 @@ def make_dense_full_mna_solver(
     n_nodes: int,
     n_vsources: int,
     noi_indices: Optional[Array] = None,
+    internal_device_indices: Optional[Array] = None,
     max_iterations: int = 100,
     abstol: float = 1e-12,
-    max_step: float = 1.0,
     total_limit_states: int = 0,
     options: Optional["SimulationOptions"] = None,
+    max_step: float = 1e30,
 ) -> Callable:
     """Create a JIT-compiled dense NR solver for full MNA formulation.
 
@@ -137,6 +159,9 @@ def make_dense_full_mna_solver(
 
     The Jacobian has size (n_unknowns + n_vsources) × (n_unknowns + n_vsources).
 
+    Voltage-only step limiting caps max voltage change per NR iteration to
+    max_step volts. Branch currents receive full Newton steps.
+
     Args:
         build_system_jit: JIT-wrapped full MNA function
             (X, vsource_vals, isource_vals, Q_prev, integ_c0, device_arrays, ...)
@@ -146,7 +171,6 @@ def make_dense_full_mna_solver(
         noi_indices: Optional array of NOI node indices to constrain to 0V
         max_iterations: Maximum NR iterations
         abstol: Absolute tolerance for convergence
-        max_step: Maximum voltage/current step per iteration
         options: SimulationOptions for NR damping and other solver parameters.
                  If None, uses defaults (nr_damping=1.0, nr_convtol=0.01).
 
@@ -164,17 +188,6 @@ def make_dense_full_mna_solver(
     n_unknowns = n_nodes - 1
     n_total = n_nodes  # Size of voltage part of X
 
-    # Per-equation absolute tolerance for residual convergence check.
-    # Uses vntol (1e-6) as a uniform floor for all equations. The residual check
-    # is a safety net — the delta check (with per-unknown tolerances) is the
-    # primary VACASK-style convergence criterion. Using raw abstol (1e-12) for
-    # KCL equations is too tight for stiff circuits (large capacitors create
-    # condition numbers ~1e11 that limit achievable residual precision).
-    residual_abs_tol = jnp.concatenate([
-        jnp.full(n_unknowns, vntol, dtype=jnp.float64),
-        jnp.full(n_vsources, vntol, dtype=jnp.float64),
-    ])
-
     # Per-unknown absolute tolerance for VACASK-style delta convergence check.
     # Voltage unknowns use vntol, branch current unknowns use abstol.
     delta_abs_tol = jnp.concatenate([
@@ -183,28 +196,38 @@ def make_dense_full_mna_solver(
     ])
 
     # Compute NOI masks for node equations only
-    masks = _compute_noi_masks(noi_indices, n_nodes)
+    masks = _compute_noi_masks(noi_indices, n_nodes, internal_device_indices=internal_device_indices)
     noi_res_idx = masks["noi_res_idx"]
 
-    # Create augmented residual mask (node equations + branch equations)
+    # Create augmented residual mask for delta check (NOI-only)
     if masks["residual_mask"] is not None:
-        # NOI nodes should be masked in residual convergence check
-        # Branch equations (vsource voltages) are always checked
         residual_mask = jnp.concatenate(
             [masks["residual_mask"], jnp.ones(n_vsources, dtype=jnp.bool_)]
         )
     else:
         residual_mask = None
 
+    # Broader mask for residual convergence: skip ALL internal device nodes
+    # (VACASK coreopnr.cpp:903: InternalDeviceNode skipped in checkResidual)
+    if masks["residual_conv_mask"] is not None:
+        residual_conv_mask = jnp.concatenate(
+            [masks["residual_conv_mask"], jnp.ones(n_vsources, dtype=jnp.bool_)]
+        )
+    elif residual_mask is not None:
+        residual_conv_mask = residual_mask
+    else:
+        residual_conv_mask = None
+
     # Define cond_fn and body_fn at factory level to enable JAX tracing cache.
     # These are created once per solver instance, not per solve call.
     # The varying parameters are passed through the state tuple.
     def cond_fn(state):
-        # State: (X, iteration, converged, max_f, max_delta, Q, limit_state, <solver_params...>)
+        # State: (X, iteration, converged, max_f, max_delta, Q, limit_state, <solver_params...>, res_tol_floor)
         (
             _,
             iteration,
             converged,
+            _,
             _,
             _,
             _,
@@ -246,9 +269,10 @@ def make_dense_full_mna_solver(
             _dQdt_prev,
             integ_c2,
             _Q_prev2,
+            res_tol_floor,
         ) = state
 
-        J, f, Q, _, limit_state_out = build_system_jit(
+        J, f, Q, _, limit_state_out, max_res_contrib = build_system_jit(
             X,
             vsource_vals,
             isource_vals,
@@ -266,13 +290,20 @@ def make_dense_full_mna_solver(
             iteration,  # NR iteration for iniLim/iteration simparams
         )
 
-        # Check residual convergence with per-equation tolerances (mask NOI nodes)
-        if residual_mask is not None:
-            f_check = jnp.where(residual_mask, f, 0.0)
+        # VACASK-style residual tolerance (coreopnr.cpp:929):
+        #   tol[i] = max(|maxResContrib[i]| * reltol, residual_abstol[i])
+        # With historic floor (coreopnr.cpp:921, relref=alllocal):
+        #   tolref = max(maxResContrib[i], historicMaxResContrib[i])
+        # This prevents tolerance collapse at zero crossings where device
+        # currents are momentarily small.
+        res_tol_nodes = jnp.maximum(max_res_contrib * reltol, res_tol_floor)
+        res_tol = jnp.concatenate([res_tol_nodes, jnp.full(n_vsources, vntol, dtype=res_tol_nodes.dtype)])
+        if residual_conv_mask is not None:
+            f_check = jnp.where(residual_conv_mask, f, 0.0)
         else:
             f_check = f
         max_f = jnp.max(jnp.abs(f_check))
-        residual_converged = jnp.all(jnp.abs(f_check) < residual_abs_tol)
+        residual_converged = jnp.all(jnp.abs(f_check) < res_tol)
 
         # Enforce NOI constraints on node equations only
         if noi_res_idx is not None:
@@ -300,24 +331,28 @@ def make_dense_full_mna_solver(
         tol = jnp.maximum(jnp.abs(X_ref) * reltol, delta_abs_tol)
         if residual_mask is not None:
             conv_delta = jnp.where(residual_mask, conv_delta, 0.0)
-        delta_converged = jnp.all(jnp.abs(conv_delta) < tol)
+        # VACASK skips delta check at iteration 0 (coreopnr.cpp: if(iteration>1))
+        # First NR delta is always large since predictor guess is far from solution
+        delta_converged = (iteration == 0) | jnp.all(jnp.abs(conv_delta) < tol)
 
-        # Step limiting
+        # Track max delta for diagnostics
         max_delta = jnp.max(jnp.abs(delta))
-        scale = jnp.where(max_delta > max_step, max_step / max_delta, 1.0)
-        delta = delta * scale
 
-        # Update X: skip ground (index 0), update node voltages and branch currents
-        # VACASK system-level damping: simple scalar multiply (nrsolver.cpp:363-365)
-        V_damped = X[1:n_total] + delta[:n_unknowns] * nr_damping
-        X_new = X.at[1:n_total].set(V_damped)
+        # Voltage-only step limiting: cap max voltage change per iteration.
+        V_delta = delta[:n_unknowns]
+        max_V_delta = jnp.max(jnp.abs(V_delta))
+        V_scale = jnp.minimum(1.0, max_step / jnp.maximum(max_V_delta, 1e-30))
+        V_damped = V_delta * V_scale * nr_damping
+        X_new = X.at[1:n_total].add(V_damped)
         X_new = X_new.at[n_total:].add(delta[n_unknowns:])
 
         # Clamp NOI nodes to 0V
         if noi_indices is not None and len(noi_indices) > 0:
             X_new = X_new.at[noi_indices].set(0.0)
 
-        converged = jnp.logical_or(residual_converged, delta_converged)
+        # VACASK-style AND convergence (nrsolver.h:226).
+        # Both solution delta and KCL residual must be below tolerance.
+        converged = jnp.logical_and(residual_converged, delta_converged)
 
         # Return updated state with same solver params (unchanged)
         return (
@@ -340,6 +375,7 @@ def make_dense_full_mna_solver(
             _dQdt_prev,
             integ_c2,
             _Q_prev2,
+            res_tol_floor,
         )
 
     def nr_solve(
@@ -357,6 +393,7 @@ def make_dense_full_mna_solver(
         integ_c2: float | Array = 0.0,
         Q_prev2: Array | None = None,
         limit_state_in: Array | None = None,
+        res_tol_floor: Array | None = None,
     ):
         # Ensure dQdt_prev is a proper array for JIT tracing
         _dQdt_prev = (
@@ -370,6 +407,13 @@ def make_dense_full_mna_solver(
             limit_state_in
             if limit_state_in is not None
             else jnp.zeros(total_limit_states, dtype=jnp.float64)
+        )
+        # Ensure res_tol_floor is a proper array
+        # Default: abstol everywhere (no historic floor)
+        _res_tol_floor = (
+            res_tol_floor
+            if res_tol_floor is not None
+            else jnp.full(n_unknowns, abstol, dtype=jnp.float64)
         )
 
         # Convert scalar parameters to JAX arrays to avoid weak_type retracing
@@ -403,6 +447,7 @@ def make_dense_full_mna_solver(
             _dQdt_prev,
             _integ_c2,
             _Q_prev2,
+            _res_tol_floor,
         )
 
         result_state = lax.while_loop(cond_fn, body_fn, init_state)
@@ -426,10 +471,11 @@ def make_dense_full_mna_solver(
             _,
             _,
             _,
+            _,
         ) = result_state
 
         # Recompute Q and I_vsource from converged solution
-        _, _, Q_final, I_vsource, _ = build_system_jit(
+        _, _, Q_final, I_vsource, _, max_res_contrib_final = build_system_jit(
             X_final,
             vsource_vals,
             isource_vals,
@@ -461,6 +507,7 @@ def make_dense_full_mna_solver(
             dQdt_final,
             I_vsource,
             limit_state_final,
+            max_res_contrib_final,
         )
 
     logger.info(
@@ -475,15 +522,16 @@ def make_sparse_full_mna_solver(
     n_vsources: int,
     nse: int,
     noi_indices: Optional[Array] = None,
+    internal_device_indices: Optional[Array] = None,
     max_iterations: int = 100,
     abstol: float = 1e-12,
-    max_step: float = 1.0,
     coo_sort_perm: Optional[Array] = None,
     csr_segment_ids: Optional[Array] = None,
     bcsr_indices: Optional[Array] = None,
     bcsr_indptr: Optional[Array] = None,
     total_limit_states: int = 0,
     options: Optional["SimulationOptions"] = None,
+    max_step: float = 1e30,
 ) -> Callable:
     """Create a JIT-compiled sparse NR solver for full MNA formulation.
 
@@ -494,6 +542,9 @@ def make_sparse_full_mna_solver(
 
     The Jacobian has size (n_unknowns + n_vsources) × (n_unknowns + n_vsources).
 
+    Voltage-only step limiting caps max voltage change per NR iteration to
+    max_step volts. Branch currents receive full Newton steps.
+
     Args:
         build_system_jit: JIT-wrapped full MNA function returning (J_bcoo, f, Q, I_vsource)
         n_nodes: Total node count including ground
@@ -502,7 +553,6 @@ def make_sparse_full_mna_solver(
         noi_indices: Optional array of NOI node indices to constrain to 0V
         max_iterations: Maximum NR iterations
         abstol: Absolute tolerance for convergence
-        max_step: Maximum voltage/current step per iteration
         coo_sort_perm: Pre-computed COO→CSR permutation
         csr_segment_ids: Pre-computed segment IDs for duplicate summing
         bcsr_indices: Pre-computed CSR column indices
@@ -523,17 +573,6 @@ def make_sparse_full_mna_solver(
     n_unknowns = n_nodes - 1
     n_total = n_nodes  # Size of voltage part of X
 
-    # Per-equation absolute tolerance for residual convergence check.
-    # Uses vntol (1e-6) as a uniform floor for all equations. The residual check
-    # is a safety net — the delta check (with per-unknown tolerances) is the
-    # primary VACASK-style convergence criterion. Using raw abstol (1e-12) for
-    # KCL equations is too tight for stiff circuits (large capacitors create
-    # condition numbers ~1e11 that limit achievable residual precision).
-    residual_abs_tol = jnp.concatenate([
-        jnp.full(n_unknowns, vntol, dtype=jnp.float64),
-        jnp.full(n_vsources, vntol, dtype=jnp.float64),
-    ])
-
     # Per-unknown absolute tolerance for VACASK-style delta convergence check.
     # Voltage unknowns use vntol, branch current unknowns use abstol.
     delta_abs_tol = jnp.concatenate([
@@ -549,29 +588,39 @@ def make_sparse_full_mna_solver(
     )
 
     # Compute NOI masks for node equations only (branch equations are not masked)
-    masks = _compute_noi_masks(noi_indices, n_nodes, bcsr_indptr, bcsr_indices)
+    masks = _compute_noi_masks(noi_indices, n_nodes, bcsr_indptr, bcsr_indices, internal_device_indices=internal_device_indices)
     noi_row_mask = masks["noi_row_mask"]
     noi_col_mask = masks["noi_col_mask"]
     noi_diag_indices = masks["noi_diag_indices"]
     noi_res_indices_arr = masks["noi_res_indices_arr"]
 
-    # Create augmented residual mask (node equations + branch equations)
+    # Create augmented residual mask for delta check (NOI-only)
     if masks["residual_mask"] is not None:
-        # NOI nodes should be masked in residual convergence check
-        # Branch equations (vsource voltages) are always checked
         residual_mask = jnp.concatenate(
             [masks["residual_mask"], jnp.ones(n_vsources, dtype=jnp.bool_)]
         )
     else:
         residual_mask = None
 
+    # Broader mask for residual convergence: skip ALL internal device nodes
+    # (VACASK coreopnr.cpp:903: InternalDeviceNode skipped in checkResidual)
+    if masks["residual_conv_mask"] is not None:
+        residual_conv_mask = jnp.concatenate(
+            [masks["residual_conv_mask"], jnp.ones(n_vsources, dtype=jnp.bool_)]
+        )
+    elif residual_mask is not None:
+        residual_conv_mask = residual_mask
+    else:
+        residual_conv_mask = None
+
     # Define cond_fn and body_fn at factory level to enable JAX tracing cache.
     def cond_fn(state):
-        # State: (X, iteration, converged, max_f, max_delta, Q, <solver_params...>)
+        # State: (X, iteration, converged, max_f, max_delta, Q, <solver_params...>, res_tol_floor)
         (
             _,
             iteration,
             converged,
+            _,
             _,
             _,
             _,
@@ -611,9 +660,10 @@ def make_sparse_full_mna_solver(
             integ_c2,
             _dQdt_prev,
             _Q_prev2,
+            res_tol_floor,
         ) = state
 
-        J_bcoo, f, Q, _, _ = build_system_jit(
+        J_bcoo, f, Q, _, _, max_res_contrib = build_system_jit(
             X,
             vsource_vals,
             isource_vals,
@@ -631,13 +681,20 @@ def make_sparse_full_mna_solver(
             iteration,  # NR iteration for iniLim/iteration simparams
         )
 
-        # Check residual convergence with per-equation tolerances (mask NOI nodes)
-        if residual_mask is not None:
-            f_check = jnp.where(residual_mask, f, 0.0)
+        # VACASK-style residual tolerance (coreopnr.cpp:929):
+        #   tol[i] = max(|maxResContrib[i]| * reltol, residual_abstol[i])
+        # With historic floor (coreopnr.cpp:921, relref=alllocal):
+        #   tolref = max(maxResContrib[i], historicMaxResContrib[i])
+        # This prevents tolerance collapse at zero crossings where device
+        # currents are momentarily small.
+        res_tol_nodes = jnp.maximum(max_res_contrib * reltol, res_tol_floor)
+        res_tol = jnp.concatenate([res_tol_nodes, jnp.full(n_vsources, vntol, dtype=res_tol_nodes.dtype)])
+        if residual_conv_mask is not None:
+            f_check = jnp.where(residual_conv_mask, f, 0.0)
         else:
             f_check = f
         max_f = jnp.max(jnp.abs(f_check))
-        residual_converged = jnp.all(jnp.abs(f_check) < residual_abs_tol)
+        residual_converged = jnp.all(jnp.abs(f_check) < res_tol)
 
         if use_precomputed:
             # Fast path: pre-computed COO→CSR
@@ -677,23 +734,26 @@ def make_sparse_full_mna_solver(
         tol = jnp.maximum(jnp.abs(X_ref) * reltol, delta_abs_tol)
         if residual_mask is not None:
             conv_delta = jnp.where(residual_mask, conv_delta, 0.0)
-        delta_converged = jnp.all(jnp.abs(conv_delta) < tol)
+        # VACASK skips delta check at iteration 0 (coreopnr.cpp: if(iteration>1))
+        delta_converged = (iteration == 0) | jnp.all(jnp.abs(conv_delta) < tol)
 
-        # Step limiting
+        # Track max delta for diagnostics
         max_delta = jnp.max(jnp.abs(delta))
-        scale = jnp.where(max_delta > max_step, max_step / max_delta, 1.0)
-        delta = delta * scale
 
-        # Update X: VACASK system-level damping: simple scalar multiply
-        V_damped = X[1:n_total] + delta[:n_unknowns] * nr_damping
-        X_new = X.at[1:n_total].set(V_damped)
+        # Voltage-only step limiting
+        V_delta = delta[:n_unknowns]
+        max_V_delta = jnp.max(jnp.abs(V_delta))
+        V_scale = jnp.minimum(1.0, max_step / jnp.maximum(max_V_delta, 1e-30))
+        V_damped = V_delta * V_scale * nr_damping
+        X_new = X.at[1:n_total].add(V_damped)
         X_new = X_new.at[n_total:].add(delta[n_unknowns:])
 
         # Clamp NOI nodes to 0V
         if noi_indices is not None and len(noi_indices) > 0:
             X_new = X_new.at[noi_indices].set(0.0)
 
-        converged = jnp.logical_or(residual_converged, delta_converged)
+        # VACASK-style AND convergence (nrsolver.h:226).
+        converged = jnp.logical_and(residual_converged, delta_converged)
 
         # Return updated state with same solver params (unchanged)
         return (
@@ -715,6 +775,7 @@ def make_sparse_full_mna_solver(
             integ_c2,
             _dQdt_prev,
             _Q_prev2,
+            res_tol_floor,
         )
 
     def nr_solve(
@@ -731,12 +792,20 @@ def make_sparse_full_mna_solver(
         dQdt_prev: Array | None = None,
         integ_c2: float | Array = 0.0,
         Q_prev2: Array | None = None,
+        res_tol_floor: Array | None = None,
     ):
         # Ensure arrays are proper for JIT tracing
         _dQdt_prev = (
             dQdt_prev if dQdt_prev is not None else jnp.zeros(n_unknowns, dtype=jnp.float64)
         )
         _Q_prev2 = Q_prev2 if Q_prev2 is not None else jnp.zeros(n_unknowns, dtype=jnp.float64)
+        # Ensure res_tol_floor is a proper array
+        # Default: abstol everywhere (no historic floor)
+        _res_tol_floor = (
+            res_tol_floor
+            if res_tol_floor is not None
+            else jnp.full(n_unknowns, abstol, dtype=jnp.float64)
+        )
 
         # Convert scalar parameters to JAX arrays to avoid weak_type retracing
         _integ_c0 = jnp.asarray(integ_c0, dtype=jnp.float64)
@@ -767,6 +836,7 @@ def make_sparse_full_mna_solver(
             _integ_c2,
             _dQdt_prev,
             _Q_prev2,
+            _res_tol_floor,
         )
 
         result_state = lax.while_loop(cond_fn, body_fn, init_state)
@@ -789,10 +859,11 @@ def make_sparse_full_mna_solver(
             _,
             _,
             _,
+            _,
         ) = result_state
 
         # Recompute Q and I_vsource from converged solution
-        _, _, Q_final, I_vsource, limit_state_final = build_system_jit(
+        _, _, Q_final, I_vsource, limit_state_final, max_res_contrib_final = build_system_jit(
             X_final,
             vsource_vals,
             isource_vals,
@@ -824,6 +895,7 @@ def make_sparse_full_mna_solver(
             dQdt_final,
             I_vsource,
             limit_state_final,
+            max_res_contrib_final,
         )
 
     logger.info(
@@ -840,18 +912,22 @@ def make_umfpack_full_mna_solver(
     bcsr_indptr: Array,
     bcsr_indices: Array,
     noi_indices: Optional[Array] = None,
+    internal_device_indices: Optional[Array] = None,
     max_iterations: int = 100,
     abstol: float = 1e-12,
-    max_step: float = 1.0,
     coo_sort_perm: Optional[Array] = None,
     csr_segment_ids: Optional[Array] = None,
     total_limit_states: int = 0,
     options: Optional["SimulationOptions"] = None,
+    max_step: float = 1e30,
 ) -> Callable:
     """Create a JIT-compiled UMFPACK NR solver for full MNA formulation.
 
     Uses UMFPACK with cached symbolic factorization for fast CPU solving
     with the augmented system where voltage source currents are explicit unknowns.
+
+    Voltage-only step limiting caps max voltage change per NR iteration to
+    max_step volts. Branch currents receive full Newton steps.
 
     Args:
         build_system_jit: JIT-wrapped full MNA function returning (J_bcoo, f, Q, I_vsource)
@@ -863,7 +939,6 @@ def make_umfpack_full_mna_solver(
         noi_indices: Optional array of NOI node indices to constrain to 0V
         max_iterations: Maximum NR iterations
         abstol: Absolute tolerance for convergence
-        max_step: Maximum voltage/current step per iteration
         coo_sort_perm: Pre-computed COO→CSR permutation
         csr_segment_ids: Pre-computed segment IDs
         options: SimulationOptions for NR damping and other solver parameters.
@@ -886,17 +961,6 @@ def make_umfpack_full_mna_solver(
     n_unknowns = n_nodes - 1
     n_total = n_nodes
 
-    # Per-equation absolute tolerance for residual convergence check.
-    # Uses vntol (1e-6) as a uniform floor for all equations. The residual check
-    # is a safety net — the delta check (with per-unknown tolerances) is the
-    # primary VACASK-style convergence criterion. Using raw abstol (1e-12) for
-    # KCL equations is too tight for stiff circuits (large capacitors create
-    # condition numbers ~1e11 that limit achievable residual precision).
-    residual_abs_tol = jnp.concatenate([
-        jnp.full(n_unknowns, vntol, dtype=jnp.float64),
-        jnp.full(n_vsources, vntol, dtype=jnp.float64),
-    ])
-
     # Per-unknown absolute tolerance for VACASK-style delta convergence check.
     # Voltage unknowns use vntol, branch current unknowns use abstol.
     delta_abs_tol = jnp.concatenate([
@@ -907,19 +971,30 @@ def make_umfpack_full_mna_solver(
     use_precomputed = coo_sort_perm is not None and csr_segment_ids is not None
 
     # Compute NOI masks for node equations only
-    masks = _compute_noi_masks(noi_indices, n_nodes, bcsr_indptr, bcsr_indices)
+    masks = _compute_noi_masks(noi_indices, n_nodes, bcsr_indptr, bcsr_indices, internal_device_indices=internal_device_indices)
     noi_row_mask = masks["noi_row_mask"]
     noi_col_mask = masks["noi_col_mask"]
     noi_diag_indices = masks["noi_diag_indices"]
     noi_res_indices_arr = masks["noi_res_indices_arr"]
 
-    # Augmented residual mask
+    # Create augmented residual mask for delta check (NOI-only)
     if masks["residual_mask"] is not None:
         residual_mask = jnp.concatenate(
             [masks["residual_mask"], jnp.ones(n_vsources, dtype=jnp.bool_)]
         )
     else:
         residual_mask = None
+
+    # Broader mask for residual convergence: skip ALL internal device nodes
+    # (VACASK coreopnr.cpp:903: InternalDeviceNode skipped in checkResidual)
+    if masks["residual_conv_mask"] is not None:
+        residual_conv_mask = jnp.concatenate(
+            [masks["residual_conv_mask"], jnp.ones(n_vsources, dtype=jnp.bool_)]
+        )
+    elif residual_mask is not None:
+        residual_conv_mask = residual_mask
+    else:
+        residual_conv_mask = None
 
     # Create UMFPACK solver with cached symbolic factorization
     umfpack_solver = UMFPACKSolver(bcsr_indptr, bcsr_indices)
@@ -931,6 +1006,7 @@ def make_umfpack_full_mna_solver(
             _,
             iteration,
             converged,
+            _,
             _,
             _,
             _,
@@ -969,9 +1045,10 @@ def make_umfpack_full_mna_solver(
             integ_c2,
             _dQdt_prev,
             _Q_prev2,
+            res_tol_floor,
         ) = state
 
-        J_bcoo, f, Q, _, _ = build_system_jit(
+        J_bcoo, f, Q, _, _, max_res_contrib = build_system_jit(
             X,
             vsource_vals,
             isource_vals,
@@ -989,13 +1066,20 @@ def make_umfpack_full_mna_solver(
             iteration,  # NR iteration for iniLim/iteration simparams
         )
 
-        # Check residual convergence with per-equation tolerances (mask NOI nodes)
-        if residual_mask is not None:
-            f_check = jnp.where(residual_mask, f, 0.0)
+        # VACASK-style residual tolerance (coreopnr.cpp:929):
+        #   tol[i] = max(|maxResContrib[i]| * reltol, residual_abstol[i])
+        # With historic floor (coreopnr.cpp:921, relref=alllocal):
+        #   tolref = max(maxResContrib[i], historicMaxResContrib[i])
+        # This prevents tolerance collapse at zero crossings where device
+        # currents are momentarily small.
+        res_tol_nodes = jnp.maximum(max_res_contrib * reltol, res_tol_floor)
+        res_tol = jnp.concatenate([res_tol_nodes, jnp.full(n_vsources, vntol, dtype=res_tol_nodes.dtype)])
+        if residual_conv_mask is not None:
+            f_check = jnp.where(residual_conv_mask, f, 0.0)
         else:
             f_check = f
         max_f = jnp.max(jnp.abs(f_check))
-        residual_converged = jnp.all(jnp.abs(f_check) < residual_abs_tol)
+        residual_converged = jnp.all(jnp.abs(f_check) < res_tol)
 
         if use_precomputed:
             coo_vals = J_bcoo.data
@@ -1024,22 +1108,25 @@ def make_umfpack_full_mna_solver(
         tol = jnp.maximum(jnp.abs(X_ref) * reltol, delta_abs_tol)
         if residual_mask is not None:
             conv_delta = jnp.where(residual_mask, conv_delta, 0.0)
-        delta_converged = jnp.all(jnp.abs(conv_delta) < tol)
+        # VACASK skips delta check at iteration 0 (coreopnr.cpp: if(iteration>1))
+        delta_converged = (iteration == 0) | jnp.all(jnp.abs(conv_delta) < tol)
 
-        # Step limiting
+        # Track max delta for diagnostics
         max_delta = jnp.max(jnp.abs(delta))
-        scale = jnp.where(max_delta > max_step, max_step / max_delta, 1.0)
-        delta = delta * scale
 
-        # Update X: VACASK system-level damping: simple scalar multiply
-        V_damped = X[1:n_total] + delta[:n_unknowns] * nr_damping
-        X_new = X.at[1:n_total].set(V_damped)
+        # Voltage-only step limiting
+        V_delta = delta[:n_unknowns]
+        max_V_delta = jnp.max(jnp.abs(V_delta))
+        V_scale = jnp.minimum(1.0, max_step / jnp.maximum(max_V_delta, 1e-30))
+        V_damped = V_delta * V_scale * nr_damping
+        X_new = X.at[1:n_total].add(V_damped)
         X_new = X_new.at[n_total:].add(delta[n_unknowns:])
 
         if noi_indices is not None and len(noi_indices) > 0:
             X_new = X_new.at[noi_indices].set(0.0)
 
-        converged = jnp.logical_or(residual_converged, delta_converged)
+        # VACASK-style AND convergence (nrsolver.h:226).
+        converged = jnp.logical_and(residual_converged, delta_converged)
 
         return (
             X_new,
@@ -1060,6 +1147,7 @@ def make_umfpack_full_mna_solver(
             integ_c2,
             _dQdt_prev,
             _Q_prev2,
+            res_tol_floor,
         )
 
     def nr_solve(
@@ -1076,11 +1164,19 @@ def make_umfpack_full_mna_solver(
         dQdt_prev: Array | None = None,
         integ_c2: float | Array = 0.0,
         Q_prev2: Array | None = None,
+        res_tol_floor: Array | None = None,
     ):
         _dQdt_prev = (
             dQdt_prev if dQdt_prev is not None else jnp.zeros(n_unknowns, dtype=jnp.float64)
         )
         _Q_prev2 = Q_prev2 if Q_prev2 is not None else jnp.zeros(n_unknowns, dtype=jnp.float64)
+        # Ensure res_tol_floor is a proper array
+        # Default: abstol everywhere (no historic floor)
+        _res_tol_floor = (
+            res_tol_floor
+            if res_tol_floor is not None
+            else jnp.full(n_unknowns, abstol, dtype=jnp.float64)
+        )
 
         # Convert scalar parameters to JAX arrays to avoid weak_type retracing
         _integ_c0 = jnp.asarray(integ_c0, dtype=jnp.float64)
@@ -1110,6 +1206,7 @@ def make_umfpack_full_mna_solver(
             _integ_c2,
             _dQdt_prev,
             _Q_prev2,
+            _res_tol_floor,
         )
 
         result_state = lax.while_loop(cond_fn, body_fn, init_state)
@@ -1132,9 +1229,10 @@ def make_umfpack_full_mna_solver(
             _,
             _,
             _,
+            _,
         ) = result_state
 
-        _, _, Q_final, I_vsource, limit_state_final = build_system_jit(
+        _, _, Q_final, I_vsource, limit_state_final, max_res_contrib_final = build_system_jit(
             X_final,
             vsource_vals,
             isource_vals,
@@ -1165,6 +1263,7 @@ def make_umfpack_full_mna_solver(
             dQdt_final,
             I_vsource,
             limit_state_final,
+            max_res_contrib_final,
         )
 
     logger.info(f"Creating UMFPACK full MNA solver: V({n_nodes}) + I({n_vsources})")
@@ -1179,18 +1278,22 @@ def make_spineax_full_mna_solver(
     bcsr_indptr: Array,
     bcsr_indices: Array,
     noi_indices: Optional[Array] = None,
+    internal_device_indices: Optional[Array] = None,
     max_iterations: int = 100,
     abstol: float = 1e-12,
-    max_step: float = 1.0,
     coo_sort_perm: Optional[Array] = None,
     csr_segment_ids: Optional[Array] = None,
     total_limit_states: int = 0,
     options: Optional["SimulationOptions"] = None,
+    max_step: float = 1e30,
 ) -> Callable:
     """Create a JIT-compiled sparse NR solver using Spineax/cuDSS for full MNA.
 
     Uses Spineax's cuDSS wrapper with cached symbolic factorization.
     Supports full MNA formulation with branch currents as explicit unknowns.
+
+    Voltage-only step limiting caps max voltage change per NR iteration to
+    max_step volts. Branch currents receive full Newton steps.
 
     Args:
         build_system_jit: JIT-wrapped full MNA function returning (J_bcoo, f, Q, I_vsource, limit_state_out)
@@ -1202,7 +1305,6 @@ def make_spineax_full_mna_solver(
         noi_indices: Optional array of NOI node indices to constrain to 0V
         max_iterations: Maximum NR iterations
         abstol: Absolute tolerance for convergence
-        max_step: Maximum voltage/current step per iteration
         coo_sort_perm: Pre-computed COO→CSR permutation
         csr_segment_ids: Pre-computed segment IDs
         options: SimulationOptions for NR damping and other solver parameters.
@@ -1224,17 +1326,6 @@ def make_spineax_full_mna_solver(
     n_unknowns = n_nodes - 1
     n_total = n_nodes
 
-    # Per-equation absolute tolerance for residual convergence check.
-    # Uses vntol (1e-6) as a uniform floor for all equations. The residual check
-    # is a safety net — the delta check (with per-unknown tolerances) is the
-    # primary VACASK-style convergence criterion. Using raw abstol (1e-12) for
-    # KCL equations is too tight for stiff circuits (large capacitors create
-    # condition numbers ~1e11 that limit achievable residual precision).
-    residual_abs_tol = jnp.concatenate([
-        jnp.full(n_unknowns, vntol, dtype=jnp.float64),
-        jnp.full(n_vsources, vntol, dtype=jnp.float64),
-    ])
-
     # Per-unknown absolute tolerance for VACASK-style delta convergence check.
     # Voltage unknowns use vntol, branch current unknowns use abstol.
     delta_abs_tol = jnp.concatenate([
@@ -1243,19 +1334,30 @@ def make_spineax_full_mna_solver(
     ])
     use_precomputed = coo_sort_perm is not None and csr_segment_ids is not None
 
-    masks = _compute_noi_masks(noi_indices, n_nodes, bcsr_indptr, bcsr_indices)
+    masks = _compute_noi_masks(noi_indices, n_nodes, bcsr_indptr, bcsr_indices, internal_device_indices=internal_device_indices)
     noi_row_mask = masks["noi_row_mask"]
     noi_col_mask = masks["noi_col_mask"]
     noi_diag_indices = masks["noi_diag_indices"]
     noi_res_indices_arr = masks["noi_res_indices_arr"]
 
-    # Extend residual mask to include branch current rows
+    # Create augmented residual mask for delta check (NOI-only)
     if masks["residual_mask"] is not None:
         residual_mask = jnp.concatenate(
             [masks["residual_mask"], jnp.ones(n_vsources, dtype=jnp.bool_)]
         )
     else:
         residual_mask = None
+
+    # Broader mask for residual convergence: skip ALL internal device nodes
+    # (VACASK coreopnr.cpp:903: InternalDeviceNode skipped in checkResidual)
+    if masks["residual_conv_mask"] is not None:
+        residual_conv_mask = jnp.concatenate(
+            [masks["residual_conv_mask"], jnp.ones(n_vsources, dtype=jnp.bool_)]
+        )
+    elif residual_mask is not None:
+        residual_conv_mask = residual_mask
+    else:
+        residual_conv_mask = None
 
     # Create Spineax solver with cached symbolic factorization
     spineax_solver = CuDSSSolver(
@@ -1288,6 +1390,7 @@ def make_spineax_full_mna_solver(
             _,
             _,
             _,
+            _,
         ) = state
         return jnp.logical_and(~converged, iteration < max_iterations)
 
@@ -1311,9 +1414,10 @@ def make_spineax_full_mna_solver(
             _dQdt_prev,
             integ_c2,
             _Q_prev2,
+            res_tol_floor,
         ) = state
 
-        J_bcoo, f, Q, _, _ = build_system_jit(
+        J_bcoo, f, Q, _, _, max_res_contrib = build_system_jit(
             X,
             vsource_vals,
             isource_vals,
@@ -1331,13 +1435,20 @@ def make_spineax_full_mna_solver(
             iteration,  # NR iteration for iniLim/iteration simparams
         )
 
-        # Check residual convergence with per-equation tolerances (mask NOI nodes)
-        if residual_mask is not None:
-            f_check = jnp.where(residual_mask, f, 0.0)
+        # VACASK-style residual tolerance (coreopnr.cpp:929):
+        #   tol[i] = max(|maxResContrib[i]| * reltol, residual_abstol[i])
+        # With historic floor (coreopnr.cpp:921, relref=alllocal):
+        #   tolref = max(maxResContrib[i], historicMaxResContrib[i])
+        # This prevents tolerance collapse at zero crossings where device
+        # currents are momentarily small.
+        res_tol_nodes = jnp.maximum(max_res_contrib * reltol, res_tol_floor)
+        res_tol = jnp.concatenate([res_tol_nodes, jnp.full(n_vsources, vntol, dtype=res_tol_nodes.dtype)])
+        if residual_conv_mask is not None:
+            f_check = jnp.where(residual_conv_mask, f, 0.0)
         else:
             f_check = f
         max_f = jnp.max(jnp.abs(f_check))
-        residual_converged = jnp.all(jnp.abs(f_check) < residual_abs_tol)
+        residual_converged = jnp.all(jnp.abs(f_check) < res_tol)
 
         if use_precomputed:
             coo_vals = J_bcoo.data
@@ -1366,22 +1477,25 @@ def make_spineax_full_mna_solver(
         tol = jnp.maximum(jnp.abs(X_ref) * reltol, delta_abs_tol)
         if residual_mask is not None:
             conv_delta = jnp.where(residual_mask, conv_delta, 0.0)
-        delta_converged = jnp.all(jnp.abs(conv_delta) < tol)
+        # VACASK skips delta check at iteration 0 (coreopnr.cpp: if(iteration>1))
+        delta_converged = (iteration == 0) | jnp.all(jnp.abs(conv_delta) < tol)
 
-        # Step limiting
+        # Track max delta for diagnostics
         max_delta = jnp.max(jnp.abs(delta))
-        scale = jnp.where(max_delta > max_step, max_step / max_delta, 1.0)
-        delta = delta * scale
 
-        # Update X: VACASK system-level damping: simple scalar multiply
-        V_damped = X[1:n_total] + delta[:n_unknowns] * nr_damping
-        X_new = X.at[1:n_total].set(V_damped)
+        # Voltage-only step limiting
+        V_delta = delta[:n_unknowns]
+        max_V_delta = jnp.max(jnp.abs(V_delta))
+        V_scale = jnp.minimum(1.0, max_step / jnp.maximum(max_V_delta, 1e-30))
+        V_damped = V_delta * V_scale * nr_damping
+        X_new = X.at[1:n_total].add(V_damped)
         X_new = X_new.at[n_total:].add(delta[n_unknowns:])
 
         if noi_indices is not None and len(noi_indices) > 0:
             X_new = X_new.at[noi_indices].set(0.0)
 
-        converged = jnp.logical_or(residual_converged, delta_converged)
+        # VACASK-style AND convergence (nrsolver.h:226).
+        converged = jnp.logical_and(residual_converged, delta_converged)
 
         return (
             X_new,
@@ -1402,6 +1516,7 @@ def make_spineax_full_mna_solver(
             _dQdt_prev,
             integ_c2,
             _Q_prev2,
+            res_tol_floor,
         )
 
     def nr_solve(
@@ -1419,11 +1534,19 @@ def make_spineax_full_mna_solver(
         integ_c2: float | Array = 0.0,
         Q_prev2: Array | None = None,
         limit_state_in: Array | None = None,
+        res_tol_floor: Array | None = None,
     ):
         _dQdt_prev = (
             dQdt_prev if dQdt_prev is not None else jnp.zeros(n_unknowns, dtype=jnp.float64)
         )
         _Q_prev2 = Q_prev2 if Q_prev2 is not None else jnp.zeros(n_unknowns, dtype=jnp.float64)
+        # Ensure res_tol_floor is a proper array
+        # Default: abstol everywhere (no historic floor)
+        _res_tol_floor = (
+            res_tol_floor
+            if res_tol_floor is not None
+            else jnp.full(n_unknowns, abstol, dtype=jnp.float64)
+        )
 
         # Convert scalar parameters to JAX arrays to avoid weak_type retracing
         _integ_c0 = jnp.asarray(integ_c0, dtype=jnp.float64)
@@ -1453,6 +1576,7 @@ def make_spineax_full_mna_solver(
             _dQdt_prev,
             _integ_c2,
             _Q_prev2,
+            _res_tol_floor,
         )
 
         result_state = lax.while_loop(cond_fn, body_fn, init_state)
@@ -1475,9 +1599,10 @@ def make_spineax_full_mna_solver(
             _,
             _,
             _,
+            _,
         ) = result_state
 
-        _, _, Q_final, I_vsource, limit_state_final = build_system_jit(
+        _, _, Q_final, I_vsource, limit_state_final, max_res_contrib_final = build_system_jit(
             X_final,
             vsource_vals,
             isource_vals,
@@ -1509,6 +1634,7 @@ def make_spineax_full_mna_solver(
             dQdt_final,
             I_vsource,
             limit_state_final,
+            max_res_contrib_final,
         )
 
     logger.info(f"Creating Spineax full MNA NR solver: V({n_nodes}) + I({n_vsources})")
@@ -1540,18 +1666,22 @@ def make_umfpack_ffi_full_mna_solver(
     bcsr_indptr: Array,
     bcsr_indices: Array,
     noi_indices: Optional[Array] = None,
+    internal_device_indices: Optional[Array] = None,
     max_iterations: int = 100,
     abstol: float = 1e-12,
-    max_step: float = 1.0,
     coo_sort_perm: Optional[Array] = None,
     csr_segment_ids: Optional[Array] = None,
     total_limit_states: int = 0,
     options: Optional["SimulationOptions"] = None,
+    max_step: float = 1e30,
 ) -> Callable:
     """Create a JIT-compiled UMFPACK FFI NR solver for full MNA formulation.
 
     This is the FFI-based version that eliminates the ~100ms pure_callback overhead.
     Uses UMFPACK directly via XLA FFI for fast CPU solving.
+
+    Voltage-only step limiting caps max voltage change per NR iteration to
+    max_step volts. Branch currents receive full Newton steps.
 
     Args:
         build_system_jit: JIT-wrapped full MNA function returning (J_bcoo, f, Q, I_vsource, limit_state_out)
@@ -1563,7 +1693,6 @@ def make_umfpack_ffi_full_mna_solver(
         noi_indices: Optional array of NOI node indices to constrain to 0V
         max_iterations: Maximum NR iterations
         abstol: Absolute tolerance for convergence
-        max_step: Maximum voltage/current step per iteration
         coo_sort_perm: Pre-computed COO→CSR permutation
         csr_segment_ids: Pre-computed segment IDs
         total_limit_states: Total number of limit states across all device models
@@ -1593,17 +1722,6 @@ def make_umfpack_ffi_full_mna_solver(
     n_unknowns = n_nodes - 1
     n_total = n_nodes
 
-    # Per-equation absolute tolerance for residual convergence check.
-    # Uses vntol (1e-6) as a uniform floor for all equations. The residual check
-    # is a safety net — the delta check (with per-unknown tolerances) is the
-    # primary VACASK-style convergence criterion. Using raw abstol (1e-12) for
-    # KCL equations is too tight for stiff circuits (large capacitors create
-    # condition numbers ~1e11 that limit achievable residual precision).
-    residual_abs_tol = jnp.concatenate([
-        jnp.full(n_unknowns, vntol, dtype=jnp.float64),
-        jnp.full(n_vsources, vntol, dtype=jnp.float64),
-    ])
-
     # Per-unknown absolute tolerance for VACASK-style delta convergence check.
     # Voltage unknowns use vntol, branch current unknowns use abstol.
     delta_abs_tol = jnp.concatenate([
@@ -1613,12 +1731,13 @@ def make_umfpack_ffi_full_mna_solver(
 
     use_precomputed = coo_sort_perm is not None and csr_segment_ids is not None
 
-    masks = _compute_noi_masks(noi_indices, n_nodes, bcsr_indptr, bcsr_indices)
+    masks = _compute_noi_masks(noi_indices, n_nodes, bcsr_indptr, bcsr_indices, internal_device_indices=internal_device_indices)
     noi_row_mask = masks["noi_row_mask"]
     noi_col_mask = masks["noi_col_mask"]
     noi_diag_indices = masks["noi_diag_indices"]
     noi_res_indices_arr = masks["noi_res_indices_arr"]
 
+    # Create augmented residual mask for delta check (NOI-only)
     if masks["residual_mask"] is not None:
         residual_mask = jnp.concatenate(
             [masks["residual_mask"], jnp.ones(n_vsources, dtype=jnp.bool_)]
@@ -1626,14 +1745,25 @@ def make_umfpack_ffi_full_mna_solver(
     else:
         residual_mask = None
 
+    # Broader mask for residual convergence: skip ALL internal device nodes
+    # (VACASK coreopnr.cpp:903: InternalDeviceNode skipped in checkResidual)
+    if masks["residual_conv_mask"] is not None:
+        residual_conv_mask = jnp.concatenate(
+            [masks["residual_conv_mask"], jnp.ones(n_vsources, dtype=jnp.bool_)]
+        )
+    elif residual_mask is not None:
+        residual_conv_mask = residual_mask
+    else:
+        residual_conv_mask = None
+
     logger.info("Creating UMFPACK FFI full MNA solver with zero callback overhead")
 
     # Define body_fn and cond_fn at factory level to enable JAX tracing cache.
     # These are created once per solver instance, not per solve call.
     # The varying parameters are passed through the state tuple.
     def cond_fn(state):
-        # State: (X, iteration, converged, max_f, max_delta, Q, limit_state, <solver_params...>)
-        _, iteration, converged, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _ = state
+        # State: (X, iteration, converged, max_f, max_delta, Q, limit_state, <solver_params...>, res_tol_floor)
+        _, iteration, converged, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _ = state
         return jnp.logical_and(~converged, iteration < max_iterations)
 
     def body_fn(state):
@@ -1658,9 +1788,10 @@ def make_umfpack_ffi_full_mna_solver(
             _dQdt_prev,
             integ_c2,
             _Q_prev2,
+            res_tol_floor,
         ) = state
 
-        J_bcoo, f, Q, _, limit_state_out = build_system_jit(
+        J_bcoo, f, Q, _, limit_state_out, max_res_contrib = build_system_jit(
             X,
             vsource_vals,
             isource_vals,
@@ -1678,13 +1809,20 @@ def make_umfpack_ffi_full_mna_solver(
             iteration,  # NR iteration for iniLim/iteration simparams
         )
 
-        # Check residual convergence with per-equation tolerances (mask NOI nodes)
-        if residual_mask is not None:
-            f_check = jnp.where(residual_mask, f, 0.0)
+        # VACASK-style residual tolerance (coreopnr.cpp:929):
+        #   tol[i] = max(|maxResContrib[i]| * reltol, residual_abstol[i])
+        # With historic floor (coreopnr.cpp:921, relref=alllocal):
+        #   tolref = max(maxResContrib[i], historicMaxResContrib[i])
+        # This prevents tolerance collapse at zero crossings where device
+        # currents are momentarily small.
+        res_tol_nodes = jnp.maximum(max_res_contrib * reltol, res_tol_floor)
+        res_tol = jnp.concatenate([res_tol_nodes, jnp.full(n_vsources, vntol, dtype=res_tol_nodes.dtype)])
+        if residual_conv_mask is not None:
+            f_check = jnp.where(residual_conv_mask, f, 0.0)
         else:
             f_check = f
         max_f = jnp.max(jnp.abs(f_check))
-        residual_converged = jnp.all(jnp.abs(f_check) < residual_abs_tol)
+        residual_converged = jnp.all(jnp.abs(f_check) < res_tol)
 
         if use_precomputed:
             coo_vals = J_bcoo.data
@@ -1714,22 +1852,25 @@ def make_umfpack_ffi_full_mna_solver(
         tol = jnp.maximum(jnp.abs(X_ref) * reltol, delta_abs_tol)
         if residual_mask is not None:
             conv_delta = jnp.where(residual_mask, conv_delta, 0.0)
-        delta_converged = jnp.all(jnp.abs(conv_delta) < tol)
+        # VACASK skips delta check at iteration 0 (coreopnr.cpp: if(iteration>1))
+        delta_converged = (iteration == 0) | jnp.all(jnp.abs(conv_delta) < tol)
 
-        # Step limiting
+        # Track max delta for diagnostics
         max_delta = jnp.max(jnp.abs(delta))
-        scale = jnp.where(max_delta > max_step, max_step / max_delta, 1.0)
-        delta = delta * scale
 
-        # Update X: VACASK system-level damping: simple scalar multiply
-        V_damped = X[1:n_total] + delta[:n_unknowns] * nr_damping
-        X_new = X.at[1:n_total].set(V_damped)
+        # Voltage-only step limiting
+        V_delta = delta[:n_unknowns]
+        max_V_delta = jnp.max(jnp.abs(V_delta))
+        V_scale = jnp.minimum(1.0, max_step / jnp.maximum(max_V_delta, 1e-30))
+        V_damped = V_delta * V_scale * nr_damping
+        X_new = X.at[1:n_total].add(V_damped)
         X_new = X_new.at[n_total:].add(delta[n_unknowns:])
 
         if noi_indices is not None and len(noi_indices) > 0:
             X_new = X_new.at[noi_indices].set(0.0)
 
-        converged = jnp.logical_or(residual_converged, delta_converged)
+        # VACASK-style AND convergence (nrsolver.h:226).
+        converged = jnp.logical_and(residual_converged, delta_converged)
 
         # Return updated state with same solver params (unchanged)
         return (
@@ -1752,6 +1893,7 @@ def make_umfpack_ffi_full_mna_solver(
             _dQdt_prev,
             integ_c2,
             _Q_prev2,
+            res_tol_floor,
         )
 
     def nr_solve(
@@ -1769,6 +1911,7 @@ def make_umfpack_ffi_full_mna_solver(
         integ_c2: float | Array = 0.0,
         Q_prev2: Array | None = None,
         limit_state_in: Array | None = None,
+        res_tol_floor: Array | None = None,
     ):
         _dQdt_prev = (
             dQdt_prev if dQdt_prev is not None else jnp.zeros(n_unknowns, dtype=jnp.float64)
@@ -1779,6 +1922,13 @@ def make_umfpack_ffi_full_mna_solver(
             limit_state_in
             if limit_state_in is not None
             else jnp.zeros(total_limit_states, dtype=jnp.float64)
+        )
+        # Ensure res_tol_floor is a proper array
+        # Default: abstol everywhere (no historic floor)
+        _res_tol_floor = (
+            res_tol_floor
+            if res_tol_floor is not None
+            else jnp.full(n_unknowns, abstol, dtype=jnp.float64)
         )
 
         # Convert scalar parameters to JAX arrays to avoid weak_type retracing
@@ -1811,6 +1961,7 @@ def make_umfpack_ffi_full_mna_solver(
             _dQdt_prev,
             _integ_c2,
             _Q_prev2,
+            _res_tol_floor,
         )
 
         result_state = lax.while_loop(cond_fn, body_fn, init_state)
@@ -1834,10 +1985,11 @@ def make_umfpack_ffi_full_mna_solver(
             _,
             _,
             _,
+            _,
         ) = result_state
 
         # Recompute Q and I_vsource from converged solution
-        _, _, Q_final, I_vsource, _ = build_system_jit(
+        _, _, Q_final, I_vsource, _, max_res_contrib_final = build_system_jit(
             X_final,
             vsource_vals,
             isource_vals,
@@ -1868,6 +2020,7 @@ def make_umfpack_ffi_full_mna_solver(
             dQdt_final,
             I_vsource,
             limit_state_final,
+            max_res_contrib_final,
         )
 
     logger.info(f"Creating UMFPACK FFI full MNA solver: V({n_nodes}) + I({n_vsources})")

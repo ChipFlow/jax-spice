@@ -16,6 +16,7 @@ from jax import Array
 
 from jax_spice import get_float_dtype
 from jax_spice.analysis.mna import (
+    assemble_coo_max_abs,
     assemble_coo_vector,
     assemble_dense_jacobian,
     assemble_jacobian_coo,
@@ -222,10 +223,15 @@ def make_mna_build_system_fn(
         vsource_node_p = jnp.zeros(0, dtype=jnp.int32)
         vsource_node_n = jnp.zeros(0, dtype=jnp.int32)
 
-    # Capture gmin for diagonal regularization
-    # Use at least 1e-6 for dense, 1e-4 for sparse (GPU sparse solvers are more sensitive)
-    min_floor = 1e-4 if not use_dense else 1e-6
-    min_diag_reg = max(min_floor, gmin)
+    # Capture gmin for diagonal regularization.
+    # min_diag_reg must be consistent with the residual: the Jacobian has
+    # min_diag_reg on the diagonal, and the residual must include min_diag_reg*V.
+    # Using gmin (typically 1e-12) keeps the regularization negligible relative
+    # to physical circuit conductances while preventing singular matrices.
+    # IMPORTANT: A large min_diag_reg (e.g. 1e-6) without a matching residual
+    # term masks the true sensitivity at weakly-grounded nodes, causing voltage
+    # drift over transient timesteps (see graetz common-mode drift bug).
+    min_diag_reg = gmin
 
     # Compute total limit state size and offsets per model type
     # limit_state is a flat array: [model0_device0_states, ..., model1_device0_states, ...]
@@ -260,7 +266,7 @@ def make_mna_build_system_fn(
         Q_prev2: Array | None = None,
         limit_state_in: Array | None = None,
         nr_iteration: int | Array = 1,
-    ) -> Tuple[Any, Array, Array, Array, Array]:
+    ) -> Tuple[Any, Array, Array, Array, Array, Array]:
         """Build augmented Jacobian J and residual f for MNA.
 
         The solution vector X has structure: [V1, V2, ..., Vn, I_vs1, I_vs2, ..., I_vsm]
@@ -286,6 +292,7 @@ def make_mna_build_system_fn(
             Q: Current charges (n_unknowns)
             I_vsource: Branch currents computed from KCL
             limit_state_out: Updated limit states
+            max_res_contrib: Max absolute device current per node (n_unknowns)
         """
         # Extract voltage and current parts from augmented solution
         # X has structure: [V_ground=0, V_1, ..., V_n, I_vs1, ..., I_vsm]
@@ -436,6 +443,7 @@ def make_mna_build_system_fn(
         # Assemble vectors and matrices
         # =====================================================================
         f_resist = assemble_coo_vector(f_resist_parts, n_unknowns)
+        max_res_contrib = assemble_coo_max_abs(f_resist_parts, n_unknowns)
         Q = assemble_coo_vector(f_react_parts, n_unknowns)
         lim_rhs_resist = assemble_coo_vector(lim_rhs_resist_parts, n_unknowns)
         lim_rhs_react = assemble_coo_vector(lim_rhs_react_parts, n_unknowns)
@@ -461,7 +469,10 @@ def make_mna_build_system_fn(
             )
             f_resist = f_resist + f_branch_contrib
 
-        # Combine for transient
+        # Combine for transient.
+        # Use min_diag_reg + gshunt as the effective shunt so that the residual
+        # is consistent with the Jacobian diagonal (which has min_diag_reg + gshunt).
+        effective_shunt = min_diag_reg + gshunt
         f_node = combine_transient_residual(
             f_resist,
             Q,
@@ -474,7 +485,7 @@ def make_mna_build_system_fn(
             _dQdt_prev,
             integ_c2,
             _Q_prev2,
-            gshunt,
+            effective_shunt,
             V[1:],
         )
 
@@ -523,6 +534,6 @@ def make_mna_build_system_fn(
                 gshunt,
             )
 
-        return J, f_augmented, Q, I_vsource_kcl, limit_state_out
+        return J, f_augmented, Q, I_vsource_kcl, limit_state_out, max_res_contrib
 
     return build_system_mna, device_arrays, total_limit_states

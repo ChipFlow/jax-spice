@@ -68,7 +68,7 @@ class AdaptiveConfig:
     redo_factor: float = 2.5
     reltol: float = 1e-3
     abstol: float = 1e-12
-    min_dt: float = 1e-18
+    min_dt: float = 1e-15
     max_dt: float = float("inf")  # User-specified limit (overridden by tran_minpts if set)
     tran_minpts: int = 50  # VACASK default: ensures at least 50 output points
     warmup_steps: int = 2

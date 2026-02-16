@@ -167,7 +167,7 @@ def compute_dc_operating_point(
 
     # First try direct NR without homotopy (works for well-initialized circuits)
     logger.info("  Trying direct NR solver first...")
-    V_new, nr_iters, is_converged, max_f, _, _, _ = nr_solve(
+    V_new, nr_iters, is_converged, max_f, _, _, _, _, _ = nr_solve(
         V,
         vsource_dc_vals,
         isource_dc_vals,

@@ -92,7 +92,10 @@ def create_mock_nr_solve(residual_fn_factory, max_iterations=50, abstol=1e-10):
 
         Q = jnp.zeros(len(V_init) - 1)  # Dummy Q
         dQdt = jnp.zeros(len(V_init) - 1)  # Dummy dQdt
-        return V_final, iters, converged, max_f, Q, dQdt
+        I_vsource = jnp.zeros(0)  # Dummy I_vsource
+        limit_state = jnp.zeros(0)  # Dummy limit_state
+        max_res_contrib = jnp.zeros(len(V_init) - 1)  # Dummy max_res_contrib
+        return V_final, iters, converged, max_f, Q, dQdt, I_vsource, limit_state, max_res_contrib
 
     return nr_solve
 
@@ -287,7 +290,10 @@ class TestSimpleCircuits:
                 V_final, iters, converged, max_f = lax.while_loop(cond_fn, body_fn, init_state)
                 Q = jnp.zeros(len(V_init) - 1)
                 dQdt = jnp.zeros(len(V_init) - 1)
-                return V_final, iters, converged, max_f, Q, dQdt
+                I_vsource = jnp.zeros(0)
+                limit_state = jnp.zeros(0)
+                max_res_contrib = jnp.zeros(len(V_init) - 1)
+                return V_final, iters, converged, max_f, Q, dQdt, I_vsource, limit_state, max_res_contrib
 
             return nr_solve
 
@@ -371,7 +377,10 @@ class TestSimpleCircuits:
                 V_final, iters, converged, max_f = lax.while_loop(cond_fn, body_fn, init_state)
                 Q = jnp.zeros(len(V_init) - 1)
                 dQdt = jnp.zeros(len(V_init) - 1)
-                return V_final, iters, converged, max_f, Q, dQdt
+                I_vsource = jnp.zeros(0)
+                limit_state = jnp.zeros(0)
+                max_res_contrib = jnp.zeros(len(V_init) - 1)
+                return V_final, iters, converged, max_f, Q, dQdt, I_vsource, limit_state, max_res_contrib
 
             return nr_solve
 
@@ -462,7 +471,10 @@ class TestDifficultCircuits:
                 V_final, iters, converged, max_f = lax.while_loop(cond_fn, body_fn, init_state)
                 Q = jnp.zeros(len(V_init) - 1)
                 dQdt = jnp.zeros(len(V_init) - 1)
-                return V_final, iters, converged, max_f, Q, dQdt
+                I_vsource = jnp.zeros(0)
+                limit_state = jnp.zeros(0)
+                max_res_contrib = jnp.zeros(len(V_init) - 1)
+                return V_final, iters, converged, max_f, Q, dQdt, I_vsource, limit_state, max_res_contrib
 
             return nr_solve
 

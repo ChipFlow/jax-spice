@@ -1409,22 +1409,29 @@ class CircuitEngine:
         )
         build_system_jit = jax.jit(build_system_fn)
 
-        # Collect NOI node indices (PSP103 noise correlation internal node)
+        # Collect NOI node indices and ALL internal device node indices
         noi_indices = []
+        all_internal_indices = []
         if device_internal_nodes:
             for dev_name, internal_nodes in device_internal_nodes.items():
-                if "node4" in internal_nodes:  # NOI is node4 in PSP103
-                    noi_indices.append(internal_nodes["node4"])
+                for node_name, node_idx in internal_nodes.items():
+                    all_internal_indices.append(node_idx)
+                    if node_name == "node4":  # NOI is node4 in PSP103
+                        noi_indices.append(node_idx)
         noi_indices = jnp.array(noi_indices, dtype=jnp.int32) if noi_indices else None
+        internal_device_indices = (
+            jnp.array(sorted(set(all_internal_indices)), dtype=jnp.int32)
+            if all_internal_indices else None
+        )
 
         nr_solve = make_dense_full_mna_solver(
             build_system_jit,
             n_total,
             n_vsources,
             noi_indices=noi_indices,
+            internal_device_indices=internal_device_indices,
             max_iterations=self.options.op_itl,
             abstol=self.options.abstol,
-            max_step=1.0,
             total_limit_states=total_limit_states,
             options=self.options,
         )
@@ -1439,7 +1446,7 @@ class CircuitEngine:
 
         # First try direct NR without homotopy
         logger.info("  AC DC: Trying direct NR solver first...")
-        X_new, nr_iters, is_converged, max_f, _, _, _, _ = nr_solve(
+        X_new, nr_iters, is_converged, max_f, _, _, _, _, _ = nr_solve(
             X_init,
             vsource_dc_vals,
             isource_dc_vals,

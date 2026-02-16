@@ -364,26 +364,31 @@ class FullMNAStrategy(TransientStrategy):
         # JIT compile build_system
         build_system_jit = jax.jit(build_system_fn)
 
-        # Collect NOI node indices
+        # Collect NOI node indices and ALL internal device node indices
         noi_indices = []
+        all_internal_indices = []
         if setup.device_internal_nodes:
             for dev_name, internal_nodes in setup.device_internal_nodes.items():
-                if "node4" in internal_nodes:  # NOI is node4 in PSP103
-                    noi_indices.append(internal_nodes["node4"])
+                for node_name, node_idx in internal_nodes.items():
+                    all_internal_indices.append(node_idx)
+                    if node_name == "node4":  # NOI is node4 in PSP103
+                        noi_indices.append(node_idx)
         noi_indices = jnp.array(noi_indices, dtype=jnp.int32) if noi_indices else None
+        internal_device_indices = (
+            jnp.array(sorted(set(all_internal_indices)), dtype=jnp.int32)
+            if all_internal_indices else None
+        )
 
         # Create full MNA solver
-        # Use op_itl as safety limit — delta convergence exits early for transient
-        # timepoints (typically 3-5 iterations), while DC OP may need up to op_itl.
         if self.use_dense:
             nr_solve = make_dense_full_mna_solver(
                 build_system_jit,
                 n_nodes,
                 n_vsources,
                 noi_indices=noi_indices,
-                max_iterations=self.runner.options.op_itl,
+                internal_device_indices=internal_device_indices,
+                max_iterations=self.runner.options.tran_itl,
                 abstol=self.runner.options.abstol,
-                max_step=1.0,
                 total_limit_states=total_limit_states,
                 options=self.runner.options,
             )
@@ -401,7 +406,7 @@ class FullMNAStrategy(TransientStrategy):
             isource_trial = jnp.zeros(0, dtype=jnp.float64)
             Q_trial = jnp.zeros(setup.n_unknowns, dtype=jnp.float64)
 
-            J_bcoo_trial, _, _, _, _ = build_system_fn(
+            J_bcoo_trial, _, _, _, _, _ = build_system_fn(
                 X_trial,
                 vsource_trial,
                 isource_trial,
@@ -469,9 +474,9 @@ class FullMNAStrategy(TransientStrategy):
                     bcsr_indptr=bcsr_indptr_jax,
                     bcsr_indices=bcsr_indices_jax,
                     noi_indices=noi_indices,
-                    max_iterations=self.runner.options.op_itl,
+                    internal_device_indices=internal_device_indices,
+                    max_iterations=self.runner.options.tran_itl,
                     abstol=self.runner.options.abstol,
-                    max_step=1.0,
                     coo_sort_perm=coo_sort_perm_jax,
                     csr_segment_ids=csr_segment_ids_jax,
                     total_limit_states=total_limit_states,
@@ -487,9 +492,9 @@ class FullMNAStrategy(TransientStrategy):
                     bcsr_indptr=bcsr_indptr_jax,
                     bcsr_indices=bcsr_indices_jax,
                     noi_indices=noi_indices,
-                    max_iterations=self.runner.options.op_itl,
+                    internal_device_indices=internal_device_indices,
+                    max_iterations=self.runner.options.tran_itl,
                     abstol=self.runner.options.abstol,
-                    max_step=1.0,
                     coo_sort_perm=coo_sort_perm_jax,
                     csr_segment_ids=csr_segment_ids_jax,
                     total_limit_states=total_limit_states,
@@ -698,7 +703,7 @@ class FullMNAStrategy(TransientStrategy):
             # Note: The state may not be at DC equilibrium - this is expected for UIC
             # Use gmin from netlist options (default 1e-12)
             dc_gmin = getattr(self.runner.options, "gmin", 1e-12)
-            _, _, Q_init, I_vsource_dc, _ = self._cached_build_system_jit(
+            _, _, Q_init, I_vsource_dc, _, _ = self._cached_build_system_jit(
                 X0,
                 vsource_vals_init,
                 isource_vals_init,
@@ -715,6 +720,8 @@ class FullMNAStrategy(TransientStrategy):
                 None,  # limit_state_in
                 1,  # nr_iteration=1 for initial Q computation (iniLim=1)
             )
+            # No DC solve, so no historic max yet
+            dc_max_res_contrib = jnp.zeros(n_unknowns, dtype=dtype)
             logger.info(
                 f"{self.name}: Initial state - Q_max={float(jnp.max(jnp.abs(Q_init))):.2e}, "
                 f"I_vdd={float(I_vsource_dc[0]) if len(I_vsource_dc) > 0 else 0:.2e}A"
@@ -723,7 +730,7 @@ class FullMNAStrategy(TransientStrategy):
             # Compute DC operating point
             # Use gmin from netlist options (default 1e-12)
             dc_gmin = getattr(self.runner.options, "gmin", 1e-12)
-            X_dc, _, dc_converged, dc_residual, Q_dc, _, I_vsource_dc, _ = nr_solve(
+            X_dc, _, dc_converged, dc_residual, Q_dc, _, I_vsource_dc, _, dc_max_res_contrib = nr_solve(
                 X0,
                 vsource_vals_init,
                 isource_vals_init,
@@ -805,6 +812,7 @@ class FullMNAStrategy(TransientStrategy):
                 n_vsources=n_vsources,
                 config=config,
                 dtype=dtype,
+                dc_max_res_contrib=dc_max_res_contrib,
             )
 
         # Standard mode: single while_loop with full output arrays
@@ -850,6 +858,7 @@ class FullMNAStrategy(TransientStrategy):
             consecutive_rejects=jnp.array(0, dtype=jnp.int32),
             V_max_historic=V_max_historic_init,
             limit_state=limit_state_init,
+            historic_max_res_contrib=dc_max_res_contrib,
         )
 
         # Cache key does NOT include t_stop or max_dt since they're passed dynamically via state
@@ -972,6 +981,7 @@ class FullMNAStrategy(TransientStrategy):
         n_vsources: int,
         config: AdaptiveConfig,
         dtype: Any,
+        dc_max_res_contrib: Optional[jax.Array] = None,
     ) -> Tuple[jax.Array, jax.Array, Dict]:
         """Run simulation with periodic checkpoints to CPU memory.
 
@@ -1002,6 +1012,10 @@ class FullMNAStrategy(TransientStrategy):
         current_history_count = 1
         current_warmup_count = 0
         current_V_max_historic = jnp.abs(X0[:n_total])
+        current_historic_max_res_contrib = (
+            dc_max_res_contrib if dc_max_res_contrib is not None
+            else jnp.zeros(n_unknowns, dtype=dtype)
+        )
         # Initialize device-level limiting state for checkpoint mode
         total_limit_states = self._total_limit_states
         if total_limit_states > 0:
@@ -1096,6 +1110,7 @@ class FullMNAStrategy(TransientStrategy):
                 consecutive_rejects=jnp.array(0, dtype=jnp.int32),
                 V_max_historic=current_V_max_historic,
                 limit_state=current_limit_state,
+                historic_max_res_contrib=current_historic_max_res_contrib,
             )
 
             # Run while_loop for this checkpoint
@@ -1131,6 +1146,7 @@ class FullMNAStrategy(TransientStrategy):
             current_warmup_count = int(final_state.warmup_count)
             current_V_max_historic = final_state.V_max_historic
             current_limit_state = final_state.limit_state
+            current_historic_max_res_contrib = final_state.historic_max_res_contrib
 
             first_checkpoint = False
 
@@ -1282,6 +1298,7 @@ class FullMNAState(NamedTuple):
     consecutive_rejects: jax.Array  # Consecutive LTE rejections (reset on accept)
     V_max_historic: jax.Array  # Historic max |V| per node (for LTE tolerance)
     limit_state: jax.Array  # Device-level limiting state (flat array for all devices)
+    historic_max_res_contrib: jax.Array  # Historic max device current per node (for NR tolerance)
 
 
 def _make_full_mna_while_loop_fns(
@@ -1304,6 +1321,10 @@ def _make_full_mna_while_loop_fns(
     passed dynamically via state to allow reuse.
     """
     max_history = config.max_order + 2
+
+    # Extract NR tolerance config for historic floor computation
+    nr_reltol = config.reltol
+    nr_abstol = config.abstol
 
     # Extract gshunt config for ramping
     gshunt_init = config.gshunt_init
@@ -1357,11 +1378,28 @@ def _make_full_mna_while_loop_fns(
             # gives factor ~ 0.04, matching VACASK's LTE scaling
             error_coeff_integ = 1.0 / 24.0
         else:  # GEAR2/BDF2
-            # Gear2: dQ/dt = (3*Q_new - 4*Q_prev + Q_prev2) / (2*dt)
-            c0 = 1.5 * inv_dt
-            c1 = -2.0 * inv_dt
+            # Variable-step BDF2 (VACASK coretrancoef.cpp).
+            # The constant-step formula c0=3/(2h), c1=-2/h, c2=1/(2h) is only
+            # valid for equal steps. With adaptive timestepping, step sizes change
+            # dramatically (e.g. 1µs→16ns during NR failures). Using constant-step
+            # coefficients when h_n ≠ h_{n-1} causes O(1) errors in the companion
+            # model that propagate through history, causing voltage divergence.
+            #
+            # Variable-step BDF2 with ω = h_n / h_{n-1}:
+            #   c0 = (1 + 2ω) / ((1 + ω) × h_n)
+            #   c1 = -(1 + ω) / h_n
+            #   c2 = ω² / ((1 + ω) × h_n)
+            # Reduces to 3/(2h), -2/h, 1/(2h) when ω=1 (equal steps).
+            dt_prev = state.dt_history[0]
+            # Guard against dt_prev=0 (no history yet): fall back to equal-step
+            omega = jnp.where(dt_prev > 0, dt_cur / dt_prev, 1.0)
+            omega_p1 = 1.0 + omega
+            c0 = (1.0 + 2.0 * omega) / (omega_p1 * dt_cur)
+            c1 = -omega_p1 / dt_cur
             d1 = 0.0
-            c2 = 0.5 * inv_dt
+            c2 = (omega * omega) / (omega_p1 * dt_cur)
+            # TODO: Variable-step BDF2 error coefficient should also account
+            # for the step ratio. For now use the constant-step value.
             error_coeff_integ = -2.0 / 9.0
 
         t_next = t + dt_cur
@@ -1392,8 +1430,20 @@ def _make_full_mna_while_loop_fns(
         )
         current_gshunt = gshunt_init + ramp_progress * (gshunt_target - gshunt_init)
 
+        # VACASK-style historic tolerance floor (coreopnr.cpp:921, relref=alllocal):
+        # res_tol_floor[i] = max(historicMaxResContrib[i] * reltol, abstol)
+        # This prevents tolerance collapse at zero crossings where device
+        # currents are momentarily small but were large at earlier timesteps.
+        res_tol_floor = jnp.maximum(
+            state.historic_max_res_contrib * nr_reltol,
+            nr_abstol,
+        )
+
         # Newton-Raphson solve with device-level limiting state
-        X_new, iterations, converged, max_f, Q, dQdt_out, I_vsource, limit_state_out = nr_solve(
+        (
+            X_new, iterations, converged, max_f, Q, dQdt_out,
+            I_vsource, limit_state_out, max_res_contrib_out,
+        ) = nr_solve(
             X_init,
             vsource_vals,
             isource_vals,
@@ -1408,6 +1458,7 @@ def _make_full_mna_while_loop_fns(
             c2,
             Q_prev2,
             limit_state_in=state.limit_state,
+            res_tol_floor=res_tol_floor,
         )
 
         new_total_nr_iters = state.total_nr_iters + jnp.int32(iterations)
@@ -1556,6 +1607,15 @@ def _make_full_mna_while_loop_fns(
             state.V_max_historic,
         )
 
+        # Update historic max residual contribution per node (for NR tolerance floor)
+        # VACASK coreopnr.cpp:1098: updateMaxima accumulates peak device currents
+        # Only update when we accepted a converged step
+        new_historic_max_res_contrib = jnp.where(
+            use_new_solution,
+            jnp.maximum(state.historic_max_res_contrib, max_res_contrib_out),
+            state.historic_max_res_contrib,
+        )
+
         # Update outputs
         # Compute the voltage to record - use new_X which is the actual solution we're using
         # (either X_new if converged, or previous X if NR failed at min_dt)
@@ -1630,6 +1690,7 @@ def _make_full_mna_while_loop_fns(
             consecutive_rejects=new_consecutive_rejects,
             V_max_historic=new_V_max_historic,
             limit_state=new_limit_state,
+            historic_max_res_contrib=new_historic_max_res_contrib,
         )
 
     return cond_fn, body_fn
