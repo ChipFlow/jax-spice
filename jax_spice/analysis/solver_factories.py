@@ -535,7 +535,7 @@ def make_dense_full_mna_solver(
     logger.info(
         f"Creating dense full MNA solver: V({n_nodes}) + I({n_vsources}), NOI: {noi_indices is not None}"
     )
-    return jax.jit(nr_solve)
+    return nr_solve
 
 
 def make_sparse_full_mna_solver(
@@ -935,7 +935,7 @@ def make_sparse_full_mna_solver(
     logger.info(
         f"Creating sparse full MNA solver: V({n_nodes}) + I({n_vsources}), nse={nse}, NOI: {noi_indices is not None}"
     )
-    return jax.jit(nr_solve)
+    return nr_solve
 
 
 def make_umfpack_full_mna_solver(
@@ -1313,7 +1313,7 @@ def make_umfpack_full_mna_solver(
         )
 
     logger.info(f"Creating UMFPACK full MNA solver: V({n_nodes}) + I({n_vsources})")
-    return jax.jit(nr_solve)
+    return nr_solve
 
 
 def make_spineax_full_mna_solver(
@@ -1696,7 +1696,7 @@ def make_spineax_full_mna_solver(
         )
 
     logger.info(f"Creating Spineax full MNA NR solver: V({n_nodes}) + I({n_vsources})")
-    return jax.jit(nr_solve)
+    return nr_solve
 
 
 def is_umfpack_ffi_available() -> bool:
@@ -2103,4 +2103,4 @@ def make_umfpack_ffi_full_mna_solver(
         )
 
     logger.info(f"Creating UMFPACK FFI full MNA solver: V({n_nodes}) + I({n_vsources})")
-    return jax.jit(nr_solve)
+    return nr_solve

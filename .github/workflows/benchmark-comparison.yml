@@ -205,6 +205,31 @@ jobs:
           echo "Cache hits: $(grep -c "Persistent compilation cache hit" /tmp/vacask-result-tests.log 2>/dev/null || echo 0)"
           echo "Cache misses: $(grep -c "PERSISTENT COMPILATION CACHE MISS" /tmp/vacask-result-tests.log 2>/dev/null || echo 0)"
 
+      - name: Check for JIT recompilation
+        if: always()
+        run: |
+          if [ -f /tmp/benchmark-comparison.log ]; then
+            # Count total compilations in the benchmark run
+            TOTAL=$(grep -c "Finished XLA compilation" /tmp/benchmark-comparison.log 2>/dev/null || echo 0)
+            # Count unique function compilations (first compilation of each function is expected)
+            UNIQUE=$(grep "Finished XLA compilation" /tmp/benchmark-comparison.log 2>/dev/null | \
+              sed 's/.*of jit(\([^)]*\)).*/\1/' | sort -u | wc -l || echo 0)
+            # Recompilations = total - unique (same function compiled more than once)
+            RECOMPILES=$((TOTAL - UNIQUE))
+
+            echo "Total XLA compilations: $TOTAL"
+            echo "Unique functions compiled: $UNIQUE"
+            echo "Recompilations (same function): $RECOMPILES"
+
+            if [ "$RECOMPILES" -gt 0 ]; then
+              echo "::warning::Detected $RECOMPILES JIT recompilation(s) during benchmark"
+              echo "Recompiled functions:"
+              grep "Finished XLA compilation" /tmp/benchmark-comparison.log | \
+                sed 's/.*of jit(\([^)]*\)).*/\1/' | sort | uniq -c | sort -rn | \
+                awk '$1 > 1 {print "  " $1 "x: " $2}'
+            fi
+          fi
+
       # Report XLA compilation cache status
       # Cache is keyed by OS-arch-pyproject hash for binary compatibility
       - name: Report XLA cache status

@@ -223,6 +223,7 @@ class FullMNAStrategy(TransientStrategy):
         """
         super().__init__(runner, use_sparse=use_sparse, backend=backend)
         self._cached_full_mna_solver: Optional[Callable] = None
+        self._cached_full_mna_solver_jit: Optional[Callable] = None
         self._cached_full_mna_key: Optional[Tuple] = None
         self.config = config or self._build_config_from_runner()
         # max_steps is fixed at init to avoid JIT recompilation
@@ -501,6 +502,7 @@ class FullMNAStrategy(TransientStrategy):
                 )
 
         self._cached_full_mna_solver = nr_solve
+        self._cached_full_mna_solver_jit = jax.jit(nr_solve)  # JIT for DC solve from Python
         self._cached_full_mna_key = cache_key
         self._cached_build_system_jit = build_system_jit  # Store for Q_init computation
         logger.info(f"Created full MNA solver: V({n_nodes}) + I({n_vsources})")
@@ -729,8 +731,10 @@ class FullMNAStrategy(TransientStrategy):
             # Compute DC operating point
             # Use gmin from netlist options (default 1e-12)
             dc_gmin = getattr(self.runner.options, "gmin", 1e-12)
+            # Use JIT-wrapped solver for DC solve from Python context
+            nr_solve_jit = self._cached_full_mna_solver_jit
             X_dc, _, dc_converged, dc_residual, Q_dc, _, I_vsource_dc, _, dc_max_res_contrib = (
-                nr_solve(
+                nr_solve_jit(
                     X0,
                     vsource_vals_init,
                     isource_vals_init,

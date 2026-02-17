@@ -1435,6 +1435,7 @@ class CircuitEngine:
             total_limit_states=total_limit_states,
             options=self.options,
         )
+        nr_solve = jax.jit(nr_solve)  # JIT for DC solve from Python context
 
         # Initialize X (augmented: [V, I_branch])
         vdd_value = self._get_vdd_value() or 1.0  # Default to 1.0 if no vsources
