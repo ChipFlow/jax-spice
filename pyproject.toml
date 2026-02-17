@@ -78,6 +78,7 @@ allow-direct-references = true
 
 [tool.hatch.build.targets.wheel]
 packages = ["jax_spice", "openvaf_jax"]
+exclude = ["openvaf_jax/openvaf_py/target", "openvaf_jax/osdi_py/target"]
 
 [tool.hatch.build.targets.sdist]
 include = [
