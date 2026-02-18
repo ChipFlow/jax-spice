@@ -888,6 +888,9 @@ class CircuitEngine:
             f"max_steps={max_steps}, backend={backend}"
         )
 
+        # Warmup: run 1 step to trigger JIT compilation so run_transient() is fast
+        strategy.warmup(dt)
+
     @profile
     def run_transient(self) -> TransientResult:
         """Run transient analysis. Call prepare() first, or will auto-prepare from netlist.

@@ -82,7 +82,6 @@ class GPUProfiler:
         num_steps: int = 20,
         trace_ctx=None,
         full: bool = False,
-        warmup_steps: int = 5,
     ) -> BenchmarkResult:
         """Run a single benchmark configuration.
 
@@ -93,7 +92,6 @@ class GPUProfiler:
             num_steps: Number of timesteps for timing (ignored if full=True)
             trace_ctx: Optional JAX profiler trace context for Perfetto
             full: If True, use original VACASK parameters for comparable results
-            warmup_steps: Number of warmup steps for JIT compilation
 
         Returns:
             BenchmarkResult with timing information
@@ -165,33 +163,21 @@ class GPUProfiler:
                 t_stop = dt * num_steps
                 expected_steps = num_steps
 
-            # Warmup run (includes JIT compilation) - optional
-            if warmup_steps > 0:
-                logger.info(f"      warmup ({warmup_steps} steps, includes JIT)...")
-                sys.stdout.flush()
-                sys.stderr.flush()
-                warmup_start = time.perf_counter()
-                engine.prepare(
-                    t_stop=dt * warmup_steps,
-                    dt=dt,
-                    use_sparse=use_sparse,
-                    backend=selected_backend,
-                )
-                engine.run_transient()
-                warmup_time = time.perf_counter() - warmup_start
-                logger.info(f"      warmup done ({warmup_time:.1f}s)")
-            else:
-                logger.info("      skipping warmup (JIT included in timing)")
-
-            # Timed run (optionally with tracing)
-            # This is the measurement comparable to VACASK benchmark.py "Runtime"
-            # Re-prepare with actual t_stop (may differ from warmup)
+            # Prepare (includes 1-step JIT warmup)
+            logger.info("      preparing (includes JIT warmup)...")
+            sys.stdout.flush()
+            sys.stderr.flush()
+            warmup_start = time.perf_counter()
             engine.prepare(
                 t_stop=t_stop,
                 dt=dt,
                 use_sparse=use_sparse,
                 backend=selected_backend,
             )
+            warmup_time = time.perf_counter() - warmup_start
+            logger.info(f"      prepare done ({warmup_time:.1f}s)")
+
+            # Timed run (optionally with tracing)
             ctx = trace_ctx if trace_ctx else nullcontext()
             logger.info(f"      timed run: t_stop={t_stop:.2e}s, dt={dt:.2e}s...")
             sys.stdout.flush()
@@ -361,7 +347,6 @@ def run_single_benchmark(args):
         use_sparse=use_sparse,
         num_steps=args.timesteps,
         full=args.full,
-        warmup_steps=args.warmup_steps,
     )
 
     # Output JSON result
@@ -369,7 +354,7 @@ def run_single_benchmark(args):
 
 
 def run_benchmark_subprocess(
-    name: str, solver: str, timesteps: int, warmup_steps: int, full: bool = False, cpu: bool = False
+    name: str, solver: str, timesteps: int, full: bool = False, cpu: bool = False
 ) -> Optional[BenchmarkResult]:
     """Run a benchmark in a separate subprocess to ensure memory cleanup.
 
@@ -383,8 +368,6 @@ def run_benchmark_subprocess(
         f"{name}:{solver}",
         "--timesteps",
         str(timesteps),
-        "--warmup-steps",
-        str(warmup_steps),
     ]
     if full:
         cmd.append("--full")
@@ -492,12 +475,6 @@ def main():
         help="Internal: run single benchmark (format: name:sparse|dense)",
     )
     parser.add_argument(
-        "--warmup-steps",
-        type=int,
-        default=0,
-        help="Number of warmup steps for JIT compilation (default: 0, timing includes JIT)",
-    )
-    parser.add_argument(
         "--full",
         action="store_true",
         help="Run with original VACASK parameters (full simulation, comparable results)",
@@ -586,7 +563,7 @@ def main():
                 logger.info("    dense:  running in subprocess...")
                 sys.stdout.flush()
                 result_dense = run_benchmark_subprocess(
-                    name, "dense", args.timesteps, args.warmup_steps, args.full, args.cpu
+                    name, "dense", args.timesteps, args.full, args.cpu
                 )
                 if result_dense:
                     profiler.results.append(result_dense)
@@ -604,7 +581,7 @@ def main():
                 logger.info("    sparse: running in subprocess...")
                 sys.stdout.flush()
                 result_sparse = run_benchmark_subprocess(
-                    name, "sparse", args.timesteps, args.warmup_steps, args.full, args.cpu
+                    name, "sparse", args.timesteps, args.full, args.cpu
                 )
                 if result_sparse:
                     profiler.results.append(result_sparse)

@@ -49,11 +49,6 @@ def main():
         help="Number of timesteps to simulate (default: 50)",
     )
     parser.add_argument(
-        "--skip-warmup",
-        action="store_true",
-        help="Skip warmup run (includes JIT compilation in profile)",
-    )
-    parser.add_argument(
         "--backend",
         default="gpu",
         choices=["cpu", "gpu", "auto"],
@@ -94,21 +89,18 @@ def main():
     print(f"Using dt={dt}")
     print()
 
-    if not args.skip_warmup:
-        # Warmup run (JIT compilation happens here, outside profiled region)
-        print("Warmup run (JIT compilation)...")
-        engine.prepare(t_stop=dt * 10, dt=dt, use_sparse=args.sparse)
-        engine.run_transient()
-        print("Warmup complete")
-        print()
-
-    # Profiled run - nsys-jax captures this automatically
-    print(f"Starting profiled run ({args.timesteps} timesteps)...")
+    # Prepare (includes 1-step JIT warmup)
+    print(f"Preparing ({args.timesteps} timesteps, includes JIT warmup)...")
     engine.prepare(
         t_stop=args.timesteps * dt,
         dt=dt,
         use_sparse=args.sparse,
     )
+    print("Prepare complete")
+    print()
+
+    # Profiled run - nsys-jax captures this automatically
+    print(f"Starting profiled run ({args.timesteps} timesteps)...")
     result = engine.run_transient()
 
     print()

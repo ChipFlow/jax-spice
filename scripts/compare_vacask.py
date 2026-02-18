@@ -304,8 +304,7 @@ def run_jax_spice(
         # Determine backend
         backend = "gpu" if force_gpu else None  # None = auto-select
 
-        # Warmup (includes JIT compilation)
-        # Step count affects JIT caching, so use same steps as timed run
+        # Prepare (includes 1-step warmup for JIT compilation)
         # Use max_dt = 10x the initial dt to allow some adaptation but not grow unbounded
         adaptive_config = AdaptiveConfig(max_dt=config.dt * 10, min_dt=1e-15)
         startup_start = time.perf_counter()
@@ -316,7 +315,6 @@ def run_jax_spice(
             backend=backend,
             adaptive_config=adaptive_config,
         )
-        engine.run_transient()
         startup_time = time.perf_counter() - startup_start
 
         # Run analysis on compiled scan function if requested

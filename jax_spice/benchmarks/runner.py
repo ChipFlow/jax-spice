@@ -28,7 +28,7 @@ class BenchmarkRunner:
         runner = BenchmarkRunner()
         results = runner.run_benchmark(
             "vendor/VACASK/benchmark/ring/vacask/runme.sim",
-            t_stop=1e-9, dt=1e-12, warmup_runs=1, timed_runs=3
+            t_stop=1e-9, dt=1e-12, timed_runs=3
         )
         print(f"Average time: {results['avg_time']:.3f}s")
     """
@@ -42,17 +42,15 @@ class BenchmarkRunner:
         t_stop: float,
         dt: float,
         *,
-        warmup_runs: int = 1,
         timed_runs: int = 1,
         use_sparse: Optional[bool] = None,
     ) -> Dict[str, Any]:
-        """Run a benchmark with warmup and timing.
+        """Run a benchmark with timing.
 
         Args:
             circuit_path: Path to .sim file
             t_stop: Simulation stop time
             dt: Timestep
-            warmup_runs: Number of warmup runs (for JIT compilation)
             timed_runs: Number of timed runs to average
             use_sparse: Use sparse solver (auto-detect if None)
 
@@ -71,12 +69,8 @@ class BenchmarkRunner:
         self._engine = CircuitEngine(Path(circuit_path))
         self._engine.parse()
 
-        # Prepare once — max_steps auto-computed with 10% headroom
+        # Prepare once — includes 1-step warmup for JIT compilation
         self._engine.prepare(t_stop=t_stop, dt=dt, use_sparse=use_sparse)
-
-        # Warmup runs
-        for _ in range(warmup_runs):
-            self._engine.run_transient()
 
         # Timed runs
         run_times = []

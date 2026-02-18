@@ -72,18 +72,17 @@ def run_benchmark(
         # Warmup run (includes JIT compilation)
         # IMPORTANT: Use same num_steps as timed run to avoid JAX re-tracing
         # JAX traces based on array shapes, so different timestep counts cause recompilation
-        log(f"      warmup ({num_steps} steps, includes JIT)...")
+        log(f"      preparing ({num_steps} steps, includes JIT warmup)...")
         warmup_start = time.perf_counter()
         engine.prepare(
             t_stop=dt * num_steps,
             dt=dt,
             use_sparse=use_sparse,
         )
-        engine.run_transient()
         warmup_time = time.perf_counter() - warmup_start
-        log(f"      warmup done ({warmup_time:.1f}s)")
+        log(f"      prepare done ({warmup_time:.1f}s)")
 
-        # Timed run - reuses cached strategy from prepare()
+        # Timed run - JIT already compiled by prepare()
         start = time.perf_counter()
         result = engine.run_transient()
         elapsed = time.perf_counter() - start
