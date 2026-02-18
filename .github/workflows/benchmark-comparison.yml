@@ -23,14 +23,10 @@ jobs:
         include:
           - name: standard
             benchmarks: "rc,graetz,mul,ring,tb_dp"
-            # Must be >= 1M for rc/graetz (fixed timestep, step=maxstep=1u)
-            max_steps: 1100000
             run_tests: true
             timeout: 60
           - name: c6288
             benchmarks: "c6288"
-            # c6288 has max 1000 steps (t_stop=2ns, dt=2ps)
-            max_steps: 2000
             run_tests: false
             timeout: 30
     name: benchmark (${{ matrix.name }})
@@ -236,10 +232,9 @@ jobs:
           JAX_EXPLAIN_CACHE_MISSES: "1"
         run: |
           echo "Running JAX-SPICE vs VACASK comparison (${{ matrix.name }})..."
-          echo "Benchmarks: ${{ matrix.benchmarks }}, max_steps: ${{ matrix.max_steps }}"
+          echo "Benchmarks: ${{ matrix.benchmarks }}"
           uv run python scripts/compare_vacask.py \
             --benchmark ${{ matrix.benchmarks }} \
-            --max-steps ${{ matrix.max_steps }} \
             --use-scan \
             --use-sparse 2>&1 | tee /tmp/benchmark-comparison.log || true
 
@@ -299,7 +294,6 @@ jobs:
             echo "- **JAX Backend**: cpu"
             echo "- **Mode**: lax.scan (JIT-compiled)"
             echo "- **Benchmarks**: ${{ matrix.benchmarks }}"
-            echo "- **Max steps**: ${{ matrix.max_steps }}"
             echo ""
 
             # Report VACASK result comparison tests (standard only)

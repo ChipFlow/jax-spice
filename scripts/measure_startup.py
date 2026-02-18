@@ -20,7 +20,7 @@ from pathlib import Path
 
 
 def measure_single_benchmark(
-    benchmark: str, max_steps: int = 10, clear_cache: bool = False
+    benchmark: str, max_sim_steps: int = 10, clear_cache: bool = False
 ) -> dict:
     """Measure timing for a single benchmark via subprocess.
 
@@ -56,15 +56,15 @@ engine = CircuitEngine(str(bench.sim_path))
 engine.parse()
 t_parse = time.perf_counter() - t0
 
-# Limit steps for timing (JIT compile time dominates)
-max_steps = {max_steps}
+# Limit t_stop for timing (JIT compile time dominates, not step count)
+max_sim_steps = {max_sim_steps}
 t_stop = bench.t_stop
 dt = bench.dt
 n_steps = int(t_stop / dt)
-if n_steps > max_steps:
-    t_stop = dt * max_steps
+if n_steps > max_sim_steps:
+    t_stop = dt * max_sim_steps
 
-# Prepare once (auto-computes max_steps)
+# Prepare once — auto-computes from t_stop/dt
 engine.prepare(t_stop=t_stop, dt=dt)
 
 # First run (includes JIT compilation)
@@ -129,10 +129,10 @@ def main():
         "--runs", type=int, default=1, help="Number of runs per benchmark for averaging"
     )
     parser.add_argument(
-        "--max-steps",
+        "--max-sim-steps",
         type=int,
         default=10,
-        help="Max simulation steps (to limit timing to JIT overhead)",
+        help="Max simulation steps (limits t_stop to keep timing focused on JIT overhead)",
     )
     parser.add_argument(
         "--json", action="store_true", help="Output raw JSON instead of formatted table"
@@ -157,7 +157,7 @@ def main():
             else:
                 print(f"  {benchmark}...", end=" ", flush=True)
 
-            result = measure_single_benchmark(benchmark, args.max_steps, args.clear_cache)
+            result = measure_single_benchmark(benchmark, args.max_sim_steps, args.clear_cache)
             runs.append(result)
 
             if "error" in result:

@@ -8,8 +8,8 @@ Usage:
     # Run all benchmarks
     uv run scripts/compare_vacask.py
 
-    # Run specific benchmark with custom steps
-    uv run scripts/compare_vacask.py --benchmark ring --max-steps 1000
+    # Run specific benchmark
+    uv run scripts/compare_vacask.py --benchmark ring
 
     # Use lax.scan (faster)
     uv run scripts/compare_vacask.py --benchmark ring --use-scan
@@ -323,7 +323,6 @@ def run_jax_spice(
         engine.prepare(
             t_stop=t_stop,
             dt=config.dt,
-            max_steps=num_steps,
             use_sparse=use_sparse,
             backend=backend,
             adaptive_config=adaptive_config,
@@ -413,12 +412,6 @@ def main():
         help="Comma-separated list of benchmarks (default: all except c6288)",
     )
     parser.add_argument(
-        "--max-steps",
-        type=int,
-        default=1000,
-        help="Maximum number of timesteps (default: 1000)",
-    )
-    parser.add_argument(
         "--use-scan",
         action="store_true",
         help="Use lax.scan for JAX-SPICE (faster)",
@@ -483,7 +476,7 @@ def main():
     print(f"Mode: {'lax.scan' if args.use_scan else 'Python loop'}")
     print(f"Solver: {'sparse' if args.use_sparse else 'dense'}")
     print(f"Backend: {'GPU (forced)' if args.force_gpu else 'auto-select'}")
-    print(f"Max steps: {args.max_steps}")
+    print(f"Steps: full netlist duration")
 
     # Handle deprecated --profile flag
     profile_mode = args.profile_mode
@@ -588,7 +581,7 @@ def main():
             print(f"Skipping {name}: {config.skip_reason}")
             continue
 
-        num_steps = min(args.max_steps, int(config.t_stop / config.dt))
+        num_steps = int(config.t_stop / config.dt)
 
         print(f"--- {name} ({num_steps} steps, dt={config.dt:.2e}) ---")
 

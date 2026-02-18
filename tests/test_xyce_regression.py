@@ -160,14 +160,11 @@ def run_xyce_test(
             engine = CircuitEngine(sim_path)
             engine.parse()
 
-            # Calculate timestep and max_steps to cover expected time range
             max_time = float(jnp.max(time_col))
-            max_steps = int(max_time / dt) + 100
 
             engine.prepare(
                 t_stop=max_time,
                 dt=dt,
-                max_steps=max_steps,
             )
             result = engine.run_transient()
         except Exception as e:

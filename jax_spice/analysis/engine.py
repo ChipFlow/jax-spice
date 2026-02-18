@@ -749,7 +749,6 @@ class CircuitEngine:
         *,
         t_stop: Optional[float] = None,
         dt: Optional[float] = None,
-        max_steps: Optional[int] = None,
         use_sparse: Optional[bool] = None,
         backend: Optional[str] = None,
         temperature: float = DEFAULT_TEMPERATURE_K,
@@ -769,8 +768,6 @@ class CircuitEngine:
             t_stop: Stop time (default: from netlist analysis params)
             dt: Time step (default: from netlist analysis params). For adaptive
                 mode, this is the initial timestep.
-            max_steps: Maximum time steps. If None, auto-computed as
-                ``int(t_stop / dt * 1.1) + 10`` (10% headroom for LTE).
             use_sparse: Force sparse (True) or dense (False) solver.
                 If None, defaults to False (dense).
             backend: 'gpu', 'cpu', or None (auto-select based on circuit size).
@@ -798,14 +795,7 @@ class CircuitEngine:
             dt = self.analysis_params.get("step", 1e-6)
 
         # Auto-compute max_steps with 10% headroom for LTE timestep reductions
-        if max_steps is None:
-            max_steps = int(t_stop / dt * 1.1) + 10
-        else:
-            # Explicit max_steps: adjust dt if needed to fit within budget
-            num_steps = int(t_stop / dt)
-            if num_steps > max_steps:
-                dt = t_stop / max_steps
-                logger.info(f"Limiting to {max_steps} steps, dt={dt:.2e}s")
+        max_steps = int(t_stop / dt * 1.1) + 10
 
         # Select backend
         if use_sparse is None:

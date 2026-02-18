@@ -127,7 +127,7 @@ def run_jaxspice(sim_path: Path, steps: int = 5) -> dict:
     step = engine.analysis_params.get("step", 1e-6)
     stop = step * steps
 
-    engine.prepare(t_stop=stop, dt=step, max_steps=steps + 10)
+    engine.prepare(t_stop=stop, dt=step)
     result = engine.run_transient()
 
     # Get final voltages

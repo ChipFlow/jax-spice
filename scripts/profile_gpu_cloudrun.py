@@ -68,12 +68,6 @@ def main():
         help="Comma-separated benchmarks to run (default: rc,graetz,ring,c6288)",
     )
     parser.add_argument(
-        "--max-steps",
-        type=int,
-        default=200,
-        help="Maximum timesteps per benchmark (default: 200)",
-    )
-    parser.add_argument(
         "--no-profile",
         action="store_true",
         help="Disable profiling (just run benchmarks)",
@@ -106,7 +100,6 @@ def main():
     print("JAX-SPICE vs VACASK Benchmark on Cloud Run GPU")
     print("=" * 60)
     print(f"Benchmarks: {args.benchmark}")
-    print(f"Max steps: {args.max_steps}")
     profile_mode = "FULL" if args.profile_full else ("ENABLED" if enable_profiling else "DISABLED")
     print(f"Profiling: {profile_mode}")
     if enable_profiling:
@@ -143,8 +136,6 @@ def main():
         "scripts/compare_vacask.py",
         "--benchmark",
         args.benchmark,
-        "--max-steps",
-        str(args.max_steps),
         "--use-scan",
     ]
     if args.use_sparse:
@@ -201,7 +192,6 @@ uv run python -c "import jax; print('Backend:', jax.default_backend()); print('D
 echo ""
 echo "=== Starting Benchmark Comparison ==="
 echo "Benchmarks: {args.benchmark}"
-echo "Max steps: {args.max_steps}"
 echo "Profiling: {profile_mode}"
 echo ""
 

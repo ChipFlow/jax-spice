@@ -127,7 +127,6 @@ jobs:
         run: |
           set +e
           uv run python scripts/compare_vacask.py \
-            --max-steps 50 \
             --use-scan \
             --force-gpu \
             --analyze \
@@ -163,7 +162,7 @@ jobs:
               echo "### Environment"
               echo "- **Platform**: GPU (nvidia-runner-1)"
               echo "- **Mode**: lax.scan (JIT-compiled)"
-              echo "- **Steps**: 50"
+              echo "- **Steps**: Full netlist duration"
               echo ""
 
               echo "### Per-Step Timing"

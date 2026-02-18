@@ -21,11 +21,11 @@ BENCHMARK_ROOT = Path(__file__).parent.parent / "vendor" / "VACASK" / "benchmark
 
 # All benchmarks with their configurations
 BENCHMARKS = {
-    "rc": {"use_sparse": False, "max_steps": 100},
-    "graetz": {"use_sparse": False, "max_steps": 100},
-    "mul": {"use_sparse": False, "max_steps": 100},
-    "ring": {"use_sparse": False, "max_steps": 50},
-    "c6288": {"use_sparse": True, "max_steps": 10},  # Sparse required for 86k nodes
+    "rc": {"use_sparse": False},
+    "graetz": {"use_sparse": False},
+    "mul": {"use_sparse": False},
+    "ring": {"use_sparse": False},
+    "c6288": {"use_sparse": True},  # Sparse required for 86k nodes
 }
 
 
@@ -137,7 +137,6 @@ class TestVACASKBenchmarks:
 
         config = BENCHMARKS[benchmark_name]
         use_sparse = config["use_sparse"]
-        max_steps = config["max_steps"]
 
         print(f"\n{'=' * 60}")
         print(f"Running {benchmark_name} benchmark")
@@ -153,18 +152,11 @@ class TestVACASKBenchmarks:
             openvaf = sum(1 for d in engine.devices if d.get("is_openvaf"))
             solver = "sparse" if use_sparse else "dense"
 
-            # Get timestep from analysis params
-            dt = engine.analysis_params.get("step", 1e-12)
-            t_stop = dt * max_steps
-
             print(f"Circuit: {nodes} nodes, {devices} devices ({openvaf} OpenVAF)")
-            print(f"Running {max_steps} timesteps, dt={dt:.2e}s")
 
-            # Run transient analysis
+            # Run transient analysis — prepare() reads t_stop/dt from netlist
             start = time.perf_counter()
-            engine.prepare(
-                t_stop=t_stop, dt=dt, max_steps=max_steps, use_sparse=use_sparse
-            )
+            engine.prepare(use_sparse=use_sparse)
             result = engine.run_transient()
             elapsed = time.perf_counter() - start
 

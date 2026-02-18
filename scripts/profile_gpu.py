@@ -174,7 +174,6 @@ class GPUProfiler:
                 engine.prepare(
                     t_stop=dt * warmup_steps,
                     dt=dt,
-                    max_steps=warmup_steps,
                     use_sparse=use_sparse,
                     backend=selected_backend,
                 )
@@ -190,7 +189,6 @@ class GPUProfiler:
             engine.prepare(
                 t_stop=t_stop,
                 dt=dt,
-                max_steps=expected_steps * 2,
                 use_sparse=use_sparse,
                 backend=selected_backend,
             )

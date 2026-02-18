@@ -77,7 +77,6 @@ def run_benchmark(
         engine.prepare(
             t_stop=dt * num_steps,
             dt=dt,
-            max_steps=num_steps,
             use_sparse=use_sparse,
         )
         engine.run_transient()

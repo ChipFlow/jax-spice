@@ -185,9 +185,7 @@ def run_jaxspice(
             if dt <= 0 or dt > t_stop:
                 dt = t_stop / 1000
 
-            max_steps = int(t_stop / dt) + 100
-
-            engine.prepare(t_stop=t_stop, dt=dt, max_steps=max_steps)
+            engine.prepare(t_stop=t_stop, dt=dt)
             result = engine.run_transient()
 
             results: Dict[str, Array] = {"time": result.times}

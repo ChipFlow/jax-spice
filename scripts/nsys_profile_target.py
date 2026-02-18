@@ -97,7 +97,7 @@ def main():
     if not args.skip_warmup:
         # Warmup run (JIT compilation happens here, outside profiled region)
         print("Warmup run (JIT compilation)...")
-        engine.prepare(t_stop=dt, dt=dt, max_steps=10, use_sparse=args.sparse)
+        engine.prepare(t_stop=dt * 10, dt=dt, use_sparse=args.sparse)
         engine.run_transient()
         print("Warmup complete")
         print()
@@ -107,7 +107,6 @@ def main():
     engine.prepare(
         t_stop=args.timesteps * dt,
         dt=dt,
-        max_steps=args.timesteps + 10,
         use_sparse=args.sparse,
     )
     result = engine.run_transient()
