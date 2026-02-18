@@ -56,7 +56,6 @@ import jax.numpy as jnp
 # Precision is auto-configured by jax_spice import (imported above via logging)
 # Metal/TPU use f32, CPU/CUDA use f64
 from jax_spice.analysis import CircuitEngine
-from jax_spice.analysis.transient import AdaptiveConfig
 from jax_spice.benchmarks.registry import (
     BenchmarkInfo,
     get_benchmark,
@@ -305,15 +304,13 @@ def run_jax_spice(
         backend = "gpu" if force_gpu else None  # None = auto-select
 
         # Prepare (includes 1-step warmup for JIT compilation)
-        # Use max_dt = 10x the initial dt to allow some adaptation but not grow unbounded
-        adaptive_config = AdaptiveConfig(max_dt=config.dt * 10, min_dt=1e-15)
+        # Let prepare() build AdaptiveConfig from netlist options (lte_ratio, etc.)
         startup_start = time.perf_counter()
         engine.prepare(
             t_stop=t_stop,
             dt=config.dt,
             use_sparse=use_sparse,
             backend=backend,
-            adaptive_config=adaptive_config,
         )
         startup_time = time.perf_counter() - startup_start
 

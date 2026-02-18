@@ -803,34 +803,47 @@ class CircuitEngine:
         if backend is None or backend == "auto":
             backend = select_backend(self.num_nodes)
 
-        # Build AdaptiveConfig from netlist options if not provided
-        if adaptive_config is None:
-            kwargs = {}
+        # Build AdaptiveConfig from netlist options, then apply any explicit overrides
+        kwargs = {}
 
-            if "tran_lteratio" in self.analysis_params:
-                kwargs["lte_ratio"] = float(self.analysis_params["tran_lteratio"])
-            if "tran_redofactor" in self.analysis_params:
-                kwargs["redo_factor"] = float(self.analysis_params["tran_redofactor"])
-            if "nr_convtol" in self.analysis_params:
-                kwargs["nr_convtol"] = float(self.analysis_params["nr_convtol"])
-            if "tran_gshunt" in self.analysis_params:
-                kwargs["gshunt_init"] = float(self.analysis_params["tran_gshunt"])
-            if "reltol" in self.analysis_params:
-                kwargs["reltol"] = float(self.analysis_params["reltol"])
-            if "abstol" in self.analysis_params:
-                kwargs["abstol"] = float(self.analysis_params["abstol"])
-            if "tran_fs" in self.analysis_params:
-                kwargs["tran_fs"] = float(self.analysis_params["tran_fs"])
-            if "tran_minpts" in self.analysis_params:
-                kwargs["tran_minpts"] = int(self.analysis_params["tran_minpts"])
-            if "maxstep" in self.analysis_params:
-                kwargs["max_dt"] = float(self.analysis_params["maxstep"])
-            if "tran_method" in self.analysis_params:
-                kwargs["integration_method"] = self.analysis_params["tran_method"]
+        if "tran_lteratio" in self.analysis_params:
+            kwargs["lte_ratio"] = float(self.analysis_params["tran_lteratio"])
+        if "tran_redofactor" in self.analysis_params:
+            kwargs["redo_factor"] = float(self.analysis_params["tran_redofactor"])
+        if "nr_convtol" in self.analysis_params:
+            kwargs["nr_convtol"] = float(self.analysis_params["nr_convtol"])
+        if "tran_gshunt" in self.analysis_params:
+            kwargs["gshunt_init"] = float(self.analysis_params["tran_gshunt"])
+        if "reltol" in self.analysis_params:
+            kwargs["reltol"] = float(self.analysis_params["reltol"])
+        if "abstol" in self.analysis_params:
+            kwargs["abstol"] = float(self.analysis_params["abstol"])
+        if "tran_fs" in self.analysis_params:
+            kwargs["tran_fs"] = float(self.analysis_params["tran_fs"])
+        if "tran_minpts" in self.analysis_params:
+            kwargs["tran_minpts"] = int(self.analysis_params["tran_minpts"])
+        if "maxstep" in self.analysis_params:
+            kwargs["max_dt"] = float(self.analysis_params["maxstep"])
+        if "tran_method" in self.analysis_params:
+            kwargs["integration_method"] = self.analysis_params["tran_method"]
 
-            config = AdaptiveConfig(**kwargs)
-        else:
-            config = adaptive_config
+        config = AdaptiveConfig(**kwargs)
+
+        # Apply explicit overrides (e.g. debug_steps=True) on top of netlist config
+        if adaptive_config is not None:
+            import dataclasses
+
+            # Only override fields that differ from AdaptiveConfig defaults
+            defaults = AdaptiveConfig()
+            overrides = {}
+            for f in dataclasses.fields(adaptive_config):
+                val = getattr(adaptive_config, f.name)
+                default_val = getattr(defaults, f.name)
+                if val != default_val:
+                    overrides[f.name] = val
+            if overrides:
+                config = dataclasses.replace(config, **overrides)
+                logger.debug(f"Applied adaptive_config overrides: {overrides}")
 
         # Cache strategy instance for JIT reuse across calls
         cache_key = (
