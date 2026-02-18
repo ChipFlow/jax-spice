@@ -7,7 +7,7 @@ os.environ["JAX_PLATFORMS"] = "cpu"
 os.environ["JAX_SPICE_NO_PROGRESS"] = "1"
 
 import time
-import jax_spice
+
 from jax_spice.benchmarks.registry import get_benchmark
 
 info = get_benchmark("graetz")
@@ -26,7 +26,6 @@ print(f"gmin={opts.gmin}, tran_gshunt={opts.tran_gshunt}")
 print(f"tran_method={opts.tran_method}")
 
 # Run transient for 100ms (5 periods of 50Hz)
-from jax_spice.analysis.transient import AdaptiveConfig
 
 t0 = time.time()
 try:
@@ -51,7 +50,6 @@ try:
 
     # Check for common-mode drift
     if "inp" in result.voltages and "inn" in result.voltages:
-        import jax.numpy as jnp
 
         cm = (result.voltages["inp"] + result.voltages["inn"]) / 2
         print(f"  CM range: [{float(cm.min()):.4f}, {float(cm.max()):.4f}]")

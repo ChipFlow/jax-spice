@@ -5,8 +5,10 @@ import os
 
 os.environ["JAX_PLATFORMS"] = "cpu"
 
-import numpy as np
 from pathlib import Path
+
+import numpy as np
+
 from jax_spice.analysis.engine import CircuitEngine
 
 sim_path = Path("vendor/VACASK/benchmark/graetz/vacask/runme.sim")
@@ -29,7 +31,7 @@ node0 = result.node_names[0]
 v0 = np.array(result.voltage(node0))
 
 print(f"\nStep-by-step voltage at node '{node0}':")
-print(f"Source: ampl=20, freq=50Hz, V_source(t) = 20*sin(2*pi*50*t)")
+print("Source: ampl=20, freq=50Hz, V_source(t) = 20*sin(2*pi*50*t)")
 for i in range(min(len(times), 50)):
     t = times[i]
     v_source = 20.0 * np.sin(2 * np.pi * 50 * t)

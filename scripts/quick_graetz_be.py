@@ -5,8 +5,10 @@ import os
 
 os.environ["JAX_PLATFORMS"] = "cpu"
 
-import numpy as np
 from pathlib import Path
+
+import numpy as np
+
 from jax_spice.analysis.engine import CircuitEngine
 from jax_spice.analysis.integration import IntegrationMethod
 

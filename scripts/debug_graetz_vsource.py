@@ -5,8 +5,10 @@ import os
 
 os.environ["JAX_PLATFORMS"] = "cpu"
 
-import numpy as np
 from pathlib import Path
+
+import numpy as np
+
 from jax_spice.analysis.engine import CircuitEngine
 
 sim_path = Path("vendor/VACASK/benchmark/graetz/vacask/runme.sim")
@@ -29,7 +31,7 @@ v_inp = np.array(result.voltage("inp"))
 v_outn = np.array(result.voltage("outn"))
 v_outp = np.array(result.voltage("outp"))
 
-print(f"\nStep-by-step analysis (every 10 steps):")
+print("\nStep-by-step analysis (every 10 steps):")
 print(
     f"{'Step':>5} {'t(µs)':>8} {'V_src':>8} {'V_inp':>10} {'V_inn':>10} {'Vdiff':>10} {'err':>10} {'V_outp':>10} {'V_outn':>10}"
 )
@@ -43,7 +45,7 @@ for i in range(0, min(len(times), 300), 10):
     )
 
 # Check common mode drift
-print(f"\nCommon mode (V_inp + V_inn)/2:")
+print("\nCommon mode (V_inp + V_inn)/2:")
 for i in range(0, min(len(times), 300), 20):
     t = times[i]
     cm = (v_inp[i] + v_inn[i]) / 2
