@@ -482,7 +482,6 @@ def run_vacask_simulation(vacask_bin: Path, info: BenchmarkInfo, t_stop: float, 
             raw_file.unlink()
 
 
-
 # compare_waveforms and find_rising_edge_time are now in jax_spice.utils.waveform_compare
 
 
