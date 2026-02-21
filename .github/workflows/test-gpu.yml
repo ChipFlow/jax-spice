@@ -124,6 +124,7 @@ jobs:
           XLA_PYTHON_CLIENT_PREALLOCATE: "false"
           XLA_PYTHON_CLIENT_ALLOCATOR: platform
           TF_CPP_MIN_LOG_LEVEL: "2"
+          JAX_LOG_COMPILES: "1"
         run: |
           set +e
           uv run python scripts/compare_vacask.py \
@@ -131,6 +132,7 @@ jobs:
             --force-gpu \
             --analyze \
             --profile-mode jax \
+            --profile-full \
             --profile-dir /tmp/jax-spice-traces 2>&1 | tee /tmp/benchmark_output.txt
           BENCHMARK_STATUS=${PIPESTATUS[0]}
           set -e
