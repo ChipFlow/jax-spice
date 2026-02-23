@@ -56,12 +56,15 @@ def parse_tran_params(cir_path: Path) -> Tuple[float, float]:
     content = cir_path.read_text()
 
     # Find .TRAN line: .TRAN [step] stop [start] [maxstep]
+    # Must be an active line (not a SPICE comment starting with *)
     # Examples:
     #   .TRAN 0 0.5ms
     #   .TRAN 1ns 100ns
     import re
 
-    tran_match = re.search(r"\.TRAN\s+(\S+)\s+(\S+)", content, re.IGNORECASE)
+    tran_match = re.search(
+        r"^\.TRAN\s+(\S+)\s+(\S+)", content, re.IGNORECASE | re.MULTILINE
+    )
     if not tran_match:
         raise ValueError(f"No .TRAN statement found in {cir_path}")
 
@@ -77,6 +80,7 @@ def parse_tran_params(cir_path: Path) -> Tuple[float, float]:
             ("ns", 1e-9),  # nanoseconds
             ("ps", 1e-12),  # picoseconds
             ("fs", 1e-15),  # femtoseconds
+            ("s", 1),  # seconds (unit, not a scale factor)
             ("f", 1e-15),
             ("p", 1e-12),
             ("n", 1e-9),

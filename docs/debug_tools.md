@@ -37,6 +37,7 @@ graph.param_to_value('rth')   # Map param to MIR value
 | `mir_tracer` | Trace value flow through MIR |
 | `param_analyzer` | Analyze parameter kinds and OSDI comparison |
 | `mir_analysis` | CFG analysis with networkx (optional dependency) |
+| `transient_diagnostics` | Runtime transient step analysis (LTE, NR, step acceptance) |
 
 ---
 
@@ -266,6 +267,122 @@ uv run scripts/analyze_mir_cfg.py vendor/OpenVAF/integration_tests/PSP102/psp102
 # Analyze specific block with PHIs
 uv run scripts/analyze_mir_cfg.py vendor/OpenVAF/integration_tests/PSP102/psp102.va \
     --func eval --analyze-block block4654
+```
+
+---
+
+## Transient Diagnostics (`transient_diagnostics.py`)
+
+Runtime analysis of transient simulation steps — LTE behaviour, NR convergence,
+step acceptance/rejection, and VACASK comparison.
+
+### Parsing Debug Output
+
+```python
+from jax_spice.debug import parse_debug_output, StepRecord
+
+# Parse debug_steps text captured from a transient run
+records: list[StepRecord] = parse_debug_output(debug_text)
+for r in records[:5]:
+    print(f"Step {r.step}: t={r.t_ps}ps dt={r.dt_ps}ps NR={r.nr_iters} accepted={r.accepted}")
+```
+
+### Capturing a Full Step Trace
+
+```python
+from jax_spice.debug import capture_step_trace, print_step_summary
+
+# Run a benchmark with debug_steps=True and get parsed results
+records, summary = capture_step_trace("ring", use_sparse=True)
+print_step_summary(records, summary)
+```
+
+### Convergence Sweep
+
+Run a benchmark at multiple `t_stop` values to find where convergence degrades:
+
+```python
+from jax_spice.debug import convergence_sweep
+
+results = convergence_sweep("graetz", [1e-3, 5e-3, 7e-3, 10e-3])
+for r in results:
+    print(f"t_stop={r.t_stop:.0e}: steps={r.num_steps}, conv={r.convergence_rate:.1%}, "
+          f"rejected={r.rejected_steps}")
+```
+
+### VACASK Step Comparison
+
+Parse VACASK `tran_debug=1` output for side-by-side comparison:
+
+```python
+from jax_spice.debug import parse_vacask_debug_output
+
+vacask_records = parse_vacask_debug_output(vacask_stdout)
+accepted = [r for r in vacask_records if r.status == "accept"]
+rejected = [r for r in vacask_records if r.status == "reject"]
+print(f"VACASK: {len(accepted)} accepted, {len(rejected)} rejected")
+```
+
+### LTE Solver Comparison CLI
+
+Compare per-step LTE between different solver backends:
+
+```bash
+# Capture a trace
+JAX_PLATFORMS=cpu uv run python scripts/compare_lte_solvers.py \
+    --benchmark ring --output /tmp/lte_trace.json
+
+# Compare two traces
+uv run python scripts/compare_lte_solvers.py \
+    --compare /tmp/trace_a.json /tmp/trace_b.json
+
+# Run both dense and sparse locally and compare
+JAX_PLATFORMS=cpu uv run python scripts/compare_lte_solvers.py \
+    --benchmark ring --compare-local
+```
+
+---
+
+## Transient Debugging Workflow
+
+### 1. Convergence Sweep
+
+Start by checking if convergence degrades at specific simulation durations:
+
+```python
+from jax_spice.debug import convergence_sweep
+
+results = convergence_sweep("graetz", [1e-3, 5e-3, 7e-3, 10e-3])
+# Look for t_stop values where rejected_steps spikes or convergence_rate drops
+```
+
+### 2. Capture Step Trace
+
+Zoom in on a problematic duration with full per-step data:
+
+```python
+from jax_spice.debug import capture_step_trace, print_step_summary
+
+records, summary = capture_step_trace("graetz", use_sparse=False)
+print_step_summary(records, summary)
+
+# Find rejection clusters
+rejected = [r for r in records if not r.accepted]
+for r in rejected[:10]:
+    print(f"  Step {r.step}: t={r.t_ps}ps LTE={r.lte_norm} NR_fail={r.nr_failed}")
+```
+
+### 3. VACASK Comparison
+
+Compare step-by-step behaviour with VACASK reference:
+
+```python
+from jax_spice.debug import parse_debug_output, parse_vacask_debug_output
+
+jax_records = parse_debug_output(jax_debug_text)
+vacask_records = parse_vacask_debug_output(vacask_debug_text)
+
+# Compare accepted step counts, dt ranges, rejection patterns
 ```
 
 ---

@@ -333,6 +333,9 @@ See `docs/debug_tools.md` for comprehensive documentation.
 | Near-zero outputs | `MIRInspector` | Check PHI nodes with zero operand |
 | Cache looks suspicious | `CacheAnalysis` | Look for inf/nan, VT values |
 | NMOS/PMOS issues | `MIRInspector.find_type_param()` | Verify TYPE parameter location |
+| Step rejection / LTE issues | `capture_step_trace()` | Run with debug_steps, inspect LTE norms |
+| Convergence varies with t_stop | `convergence_sweep()` | Sweep multiple durations |
+| VACASK step mismatch | `parse_vacask_debug_output()` | Compare step-by-step with VACASK |
 
 ### Quick Start
 
@@ -373,6 +376,26 @@ inspector.print_type_param_info()
 | `mir_tracer` | Trace value flow through MIR |
 | `param_analyzer` | Analyze parameter kinds and OSDI comparison |
 | `mir_analysis` | CFG analysis with networkx (optional dependency) |
+| `transient_diagnostics` | Runtime transient step analysis (LTE, NR, step acceptance) |
+
+### Transient Step Debugging
+
+For runtime transient issues (step rejection, LTE behaviour, NR convergence):
+
+```python
+from jax_spice.debug import capture_step_trace, convergence_sweep, parse_vacask_debug_output
+
+# 1. Sweep t_stop to find where convergence degrades
+results = convergence_sweep("graetz", [1e-3, 5e-3, 7e-3, 10e-3])
+
+# 2. Capture full step trace for detailed analysis
+records, summary = capture_step_trace("ring", use_sparse=True)
+
+# 3. Compare with VACASK tran_debug=1 output
+vacask_records = parse_vacask_debug_output(vacask_stdout)
+```
+
+See `docs/debug_tools.md` for the full transient debugging workflow.
 
 ### Common Issues and Solutions
 

@@ -46,6 +46,17 @@ from jax_spice.debug.trace_monitor import (
     reset_traces,
     trace_monitor,
 )
+from jax_spice.debug.transient_diagnostics import (
+    ConvergenceSweepResult,
+    StepRecord,
+    StepTraceSummary,
+    VACASKStepRecord,
+    capture_step_trace,
+    convergence_sweep,
+    parse_debug_output,
+    parse_vacask_debug_output,
+    print_step_summary,
+)
 
 # MIR analysis imports are optional (require networkx/pydot)
 try:
@@ -121,4 +132,14 @@ __all__ = [
     "analyze_phi_block",
     # MIR graph (optional)
     "MIRGraph",
+    # Transient diagnostics
+    "StepRecord",
+    "StepTraceSummary",
+    "VACASKStepRecord",
+    "ConvergenceSweepResult",
+    "parse_debug_output",
+    "capture_step_trace",
+    "parse_vacask_debug_output",
+    "convergence_sweep",
+    "print_step_summary",
 ]

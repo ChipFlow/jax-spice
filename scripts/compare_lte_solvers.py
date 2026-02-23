@@ -26,11 +26,16 @@ Usage:
 import argparse
 import json
 import logging
-import re
 import sys
-import time
-from io import StringIO
+from dataclasses import asdict
 from pathlib import Path
+
+from jax_spice.debug.transient_diagnostics import (
+    StepRecord,
+    StepTraceSummary,
+    capture_step_trace,
+    print_step_summary,
+)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -40,217 +45,45 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-class TeeWriter:
-    """Write to both the original stream and a capture buffer."""
-
-    def __init__(self, original):
-        self.original = original
-        self.captured = StringIO()
-
-    def write(self, text):
-        self.original.write(text)
-        self.captured.write(text)
-        return len(text)
-
-    def flush(self):
-        self.original.flush()
-
-    def get_captured(self) -> str:
-        return self.captured.getvalue()
-
-
-def parse_debug_output(text: str) -> list[dict]:
-    """Parse debug_steps output into structured per-step records.
-
-    Expected format from body_fn debug callback:
-        Step   3: t=   1.000ps dt=  0.5000ps NR= 4 res=1.23e-13 LTE/tol=0.45       dt_lte=  1.2000ps [accept]
-        Step   4: t=   1.500ps dt=  0.5000ps NR= 7 res=4.56e-10 LTE/tol=3.2 → REJECT dt_lte=  0.2000ps [REJECT]
-    """
-    records = []
-    pattern = re.compile(
-        r"Step\s+(\d+):\s+"
-        r"t=\s*([\d.]+)ps\s+"
-        r"dt=\s*([\d.]+)ps\s+"
-        r"NR=\s*(\d+)\s+"
-        r"res=([\d.eE+-]+)\s+"
-        r"(.*?)\s+"
-        r"dt_lte=\s*([\d.]+)ps\s+"
-        r"\[(accept|REJECT)\]"
-        r"(.*)"
-    )
-    # Fallback pattern for old format without dt_lte
-    pattern_old = re.compile(
-        r"Step\s+(\d+):\s+"
-        r"t=\s*([\d.]+)ps\s+"
-        r"dt=\s*([\d.]+)ps\s+"
-        r"NR=\s*(\d+)\s+"
-        r"res=([\d.eE+-]+)\s+"
-        r"(.*?)\s*"
-        r"\[(accept|REJECT)\]"
-    )
-
-    for line in text.split("\n"):
-        m = pattern.search(line)
-        dt_lte_ps = None
-        nr_failed = False
-
-        if m:
-            step = int(m.group(1))
-            t_ps = float(m.group(2))
-            dt_ps = float(m.group(3))
-            nr_iters = int(m.group(4))
-            residual = float(m.group(5))
-            lte_info = m.group(6).strip()
-            dt_lte_ps = float(m.group(7))
-            status = m.group(8)
-            extra = m.group(9).strip()
-            nr_failed = "NR_FAIL" in extra
-        else:
-            m = pattern_old.search(line)
-            if not m:
-                continue
-            step = int(m.group(1))
-            t_ps = float(m.group(2))
-            dt_ps = float(m.group(3))
-            nr_iters = int(m.group(4))
-            residual = float(m.group(5))
-            lte_info = m.group(6).strip()
-            status = m.group(7)
-
-        # Parse LTE value
-        lte_norm = None
-        lte_reject = False
-        if "Cannot estimate" in lte_info:
-            lte_norm = None
-        else:
-            lte_match = re.search(r"LTE/tol=([\d.]+)", lte_info)
-            if lte_match:
-                lte_norm = float(lte_match.group(1))
-            if "REJECT" in lte_info:
-                lte_reject = True
-
-        records.append(
-            {
-                "step": step,
-                "t_ps": t_ps,
-                "dt_ps": dt_ps,
-                "dt_lte_ps": dt_lte_ps,
-                "nr_iters": nr_iters,
-                "residual": residual,
-                "lte_norm": lte_norm,
-                "lte_reject": lte_reject,
-                "nr_failed": nr_failed,
-                "accepted": status == "accept",
-            }
-        )
-
-    return records
-
-
-def run_simulation(benchmark_name: str, use_sparse: bool) -> tuple[list[dict], dict]:
-    """Run a benchmark simulation with debug_steps enabled and capture per-step data.
-
-    Uses sys.stdout tee to capture jax.debug.callback print() output while
-    still showing it on screen.
-
-    Args:
-        benchmark_name: Name of the benchmark (e.g., "ring", "c6288")
-        use_sparse: Whether to use sparse solver
-
-    Returns:
-        Tuple of (per-step records, summary stats)
-    """
-    import jax
-
-    from jax_spice.analysis.engine import CircuitEngine
-    from jax_spice.analysis.transient.adaptive import AdaptiveConfig
-    from jax_spice.benchmarks.registry import get_benchmark
-
-    info = get_benchmark(benchmark_name)
-    if info is None:
-        logger.error(f"Unknown benchmark: {benchmark_name}")
-        sys.exit(1)
-
-    backend = jax.default_backend()
-    solver_name = "unknown"
-    if use_sparse:
-        if backend in ("cuda", "gpu"):
-            solver_name = "cuDSS/Spineax"
-        else:
-            solver_name = "UMFPACK"
-    else:
-        solver_name = "dense"
-
-    logger.info(f"Running '{benchmark_name}' with {solver_name} solver (backend={backend})")
-
-    engine = CircuitEngine(info.sim_path)
-    engine.parse()
-
-    # Enable debug_steps to get per-step callback output
-    config = AdaptiveConfig(debug_steps=True)
-
-    engine.prepare(use_sparse=use_sparse, adaptive_config=config)
-
-    # Tee stdout so we capture jax.debug.callback's print() output
-    # while still showing it on screen (useful for monitoring long runs)
-    tee = TeeWriter(sys.stdout)
-    original_stdout = sys.stdout
-    sys.stdout = tee
-
-    t_start = time.perf_counter()
-    try:
-        result = engine.run_transient()
-    finally:
-        sys.stdout = original_stdout
-
-    wall_time = time.perf_counter() - t_start
-
-    # Parse captured debug output
-    captured_text = tee.get_captured()
-    records = parse_debug_output(captured_text)
-
-    logger.info(f"Captured {len(records)} step records from debug output")
-
-    # Build summary
-    accepted = [r for r in records if r["accepted"]]
-    rejected = [r for r in records if not r["accepted"]]
-    lte_values = [r["lte_norm"] for r in records if r["lte_norm"] is not None]
-
-    summary = {
-        "benchmark": benchmark_name,
-        "solver": solver_name,
-        "backend": str(backend),
-        "use_sparse": use_sparse,
-        "wall_time_s": wall_time,
-        "total_steps_attempted": len(records),
-        "accepted_steps": len(accepted),
-        "rejected_steps": len(rejected),
-        "num_steps_result": result.num_steps,
+def _summary_to_dict(summary: StepTraceSummary) -> dict:
+    """Convert StepTraceSummary to the JSON-compatible dict format."""
+    return {
+        "benchmark": summary.benchmark,
+        "solver": summary.solver,
+        "backend": summary.backend,
+        "use_sparse": summary.use_sparse,
+        "wall_time_s": summary.wall_time_s,
+        "total_steps_attempted": summary.total_steps_attempted,
+        "accepted_steps": summary.accepted_steps,
+        "rejected_steps": summary.rejected_steps,
+        "num_steps_result": summary.num_steps_result,
         "lte_stats": {
-            "count": len(lte_values),
-            "min": min(lte_values) if lte_values else None,
-            "max": max(lte_values) if lte_values else None,
-            "mean": sum(lte_values) / len(lte_values) if lte_values else None,
+            "count": summary.total_steps_attempted,
+            "min": summary.lte_min,
+            "max": summary.lte_max,
+            "mean": summary.lte_mean,
         },
         "dt_stats": {
-            "min_ps": min(r["dt_ps"] for r in records) if records else None,
-            "max_ps": max(r["dt_ps"] for r in records) if records else None,
+            "min_ps": summary.dt_min_ps,
+            "max_ps": summary.dt_max_ps,
         },
         "nr_stats": {
-            "min_iters": min(r["nr_iters"] for r in records) if records else None,
-            "max_iters": max(r["nr_iters"] for r in records) if records else None,
-            "mean_iters": (sum(r["nr_iters"] for r in records) / len(records) if records else None),
+            "min_iters": summary.nr_min_iters,
+            "max_iters": summary.nr_max_iters,
+            "mean_iters": summary.nr_mean_iters,
         },
     }
 
-    return records, summary
+
+def _records_to_dicts(records: list[StepRecord]) -> list[dict]:
+    return [asdict(r) for r in records]
 
 
-def save_trace(records: list[dict], summary: dict, output_path: str) -> None:
+def save_trace(records: list[StepRecord], summary: StepTraceSummary, output_path: str) -> None:
     """Save per-step trace to JSON file."""
     data = {
-        "summary": summary,
-        "steps": records,
+        "summary": _summary_to_dict(summary),
+        "steps": _records_to_dicts(records),
     }
     Path(output_path).write_text(json.dumps(data, indent=2, default=str))
     logger.info(f"Saved {len(records)} step records to {output_path}")
@@ -263,7 +96,7 @@ def load_trace(path: str) -> tuple[list[dict], dict]:
 
 
 def print_summary(summary: dict) -> None:
-    """Print summary of a simulation run to stderr."""
+    """Print summary of a simulation run to stderr (from loaded JSON dict)."""
     logger.info(
         f"  {summary['benchmark']} ({summary['solver']}, {summary['backend']}): "
         f"{summary['accepted_steps']} accepted, {summary['rejected_steps']} rejected, "
@@ -426,13 +259,13 @@ def run_compare_local(benchmark_name: str) -> None:
 
     # Run dense
     logger.info("--- Running DENSE solver ---")
-    records_dense, summary_dense = run_simulation(benchmark_name, use_sparse=False)
-    print_summary(summary_dense)
+    records_dense, summary_dense = capture_step_trace(benchmark_name, use_sparse=False)
+    print_step_summary(records_dense, summary_dense)
 
     # Run sparse (UMFPACK on CPU)
     logger.info("--- Running SPARSE (UMFPACK) solver ---")
-    records_sparse, summary_sparse = run_simulation(benchmark_name, use_sparse=True)
-    print_summary(summary_sparse)
+    records_sparse, summary_sparse = capture_step_trace(benchmark_name, use_sparse=True)
+    print_step_summary(records_sparse, summary_sparse)
 
     # Save both traces
     dense_path = f"/tmp/lte_trace_{benchmark_name}_dense.json"
@@ -484,8 +317,8 @@ def main():
     elif args.sparse is not None:
         use_sparse = args.sparse
 
-    records, summary = run_simulation(args.benchmark, use_sparse)
-    print_summary(summary)
+    records, summary = capture_step_trace(args.benchmark, use_sparse=use_sparse)
+    print_step_summary(records, summary)
 
     # Save trace
     if args.output:
