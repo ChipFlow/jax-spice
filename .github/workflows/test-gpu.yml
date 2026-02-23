@@ -192,6 +192,24 @@ jobs:
             } >> "$GITHUB_STEP_SUMMARY"
           fi
 
+      - name: Diagnose LTE divergence (V_new/V_pred at early steps)
+        timeout-minutes: 10
+        env:
+          JAX_PLATFORMS: cuda,cpu
+          XLA_FLAGS: "--xla_gpu_autotune_level=0"
+          XLA_PYTHON_CLIENT_PREALLOCATE: "false"
+          XLA_PYTHON_CLIENT_ALLOCATOR: platform
+          TF_CPP_MIN_LOG_LEVEL: "2"
+          JAX_SPICE_NO_PROGRESS: "1"
+        run: |
+          set +e
+          mkdir -p lte-traces
+          uv run python scripts/diagnose_lte_divergence.py \
+            --sparse --steps 5 \
+            --output lte-traces/ring_cudss_diag.json 2>&1 | tail -40
+          echo "LTE diagnostic exit status: $?"
+          set -e
+
       - name: Capture LTE traces for solver comparison
         timeout-minutes: 30
         env:
