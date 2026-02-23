@@ -1,6 +1,6 @@
 # JAX-SPICE CI Summary
 
-_Last updated: 2026-02-23 23:34 UTC_
+_Last updated: 2026-02-23 23:35 UTC_
 
 _Commit: [3c580822](https://github.com/ChipFlow/jax-spice/commit/3c580822b3e103e7023b784b6895ec2aeab28cb3)_
 
@@ -24,11 +24,11 @@ _Commit: [3c580822](https://github.com/ChipFlow/jax-spice/commit/3c580822b3e103e
 
 | Benchmark | Steps | JAX-SPICE (ms/step) | VACASK (ms/step) | Ratio | Startup |
 |-----------|-------|---------------------|------------------|-------|---------|
-| rc | 1,000,000 | 0.0123 | 0.0019 | 6.60x | 3.7s |
-| graetz | 1,000,000 | 0.0204 | 0.0038 | 5.41x | 9.5s |
-| mul | 500,000 | 0.0406 | 0.0037 | 10.86x | 7.0s |
-| ring | 19,999 | 0.5109 | 0.1092 | 4.68x | 153.0s |
-| tb_dp | 299 | 0.0994 | N/A | N/A | 5.4s |
+| rc | 1,000,000 | 0.0116 | 0.0019 | 6.29x | 3.9s |
+| graetz | 1,000,000 | 0.0190 | 0.0038 | 4.97x | 10.0s |
+| mul | 500,000 | 0.0394 | 0.0037 | 10.56x | 7.2s |
+| ring | 19,999 | 0.5135 | 0.1079 | 4.76x | 156.6s |
+| tb_dp | 299 | 0.0982 | N/A | N/A | 5.7s |
 
 ### GPU Benchmarks
 
