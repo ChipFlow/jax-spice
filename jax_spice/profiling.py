@@ -128,23 +128,25 @@ def disable_profiling() -> None:
 
 # CUDA profiler API (optional dependency)
 _cuda_profiler_available = False
-_cudaProfilerStart = None
-_cudaProfilerStop = None
+_cudaProfilerStart: Optional[Callable[[], None]] = None
+_cudaProfilerStop: Optional[Callable[[], None]] = None
 
 try:
     from cuda.cudart import cudaProfilerStart as _cudaProfilerStart_raw
     from cuda.cudart import cudaProfilerStop as _cudaProfilerStop_raw
 
-    def _cudaProfilerStart():
+    def _wrap_cudaProfilerStart() -> None:
         (err,) = _cudaProfilerStart_raw()
         if err.value != 0:
             logger.warning(f"cudaProfilerStart failed with error {err}")
 
-    def _cudaProfilerStop():
+    def _wrap_cudaProfilerStop() -> None:
         (err,) = _cudaProfilerStop_raw()
         if err.value != 0:
             logger.warning(f"cudaProfilerStop failed with error {err}")
 
+    _cudaProfilerStart = _wrap_cudaProfilerStart
+    _cudaProfilerStop = _wrap_cudaProfilerStop
     _cuda_profiler_available = True
     logger.debug("CUDA profiler API available (cuda-python)")
 except ImportError:
@@ -152,8 +154,11 @@ except ImportError:
 
 if not _cuda_profiler_available:
     try:
-        from cuda_profiler_api import cudaProfilerStart as _cudaProfilerStart
-        from cuda_profiler_api import cudaProfilerStop as _cudaProfilerStop
+        from cuda_profiler_api import cudaProfilerStart as _cudaProfilerStart_api
+        from cuda_profiler_api import cudaProfilerStop as _cudaProfilerStop_api
+
+        _cudaProfilerStart = _cudaProfilerStart_api
+        _cudaProfilerStop = _cudaProfilerStop_api
 
         _cuda_profiler_available = True
         logger.debug("CUDA profiler API available (cuda-profiler-api)")

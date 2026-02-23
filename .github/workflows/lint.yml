@@ -25,6 +25,8 @@ jobs:
       - name: Run ruff format check
         run: uv tool run ruff format --check jax_spice/ tests/ scripts/ benchmarks/
 
+      - name: Install Python dependencies for type checking
+        run: uv sync --no-install-workspace
+
       - name: Run pyright
-        run: uv tool run pyright jax_spice/
-        continue-on-error: true  # Type errors are informational for now
+        run: uv run pyright jax_spice/

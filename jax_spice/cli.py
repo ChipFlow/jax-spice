@@ -144,10 +144,10 @@ def _run_ac(engine: CircuitEngine, ac_args: List[str], args: argparse.Namespace)
 
     try:
         result = engine.run_ac(
-            fstart=fstart,
-            fstop=fstop,
-            num_points=num_points,
-            sweep_type=sweep_type,
+            freq_start=fstart,
+            freq_stop=fstop,
+            points=num_points,
+            mode=sweep_type,
         )
         print(f"AC: {num_points} frequency points, {fstart:.2e}Hz to {fstop:.2e}Hz")
         return result

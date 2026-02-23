@@ -269,6 +269,7 @@ class VerilogADevice:
 
         # Get DAE system info for node mapping
         dae = self._translator.dae_data
+        assert dae is not None, "dae_data not available (MIR data released?)"
 
         # Convert residuals to current stamps
         for sim_node, res in residuals.items():

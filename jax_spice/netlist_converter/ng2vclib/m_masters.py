@@ -257,6 +257,6 @@ class MastersMixin:
                         # Not a dot command, must be an instance
                         # Preprocess it
                         try:
-                            self.preprocess_instance(*line, in_sub)
+                            self.preprocess_instance(lnum, lws, l, eolc, annot, in_sub)
                         except ConverterError as e:
                             raise ConverterError(str(e), history, lnum)

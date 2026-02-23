@@ -9,7 +9,7 @@ Generates VACASK-format files from parsed netlist objects.
 
 from io import StringIO
 from pathlib import Path
-from typing import TextIO
+from typing import Any, TextIO
 
 from ..spiceparser.elements import (
     OsdiModuleInfo,
@@ -238,7 +238,7 @@ class VacaskWriter:
 
         buf.write(line + "\n")
 
-    def _format_params(self, params: dict[str, any]) -> str:
+    def _format_params(self, params: dict[str, Any]) -> str:
         """Format parameters for output."""
         parts = []
         for name, value in params.items():

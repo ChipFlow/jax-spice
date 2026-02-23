@@ -790,9 +790,9 @@ class CircuitEngine:
 
         # Read from netlist if not overridden
         if t_stop is None:
-            t_stop = self.analysis_params.get("stop", 1e-3)
+            t_stop = float(self.analysis_params.get("stop", 1e-3))
         if dt is None:
-            dt = self.analysis_params.get("step", 1e-6)
+            dt = float(self.analysis_params.get("step", 1e-6))
 
         # Auto-compute max_steps with 10% headroom for LTE timestep reductions
         max_steps = int(t_stop / dt * 1.1) + 10
@@ -2016,7 +2016,8 @@ class CircuitEngine:
                     self.prepare(temperature=corner.temperature, **prepare_kwargs)
                     result = self.run_transient()
                 elif analysis == "ac":
-                    result = self.run_ac(temperature=corner.temperature, **prepare_kwargs)
+                    self.prepare(temperature=corner.temperature)
+                    result = self.run_ac(**prepare_kwargs)
                 elif analysis == "noise":
                     result = self.run_noise(temperature=corner.temperature, **prepare_kwargs)
                 else:

@@ -170,7 +170,6 @@ jobs:
           if-no-files-found: ignore
 
       - name: Run type checker
-        continue-on-error: true
         run: uv run pyright jax_spice/
 
   test-ngspice-regression:

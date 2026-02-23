@@ -17,7 +17,7 @@ Example usage:
 """
 
 from dataclasses import dataclass, fields
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Callable, Dict, Optional, Tuple
 
 from jax_spice.analysis.integration import IntegrationMethod
 
@@ -296,7 +296,9 @@ class SimulationOptions:
         value = getattr(self, name, default)
         return default if value is None else value
 
-    def update_from_netlist(self, opts: Dict[str, Any], parse_number: callable = float) -> None:
+    def update_from_netlist(
+        self, opts: Dict[str, Any], parse_number: Callable[[str], float] = float
+    ) -> None:
         """Update options from netlist options directive.
 
         Args:
