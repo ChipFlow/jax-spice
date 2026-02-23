@@ -425,9 +425,6 @@ COMPARISON_SPECS = {
         align_threshold=0.6,
         align_after_time=10e-9,  # Skip first 10ns startup
         # Period validated separately in test_adaptive_ring_validation.py
-        # Skip in CI - JIT compilation takes ~100s with cold cache, causes timeouts
-        xfail=True,
-        xfail_reason="JIT compilation too slow for CI (test with GPU workflow or locally)",
     ),
     "mul": ComparisonSpec(
         benchmark_name="mul",

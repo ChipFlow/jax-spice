@@ -93,9 +93,12 @@ jobs:
           echo "=== Artifacts ==="
           find . -type f | head -50
 
+      - name: Install minimal dependencies
+        run: uv sync --no-install-workspace --no-build-package openvaf-py --no-build-package osdi-py --no-build-package umfpack-jax
+
       - name: Generate summary page
         run: |
-          uv run python scripts/generate_summary.py \
+          .venv/bin/python scripts/generate_summary.py \
             --artifacts-dir ./artifacts \
             --output ./site/index.md \
             --commit-sha "${{ github.event.workflow_run.head_sha }}"
