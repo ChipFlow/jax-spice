@@ -236,7 +236,8 @@ jobs:
           uv run python scripts/compare_vacask.py \
             --benchmark ${{ matrix.benchmarks }} \
             --use-scan \
-            --use-sparse 2>&1 | tee /tmp/benchmark-comparison.log || true
+            --use-sparse \
+            --json-output /tmp/benchmark-summary.json 2>&1 | tee /tmp/benchmark-comparison.log || true
 
       - name: Check for JIT recompilation
         if: always()
@@ -404,3 +405,11 @@ jobs:
           path: |
             /tmp/benchmark-comparison.log
             /tmp/vacask-result-tests.log
+
+      - name: Upload benchmark summary JSON
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: benchmark-summary-${{ matrix.name }}
+          path: /tmp/benchmark-summary.json
+          if-no-files-found: ignore

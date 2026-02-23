@@ -287,7 +287,21 @@ class TestTranslateEvalEKV:
         # Build simparams array
         simparams = jnp.array(build_simparams(eval_meta))
 
-        result = eval_fn(shared_inputs, voltage_arr, cache, simparams)
+        # eval_fn signature: (shared_params, device_params, shared_cache, device_cache,
+        #                     simparams, limit_state_in, limit_funcs)
+        shared_cache = jnp.array([])
+        limit_state_in = jnp.array([])
+        limit_funcs = {}
+
+        result = eval_fn(
+            shared_inputs,
+            voltage_arr,
+            shared_cache,
+            cache,
+            simparams,
+            limit_state_in,
+            limit_funcs,
+        )
         res_resist = result[0]
 
         # Should produce non-zero drain current

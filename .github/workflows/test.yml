@@ -60,7 +60,15 @@ jobs:
       - name: Run tests
         working-directory: openvaf_jax/openvaf_py
         timeout-minutes: 90
-        run: uv run pytest tests/ -v --tb=short --durations=20 --log-cli-level=INFO
+        run: uv run pytest tests/ -v --tb=short --durations=20 --log-cli-level=INFO --junitxml=test-results-openvaf-py.xml
+
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-summary-openvaf-py
+          path: openvaf_jax/openvaf_py/test-results-openvaf-py.xml
+          if-no-files-found: ignore
 
   test-jax-spice:
     runs-on: ubuntu-latest
@@ -144,14 +152,22 @@ jobs:
         env:
           JAX_PLATFORMS: cpu
           JAX_SPICE_NO_PROGRESS: "1"
-        run: uv run pytest ${{ matrix.test-group.tests }} -v --tb=short
+        run: uv run pytest ${{ matrix.test-group.tests }} -v --tb=short --junitxml=test-results-${{ matrix.test-group.name }}.xml
 
       - name: Run benchmark tests
         if: matrix.test-group.name == 'unit'
         env:
           JAX_PLATFORMS: cpu
           JAX_SPICE_NO_PROGRESS: "1"
-        run: uv run pytest benchmarks/test_benchmarks.py -v --tb=short
+        run: uv run pytest benchmarks/test_benchmarks.py -v --tb=short --junitxml=test-results-benchmarks.xml
+
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-summary-${{ matrix.test-group.name }}
+          path: test-results-*.xml
+          if-no-files-found: ignore
 
       - name: Run type checker
         continue-on-error: true
@@ -228,6 +244,14 @@ jobs:
         run: |
           uv run pytest tests/test_ngspice_regression.py -v --tb=short --junitxml=ngspice-results.xml 2>&1 | tee ngspice-output.txt
           echo "exit_code=${PIPESTATUS[0]}" >> $GITHUB_OUTPUT
+
+      - name: Upload ngspice test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-summary-ngspice
+          path: ngspice-results.xml
+          if-no-files-found: ignore
 
       - name: Report ngspice regression results
         if: always()
@@ -322,6 +346,14 @@ jobs:
         run: |
           uv run pytest tests/test_xyce_regression.py -v --tb=short --junitxml=xyce-results.xml 2>&1 | tee xyce-output.txt
           echo "exit_code=${PIPESTATUS[0]}" >> $GITHUB_OUTPUT
+
+      - name: Upload Xyce test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-summary-xyce
+          path: xyce-results.xml
+          if-no-files-found: ignore
 
       - name: Report Xyce regression results
         if: always()

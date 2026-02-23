@@ -26,6 +26,7 @@ Usage:
 """
 
 import argparse
+import json
 import os
 import subprocess
 
@@ -443,6 +444,12 @@ def main():
         action="store_true",
         help="Dump JAX cost analysis and jaxpr for compiled functions",
     )
+    parser.add_argument(
+        "--json-output",
+        type=str,
+        default=None,
+        help="Write benchmark results as JSON to this path",
+    )
     args = parser.parse_args()
 
     print("=" * 70)
@@ -728,6 +735,29 @@ def main():
         print(f"| {r['name']:9} | {startup_s:11.1f} | {speedup_str:16} | {breakeven_str:15} |")
 
     print()
+
+    # Write JSON output if requested
+    if args.json_output:
+        json_results = []
+        for r in results:
+            ratio = r["jax_ms"] / r["vacask_ms"] if r["vacask_ms"] else None
+            json_results.append(
+                {
+                    "name": r["name"],
+                    "steps": r["steps"],
+                    "jax_ms_per_step": round(r["jax_ms"], 6),
+                    "vacask_ms_per_step": round(r["vacask_ms"], 6) if r["vacask_ms"] else None,
+                    "ratio": round(ratio, 2) if ratio else None,
+                    "vacask_source": r.get("vacask_source"),
+                    "startup_s": round(r.get("startup_time", 0), 1),
+                    "backend": str(jax.default_backend()),
+                }
+            )
+        json_path = Path(args.json_output)
+        json_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(json_path, "w") as f:
+            json.dump(json_results, f, indent=2)
+        print(f"\nJSON results written to: {json_path}")
 
     # Report profiling traces location
     if profile_config and profile_config.jax:

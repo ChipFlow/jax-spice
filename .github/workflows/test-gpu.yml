@@ -132,7 +132,8 @@ jobs:
             --force-gpu \
             --analyze \
             --profile-mode jax \
-            --profile-dir /tmp/jax-spice-traces 2>&1 | tee /tmp/benchmark_output.txt
+            --profile-dir /tmp/jax-spice-traces \
+            --json-output /tmp/gpu-benchmark-summary.json 2>&1 | tee /tmp/benchmark_output.txt
           BENCHMARK_STATUS=${PIPESTATUS[0]}
           set -e
 
@@ -237,6 +238,14 @@ jobs:
           path: lte-traces/
           if-no-files-found: ignore
           retention-days: 30
+
+      - name: Upload GPU benchmark summary JSON
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gpu-benchmark-summary
+          path: /tmp/gpu-benchmark-summary.json
+          if-no-files-found: ignore
 
       - name: Upload profiling traces
         if: always()

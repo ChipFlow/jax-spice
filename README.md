@@ -1,7 +1,7 @@
 # JAX-SPICE: GPU-Accelerated Analog Circuit Simulator
 
 [![Tests](https://github.com/ChipFlow/jax-spice/actions/workflows/test.yml/badge.svg)](https://github.com/ChipFlow/jax-spice/actions/workflows/test.yml)
-[![GPU Tests](https://github.com/ChipFlow/jax-spice/actions/workflows/test-gpu-cloudrun.yml/badge.svg)](https://github.com/ChipFlow/jax-spice/actions/workflows/test-gpu-cloudrun.yml)
+[![GPU Tests](https://github.com/ChipFlow/jax-spice/actions/workflows/test-gpu.yml/badge.svg)](https://github.com/ChipFlow/jax-spice/actions/workflows/test-gpu.yml)
 [![Lint](https://github.com/ChipFlow/jax-spice/actions/workflows/lint.yml/badge.svg)](https://github.com/ChipFlow/jax-spice/actions/workflows/lint.yml)
 [![Benchmark](https://github.com/ChipFlow/jax-spice/actions/workflows/benchmark-comparison.yml/badge.svg)](https://github.com/ChipFlow/jax-spice/actions/workflows/benchmark-comparison.yml)
 
@@ -13,15 +13,9 @@ A proof-of-concept GPU-accelerated analog circuit simulator built on JAX, demons
 
 ## Current Status
 
-JAX-SPICE is in active development as a proof-of-concept. All VACASK benchmark circuits are passing:
+JAX-SPICE is in active development as a proof-of-concept. All VACASK benchmark circuits are passing.
 
-| Benchmark | Devices | Nodes | Status |
-|-----------|---------|-------|--------|
-| rc | Resistor, Capacitor, VSource | ~10 | Passing |
-| graetz | Diode bridge rectifier | ~20 | Passing |
-| mul | Multiplier circuit | ~100 | Passing |
-| ring | Ring oscillator (PSP103) | ~150 | Passing (~20ms/step after JIT) |
-| c6288 | 16-bit multiplier (PSP103) | 86,000 | Passing (~1s/step, sparse solver) |
+**[Full benchmark results and test coverage →](https://chipflow.github.io/jax-spice/)**
 
 **Performance highlights:**
 - 34x speedup on ring oscillator via JIT-compiled vmap batching

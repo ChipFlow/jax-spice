@@ -1,6 +1,7 @@
 self-hosted-runner:
   # Labels of self-hosted runner in array of strings.
-  labels: []
+  labels:
+    - nvidia-runner-1
 
 # Configuration variables in array of strings defined in your repository or
 # organization. `null` means disabling configuration variables check.
@@ -20,3 +21,4 @@ paths:
       - SC2089
       - SC2086
       - SC2090
+      - SC2129

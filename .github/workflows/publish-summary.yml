@@ -1,0 +1,108 @@
+name: Publish Summary
+
+on:
+  workflow_run:
+    workflows: ["Tests", "Benchmark Comparison", "GPU Tests"]
+    types: [completed]
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    # Only publish on main branch completions
+    if: github.event.workflow_run.head_branch == 'main'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+
+      - name: Set up Python
+        run: uv python install 3.11
+
+      - name: Download artifacts from recent workflow runs
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const path = require('path');
+
+            const artifactsDir = 'artifacts';
+            fs.mkdirSync(artifactsDir, { recursive: true });
+
+            // Get recent artifacts from the three workflows
+            const workflowNames = ['Tests', 'Benchmark Comparison', 'GPU Tests'];
+
+            for (const wfName of workflowNames) {
+              // Find the workflow
+              const workflows = await github.rest.actions.listRepoWorkflows({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+              });
+              const wf = workflows.data.workflows.find(w => w.name === wfName);
+              if (!wf) continue;
+
+              // Get most recent successful run on main
+              const runs = await github.rest.actions.listWorkflowRuns({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                workflow_id: wf.id,
+                branch: 'main',
+                status: 'completed',
+                per_page: 1,
+              });
+              if (!runs.data.workflow_runs.length) continue;
+              const run = runs.data.workflow_runs[0];
+
+              // Download artifacts
+              const artifacts = await github.rest.actions.listWorkflowRunArtifacts({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                run_id: run.id,
+              });
+
+              for (const artifact of artifacts.data.artifacts) {
+                // Only download summary artifacts
+                if (!artifact.name.includes('summary') && !artifact.name.includes('test-summary')) continue;
+
+                const download = await github.rest.actions.downloadArtifact({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  artifact_id: artifact.id,
+                  archive_format: 'zip',
+                });
+
+                const artifactPath = path.join(artifactsDir, `${artifact.name}.zip`);
+                fs.writeFileSync(artifactPath, Buffer.from(download.data));
+                console.log(`Downloaded: ${artifact.name}`);
+              }
+            }
+
+      - name: Extract artifacts
+        run: |
+          cd artifacts
+          for zip in *.zip; do
+            [ -f "$zip" ] || continue
+            unzip -o "$zip" -d .
+            rm "$zip"
+          done
+          echo "=== Artifacts ==="
+          find . -type f | head -50
+
+      - name: Generate summary page
+        run: |
+          uv run python scripts/generate_summary.py \
+            --artifacts-dir ./artifacts \
+            --output ./site/index.md \
+            --commit-sha "${{ github.event.workflow_run.head_sha }}"
+
+      - name: Deploy to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./site
+          publish_branch: gh-pages
