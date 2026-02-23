@@ -62,9 +62,7 @@ def parse_tran_params(cir_path: Path) -> Tuple[float, float]:
     #   .TRAN 1ns 100ns
     import re
 
-    tran_match = re.search(
-        r"^\.TRAN\s+(\S+)\s+(\S+)", content, re.IGNORECASE | re.MULTILINE
-    )
+    tran_match = re.search(r"^\.TRAN\s+(\S+)\s+(\S+)", content, re.IGNORECASE | re.MULTILINE)
     if not tran_match:
         raise ValueError(f"No .TRAN statement found in {cir_path}")
 
