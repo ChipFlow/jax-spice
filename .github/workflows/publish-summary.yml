@@ -94,14 +94,17 @@ jobs:
           find . -type f | head -50
 
       - name: Install minimal dependencies
-        run: uv sync --no-install-workspace --no-build-package openvaf-py --no-build-package osdi-py --no-build-package umfpack-jax
+        run: uv sync --extra docs --no-install-workspace --no-build-package openvaf-py --no-build-package osdi-py --no-build-package umfpack-jax
 
       - name: Generate summary page
         run: |
           .venv/bin/python scripts/generate_summary.py \
             --artifacts-dir ./artifacts \
-            --output ./site/index.md \
+            --output docs/ci-status.md \
             --commit-sha "${{ github.event.workflow_run.head_sha }}"
+
+      - name: Build docs site
+        run: uv run mkdocs build --site-dir ./site
 
       - name: Deploy to GitHub Pages
         uses: peaceiris/actions-gh-pages@v4

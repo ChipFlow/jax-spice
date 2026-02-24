@@ -1,0 +1,80 @@
+name: Docs Review
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'docs/**'
+      - 'mkdocs.yml'
+      - 'vajax/**'  # API changes may make docs stale
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+
+      - name: Set up Python
+        run: uv python install 3.11
+
+      - name: Install dependencies
+        run: uv sync --extra docs --extra test --no-build-package openvaf-py --no-build-package osdi-py --no-build-package umfpack-jax
+
+      - name: Build docs
+        run: uv run mkdocs build --site-dir ./site
+
+      - name: Install Claude Code
+        run: npm install -g @anthropic-ai/claude-code
+
+      - name: Review docs and test code snippets
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          claude -p --model sonnet --allowedTools 'Read,Glob,Grep,Bash' <<'PROMPT'
+          You are reviewing the VAJAX documentation for quality and correctness.
+          The docs are in the docs/ directory and the built site is in site/.
+
+          Do TWO things:
+
+          ## 1. Docs Review (new user perspective)
+
+          Read all markdown files in docs/ (use Glob to find them). For each file, check:
+          - Is it clear and understandable for someone new to the project?
+          - Are there broken internal links (references to files/anchors that don't exist)?
+          - Are there outdated references to APIs, functions, or classes that no longer exist in vajax/?
+          - Is anything confusing or missing important context?
+
+          ## 2. Code Snippet Testing
+
+          Extract Python code snippets from the docs and test them where possible:
+          - Check that all `from vajax import ...` and `from vajax.X import ...` statements work
+          - Check that referenced classes, functions, and methods actually exist with the documented signatures
+          - Run: uv run python -c "<snippet>" for import/syntax checks
+          - NOTE: Skip snippets that require .osdi files, .sim files, or compiled VA models — those need native deps not available in CI
+          - NOTE: Skip snippets that are clearly illustrative pseudocode (e.g. showing netlist syntax)
+
+          ## Filing Issues
+
+          Before filing any issue, first check existing open issues to avoid duplicates:
+            gh issue list --label docs --state open
+
+          For each REAL problem found (not nitpicks), file a GitHub issue:
+            gh issue create --title "docs: <concise title>" --label docs --body "<description with file path and what's wrong>"
+
+          Do NOT file issues for:
+          - Style preferences or minor wording suggestions
+          - Links to files outside the docs tree (vendor/, README.md) — these are known
+          - The MkDocs 2.0 compatibility warning — this is known
+          - Snippets that fail only because native deps (openvaf-py, osdi-py) aren't built
+
+          If everything looks good, just say "All docs checks passed — no issues to file."
+          PROMPT

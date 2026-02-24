@@ -193,8 +193,8 @@ def main():
     parser.add_argument(
         "--output",
         type=Path,
-        default=Path("site/index.md"),
-        help="Output markdown path (default: site/index.md)",
+        default=Path("docs/ci-status.md"),
+        help="Output markdown path (default: docs/ci-status.md)",
     )
     parser.add_argument(
         "--commit-sha",

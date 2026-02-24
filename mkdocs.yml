@@ -1,0 +1,58 @@
+site_name: VAJAX
+site_description: GPU-Accelerated Analog Circuit Simulator built on JAX
+repo_url: https://github.com/ChipFlow/vajax
+repo_name: ChipFlow/vajax
+
+theme:
+  name: material
+  palette:
+    - scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - content.code.copy
+    - navigation.instant
+    - navigation.sections
+    - navigation.top
+    - toc.follow
+
+markdown_extensions:
+  - admonition
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - tables
+  - toc:
+      permalink: true
+
+nav:
+  - Home: index.md
+  - User Guide:
+      - API Reference: api_reference.md
+      - CLI Reference: cli_reference.md
+      - Transient Options: transient_options.md
+      - Performance Analysis: performance_analysis.md
+      - VACASK Sim Format: vacask_sim_format.md
+  - Developer Guide:
+      - Architecture Overview: architecture_overview.md
+      - GPU Solver Architecture: gpu_solver_architecture.md
+      - GPU Solver Jacobian: gpu_solver_jacobian.md
+      - Sparse Solver Roadmap: sparse_solver_roadmap.md
+      - Debug Tools: debug_tools.md
+      - PHI Nodes Guide: phi_nodes_guide.md
+      - Verilog-A System Functions: verilog_a_system_functions.md
+      - OSDI Parameter Architecture: osdi_parameter_architecture.md
+      - OSDI Inputs: vacask_osdi_inputs.md
+      - Code Generation Backends: sim_back_vs_openvaf_jax.md
+  - CI Status: ci-status.md

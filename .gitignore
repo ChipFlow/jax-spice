@@ -66,3 +66,6 @@ runme.py.origin
 # Temporary directories and files
 foo/
 log/
+
+# MkDocs build output
+site/

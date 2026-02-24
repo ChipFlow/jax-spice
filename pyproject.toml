@@ -45,6 +45,10 @@ umfpack-ffi = [
 sax = [
     "sax>=0.13.0",
 ]
+docs = [
+    "mkdocs>=1.6,<2",
+    "mkdocs-material>=9.5",
+]
 # Test dependencies - minimal set for running tests
 test = [
     "pytest>=7.4.0",
