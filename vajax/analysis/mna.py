@@ -1,4 +1,4 @@
-"""Modified Nodal Analysis (MNA) types for VA-JAX
+"""Modified Nodal Analysis (MNA) types for VAJAX
 
 This module provides core types used by the VACASK benchmark runner.
 The actual MNA matrix assembly is done in the runner using OpenVAF-compiled models.

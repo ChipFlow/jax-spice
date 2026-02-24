@@ -1,4 +1,4 @@
-"""Circuit simulation engine for VA-JAX.
+"""Circuit simulation engine for VAJAX.
 
 Core simulation engine that parses .sim circuit files and runs transient/DC
 analysis using JAX-compiled solvers. All devices are compiled from Verilog-A
@@ -189,7 +189,7 @@ class TransientResult:
 
 
 class CircuitEngine:
-    """Core circuit simulation engine for VA-JAX.
+    """Core circuit simulation engine for VAJAX.
 
     Parses .sim circuit files and runs transient/DC analysis using JAX-compiled
     solvers. All devices (resistors, capacitors, diodes, MOSFETs) are compiled
@@ -949,7 +949,7 @@ class CircuitEngine:
     # Node Collapse Implementation
     # =========================================================================
     #
-    # VA-JAX vs VACASK Node Count Comparison:
+    # VAJAX vs VACASK Node Count Comparison:
     #
     # VACASK reports two metrics via 'print stats':
     #   - "Number of nodes" = nodeCount() = all Node objects in nodeMap
@@ -958,20 +958,20 @@ class CircuitEngine:
     # Key difference:
     #   - VACASK creates Node objects for ALL internal nodes, even collapsed ones.
     #     After collapse, multiple Node objects share the same unknownIndex.
-    #   - VA-JAX doesn't create objects for collapsed internal nodes at all.
+    #   - VAJAX doesn't create objects for collapsed internal nodes at all.
     #     We directly allocate circuit nodes only for non-collapsed internals.
     #
     # Comparison for c6288 benchmark (PSP103 with all resistance params = 0):
     #   VACASK nodeCount():    ~86,000 (5,123 external + 81k internal Node objects)
     #   VACASK unknownCount(): ~15,234 (actual system matrix size after collapse)
-    #   VA-JAX total_nodes: ~15,235 (directly matches unknownCount + 1 for ground)
+    #   VAJAX total_nodes: ~15,235 (directly matches unknownCount + 1 for ground)
     #
-    # VA-JAX's approach is more memory-efficient: we don't allocate internal
+    # VAJAX's approach is more memory-efficient: we don't allocate internal
     # node objects that would just be collapsed anyway. Our total_nodes from
     # setup_internal_nodes() should match VACASK's unknownCount() + 1.
     #
     # The +1 difference is because VACASK's unknownCount excludes ground (index 0),
-    # while VA-JAX counts ground as node 0 in the total.
+    # while VAJAX counts ground as node 0 in the total.
     # =========================================================================
 
     def _build_transient_setup(self, backend: str = "cpu", use_dense: bool = True) -> Dict:

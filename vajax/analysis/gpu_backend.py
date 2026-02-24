@@ -1,4 +1,4 @@
-"""GPU backend selection and configuration for VA-JAX
+"""GPU backend selection and configuration for VAJAX
 
 Provides automatic backend selection based on circuit size,
 GPU availability detection, and device management.

@@ -1,4 +1,4 @@
-"""Netlist parsing utilities for VA-JAX.
+"""Netlist parsing utilities for VAJAX.
 
 This module provides functions for parsing and flattening circuit netlists,
 building device lists, and extracting node mappings.

@@ -1,4 +1,4 @@
-"""Circuit data structures for VA-JAX
+"""Circuit data structures for VAJAX
 
 Represents parsed netlist as Python objects.
 """

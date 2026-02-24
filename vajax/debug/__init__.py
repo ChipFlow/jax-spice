@@ -1,4 +1,4 @@
-"""Debug utilities for VA-JAX."""
+"""Debug utilities for VAJAX."""
 
 from vajax.debug.jacobian import (
     JacobianComparison,

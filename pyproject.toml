@@ -1,5 +1,5 @@
 [project]
-name = "va-jax"
+name = "vajax"
 version = "0.1.0"
 description = "JAX-based analog circuit simulator with Verilog-A support"
 authors = [{name = "ChipFlow"}]
@@ -88,8 +88,8 @@ include = [
 ]
 
 [project.scripts]
-va-jax = "vajax.cli:main"
-va-jax-benchmark = "vajax.benchmarks.c6288:main"
+vajax = "vajax.cli:main"
+vajax-benchmark = "vajax.benchmarks.c6288:main"
 
 [tool.ruff]
 line-length = 100

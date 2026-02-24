@@ -1,4 +1,4 @@
-"""AC (Small-Signal) Analysis for VA-JAX
+"""AC (Small-Signal) Analysis for VAJAX
 
 Implements AC frequency sweep analysis following the VACASK algorithm:
 
@@ -151,7 +151,7 @@ def build_ac_excitation(
 ) -> Array:
     """Build AC excitation vector from voltage sources.
 
-    In VA-JAX, voltage sources are modeled using high conductance G=1e12:
+    In VAJAX, voltage sources are modeled using high conductance G=1e12:
         I = G * (V_pos - V_neg - V_target)
 
     For AC analysis, the linearized equation is:

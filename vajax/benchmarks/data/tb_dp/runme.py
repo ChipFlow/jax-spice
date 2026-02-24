@@ -2,7 +2,7 @@
 """Convert and run tb_dp tests.
 
 This script:
-1. Converts ngspice netlists to VA-JAX format using netlist_converter
+1. Converts ngspice netlists to VAJAX format using netlist_converter
 2. Adds PSP model load and control block
 3. Optionally runs the simulation
 
@@ -53,7 +53,7 @@ def find_ihp_pdk():
 
 
 def convert_netlist(test_name: str) -> bool:
-    """Convert ngspice netlist to VA-JAX format."""
+    """Convert ngspice netlist to VAJAX format."""
     spice_file = TEST_DIR / f"{test_name}.spi"
     sim_file = TEST_DIR / f"{test_name}.sim"
 
@@ -61,7 +61,7 @@ def convert_netlist(test_name: str) -> bool:
         print(f"Error: {spice_file} not found")
         return False
 
-    print(f"Converting {spice_file.name} to VA-JAX format...")
+    print(f"Converting {spice_file.name} to VAJAX format...")
 
     ihp_models = find_ihp_pdk()
     if not ihp_models:
@@ -149,7 +149,7 @@ def run_simulation(test_name: str) -> bool:
 
     # Check common VACASK build locations
     vacask_candidates = [
-        # VA-JAX vendor submodule
+        # VAJAX vendor submodule
         TEST_DIR.parent.parent.parent.parent / "vendor" / "VACASK" / "build" / "simulator" / "vacask",
         # Environment variable
         Path(os.environ.get("VACASK_BIN", "")),

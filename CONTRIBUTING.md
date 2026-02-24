@@ -1,4 +1,4 @@
-# Contributing to VA-JAX
+# Contributing to VAJAX
 
 This guide covers development setup, code organization, and contribution guidelines.
 
@@ -16,7 +16,7 @@ This guide covers development setup, code organization, and contribution guideli
 ```bash
 # Clone and enter directory
 git clone <repo-url>
-cd va-jax
+cd vajax
 
 # Install dependencies with uv
 uv sync
@@ -54,7 +54,7 @@ JAX_PLATFORMS=cuda uv run python -c "import jax; print(jax.devices())"
 ## Project Structure
 
 ```
-va-jax/
+vajax/
 ├── vajax/              # Main library
 │   ├── devices/            # Device models
 │   ├── analysis/           # Circuit solvers

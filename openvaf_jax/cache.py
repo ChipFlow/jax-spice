@@ -125,7 +125,7 @@ def cache_stats() -> Dict[str, int]:
 def get_persistent_cache_dir() -> Path:
     """Get the persistent cache directory, creating it if needed.
 
-    Uses VA_JAX_CACHE_DIR env var, or ~/.cache/vajax/openvaf by default.
+    Uses VAJAX_CACHE_DIR env var, or ~/.cache/vajax/openvaf by default.
 
     Returns:
         Path to the cache directory
@@ -135,7 +135,7 @@ def get_persistent_cache_dir() -> Path:
     if _PERSISTENT_CACHE_DIR is not None:
         return _PERSISTENT_CACHE_DIR
 
-    cache_dir = os.environ.get('VA_JAX_CACHE_DIR')
+    cache_dir = os.environ.get('VAJAX_CACHE_DIR')
     if cache_dir:
         _PERSISTENT_CACHE_DIR = Path(cache_dir) / 'openvaf'
     else:

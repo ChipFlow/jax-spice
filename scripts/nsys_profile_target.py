@@ -33,7 +33,7 @@ from vajax.analysis import CircuitEngine
 
 
 def main():
-    parser = argparse.ArgumentParser(description="nsys-jax profiling target for VA-JAX")
+    parser = argparse.ArgumentParser(description="nsys-jax profiling target for VAJAX")
     parser.add_argument(
         "circuit",
         nargs="?",

@@ -1,10 +1,10 @@
-# VA-JAX Architecture Overview
+# VAJAX Architecture Overview
 
-This document provides a high-level overview of VA-JAX's architecture for developers new to the codebase.
+This document provides a high-level overview of VAJAX's architecture for developers new to the codebase.
 
 ## Design Philosophy
 
-VA-JAX is built on three core principles:
+VAJAX is built on three core principles:
 
 1. **Functional Device Models**: Devices are pure JAX functions compiled from Verilog-A
 2. **Automatic Differentiation**: Jacobians computed via JAX autodiff, no explicit derivatives
@@ -221,7 +221,7 @@ OpenVAF compiles this to a pure JAX function that:
 
 ## Sparse Matrix Support
 
-For large circuits (>1000 nodes), VA-JAX uses JAX's native sparse formats:
+For large circuits (>1000 nodes), VAJAX uses JAX's native sparse formats:
 
 ```python
 from jax.experimental.sparse import BCOO, BCSR

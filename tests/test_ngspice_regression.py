@@ -1,15 +1,15 @@
 """ngspice regression test runner.
 
-Runs selected tests from vendor/ngspice/tests/ against VA-JAX.
+Runs selected tests from vendor/ngspice/tests/ against VAJAX.
 Compatible tests must:
-- Use devices supported by VA-JAX (R, C, L, D, V, I, M via OpenVAF)
+- Use devices supported by VAJAX (R, C, L, D, V, I, M via OpenVAF)
 - Use transient analysis (.tran)
 - Not require ngspice-specific features (xspice, etc.)
 
 The test workflow:
 1. Run ngspice to generate reference raw file
 2. Convert ngspice netlist to VACASK format
-3. Run VA-JAX simulator
+3. Run VAJAX simulator
 4. Compare waveforms with tolerance
 """
 
@@ -156,7 +156,7 @@ def run_jaxspice(
     netlist_path: Path,
     control_params: Dict,
 ) -> Tuple[Optional[Dict[str, Array]], Optional[str]]:
-    """Run VA-JAX on converted netlist.
+    """Run VAJAX on converted netlist.
 
     Args:
         netlist_path: Path to ngspice netlist
@@ -207,11 +207,11 @@ def compare_results(
     rtol: float = 0.05,
     atol: float = 1e-9,
 ) -> List[WaveformComparison]:
-    """Compare reference and VA-JAX results.
+    """Compare reference and VAJAX results.
 
     Args:
         ref_results: Reference simulation results (from .out file or ngspice)
-        jaxspice_results: VA-JAX simulation results
+        jaxspice_results: VAJAX simulation results
         signals: Signal names to compare (e.g., 'v(1)', 'v1#branch')
         rtol: Relative tolerance
         atol: Absolute tolerance
@@ -246,7 +246,7 @@ def compare_results(
         if ref_signal is None:
             continue
 
-        # Find matching signal in VA-JAX results
+        # Find matching signal in VAJAX results
         jax_signal = None
 
         # Handle voltage signals: v(node) -> look up node in voltages
@@ -258,9 +258,9 @@ def compare_results(
                     break
 
         # Handle branch currents: source#branch
-        # VA-JAX doesn't currently support branch currents, skip these
+        # VAJAX doesn't currently support branch currents, skip these
         elif "#branch" in sig_lower:
-            # Can't compare branch currents - VA-JAX doesn't compute them
+            # Can't compare branch currents - VAJAX doesn't compute them
             continue
 
         if jax_signal is None:
@@ -269,7 +269,7 @@ def compare_results(
         # Take real part (ngspice may return complex for some analyses)
         ref_signal = np.real(ref_signal)
 
-        # Interpolate VA-JAX to reference timepoints
+        # Interpolate VAJAX to reference timepoints
         ref_time_real = np.real(ref_time)
         if len(ref_time_real) != len(jax_time):
             jax_interp = np.interp(ref_time_real, jax_time, jax_signal)
@@ -289,7 +289,7 @@ def compare_results(
 
 
 class TestNgspiceRegression:
-    """ngspice regression tests against VA-JAX.
+    """ngspice regression tests against VAJAX.
 
     Auto-discovers all tests from vendor/ngspice/tests/.
     Compares against .out reference files when available,
@@ -301,7 +301,7 @@ class TestNgspiceRegression:
         """Get ngspice binary, returns None if not available."""
         return find_ngspice_binary()
 
-    # Device types currently supported by VA-JAX
+    # Device types currently supported by VAJAX
     SUPPORTED_DEVICES = {"resistor", "capacitor", "diode", "vsource", "isource"}
 
     # Device types that are WIP or planned
@@ -316,7 +316,7 @@ class TestNgspiceRegression:
         ids=list(ALL_TESTS.keys()),
     )
     def test_ngspice(self, ngspice_bin, test_name):
-        """Run auto-discovered ngspice test against VA-JAX."""
+        """Run auto-discovered ngspice test against VAJAX."""
         test_case = ALL_TESTS[test_name]
 
         if not test_case.netlist_path.exists():
@@ -353,7 +353,7 @@ class TestNgspiceRegression:
         # Parse control section for simulation params
         control_params = parse_control_section(test_case.netlist_path)
 
-        # Run VA-JAX
+        # Run VAJAX
         jax_results, jax_error = run_jaxspice(
             test_case.netlist_path,
             control_params,
@@ -362,7 +362,7 @@ class TestNgspiceRegression:
             # Conversion failures are expected for unsupported netlist features
             if "Conversion failed" in jax_error:
                 pytest.xfail(f"Netlist conversion not supported: {jax_error}")
-            pytest.fail(f"VA-JAX failed: {jax_error}")
+            pytest.fail(f"VAJAX failed: {jax_error}")
 
         # Compare results
         comparisons = compare_results(
@@ -435,7 +435,7 @@ class TestVacaskBenchmarksWithNgspice:
             if ng_v2 is None:
                 pytest.skip("Could not find output node in ngspice results")
 
-        # Convert ngspice netlist to VACASK format and run VA-JAX
+        # Convert ngspice netlist to VACASK format and run VAJAX
         with tempfile.TemporaryDirectory() as convert_tmpdir:
             converted_path = Path(convert_tmpdir) / "converted.sim"
 
@@ -478,7 +478,7 @@ class TestVacaskBenchmarksWithNgspice:
                         break
 
             if jax_v2 is None:
-                pytest.fail("No voltage output found in VA-JAX results")
+                pytest.fail("No voltage output found in VAJAX results")
 
             jax_time = np.array(result.times)
 

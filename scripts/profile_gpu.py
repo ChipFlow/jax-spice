@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""GPU Profiling Script for VA-JAX
+"""GPU Profiling Script for VAJAX
 
 Profiles CPU/GPU performance of VACASK benchmark circuits using CircuitEngine.
 Compares dense vs sparse solvers across different circuit sizes.
@@ -30,7 +30,7 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import List, Optional
 
-# Ensure va-jax is importable
+# Ensure vajax is importable
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 # Configure JAX memory allocation BEFORE importing JAX
@@ -236,7 +236,7 @@ class GPUProfiler:
     def generate_report(self) -> str:
         """Generate a markdown report for GitHub Actions"""
         lines = []
-        lines.append("# VA-JAX GPU Profiling Report\n")
+        lines.append("# VAJAX GPU Profiling Report\n")
 
         # Environment info
         lines.append("## Environment\n")
@@ -492,7 +492,7 @@ def main():
         return
 
     logger.info("=" * 70)
-    logger.info("VA-JAX GPU Profiling")
+    logger.info("VAJAX GPU Profiling")
     logger.info("=" * 70)
     logger.info("")
 

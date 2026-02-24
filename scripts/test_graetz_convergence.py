@@ -4,7 +4,7 @@
 import os
 
 os.environ["JAX_PLATFORMS"] = "cpu"
-os.environ["VA_JAX_NO_PROGRESS"] = "1"
+os.environ["VAJAX_NO_PROGRESS"] = "1"
 
 import time
 

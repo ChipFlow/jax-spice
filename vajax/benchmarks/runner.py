@@ -1,4 +1,4 @@
-"""Benchmark runner utilities for VA-JAX.
+"""Benchmark runner utilities for VAJAX.
 
 Provides conveniences for running circuit benchmarks:
 - Warmup runs for accurate timing

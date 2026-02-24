@@ -1,4 +1,4 @@
-"""Transfer Function Analyses for VA-JAX
+"""Transfer Function Analyses for VAJAX
 
 Implements three related small-signal analyses:
 

@@ -6,7 +6,7 @@
 
 ## Goal
 
-Enable efficient sparse linear solving in VA-JAX that works across CPU, GPU (NVIDIA, AMD), and TPU, with cached symbolic factorization for Newton-Raphson iterations.
+Enable efficient sparse linear solving in VAJAX that works across CPU, GPU (NVIDIA, AMD), and TPU, with cached symbolic factorization for Newton-Raphson iterations.
 
 ## Current State of JAX Sparse Support
 
@@ -74,7 +74,7 @@ Relevant issues:
 
 ```
                     ┌─────────────────┐
-                    │  VA-JAX NR   │
+                    │  VAJAX NR   │
                     │    Solver       │
                     └────────┬────────┘
                              │
@@ -183,7 +183,7 @@ Some applications have varying sparsity. Our circuit simulation has fixed patter
 
 ## Recommendations
 
-### For VA-JAX (Immediate)
+### For VAJAX (Immediate)
 1. ✅ Use Spineax on NVIDIA GPUs (done)
 2. Add GMRES fallback for TPU/other GPUs
 3. Keep dense option for small circuits
@@ -202,7 +202,7 @@ Some applications have varying sparsity. Our circuit simulation has fixed patter
 
 ### Open Issues
 
-- [ ] **TPU CI failing** - [PR #1](https://github.com/ChipFlow/va-jax/pull/1) adds TPU CI but tests are timing out/cancelled
+- [ ] **TPU CI failing** - [PR #1](https://github.com/ChipFlow/vajax/pull/1) adds TPU CI but tests are timing out/cancelled
   - TPU tests ran for 6+ hours before being cancelled
   - Need to investigate: is it a VM provisioning issue or actual test hang?
 

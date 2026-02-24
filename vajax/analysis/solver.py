@@ -1,4 +1,4 @@
-"""Unified Newton-Raphson solver for VA-JAX.
+"""Unified Newton-Raphson solver for VAJAX.
 
 This module provides the core NR iteration loop used by DC, transient,
 and benchmark runner modules. All implementations use JAX for GPU

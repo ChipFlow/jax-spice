@@ -26,9 +26,9 @@ on:
         default: false
 
 env:
-  GCP_PROJECT: va-jax-cuda-test
+  GCP_PROJECT: vajax-cuda-test
   GCP_REGION: us-central1
-  JOB_NAME: va-jax-nsys-profile
+  JOB_NAME: vajax-nsys-profile
   AR_REMOTE_REPO: ghcr-remote
 
 jobs:

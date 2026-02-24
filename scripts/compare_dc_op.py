@@ -59,7 +59,7 @@ print(f"  V(1) = {ng[0, 1]:.6f} V")
 print(f"  V(2) = {ng[0, 3]:.6f} V")
 print(f"  I(VDD) = {ng[0, 5] * 1e6:.2f} µA")
 
-# Run VA-JAX Full MNA
+# Run VAJAX Full MNA
 from vajax.analysis.engine import CircuitEngine
 from vajax.analysis.transient import FullMNAStrategy
 

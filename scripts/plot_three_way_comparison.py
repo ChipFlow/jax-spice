@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Three-way comparison: VACASK vs VA-JAX Full MNA vs ngspice.
+"""Three-way comparison: VACASK vs VAJAX Full MNA vs ngspice.
 
 Runs all three simulators and plots voltage/current comparisons.
 
@@ -198,7 +198,7 @@ def write_stamp(stamp_file: Path, config_hash: str) -> None:
 def run_vacask(config: BenchmarkConfig, output_dir: Path, benchmark_key: str) -> Optional[Path]:
     """Run VACASK simulator and return path to raw file.
 
-    Runs the original netlist as-is. VA-JAX uses the same netlist settings
+    Runs the original netlist as-is. VAJAX uses the same netlist settings
     via the API, so all simulators run with identical parameters.
     """
     import shutil
@@ -290,8 +290,8 @@ def run_ngspice(config: BenchmarkConfig, output_dir: Path, benchmark_key: str) -
 
 
 def run_vajax(config: BenchmarkConfig) -> Tuple[np.ndarray, Dict, Dict]:
-    """Run VA-JAX Full MNA and return (times, voltages, currents)."""
-    logger.info(f"Running VA-JAX Full MNA ({config.name})...")
+    """Run VAJAX Full MNA and return (times, voltages, currents)."""
+    logger.info(f"Running VAJAX Full MNA ({config.name})...")
 
     runner = CircuitEngine(config.vacask_sim)
     runner.parse()
@@ -308,7 +308,7 @@ def run_vajax(config: BenchmarkConfig) -> Tuple[np.ndarray, Dict, Dict]:
     times_mna, V_out, stats_mna = full_mna.run(t_stop=config.t_stop, dt=config.dt)
 
     t_mna, voltages_mna, currents_mna = extract_results(times_mna, V_out, stats_mna)
-    logger.info(f"VA-JAX completed: {len(t_mna)} points")
+    logger.info(f"VAJAX completed: {len(t_mna)} points")
 
     return t_mna, voltages_mna, currents_mna
 
@@ -393,7 +393,7 @@ def plot_comparison(
                     alpha=0.8,
                     label=f"NG {node}" if i < 2 else None,
                 )
-            # Plot VA-JAX - try with and without prefix
+            # Plot VAJAX - try with and without prefix
             jax_input = voltages_mna.get(node)
             if jax_input is None:
                 jax_input = voltages_mna.get(f"top.{node}")
@@ -438,7 +438,7 @@ def plot_comparison(
                     alpha=0.8,
                     label=f"NG {node}" if i < 2 else None,
                 )
-            # Plot VA-JAX
+            # Plot VAJAX
             jax_input = voltages_mna.get(node)
             if jax_input is None:
                 jax_input = voltages_mna.get(f"top.{node}")
@@ -487,7 +487,7 @@ def plot_comparison(
                 label=f"NG {vac_node}" if i < 2 else None,
             )
 
-        # Plot VA-JAX data - try both full name and short name
+        # Plot VAJAX data - try both full name and short name
         jax_voltage = voltages_mna.get(v_node)
         if jax_voltage is None:
             jax_voltage = voltages_mna.get(vac_node)
@@ -549,7 +549,7 @@ def plot_comparison(
             I_mna[mask_mna] * 1e6,
             "red",
             lw=1.5,
-            label="VA-JAX",
+            label="VAJAX",
             alpha=0.9,
             linestyle=":",
         )
@@ -620,7 +620,7 @@ def main():
         if ngspice_raw.exists() and not args.skip_ngspice:
             ngspice_data = read_spice_raw(ngspice_raw)
 
-    # Always run VA-JAX
+    # Always run VAJAX
     jax_data = run_vajax(config)
 
     # Plot comparison

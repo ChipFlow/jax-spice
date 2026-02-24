@@ -1,4 +1,4 @@
-# VA-JAX API Reference
+# VAJAX API Reference
 
 ## Core Classes
 

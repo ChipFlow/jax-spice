@@ -1,4 +1,4 @@
-# va-jax TODO
+# vajax TODO
 
 Central tracking for development tasks and known issues.
 
@@ -67,7 +67,7 @@ This issue is likely caused by the array sizes for the while loop (scan mode)
 
 ### External Simulator Regression Suites
 
-**Goal**: Compare VA-JAX against ngspice and Xyce reference implementations to validate correctness.
+**Goal**: Compare VAJAX against ngspice and Xyce reference implementations to validate correctness.
 
 #### ngspice Regression Suite (`vendor/ngspice/tests/`)
 
@@ -92,7 +92,7 @@ This issue is likely caused by the array sizes for the while loop (scan mode)
 - 541 `.standard` reference files in `reference/` subdirectories
 - Defines DC sweeps, AC, noise tests with bias conditions
 - Generates netlists via Perl scripts (`modelQaTestRoutines.pm`)
-- Future: Parse qaSpec format to generate VA-JAX tests directly
+- Future: Parse qaSpec format to generate VAJAX tests directly
 
 **Device Support Gaps**:
 - [ ] BJT (`q` devices) - rtlinv.cir, analog tests

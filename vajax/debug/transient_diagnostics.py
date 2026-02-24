@@ -1,4 +1,4 @@
-"""Transient simulation diagnostics for VA-JAX.
+"""Transient simulation diagnostics for VAJAX.
 
 Parse and analyze per-step debug output from transient simulations,
 including step acceptance/rejection, LTE behaviour, NR convergence,
@@ -33,7 +33,7 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class StepRecord:
-    """One parsed step from VA-JAX debug_steps output."""
+    """One parsed step from VAJAX debug_steps output."""
 
     step: int
     t_ps: float

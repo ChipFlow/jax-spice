@@ -7,7 +7,7 @@
 ---
 
 ## Problem Summary
-- VA-JAX currently has PSP103-specific collapse logic hardcoded in runner.py
+- VAJAX currently has PSP103-specific collapse logic hardcoded in runner.py
 - This is fragile and won't work for other models
 - OpenVAF's init function already computes collapse decisions at runtime
 - Need to expose this capability through openvaf-py

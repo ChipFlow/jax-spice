@@ -1,6 +1,6 @@
 # Transient Analysis Options
 
-VA-JAX supports VACASK-compatible options for controlling transient analysis behavior.
+VAJAX supports VACASK-compatible options for controlling transient analysis behavior.
 Options can be specified in the netlist and are automatically used as defaults.
 
 ## Simplest Usage

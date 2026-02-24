@@ -1,4 +1,4 @@
-"""Default configuration values for VA-JAX simulations.
+"""Default configuration values for VAJAX simulations.
 
 This module centralizes configuration constants used throughout the simulator.
 """

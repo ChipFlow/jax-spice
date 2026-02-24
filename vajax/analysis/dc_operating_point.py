@@ -1,4 +1,4 @@
-"""DC operating point computation for VA-JAX.
+"""DC operating point computation for VAJAX.
 
 This module contains the DC operating point solver, which finds the steady-state
 solution for a circuit with all time-varying sources at their DC values.

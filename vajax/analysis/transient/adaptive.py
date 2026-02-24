@@ -23,13 +23,13 @@ from vajax.analysis.integration import IntegrationMethod
 
 
 def _default_progress_interval() -> int:
-    """Get default progress_interval, respecting VA_JAX_NO_PROGRESS env var.
+    """Get default progress_interval, respecting VAJAX_NO_PROGRESS env var.
 
-    When VA_JAX_NO_PROGRESS=1 is set, progress reporting is disabled.
+    When VAJAX_NO_PROGRESS=1 is set, progress reporting is disabled.
     This allows XLA to cache the compiled simulation loop, significantly
     speeding up repeated runs (e.g., in CI/CD pipelines).
     """
-    if os.environ.get("VA_JAX_NO_PROGRESS", "").lower() in ("1", "true", "yes"):
+    if os.environ.get("VAJAX_NO_PROGRESS", "").lower() in ("1", "true", "yes"):
         return 0
     return 100
 
@@ -80,7 +80,7 @@ class AdaptiveConfig:
     gshunt_target: float = 0.0
     progress_interval: int = field(
         default_factory=_default_progress_interval
-    )  # Report progress every N steps (0 to disable, or set VA_JAX_NO_PROGRESS=1)
+    )  # Report progress every N steps (0 to disable, or set VAJAX_NO_PROGRESS=1)
     debug_lte: bool = False  # Print detailed LTE debug info (top contributors)
     tran_fs: float = 0.25  # Initial timestep scale factor (VACASK default)
     tran_ft: float = 0.25  # Timestep cut factor on NR failure (VACASK default 0.25)

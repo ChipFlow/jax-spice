@@ -1,4 +1,4 @@
-"""VACASK netlist parser for VA-JAX
+"""VACASK netlist parser for VAJAX
 
 Parses VACASK format netlists into circuit data structures.
 """

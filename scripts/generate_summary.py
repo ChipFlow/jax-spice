@@ -128,7 +128,7 @@ def render_benchmark_table(benchmarks: list[dict], title: str) -> str:
 
     lines = [
         f"### {title}\n",
-        "| Benchmark | Steps | VA-JAX (ms/step) | VACASK (ms/step) | Ratio | Startup |",
+        "| Benchmark | Steps | VAJAX (ms/step) | VACASK (ms/step) | Ratio | Startup |",
         "|-----------|-------|---------------------|------------------|-------|---------|",
     ]
     for b in benchmarks:
@@ -145,7 +145,7 @@ def generate_summary(
     artifacts_dir: Path,
     output_path: Path,
     commit_sha: str = "",
-    repo_url: str = "https://github.com/ChipFlow/va-jax",
+    repo_url: str = "https://github.com/ChipFlow/vajax",
 ) -> None:
     """Generate the summary markdown page."""
     cpu_benchmarks, gpu_benchmarks, test_suites = find_artifacts(artifacts_dir)
@@ -153,7 +153,7 @@ def generate_summary(
     now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
 
     sections = [
-        "# VA-JAX CI Summary\n",
+        "# VAJAX CI Summary\n",
         f"_Last updated: {now}_\n",
     ]
 
@@ -205,7 +205,7 @@ def main():
     parser.add_argument(
         "--repo-url",
         type=str,
-        default="https://github.com/ChipFlow/va-jax",
+        default="https://github.com/ChipFlow/vajax",
         help="Repository URL",
     )
     args = parser.parse_args()

@@ -1,6 +1,6 @@
 # OSDI Parameter Architecture
 
-This document describes how OSDI (Open Simulator Device Interface) handles parameters, the distinction between different parameter types, and how this relates to VA-JAX's parameter handling through `openvaf_jax`.
+This document describes how OSDI (Open Simulator Device Interface) handles parameters, the distinction between different parameter types, and how this relates to VAJAX's parameter handling through `openvaf_jax`.
 
 ## 1. OSDI Parameter Kinds
 
@@ -155,11 +155,11 @@ def eval_func(voltages, params, cache_values):
     ids = v84982 * some_expression(voltages)
 ```
 
-## 5. VA-JAX Parameter Handling
+## 5. VAJAX Parameter Handling
 
 ### The Problem
 
-VA-JAX's `runner.py` batches devices for GPU efficiency. The vectorized path must set:
+VAJAX's `runner.py` batches devices for GPU efficiency. The vectorized path must set:
 
 1. **Regular parameters** (`l`, `w`, `nf`, etc.) - from netlist
 2. **Hidden_state parameters** - computed geometry values
@@ -192,9 +192,9 @@ if 'le' in hidden_to_col:
 3. **NaN propagation** through model calculations
 4. **Should JAX code compute these?** The generated JAX init function should compute them, but the vectorized runner bypasses this
 
-## 6. Comparison: VACASK vs VA-JAX
+## 6. Comparison: VACASK vs VAJAX
 
-| Aspect | VACASK | VA-JAX |
+| Aspect | VACASK | VAJAX |
 |--------|--------|-----------|
 | Init execution | Native code, once per setup | Should use generated JAX init |
 | Cache passing | Automatic in native code | Manual via cache_mapping |
@@ -318,7 +318,7 @@ After this flow, **HiddenState is no longer needed** - it's been replaced by the
 ## 9. Related Documentation
 
 - [VACASK OSDI Inputs](vacask_osdi_inputs.md) - How VACASK interfaces with OSDI
-- [Architecture Overview](architecture_overview.md) - Overall VA-JAX architecture
+- [Architecture Overview](architecture_overview.md) - Overall VAJAX architecture
 - [OpenVAF CLAUDE.md](../vendor/OpenVAF/CLAUDE.md) - OpenVAF compiler architecture
 
 ## 9. File References

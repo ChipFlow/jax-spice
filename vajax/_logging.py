@@ -1,4 +1,4 @@
-"""Logging configuration for VA-JAX.
+"""Logging configuration for VAJAX.
 
 Provides two logging modes:
 - Default: WARNING level only (quiet)

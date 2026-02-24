@@ -1,4 +1,4 @@
-"""VA-JAX utilities."""
+"""VAJAX utilities."""
 
 from vajax.utils.ngspice import (
     NgspiceError,

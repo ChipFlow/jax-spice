@@ -68,7 +68,7 @@ def _write_ascii_rawfile(
     """Write ASCII format raw file."""
     with open(output_path, "w") as f:
         # Header
-        f.write("Title: VA-JAX Simulation\n")
+        f.write("Title: VAJAX Simulation\n")
         f.write("Date: \n")
         f.write(f"Plotname: {analysis_type}\n")
         f.write("Flags: real\n")
@@ -104,7 +104,7 @@ def _write_binary_rawfile(
     with open(output_path, "wb") as f:
         # Header (ASCII)
         header = []
-        header.append("Title: VA-JAX Simulation")
+        header.append("Title: VAJAX Simulation")
         header.append("Date: ")
         header.append(f"Plotname: {analysis_type}")
         header.append("Flags: real")

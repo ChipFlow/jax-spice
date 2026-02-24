@@ -1,4 +1,4 @@
-"""VA-JAX: GPU-Accelerated Analog Circuit Simulator"""
+"""VAJAX: GPU-Accelerated Analog Circuit Simulator"""
 
 import logging
 import os

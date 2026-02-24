@@ -1,7 +1,7 @@
-"""Waveform comparison utilities for VACASK vs VA-JAX validation.
+"""Waveform comparison utilities for VACASK vs VAJAX validation.
 
 This module provides tools to compare simulation results between VACASK
-and VA-JAX, including:
+and VAJAX, including:
 - Running VACASK and parsing raw file output
 - Comparing waveforms with tolerance-based matching
 - Generating comparison reports
@@ -46,7 +46,7 @@ class WaveformComparison:
 
 @dataclass
 class ComparisonResult:
-    """Result of comparing VACASK and VA-JAX simulations."""
+    """Result of comparing VACASK and VAJAX simulations."""
 
     benchmark: str
     vacask_points: int
@@ -61,7 +61,7 @@ class ComparisonResult:
         lines = [
             f"Benchmark: {self.benchmark}",
             f"VACASK points: {self.vacask_points}",
-            f"VA-JAX points: {self.jaxspice_points}",
+            f"VAJAX points: {self.jaxspice_points}",
             "",
             "Waveform comparisons:",
         ]
@@ -84,7 +84,7 @@ def find_vacask_binary() -> Optional[Path]:
 
     # Check common locations
     # __file__ is vajax/utils/waveform_compare.py
-    # .parent.parent.parent gets to va-jax root
+    # .parent.parent.parent gets to vajax root
     project_root = Path(__file__).parent.parent.parent
     search_paths = [
         project_root / "vendor/VACASK/build/simulator/vacask",
@@ -191,7 +191,7 @@ def compare_waveforms(
 
     Args:
         vacask_data: VACASK waveform (numpy array)
-        jaxspice_data: VA-JAX waveform (jax or numpy array)
+        jaxspice_data: VAJAX waveform (jax or numpy array)
         name: Name of the waveform for reporting
         abs_tol: Absolute tolerance
         rel_tol: Relative tolerance
@@ -211,7 +211,7 @@ def compare_waveforms(
         # Simple linear interpolation to match lengths
         # Use smaller length as reference
         if n_vacask < n_jaxspice:
-            # Downsample VA-JAX
+            # Downsample VAJAX
             indices = np.linspace(0, n_jaxspice - 1, n_vacask).astype(int)
             jaxspice_data = jaxspice_data[indices]
         else:
@@ -354,8 +354,8 @@ def compare_transient(
 
     Args:
         vacask_raw: Parsed VACASK raw file
-        jaxspice_result: VA-JAX result dict with 'time' and node voltages
-        node_mapping: Optional mapping from VA-JAX names to VACASK names
+        jaxspice_result: VAJAX result dict with 'time' and node voltages
+        node_mapping: Optional mapping from VAJAX names to VACASK names
         abs_tol: Absolute tolerance
         rel_tol: Relative tolerance
 
@@ -410,13 +410,13 @@ def run_comparison(
     rel_tol: float = 1e-3,
     keep_raw: bool = False,
 ) -> ComparisonResult:
-    """Run full comparison between VACASK and VA-JAX.
+    """Run full comparison between VACASK and VAJAX.
 
     Args:
         sim_file: Path to .sim file
-        jaxspice_result: VA-JAX simulation result
+        jaxspice_result: VAJAX simulation result
         benchmark_name: Name of the benchmark for reporting
-        node_mapping: Optional mapping from VA-JAX names to VACASK names
+        node_mapping: Optional mapping from VAJAX names to VACASK names
         abs_tol: Absolute tolerance
         rel_tol: Relative tolerance
         keep_raw: Keep the VACASK raw file after comparison

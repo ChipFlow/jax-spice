@@ -1,31 +1,31 @@
-# VA-JAX CLI Reference
+# VAJAX CLI Reference
 
-The `va-jax` command-line interface provides ngspice-style access to circuit simulation.
+The `vajax` command-line interface provides ngspice-style access to circuit simulation.
 
 ## Installation
 
-After installing va-jax, the CLI is available:
+After installing vajax, the CLI is available:
 
 ```bash
 # Install with uv
 uv sync
 
 # Verify installation
-va-jax --version
-va-jax --help
+vajax --version
+vajax --help
 ```
 
 ## Basic Usage
 
 ```bash
 # Run simulation on a circuit file
-va-jax circuit.sim
+vajax circuit.sim
 
 # Specify output file
-va-jax circuit.sim -o results.raw
+vajax circuit.sim -o results.raw
 
 # Run with specific output format
-va-jax circuit.sim -o results.csv --format csv
+vajax circuit.sim -o results.csv --format csv
 ```
 
 ## Commands
@@ -36,8 +36,8 @@ Run circuit simulation. This is the default command when a circuit file is provi
 
 ```bash
 # These are equivalent:
-va-jax circuit.sim
-va-jax run circuit.sim
+vajax circuit.sim
+vajax run circuit.sim
 ```
 
 **Options:**
@@ -60,16 +60,16 @@ va-jax run circuit.sim
 
 ```bash
 # Transient analysis with custom parameters
-va-jax circuit.sim --tran 1n 100u
+vajax circuit.sim --tran 1n 100u
 
 # AC analysis
-va-jax circuit.sim --ac dec 100 1k 1G
+vajax circuit.sim --ac dec 100 1k 1G
 
 # Large circuit with sparse solver on GPU
-va-jax large_circuit.sim --sparse --gpu
+vajax large_circuit.sim --sparse --gpu
 
 # Force float64 precision on CPU
-va-jax circuit.sim --cpu --x64
+vajax circuit.sim --cpu --x64
 ```
 
 ### `benchmark`
@@ -78,13 +78,13 @@ Run benchmark circuits from the VACASK test suite.
 
 ```bash
 # List available benchmarks
-va-jax benchmark --list
+vajax benchmark --list
 
 # Run a specific benchmark
-va-jax benchmark ring
+vajax benchmark ring
 
 # Run with profiling
-va-jax benchmark ring --profile
+vajax benchmark ring --profile
 ```
 
 **Options:**
@@ -102,7 +102,7 @@ va-jax benchmark ring --profile
 Convert SPICE netlists to VACASK format.
 
 ```bash
-va-jax convert input.sp output.sim
+vajax convert input.sp output.sim
 ```
 
 ### `info`
@@ -110,7 +110,7 @@ va-jax convert input.sp output.sim
 Display system information.
 
 ```bash
-va-jax info
+vajax info
 ```
 
 Shows:
@@ -125,7 +125,7 @@ Shows:
 Binary format compatible with ngspice tools and gwave waveform viewer.
 
 ```bash
-va-jax circuit.sim -o results.raw --format raw
+vajax circuit.sim -o results.raw --format raw
 ```
 
 Read with ngspice:
@@ -144,7 +144,7 @@ gwave results.raw
 Comma-separated values, compatible with spreadsheets and data analysis tools.
 
 ```bash
-va-jax circuit.sim -o results.csv --format csv
+vajax circuit.sim -o results.csv --format csv
 ```
 
 Format:
@@ -159,7 +159,7 @@ time,node1,node2,...
 JSON format for programmatic processing.
 
 ```bash
-va-jax circuit.sim -o results.json --format json
+vajax circuit.sim -o results.json --format json
 ```
 
 Format:
@@ -187,34 +187,34 @@ Format:
 
 ```bash
 # Basic transient simulation
-va-jax ring_oscillator.sim --tran 1n 10u
+vajax ring_oscillator.sim --tran 1n 10u
 
 # Large circuit with sparse solver
-va-jax c6288.sim --tran 1n 100n --sparse
+vajax c6288.sim --tran 1n 100n --sparse
 
 # GPU acceleration
-va-jax ring_oscillator.sim --gpu --tran 1n 10u
+vajax ring_oscillator.sim --gpu --tran 1n 10u
 ```
 
 ### AC Analysis
 
 ```bash
 # Decade sweep, 100 points per decade
-va-jax amplifier.sim --ac dec 100 1k 1G
+vajax amplifier.sim --ac dec 100 1k 1G
 
 # Linear sweep
-va-jax filter.sim --ac lin 1000 1k 10k
+vajax filter.sim --ac lin 1000 1k 10k
 ```
 
 ### Benchmarking
 
 ```bash
 # Run ring oscillator benchmark with profiling
-va-jax benchmark ring --profile
+vajax benchmark ring --profile
 
 # Compare sparse vs dense solver
-va-jax benchmark mul --profile
-va-jax benchmark mul --profile --sparse
+vajax benchmark mul --profile
+vajax benchmark mul --profile --sparse
 ```
 
 ### Batch Processing
@@ -222,7 +222,7 @@ va-jax benchmark mul --profile --sparse
 ```bash
 # Process multiple circuits
 for f in circuits/*.sim; do
-    va-jax "$f" -o "results/$(basename "$f" .sim).raw"
+    vajax "$f" -o "results/$(basename "$f" .sim).raw"
 done
 ```
 
@@ -232,10 +232,10 @@ done
 
 ```bash
 # Check system info
-va-jax info
+vajax info
 
 # Force CPU fallback
-va-jax circuit.sim --cpu
+vajax circuit.sim --cpu
 ```
 
 ### Convergence Issues
@@ -243,10 +243,10 @@ va-jax circuit.sim --cpu
 For difficult circuits, try:
 ```bash
 # Use sparse solver for better conditioning
-va-jax circuit.sim --sparse
+vajax circuit.sim --sparse
 
 # Force double precision
-va-jax circuit.sim --x64
+vajax circuit.sim --x64
 ```
 
 ### Out of Memory
@@ -254,7 +254,7 @@ va-jax circuit.sim --x64
 For large circuits:
 ```bash
 # Use sparse solver (required for >1000 nodes)
-va-jax large_circuit.sim --sparse
+vajax large_circuit.sim --sparse
 ```
 
 ## See Also

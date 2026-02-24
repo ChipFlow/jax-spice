@@ -1,4 +1,4 @@
-"""Analysis context for VA-JAX
+"""Analysis context for VAJAX
 
 Holds simulation state and parameters passed to device evaluations.
 """

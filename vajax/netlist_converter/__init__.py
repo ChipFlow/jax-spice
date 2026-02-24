@@ -1,7 +1,7 @@
-"""SPICE netlist converter for VA-JAX.
+"""SPICE netlist converter for VAJAX.
 
 This module provides tools for converting SPICE netlists from various formats
-(ngspice, hspice, ltspice) to VA-JAX/VACASK .sim format.
+(ngspice, hspice, ltspice) to VAJAX/VACASK .sim format.
 
 Originally from VACASK (https://github.com/arpadbuermen/VACASK)
 with modifications from https://github.com/robtaylor/VACASK/pull/2

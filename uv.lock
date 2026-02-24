@@ -18,7 +18,7 @@ members = [
     "openvaf-py",
     "osdi-py",
     "umfpack-jax",
-    "va-jax",
+    "vajax",
 ]
 
 [[package]]
@@ -1933,7 +1933,7 @@ requires-dist = [
 ]
 
 [[package]]
-name = "va-jax"
+name = "vajax"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [

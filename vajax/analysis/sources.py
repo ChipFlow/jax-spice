@@ -1,4 +1,4 @@
-"""Source device handling for VA-JAX.
+"""Source device handling for VAJAX.
 
 This module handles voltage and current source devices:
 - Time-varying source functions (DC, pulse, sine, PWL, exp, AM, FM)

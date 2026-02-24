@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""CPU Profiling Script for VA-JAX
+"""CPU Profiling Script for VAJAX
 
 Profiles CPU performance of VACASK benchmark circuits using CircuitEngine.
 Compares dense vs sparse solvers across different circuit sizes.
@@ -22,7 +22,7 @@ import time
 from pathlib import Path
 from typing import List
 
-# Ensure va-jax is importable
+# Ensure vajax is importable
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 # Force CPU backend
@@ -152,7 +152,7 @@ def main():
     args = parser.parse_args()
 
     log("=" * 70)
-    log("VA-JAX CPU Profiling")
+    log("VAJAX CPU Profiling")
     log("=" * 70)
     log()
 

@@ -1,11 +1,11 @@
 """Xyce regression test runner.
 
-Runs tests from the Xyce_Regression suite against VA-JAX.
+Runs tests from the Xyce_Regression suite against VAJAX.
 Auto-discovers all tests and runs them without filtering.
 
 The test workflow:
 1. Convert SPICE .cir to VACASK .sim format
-2. Run VA-JAX simulator
+2. Run VAJAX simulator
 3. Compare output with expected .prn file
 """
 
@@ -127,7 +127,7 @@ def run_xyce_test(
         check_columns: Specific columns to check (None = all)
 
     Returns:
-        Dict of computed values from VA-JAX
+        Dict of computed values from VAJAX
     """
     cir_path = XYCE_NETLISTS / test_name / cir_file
     prn_path = XYCE_OUTPUT / test_name / f"{cir_file}.prn"
@@ -231,7 +231,7 @@ class TestXyceRegression:
         ids=list(ALL_TESTS.keys()),
     )
     def test_xyce(self, test_name):
-        """Run auto-discovered Xyce test against VA-JAX."""
+        """Run auto-discovered Xyce test against VAJAX."""
         test_case = ALL_TESTS[test_name]
 
         if not test_case.netlist_path.exists():

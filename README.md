@@ -1,9 +1,9 @@
-# VA-JAX: GPU-Accelerated Analog Circuit Simulator
+# VAJAX: GPU-Accelerated Analog Circuit Simulator
 
-[![Tests](https://github.com/ChipFlow/va-jax/actions/workflows/test.yml/badge.svg)](https://github.com/ChipFlow/va-jax/actions/workflows/test.yml)
-[![GPU Tests](https://github.com/ChipFlow/va-jax/actions/workflows/test-gpu.yml/badge.svg)](https://github.com/ChipFlow/va-jax/actions/workflows/test-gpu.yml)
-[![Lint](https://github.com/ChipFlow/va-jax/actions/workflows/lint.yml/badge.svg)](https://github.com/ChipFlow/va-jax/actions/workflows/lint.yml)
-[![Benchmark](https://github.com/ChipFlow/va-jax/actions/workflows/benchmark-comparison.yml/badge.svg)](https://github.com/ChipFlow/va-jax/actions/workflows/benchmark-comparison.yml)
+[![Tests](https://github.com/ChipFlow/vajax/actions/workflows/test.yml/badge.svg)](https://github.com/ChipFlow/vajax/actions/workflows/test.yml)
+[![GPU Tests](https://github.com/ChipFlow/vajax/actions/workflows/test-gpu.yml/badge.svg)](https://github.com/ChipFlow/vajax/actions/workflows/test-gpu.yml)
+[![Lint](https://github.com/ChipFlow/vajax/actions/workflows/lint.yml/badge.svg)](https://github.com/ChipFlow/vajax/actions/workflows/lint.yml)
+[![Benchmark](https://github.com/ChipFlow/vajax/actions/workflows/benchmark-comparison.yml/badge.svg)](https://github.com/ChipFlow/vajax/actions/workflows/benchmark-comparison.yml)
 
 A proof-of-concept GPU-accelerated analog circuit simulator built on JAX, demonstrating:
 - **Automatic differentiation** for computing device Jacobians without explicit derivatives
@@ -13,17 +13,17 @@ A proof-of-concept GPU-accelerated analog circuit simulator built on JAX, demons
 
 ## Current Status
 
-VA-JAX is in active development as a proof-of-concept. All VACASK benchmark circuits are passing.
+VAJAX is in active development as a proof-of-concept. All VACASK benchmark circuits are passing.
 
-**[Full benchmark results and test coverage →](https://chipflow.github.io/va-jax/)**
+**[Full benchmark results and test coverage →](https://chipflow.github.io/vajax/)**
 
 ## Validation: Three-Way Comparison
 
-VA-JAX results are validated against VACASK (reference simulator) and ngspice.
+VAJAX results are validated against VACASK (reference simulator) and ngspice.
 All simulators use identical netlists and device models (PSP103 MOSFETs via OSDI).
 
 ### RC Low-Pass Filter
-Simple RC circuit demonstrating basic transient behavior. VA-JAX matches VACASK and ngspice exactly.
+Simple RC circuit demonstrating basic transient behavior. VAJAX matches VACASK and ngspice exactly.
 
 ![RC Comparison](docs/images/rc_three_way_comparison.png)
 
@@ -33,7 +33,7 @@ Simple RC circuit demonstrating basic transient behavior. VA-JAX matches VACASK 
 ![Ring Oscillator Comparison](docs/images/ring_three_way_comparison.png)
 
 ### C6288 16-bit Multiplier
-Large-scale benchmark with ~86,000 nodes. Uses sparse solver for memory efficiency. Demonstrates VA-JAX scaling to production-sized circuits.
+Large-scale benchmark with ~86,000 nodes. Uses sparse solver for memory efficiency. Demonstrates VAJAX scaling to production-sized circuits.
 
 ![C6288 Comparison](docs/images/c6288_three_way_comparison.png)
 
@@ -45,7 +45,7 @@ uv run scripts/plot_three_way_comparison.py --benchmark c6288 --output-dir docs/
 
 ## Performance
 
-VA-JAX is designed for GPU acceleration of large circuits. The table below shows
+VAJAX is designed for GPU acceleration of large circuits. The table below shows
 per-step timing against VACASK (C++ reference simulator) on CI runners.
 
 ### CPU Performance (vs VACASK)
@@ -73,11 +73,11 @@ prevents this in normal usage.
 
 ### Performance Characteristics
 
-**Where VA-JAX excels:** Large circuits (1000+ nodes) on GPU, where matrix
+**Where VAJAX excels:** Large circuits (1000+ nodes) on GPU, where matrix
 operations dominate and GPU parallelism pays off. The c6288 benchmark (16-bit
 multiplier, ~5000 nodes) runs **2.9x faster than VACASK** on GPU.
 
-**Where VACASK is faster:** Small circuits on CPU. VA-JAX carries a per-step
+**Where VACASK is faster:** Small circuits on CPU. VAJAX carries a per-step
 fixed overhead of ~5-12 microseconds from:
 
 - **Adaptive timestep machinery**: LTE estimation, voltage prediction, and
@@ -123,25 +123,25 @@ uv sync --extra sax
 
 ## Command-Line Interface
 
-VA-JAX provides an ngspice-style CLI:
+VAJAX provides an ngspice-style CLI:
 
 ```bash
 # Run simulation on a circuit file
-va-jax circuit.sim
+vajax circuit.sim
 
 # Specify output file and format
-va-jax circuit.sim -o results.raw
-va-jax circuit.sim -o results.csv --format csv
+vajax circuit.sim -o results.raw
+vajax circuit.sim -o results.csv --format csv
 
 # Override analysis parameters
-va-jax circuit.sim --tran 1n 100u
-va-jax circuit.sim --ac dec 100 1k 1G
+vajax circuit.sim --tran 1n 100u
+vajax circuit.sim --ac dec 100 1k 1G
 
 # Run benchmarks
-va-jax benchmark ring --profile
+vajax benchmark ring --profile
 
 # System info
-va-jax info
+vajax info
 ```
 
 See [docs/cli_reference.md](docs/cli_reference.md) for full documentation.
@@ -311,7 +311,7 @@ acxf_result = engine.run_acxf(input_source="vin", output_node="vout")
 
 ## Verilog-A Integration
 
-VA-JAX can use production PDK models via OpenVAF:
+VAJAX can use production PDK models via OpenVAF:
 
 ```python
 from vajax.devices import VerilogADevice, compile_va

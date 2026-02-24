@@ -1,11 +1,11 @@
 # GPU Solver Architecture
 
-This document describes the GPU-native solver architecture for VA-JAX,
+This document describes the GPU-native solver architecture for VAJAX,
 including DC operating point and transient analysis implementations.
 
 ## Overview
 
-VA-JAX provides two complementary GPU-native solvers:
+VAJAX provides two complementary GPU-native solvers:
 
 1. **DC Solver** (`dc_gpu.py`) - Computes steady-state operating point
 2. **Transient Solver** (`transient_gpu.py`) - Time-domain simulation with backward Euler

@@ -1,4 +1,4 @@
-"""Analysis engines for VA-JAX
+"""Analysis engines for VAJAX
 
 Provides DC operating point, transient, and AC (small-signal) analysis
 using OpenVAF-compiled devices.

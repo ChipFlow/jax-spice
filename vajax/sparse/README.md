@@ -37,7 +37,7 @@ pip install -e . -v
 
 ## Usage
 
-Once installed, VA-JAX will automatically detect and use the FFI-based
+Once installed, VAJAX will automatically detect and use the FFI-based
 UMFPACK solver instead of the pure_callback version:
 
 ```python
@@ -92,4 +92,4 @@ Key optimizations:
 
 ## License
 
-Same license as VA-JAX (Apache 2.0).
+Same license as VAJAX (Apache 2.0).

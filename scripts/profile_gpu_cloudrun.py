@@ -4,7 +4,7 @@
 # dependencies = []
 # ///
 """
-Run VA-JAX vs VACASK benchmark comparison on Cloud Run GPU with profiling.
+Run VAJAX vs VACASK benchmark comparison on Cloud Run GPU with profiling.
 
 This script:
 1. Triggers a Cloud Run job that runs scripts/compare_vacask.py with --profile
@@ -23,7 +23,7 @@ Usage:
     uv run scripts/profile_gpu_cloudrun.py --open-perfetto
 
 Prerequisites:
-    - gcloud CLI authenticated with access to va-jax-cuda-test project
+    - gcloud CLI authenticated with access to vajax-cuda-test project
     - gsutil for downloading traces
 """
 
@@ -35,9 +35,9 @@ import tempfile
 import time
 from pathlib import Path
 
-GCP_PROJECT = "va-jax-cuda-test"
+GCP_PROJECT = "vajax-cuda-test"
 GCP_REGION = "us-central1"
-JOB_NAME = "va-jax-gpu-benchmark"
+JOB_NAME = "vajax-gpu-benchmark"
 GCS_BUCKET = f"gs://{GCP_PROJECT}-traces"
 GCS_BUCKET_NAME = f"{GCP_PROJECT}-traces"
 
@@ -59,7 +59,7 @@ def run_cmd(
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Run VA-JAX vs VACASK benchmark on Cloud Run GPU with profiling"
+        description="Run VAJAX vs VACASK benchmark on Cloud Run GPU with profiling"
     )
     parser.add_argument(
         "--benchmark",
@@ -97,7 +97,7 @@ def main():
     enable_profiling = not args.no_profile
 
     print("=" * 60)
-    print("VA-JAX vs VACASK Benchmark on Cloud Run GPU")
+    print("VAJAX vs VACASK Benchmark on Cloud Run GPU")
     print("=" * 60)
     print(f"Benchmarks: {args.benchmark}")
     profile_mode = "FULL" if args.profile_full else ("ENABLED" if enable_profiling else "DISABLED")
@@ -172,7 +172,7 @@ set -e
 cd /app
 
 # Clone repo at main (shallow clone, then init submodules separately for reliability)
-git clone --depth 1 https://github.com/ChipFlow/va-jax.git source
+git clone --depth 1 https://github.com/ChipFlow/vajax.git source
 cd source
 git submodule update --init --recursive --depth 1
 
@@ -219,7 +219,7 @@ echo "=== Benchmark Complete ==="
         JOB_NAME,
         f"--region={GCP_REGION}",
         f"--project={GCP_PROJECT}",
-        "--image=us-central1-docker.pkg.dev/va-jax-cuda-test/ghcr-remote/chipflow/va-jax/gpu-base:latest",
+        "--image=us-central1-docker.pkg.dev/vajax-cuda-test/ghcr-remote/chipflow/vajax/gpu-base:latest",
         "--execution-environment=gen2",
         "--gpu=1",
         "--gpu-type=nvidia-l4",

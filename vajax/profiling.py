@@ -1,4 +1,4 @@
-"""Profiling utilities for VA-JAX.
+"""Profiling utilities for VAJAX.
 
 Provides decorators and context managers for CUDA (nsys) and JAX/XLA profiling.
 
@@ -20,16 +20,16 @@ Usage:
         result = run_transient(...)
 
 Environment Variables:
-    VA_JAX_PROFILE_JAX: Enable JAX/XLA profiling (1 or true)
-    VA_JAX_PROFILE_CUDA: Enable CUDA profiling (1 or true)
-    VA_JAX_PROFILE_DIR: Directory for trace output (default: /tmp/va-jax-traces)
+    VAJAX_PROFILE_JAX: Enable JAX/XLA profiling (1 or true)
+    VAJAX_PROFILE_CUDA: Enable CUDA profiling (1 or true)
+    VAJAX_PROFILE_DIR: Directory for trace output (default: /tmp/vajax-traces)
 
 For nsys profiling, run with:
     nsys-jax -o profile.zip --capture-range=cudaProfilerApi python your_script.py
 
 For JAX profiling, traces can be viewed in:
     - Perfetto (https://ui.perfetto.dev/)
-    - TensorBoard (tensorboard --logdir=/tmp/va-jax-traces)
+    - TensorBoard (tensorboard --logdir=/tmp/vajax-traces)
 """
 
 import functools
@@ -69,10 +69,10 @@ class ProfileConfig:
         name: Name prefix for trace files/annotations
     """
 
-    jax: bool = field(default_factory=lambda: _env_bool("VA_JAX_PROFILE_JAX"))
-    cuda: bool = field(default_factory=lambda: _env_bool("VA_JAX_PROFILE_CUDA"))
+    jax: bool = field(default_factory=lambda: _env_bool("VAJAX_PROFILE_JAX"))
+    cuda: bool = field(default_factory=lambda: _env_bool("VAJAX_PROFILE_CUDA"))
     trace_dir: str = field(
-        default_factory=lambda: os.environ.get("VA_JAX_PROFILE_DIR", "/tmp/va-jax-traces")
+        default_factory=lambda: os.environ.get("VAJAX_PROFILE_DIR", "/tmp/vajax-traces")
     )
     create_perfetto_link: bool = False
     name: Optional[str] = None

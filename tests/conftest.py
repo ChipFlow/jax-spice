@@ -1,4 +1,4 @@
-"""Pytest configuration for VA-JAX tests
+"""Pytest configuration for VAJAX tests
 
 Handles platform-specific JAX configuration:
 - macOS: Forces CPU backend since Metal doesn't support triangular_solve

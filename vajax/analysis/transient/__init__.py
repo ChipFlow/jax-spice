@@ -1,4 +1,4 @@
-"""Transient analysis for VA-JAX.
+"""Transient analysis for VAJAX.
 
 This module provides transient analysis using full Modified Nodal Analysis (MNA)
 with explicit branch currents for voltage sources. This provides:

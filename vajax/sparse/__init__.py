@@ -1,4 +1,4 @@
-"""VA-JAX Sparse Solver Extensions.
+"""VAJAX Sparse Solver Extensions.
 
 This module provides high-performance sparse solvers with XLA FFI bindings
 for use within JAX-compiled code.

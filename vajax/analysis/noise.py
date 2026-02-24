@@ -1,4 +1,4 @@
-"""Noise Analysis for VA-JAX
+"""Noise Analysis for VAJAX
 
 Implements small-signal noise analysis following VACASK algorithm:
 

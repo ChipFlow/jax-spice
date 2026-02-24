@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Compare device parameters between VA-JAX and VACASK.
+"""Compare device parameters between VAJAX and VACASK.
 
 This script traces parameters through all mapping layers to debug
 parameter alignment issues between the two simulators.
@@ -22,7 +22,7 @@ import argparse
 import sys
 from pathlib import Path
 
-# Ensure va-jax is importable
+# Ensure vajax is importable
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 # Import vajax first to auto-configure precision based on backend
@@ -40,7 +40,7 @@ from scripts.benchmark_utils import get_vacask_benchmarks, log
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Compare device parameters between VA-JAX and VACASK"
+        description="Compare device parameters between VAJAX and VACASK"
     )
     parser.add_argument(
         "--benchmark",

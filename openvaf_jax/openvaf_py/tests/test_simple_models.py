@@ -231,7 +231,7 @@ class TestHiddenStateInlining:
     hidden_state params to NaN and verifying the function still works.
 
     If this test fails, the hidden_state inlining assumption is violated
-    and VA-JAX's parameter handling needs to be updated.
+    and VAJAX's parameter handling needs to be updated.
     """
 
     @pytest.fixture

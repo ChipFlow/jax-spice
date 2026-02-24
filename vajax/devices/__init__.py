@@ -1,4 +1,4 @@
-"""Device models for VA-JAX
+"""Device models for VAJAX
 
 Provides source waveform functions and OpenVAF Verilog-A device support.
 All simulation devices (resistor, capacitor, diode, MOSFET) are compiled

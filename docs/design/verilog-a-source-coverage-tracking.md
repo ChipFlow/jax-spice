@@ -1,6 +1,6 @@
 # Verilog-A Source Coverage Tracking - System Design Document
 
-**Author:** VA-JAX Team
+**Author:** VAJAX Team
 **Date:** 2025-12-29
 **Status:** Draft
 **Version:** 1.0
@@ -9,7 +9,7 @@
 
 ## 1. Executive Summary
 
-**System Purpose:** Track which lines of Verilog-A source code are exercised during VA-JAX circuit simulations, enabling coverage-driven verification and CI integration.
+**System Purpose:** Track which lines of Verilog-A source code are exercised during VAJAX circuit simulations, enabling coverage-driven verification and CI integration.
 
 **Scale:**
 - VA Models: ~50 standard models (resistor, capacitor, diode, PSP103, BSIM, etc.)
@@ -683,7 +683,7 @@ for file, lines in coverage.uncovered_lines.items():
 
 ```bash
 # Run tests with coverage
-VA_JAX_COVERAGE=1 uv run pytest tests/
+VAJAX_COVERAGE=1 uv run pytest tests/
 
 # Generate coverage report
 uv run python -m vajax.coverage report \
@@ -716,7 +716,7 @@ jobs:
 
       - name: Run tests with coverage
         run: |
-          VA_JAX_COVERAGE=1 uv run pytest tests/ \
+          VAJAX_COVERAGE=1 uv run pytest tests/ \
             --cov-report=xml:coverage.xml
 
       - name: Upload coverage to Codecov

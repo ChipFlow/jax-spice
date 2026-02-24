@@ -1,4 +1,4 @@
-"""MNA system builder for VA-JAX.
+"""MNA system builder for VAJAX.
 
 This module provides the factory function that creates the GPU-resident
 build_system function for Modified Nodal Analysis (MNA) formulation.

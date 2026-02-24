@@ -1,11 +1,11 @@
-"""VA-JAX command-line interface.
+"""VAJAX command-line interface.
 
 Provides ngspice-style CLI for circuit simulation:
-    va-jax circuit.sim                    # Run with .control section
-    va-jax circuit.sim -o results.raw     # Specify output file
-    va-jax circuit.sim --tran 1n 100u     # Override transient params
-    va-jax benchmark ring                 # Run benchmark
-    va-jax convert input.sp output.sim    # SPICE to VACASK conversion
+    vajax circuit.sim                    # Run with .control section
+    vajax circuit.sim -o results.raw     # Specify output file
+    vajax circuit.sim --tran 1n 100u     # Override transient params
+    vajax benchmark ring                 # Run benchmark
+    vajax convert input.sp output.sim    # SPICE to VACASK conversion
 """
 
 import argparse
@@ -263,7 +263,7 @@ def cmd_convert(args: argparse.Namespace) -> int:
 def cmd_info(args: argparse.Namespace) -> int:
     """Show system information."""
     info = get_precision_info()
-    print("VA-JAX System Information")
+    print("VAJAX System Information")
     print("-" * 40)
     print(f"Backend: {info['backend']}")
     print(f"Float64 enabled: {info['x64_enabled']}")
@@ -282,17 +282,17 @@ def cmd_info(args: argparse.Namespace) -> int:
 def create_parser() -> argparse.ArgumentParser:
     """Create argument parser."""
     parser = argparse.ArgumentParser(
-        prog="va-jax",
-        description="VA-JAX: GPU-accelerated analog circuit simulator",
+        prog="vajax",
+        description="VAJAX: GPU-accelerated analog circuit simulator",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  va-jax circuit.sim                    Run with defaults
-  va-jax circuit.sim -o out.raw         Specify output file
-  va-jax circuit.sim --tran 1n 100u     Override transient params
-  va-jax circuit.sim --sparse --gpu     Use sparse solver on GPU
-  va-jax benchmark ring --profile       Run and profile benchmark
-  va-jax convert input.sp output.sim    Convert SPICE to VACASK
+  vajax circuit.sim                    Run with defaults
+  vajax circuit.sim -o out.raw         Specify output file
+  vajax circuit.sim --tran 1n 100u     Override transient params
+  vajax circuit.sim --sparse --gpu     Use sparse solver on GPU
+  vajax benchmark ring --profile       Run and profile benchmark
+  vajax convert input.sp output.sim    Convert SPICE to VACASK
         """,
     )
 

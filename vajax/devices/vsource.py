@@ -1,4 +1,4 @@
-"""Voltage and current source functions for VA-JAX
+"""Voltage and current source functions for VAJAX
 
 Provides pure functions for computing source waveforms:
 - pulse_voltage: Calculate pulse waveform voltage at time t

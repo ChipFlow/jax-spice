@@ -6,8 +6,8 @@ compared to VACASK reference.
 Ring oscillator expected periods:
 - VACASK: 3.453ns
 - ngspice: 3.453ns
-- VA-JAX (fixed dt): ~3.374ns (2.3% shorter)
-- VA-JAX (adaptive): should be ~3.45ns (<0.5% error)
+- VAJAX (fixed dt): ~3.374ns (2.3% shorter)
+- VAJAX (adaptive): should be ~3.45ns (<0.5% error)
 """
 
 import re
@@ -184,7 +184,7 @@ class TestRingPeriodWithAdaptive:
         result = engine.run_transient()
 
         time = np.array(result.times)
-        # Node '1' in VA-JAX corresponds to node '2' in VACASK
+        # Node '1' in VAJAX corresponds to node '2' in VACASK
         voltage = np.array(result.voltages.get("1", []))
 
         period = find_oscillation_period(time, voltage)
@@ -302,7 +302,7 @@ class TestRingPeriodWithAdaptive:
 
 
 class TestAdaptiveVsVACASK:
-    """Compare VA-JAX adaptive timestep results directly with VACASK."""
+    """Compare VAJAX adaptive timestep results directly with VACASK."""
 
     @pytest.fixture
     def vacask_bin(self):
@@ -327,7 +327,7 @@ class TestAdaptiveVsVACASK:
         vacask_period = vacask_result["period"]
         assert vacask_period is not None, "Could not measure VACASK period"
 
-        # Run VA-JAX with adaptive
+        # Run VAJAX with adaptive
         engine = CircuitEngine(ring_info.sim_path)
         engine.parse()
 
@@ -349,16 +349,16 @@ class TestAdaptiveVsVACASK:
         jax_time = np.array(result.times)
         jax_voltage = np.array(result.voltages.get("1", []))
         jax_period = find_oscillation_period(jax_time, jax_voltage)
-        assert jax_period is not None, "Could not measure VA-JAX period"
+        assert jax_period is not None, "Could not measure VAJAX period"
 
         # Compare
         vacask_period_ns = vacask_period * 1e9
         jax_period_ns = jax_period * 1e9
         error_pct = (jax_period_ns - vacask_period_ns) / vacask_period_ns * 100
 
-        print("\nVACASK vs VA-JAX (adaptive):")
+        print("\nVACASK vs VAJAX (adaptive):")
         print(f"  VACASK period: {vacask_period_ns:.3f} ns")
-        print(f"  VA-JAX period: {jax_period_ns:.3f} ns")
+        print(f"  VAJAX period: {jax_period_ns:.3f} ns")
         print(f"  Error: {error_pct:+.2f}%")
 
         # Target: <1% error compared to VACASK

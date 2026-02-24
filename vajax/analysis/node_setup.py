@@ -1,4 +1,4 @@
-"""Node setup and collapse handling for VA-JAX.
+"""Node setup and collapse handling for VAJAX.
 
 This module handles:
 - Union-find algorithm for node collapse computation

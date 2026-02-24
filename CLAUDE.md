@@ -1,4 +1,4 @@
-# VA-JAX Development Guidelines
+# VAJAX Development Guidelines
 
 ## GPU Optimization
 
@@ -30,7 +30,7 @@ Use JAX (`jnp`) for simulation hot paths that run on GPU. NumPy/SciPy are accept
 
 ### Performance Profile
 
-VA-JAX has a per-step fixed overhead of ~10-15 us from adaptive timestep
+VAJAX has a per-step fixed overhead of ~10-15 us from adaptive timestep
 machinery, `jnp.where` branching, vmap batching, and COO matrix assembly. This
 overhead dominates for small circuits (6-11x slower than VACASK on CPU) but
 becomes negligible for large circuits (c6288: 1.2x on CPU, **2.9x faster on GPU**).
@@ -206,7 +206,7 @@ f_masked = jnp.where(residual_mask, f, 0.0)
 max_f = jnp.max(jnp.abs(f_masked))
 ```
 
-### VACASK vs VA-JAX Alignment Status
+### VACASK vs VAJAX Alignment Status
 
 | Benchmark | Node Count Match | DC OP Match | Notes |
 |-----------|------------------|-------------|-------|

@@ -1,4 +1,4 @@
-"""Harmonic Balance Analysis for VA-JAX
+"""Harmonic Balance Analysis for VAJAX
 
 Implements Harmonic Balance (HB) analysis for finding periodic steady-state
 solutions of circuits with nonlinear elements driven by periodic sources.

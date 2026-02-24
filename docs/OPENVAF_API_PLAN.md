@@ -2,7 +2,7 @@
 
 ## Executive Summary
 
-The current data flow from Verilog-A source through `openvaf_py` to VA-JAX has several naming convention issues that make the code difficult to understand and debug. This document proposes a clear, well-documented data flow with unambiguous naming conventions.
+The current data flow from Verilog-A source through `openvaf_py` to VAJAX has several naming convention issues that make the code difficult to understand and debug. This document proposes a clear, well-documented data flow with unambiguous naming conventions.
 
 ## Current Issues
 
@@ -174,7 +174,7 @@ Create clear documentation showing data flow:
                                     │
                                     ▼
 ┌─────────────────────────────────────────────────────────────────────────┐
-│                       ENGINE.PY (VA-JAX)                              │
+│                       ENGINE.PY (VAJAX)                              │
 │  CircuitEngine._prepare_openvaf_batched_inputs():                        │
 │  - Builds node_map: {model_node_name → circuit_node_idx}                │
 │  - ALSO adds sim_node{i} entries for DAE residual mapping               │
@@ -240,7 +240,7 @@ Mark original method as deprecated, remove in future version.
 1. Add unit tests for `get_dae_system_v2()` output format
 2. Add integration tests comparing v1 and v2 outputs for known models
 3. Test with ring oscillator benchmark to verify currents are non-zero
-4. Compare VA-JAX vs VACASK results
+4. Compare VAJAX vs VACASK results
 
 ## Files to Modify
 

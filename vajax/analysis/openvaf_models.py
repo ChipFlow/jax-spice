@@ -1,4 +1,4 @@
-"""OpenVAF model compilation and setup for VA-JAX.
+"""OpenVAF model compilation and setup for VAJAX.
 
 This module handles:
 - Compiling Verilog-A models via OpenVAF
