@@ -88,12 +88,8 @@ class ASTBuilder:
 
     def add_jax_imports(self) -> None:
         """Add standard JAX imports (jnp and lax)."""
-        self._function_body.append(
-            import_stmt([('jax.numpy', 'jnp')])
-        )
-        self._function_body.append(
-            import_from('jax', ['lax'])
-        )
+        self._function_body.append(import_stmt([("jax.numpy", "jnp")]))
+        self._function_body.append(import_from("jax", ["lax"]))
 
     def add_blank_line(self) -> None:
         """Add a blank line (as a pass statement placeholder).
@@ -104,9 +100,9 @@ class ASTBuilder:
         # In AST, we don't need explicit blank lines
         pass
 
-    def add_constant(self, var_name: str, value: Any,
-                     is_jax_float: bool = False,
-                     is_jax_bool: bool = False) -> None:
+    def add_constant(
+        self, var_name: str, value: Any, is_jax_float: bool = False, is_jax_bool: bool = False
+    ) -> None:
         """Add a constant assignment.
 
         Args:
@@ -115,9 +111,9 @@ class ASTBuilder:
             is_jax_float: If True, wrap in jnp.float64()
             is_jax_bool: If True, wrap in jnp.bool_()
         """
-        if value == float('inf'):
+        if value == float("inf"):
             value_expr = jnp_inf()
-        elif value == float('-inf'):
+        elif value == float("-inf"):
             value_expr = unaryop(ast.USub(), jnp_inf())
         elif isinstance(value, float) and value != value:  # NaN check
             value_expr = jnp_nan()
@@ -149,8 +145,7 @@ class ASTBuilder:
         """
         self._function_body.append(stmt)
 
-    def add_nested_function(self, func_name: str, args: List[str],
-                            body: List[ast.stmt]) -> None:
+    def add_nested_function(self, func_name: str, args: List[str], body: List[ast.stmt]) -> None:
         """Add a nested function definition.
 
         Args:
@@ -160,11 +155,16 @@ class ASTBuilder:
         """
         self._function_body.append(function_def(func_name, args, body))
 
-    def add_while_loop(self, cond_fn_name: str, cond_body: List[ast.stmt],
-                       body_fn_name: str, loop_body: List[ast.stmt],
-                       state_vars: List[str],
-                       init_values: List[ast.expr],
-                       result_var: str = '_loop_result') -> None:
+    def add_while_loop(
+        self,
+        cond_fn_name: str,
+        cond_body: List[ast.stmt],
+        body_fn_name: str,
+        loop_body: List[ast.stmt],
+        state_vars: List[str],
+        init_values: List[ast.expr],
+        result_var: str = "_loop_result",
+    ) -> None:
         """Add a lax.while_loop construct with condition and body functions.
 
         Args:
@@ -177,21 +177,29 @@ class ASTBuilder:
             result_var: Variable name to store loop result
         """
         # Build condition function
-        cond_fn = function_def(cond_fn_name, ['_loop_state'], [
-            assign_tuple(state_vars, subscript(name('_loop_state'), const(0)))
-            if len(state_vars) > 1 else
-            assign(state_vars[0], subscript(name('_loop_state'), const(0))),
-            *cond_body
-        ])
+        cond_fn = function_def(
+            cond_fn_name,
+            ["_loop_state"],
+            [
+                assign_tuple(state_vars, subscript(name("_loop_state"), const(0)))
+                if len(state_vars) > 1
+                else assign(state_vars[0], subscript(name("_loop_state"), const(0))),
+                *cond_body,
+            ],
+        )
         self._function_body.append(cond_fn)
 
         # Build body function
-        body_fn = function_def(body_fn_name, ['_loop_state'], [
-            assign_tuple(state_vars, subscript(name('_loop_state'), const(0)))
-            if len(state_vars) > 1 else
-            assign(state_vars[0], subscript(name('_loop_state'), const(0))),
-            *loop_body
-        ])
+        body_fn = function_def(
+            body_fn_name,
+            ["_loop_state"],
+            [
+                assign_tuple(state_vars, subscript(name("_loop_state"), const(0)))
+                if len(state_vars) > 1
+                else assign(state_vars[0], subscript(name("_loop_state"), const(0))),
+                *loop_body,
+            ],
+        )
         self._function_body.append(body_fn)
 
         # Build initial state tuple
@@ -201,13 +209,11 @@ class ASTBuilder:
             init_state = tuple_expr(init_values)
 
         # Add the while_loop call
-        loop_call = lax_while_loop(cond_fn_name, body_fn_name,
-                                   tuple_expr([init_state]))
+        loop_call = lax_while_loop(cond_fn_name, body_fn_name, tuple_expr([init_state]))
         self._function_body.append(assign(result_var, loop_call))
         self._defined_vars.add(result_var)
 
-    def add_input_param(self, var_name: str, index: int,
-                        input_name: str = 'inputs') -> None:
+    def add_input_param(self, var_name: str, index: int, input_name: str = "inputs") -> None:
         """Add an input parameter assignment.
 
         Args:
@@ -226,7 +232,7 @@ class ASTBuilder:
         return_items = []
         for _, var_names in arrays.items():
             elements: List[ast.expr] = [name(v) for v in var_names]
-            return_items.append(jnp_call('array', list_expr(elements)))
+            return_items.append(jnp_call("array", list_expr(elements)))
 
         if len(return_items) == 1:
             self._function_body.append(return_stmt(return_items[0]))
@@ -251,11 +257,7 @@ class ASTBuilder:
             AssertionError: If no function is currently being built.
         """
         assert self._current_function is not None, "No function is being built"
-        func = function_def(
-            self._current_function,
-            self._function_args,
-            self._function_body
-        )
+        func = function_def(self._current_function, self._function_args, self._function_body)
         self._current_function = None
         return func
 
@@ -272,7 +274,7 @@ class ASTBuilder:
             body.append(self.end_function())
         return build_module(body)
 
-    def build_and_compile(self, filename: str = '<generated>') -> Any:
+    def build_and_compile(self, filename: str = "<generated>") -> Any:
         """Build and compile the module.
 
         Args:
@@ -293,66 +295,66 @@ class ExpressionBuilder:
 
     # Map MIR opcodes to (ast.operator, is_binary)
     ARITHMETIC_OPS = {
-        'fadd': (ast.Add, True),
-        'fsub': (ast.Sub, True),
-        'fmul': (ast.Mult, True),
-        'fneg': (ast.USub, False),
-        'iadd': (ast.Add, True),
-        'isub': (ast.Sub, True),
-        'imul': (ast.Mult, True),
-        'idiv': (ast.FloorDiv, True),
-        'irem': (ast.Mod, True),
-        'ineg': (ast.USub, False),
+        "fadd": (ast.Add, True),
+        "fsub": (ast.Sub, True),
+        "fmul": (ast.Mult, True),
+        "fneg": (ast.USub, False),
+        "iadd": (ast.Add, True),
+        "isub": (ast.Sub, True),
+        "imul": (ast.Mult, True),
+        "idiv": (ast.FloorDiv, True),
+        "irem": (ast.Mod, True),
+        "ineg": (ast.USub, False),
     }
 
     # Map MIR opcodes to bitwise operators
     BITWISE_OPS = {
-        'iand': (ast.BitAnd, True),
-        'ior': (ast.BitOr, True),
-        'ixor': (ast.BitXor, True),
+        "iand": (ast.BitAnd, True),
+        "ior": (ast.BitOr, True),
+        "ixor": (ast.BitXor, True),
     }
 
     # Map MIR opcodes to jnp function names
     # Note: 'sqrt' and 'ln' are handled specially to avoid NaN for invalid inputs
     TRANSCENDENTAL_OPS = {
-        'exp': 'exp',
-        'sin': 'sin',
-        'cos': 'cos',
-        'tan': 'tan',
-        'asin': 'arcsin',
-        'acos': 'arccos',
-        'atan': 'arctan',
-        'sinh': 'sinh',
-        'cosh': 'cosh',
-        'tanh': 'tanh',
-        'asinh': 'arcsinh',
-        'acosh': 'arccosh',
-        'atanh': 'arctanh',
-        'floor': 'floor',
-        'ceil': 'ceil',
-        'abs': 'abs',
-        'fabs': 'abs',
+        "exp": "exp",
+        "sin": "sin",
+        "cos": "cos",
+        "tan": "tan",
+        "asin": "arcsin",
+        "acos": "arccos",
+        "atan": "arctan",
+        "sinh": "sinh",
+        "cosh": "cosh",
+        "tanh": "tanh",
+        "asinh": "arcsinh",
+        "acosh": "arccosh",
+        "atanh": "arctanh",
+        "floor": "floor",
+        "ceil": "ceil",
+        "abs": "abs",
+        "fabs": "abs",
     }
 
     # Map MIR opcodes to comparison operators
     COMPARISON_OPS = {
-        'feq': ast.Eq,
-        'fne': ast.NotEq,
-        'flt': ast.Lt,
-        'fgt': ast.Gt,
-        'fle': ast.LtE,
-        'fge': ast.GtE,
-        'ieq': ast.Eq,
-        'ine': ast.NotEq,
-        'ilt': ast.Lt,
-        'igt': ast.Gt,
-        'ile': ast.LtE,
-        'ige': ast.GtE,
-        'beq': ast.Eq,
-        'bne': ast.NotEq,
+        "feq": ast.Eq,
+        "fne": ast.NotEq,
+        "flt": ast.Lt,
+        "fgt": ast.Gt,
+        "fle": ast.LtE,
+        "fge": ast.GtE,
+        "ieq": ast.Eq,
+        "ine": ast.NotEq,
+        "ilt": ast.Lt,
+        "igt": ast.Gt,
+        "ile": ast.LtE,
+        "ige": ast.GtE,
+        "beq": ast.Eq,
+        "bne": ast.NotEq,
     }
 
-    def __init__(self, zero_name: str = '_ZERO', one_name: str = '_ONE'):
+    def __init__(self, zero_name: str = "_ZERO", one_name: str = "_ONE"):
         """Initialize the expression builder.
 
         Args:
@@ -370,8 +372,7 @@ class ExpressionBuilder:
         """Return reference to one constant."""
         return name(self.one_name)
 
-    def translate_opcode(self, opcode: str,
-                         operands: List[ast.expr]) -> Optional[ast.expr]:
+    def translate_opcode(self, opcode: str, operands: List[ast.expr]) -> Optional[ast.expr]:
         """Translate a MIR opcode to an AST expression.
 
         Args:
@@ -397,31 +398,30 @@ class ExpressionBuilder:
             return binop(operands[0], op_class(), operands[1])
 
         # Safe division
-        if opcode == 'fdiv':
-            return safe_divide(operands[0], operands[1],
-                               self.zero(), self.one())
+        if opcode == "fdiv":
+            return safe_divide(operands[0], operands[1], self.zero(), self.one())
 
         # Safe sqrt: clamp negative inputs to zero to avoid NaN
-        if opcode == 'sqrt':
-            return jnp_call('sqrt', jnp_call('maximum', operands[0], self.zero()))
+        if opcode == "sqrt":
+            return jnp_call("sqrt", jnp_call("maximum", operands[0], self.zero()))
 
         # Safe ln (log): clamp non-positive inputs to small positive value to avoid NaN/inf
-        if opcode == 'ln':
+        if opcode == "ln":
             # Use a small epsilon (1e-300) to avoid log(0) = -inf
             small_eps = const(1e-300)
-            return jnp_call('log', jnp_call('maximum', operands[0], small_eps))
+            return jnp_call("log", jnp_call("maximum", operands[0], small_eps))
 
         # Transcendental functions
         if opcode in self.TRANSCENDENTAL_OPS:
             return jnp_call(self.TRANSCENDENTAL_OPS[opcode], operands[0])
 
         # Two-argument transcendental functions
-        if opcode == 'pow':
-            return jnp_call('power', operands[0], operands[1])
-        if opcode == 'hypot':
-            return jnp_call('hypot', operands[0], operands[1])
-        if opcode == 'atan2':
-            return jnp_call('arctan2', operands[0], operands[1])
+        if opcode == "pow":
+            return jnp_call("power", operands[0], operands[1])
+        if opcode == "hypot":
+            return jnp_call("hypot", operands[0], operands[1])
+        if opcode == "atan2":
+            return jnp_call("arctan2", operands[0], operands[1])
 
         # Comparison operations
         if opcode in self.COMPARISON_OPS:
@@ -429,36 +429,34 @@ class ExpressionBuilder:
             return compare(operands[0], op_class(), operands[1])
 
         # Boolean not - use jnp.logical_not for JIT compatibility
-        if opcode == 'bnot':
-            return jnp_call('logical_not', operands[0])
+        if opcode == "bnot":
+            return jnp_call("logical_not", operands[0])
 
         # Optimization barrier (pass through)
-        if opcode == 'optbarrier':
+        if opcode == "optbarrier":
             return operands[0] if operands else self.zero()
 
         # Type casts
-        if opcode == 'ifcast':  # int to float
-            return jnp_call('float64', operands[0])
-        if opcode == 'ficast':  # float to int
-            return call(attr(name('jnp'), 'int32'),
-                        [jnp_call('floor', operands[0])])
-        if opcode == 'fbcast':  # float to bool
+        if opcode == "ifcast":  # int to float
+            return jnp_call("float64", operands[0])
+        if opcode == "ficast":  # float to int
+            return call(attr(name("jnp"), "int32"), [jnp_call("floor", operands[0])])
+        if opcode == "fbcast":  # float to bool
             return compare(operands[0], ast.NotEq(), self.zero())
-        if opcode == 'ibcast':  # int to bool
+        if opcode == "ibcast":  # int to bool
             return compare(operands[0], ast.NotEq(), const(0))
-        if opcode == 'bfcast':  # bool to float
+        if opcode == "bfcast":  # bool to float
             return jnp_where(operands[0], const(1.0), const(0.0))
-        if opcode == 'bicast':  # bool to int
-            return call(attr(name('jnp'), 'int32'), [operands[0]])
+        if opcode == "bicast":  # bool to int
+            return call(attr(name("jnp"), "int32"), [operands[0]])
 
         # Control flow (handled at block level)
-        if opcode in ('br', 'jmp', 'exit'):
+        if opcode in ("br", "jmp", "exit"):
             return None
 
         return None
 
-    def translate_phi(self, cond: ast.expr, true_val: ast.expr,
-                      false_val: ast.expr) -> ast.expr:
+    def translate_phi(self, cond: ast.expr, true_val: ast.expr, false_val: ast.expr) -> ast.expr:
         """Translate a two-way PHI node to jnp.where.
 
         Args:
@@ -471,9 +469,9 @@ class ExpressionBuilder:
         """
         return jnp_where(cond, true_val, false_val)
 
-    def translate_multi_way_phi(self,
-                                cases: List[Tuple[ast.expr, ast.expr]],
-                                default: ast.expr) -> ast.expr:
+    def translate_multi_way_phi(
+        self, cases: List[Tuple[ast.expr, ast.expr]], default: ast.expr
+    ) -> ast.expr:
         """Translate a multi-way PHI node to nested jnp.where.
 
         Args:
@@ -506,8 +504,8 @@ class ExpressionBuilder:
             subscript expression for inputs[index]
         """
         if isinstance(index, int):
-            return subscript(name('inputs'), const(index))
-        return subscript(name('inputs'), index)
+            return subscript(name("inputs"), const(index))
+        return subscript(name("inputs"), index)
 
     def analysis_comparison(self, type_code: int) -> ast.Compare:
         """Create comparison for analysis() function.
@@ -519,7 +517,5 @@ class ExpressionBuilder:
             (inputs[-2] == type_code) expression
         """
         return compare(
-            subscript(name('inputs'), unaryop(ast.USub(), const(2))),
-            ast.Eq(),
-            const(type_code)
+            subscript(name("inputs"), unaryop(ast.USub(), const(2))), ast.Eq(), const(type_code)
         )

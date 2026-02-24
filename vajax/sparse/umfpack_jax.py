@@ -103,8 +103,7 @@ def solve(
 
     if not _UMFPACK_FFI_AVAILABLE:
         raise RuntimeError(
-            "UMFPACK FFI extension not available. "
-            "Install with: cd vajax/sparse && pip install ."
+            "UMFPACK FFI extension not available. Install with: cd vajax/sparse && pip install ."
         )
 
     # Ensure correct dtypes

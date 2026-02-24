@@ -12,9 +12,11 @@ GF130_PATH = Path("/Users/roberttaylor/Code/ChipFlow/Backend/pdk-gf130")
 IHP_PATH = Path("/Users/roberttaylor/Code/ChipFlow/PDK/IHP-Open-PDK")
 SKYWATER_PATH = Path("/Users/roberttaylor/Code/ChipFlow/PDK/skywater-pdk")
 
+
 def find_va_files(base_path):
     """Find all .va files under a path"""
     return list(base_path.glob("**/*.va"))
+
 
 def test_model(va_path, allow_analog_in_cond=False):
     """Test compiling a single model"""
@@ -38,13 +40,13 @@ def test_model(va_path, allow_analog_in_cond=False):
             return None, f"JAX translation failed: {e}"
 
         return {
-            'module': m.name,
-            'nodes': len(m.nodes),
-            'params': sum(1 for k in m.param_kinds if k == 'param'),
-            'hidden': sum(1 for k in m.param_kinds if k == 'hidden_state'),
-            'jacobian': m.num_jacobian,
-            'compile_time': compile_time,
-            'jax_time': jax_time,
+            "module": m.name,
+            "nodes": len(m.nodes),
+            "params": sum(1 for k in m.param_kinds if k == "param"),
+            "hidden": sum(1 for k in m.param_kinds if k == "hidden_state"),
+            "jacobian": m.num_jacobian,
+            "compile_time": compile_time,
+            "jax_time": jax_time,
         }, None
 
     except Exception as e:
@@ -53,9 +55,9 @@ def test_model(va_path, allow_analog_in_cond=False):
 
 def test_pdk(name, base_path, allow_analog_in_cond=False):
     """Test all models in a PDK"""
-    print(f"\n{'='*80}")
+    print(f"\n{'=' * 80}")
     print(f"Testing {name}")
-    print(f"{'='*80}")
+    print(f"{'=' * 80}")
 
     va_files = find_va_files(base_path)
     if not va_files:
@@ -72,14 +74,13 @@ def test_pdk(name, base_path, allow_analog_in_cond=False):
 
         if result:
             passed += 1
-            print(f"OK   {str(rel_path)[:50]:<50s} "
-                  f"nodes={result['nodes']:2d} params={result['params']:4d} "
-                  f"hidden={result['hidden']:4d} jac={result['jacobian']:3d} "
-                  f"compile={result['compile_time']:.2f}s jax={result['jax_time']:.2f}s")
-            results.append({
-                'path': str(rel_path),
-                **result
-            })
+            print(
+                f"OK   {str(rel_path)[:50]:<50s} "
+                f"nodes={result['nodes']:2d} params={result['params']:4d} "
+                f"hidden={result['hidden']:4d} jac={result['jacobian']:3d} "
+                f"compile={result['compile_time']:.2f}s jax={result['jax_time']:.2f}s"
+            )
+            results.append({"path": str(rel_path), **result})
         else:
             failed += 1
             short_error = error[:60] if error else "Unknown error"
@@ -89,7 +90,7 @@ def test_pdk(name, base_path, allow_analog_in_cond=False):
     return results
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     all_results = []
 
     # Test GF130 (needs allow_analog_in_cond)
@@ -108,13 +109,13 @@ if __name__ == '__main__':
         all_results.extend(results)
 
     # Overall summary
-    print(f"\n{'='*80}")
+    print(f"\n{'=' * 80}")
     print("Overall Summary")
-    print(f"{'='*80}")
+    print(f"{'=' * 80}")
     print(f"Total models compiled to JAX: {len(all_results)}")
 
     if all_results:
         # Show complexity distribution
         print("\nTop 10 by complexity (hidden states):")
-        for r in sorted(all_results, key=lambda x: -x['hidden'])[:10]:
+        for r in sorted(all_results, key=lambda x: -x["hidden"])[:10]:
             print(f"  {r['path'][:40]:<40s} hidden={r['hidden']:5d} params={r['params']:4d}")

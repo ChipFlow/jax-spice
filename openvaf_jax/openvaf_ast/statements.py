@@ -10,8 +10,9 @@ from typing import Any, List, Optional, Union
 from .expressions import const, name
 
 
-def assign(targets: Union[str, ast.expr, List[Union[str, ast.expr]]],
-           value: ast.expr) -> ast.Assign:
+def assign(
+    targets: Union[str, ast.expr, List[Union[str, ast.expr]]], value: ast.expr
+) -> ast.Assign:
     """Create an assignment statement.
 
     Args:
@@ -62,16 +63,13 @@ def assign_tuple(target_names: List[str], value: ast.expr) -> ast.Assign:
         >>> assign_tuple(['a', 'b'], name('result'))
         # Generates: a, b = result
     """
-    target = ast.Tuple(
-        elts=[name(n, ast.Store()) for n in target_names],
-        ctx=ast.Store()
-    )
+    target = ast.Tuple(elts=[name(n, ast.Store()) for n in target_names], ctx=ast.Store())
     return ast.Assign(targets=[target], value=value)
 
 
-def aug_assign(target: Union[str, ast.Name, ast.Attribute, ast.Subscript],
-               op: ast.operator,
-               value: ast.expr) -> ast.AugAssign:
+def aug_assign(
+    target: Union[str, ast.Name, ast.Attribute, ast.Subscript], op: ast.operator, value: ast.expr
+) -> ast.AugAssign:
     """Create an augmented assignment statement.
 
     Args:
@@ -95,12 +93,14 @@ def aug_assign(target: Union[str, ast.Name, ast.Attribute, ast.Subscript],
     return ast.AugAssign(target=target_node, op=op, value=value)
 
 
-def function_def(func_name: str,
-                 args: Optional[List[str]] = None,
-                 body: Optional[List[ast.stmt]] = None,
-                 decorator_list: Optional[List[ast.expr]] = None,
-                 returns: Optional[ast.expr] = None,
-                 defaults: Optional[List[ast.expr]] = None) -> ast.FunctionDef:
+def function_def(
+    func_name: str,
+    args: Optional[List[str]] = None,
+    body: Optional[List[ast.stmt]] = None,
+    decorator_list: Optional[List[ast.expr]] = None,
+    returns: Optional[ast.expr] = None,
+    defaults: Optional[List[ast.expr]] = None,
+) -> ast.FunctionDef:
     """Create a function definition.
 
     Args:
@@ -131,11 +131,11 @@ def function_def(func_name: str,
             kwonlyargs=[],
             kw_defaults=[],
             kwarg=None,
-            defaults=defaults or []
+            defaults=defaults or [],
         ),
         body=body or [ast.Pass()],
         decorator_list=decorator_list or [],
-        returns=returns
+        returns=returns,
     )
 
 
@@ -177,8 +177,7 @@ def import_stmt(names: List[Union[str, tuple]]) -> ast.Import:
     return ast.Import(names=aliases)
 
 
-def import_from(module: str, names: List[Union[str, tuple]],
-                level: int = 0) -> ast.ImportFrom:
+def import_from(module: str, names: List[Union[str, tuple]], level: int = 0) -> ast.ImportFrom:
     """Create a from ... import statement.
 
     Args:
@@ -219,9 +218,9 @@ def expr_stmt(value: ast.expr) -> ast.Expr:
     return ast.Expr(value=value)
 
 
-def if_stmt(test: ast.expr,
-            body: List[ast.stmt],
-            orelse: Optional[List[ast.stmt]] = None) -> ast.If:
+def if_stmt(
+    test: ast.expr, body: List[ast.stmt], orelse: Optional[List[ast.stmt]] = None
+) -> ast.If:
     """Create an if statement.
 
     Args:
@@ -245,10 +244,12 @@ def if_stmt(test: ast.expr,
     return ast.If(test=test, body=body, orelse=orelse or [])
 
 
-def for_stmt(target: Union[str, ast.Name, ast.Tuple, ast.List],
-             iter_expr: ast.expr,
-             body: List[ast.stmt],
-             orelse: Optional[List[ast.stmt]] = None) -> ast.For:
+def for_stmt(
+    target: Union[str, ast.Name, ast.Tuple, ast.List],
+    iter_expr: ast.expr,
+    body: List[ast.stmt],
+    orelse: Optional[List[ast.stmt]] = None,
+) -> ast.For:
     """Create a for loop statement.
 
     Args:
@@ -274,13 +275,12 @@ def for_stmt(target: Union[str, ast.Name, ast.Tuple, ast.List],
         target.ctx = ast.Store()
         target_node = target
 
-    return ast.For(target=target_node, iter=iter_expr,
-                   body=body, orelse=orelse or [])
+    return ast.For(target=target_node, iter=iter_expr, body=body, orelse=orelse or [])
 
 
-def while_stmt(test: ast.expr,
-               body: List[ast.stmt],
-               orelse: Optional[List[ast.stmt]] = None) -> ast.While:
+def while_stmt(
+    test: ast.expr, body: List[ast.stmt], orelse: Optional[List[ast.stmt]] = None
+) -> ast.While:
     """Create a while loop statement.
 
     Args:
@@ -323,9 +323,8 @@ def comment_as_string_stmt(text: str) -> ast.Expr:
 # Compound statement builders
 # =============================================================================
 
-def nested_function(func_name: str,
-                    args: List[str],
-                    body_stmts: List[ast.stmt]) -> ast.FunctionDef:
+
+def nested_function(func_name: str, args: List[str], body_stmts: List[ast.stmt]) -> ast.FunctionDef:
     """Create a nested function definition (for lax.while_loop callbacks).
 
     Args:
@@ -351,7 +350,7 @@ def build_module(body: List[ast.stmt]) -> ast.Module:
     return ast.Module(body=body, type_ignores=[])
 
 
-def fix_and_compile(module: ast.Module, filename: str = '<generated>') -> Any:
+def fix_and_compile(module: ast.Module, filename: str = "<generated>") -> Any:
     """Fix missing locations and compile an AST module.
 
     Args:
@@ -362,4 +361,4 @@ def fix_and_compile(module: ast.Module, filename: str = '<generated>') -> Any:
         Compiled code object ready for exec()
     """
     ast.fix_missing_locations(module)
-    return compile(module, filename, 'exec')
+    return compile(module, filename, "exec")

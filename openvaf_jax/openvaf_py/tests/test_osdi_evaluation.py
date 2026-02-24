@@ -69,7 +69,9 @@ class TestResistorEvaluation:
             # Note: With temperature dependence (zeta parameter), the Jacobian
             # may not be constant. The key is it has resistive contribution.
             # Reactive should be constant (no dQ/dV dynamics)
-            assert j["react_const"], "Resistor reactive Jacobian should be constant (no charge storage)"
+            assert j["react_const"], (
+                "Resistor reactive Jacobian should be constant (no charge storage)"
+            )
 
 
 class TestDiodeEvaluation:
@@ -101,7 +103,9 @@ class TestDiodeEvaluation:
         desc = diode_module.get_osdi_descriptor()
 
         # Diode should have non-constant resistive Jacobian entries
-        non_const_count = sum(1 for j in desc["jacobian"] if j["has_resist"] and not j["resist_const"])
+        non_const_count = sum(
+            1 for j in desc["jacobian"] if j["has_resist"] and not j["resist_const"]
+        )
         assert non_const_count > 0, "Diode should have non-constant resistive Jacobian entries"
 
 

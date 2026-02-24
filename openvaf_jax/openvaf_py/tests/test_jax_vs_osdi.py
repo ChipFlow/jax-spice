@@ -7,7 +7,6 @@ computation as the OSDI compiled models used by VACASK.
 The MIR interpreter is the authoritative reference for correctness.
 """
 
-
 import numpy as np
 import pytest
 from conftest import (
@@ -55,7 +54,7 @@ class TestJaxProducesValidOutput:
 
         # Check no NaN in residuals
         for node, res in jax_residuals.items():
-            resist = float(res['resist'])
+            resist = float(res["resist"])
             assert not np.isnan(resist), f"{model_name}: NaN at {node}"
 
 
@@ -66,50 +65,62 @@ class TestResistorDetailed:
     def resistor(self, compile_model):
         return compile_model(INTEGRATION_PATH / "RESISTOR/resistor.va")
 
-    @pytest.mark.parametrize("voltage,resistance", [
-        (1.0, 1000.0),
-        (0.1, 100.0),
-        (5.0, 10000.0),
-        (-1.0, 1000.0),
-        (0.001, 1e6),
-    ])
+    @pytest.mark.parametrize(
+        "voltage,resistance",
+        [
+            (1.0, 1000.0),
+            (0.1, 100.0),
+            (5.0, 10000.0),
+            (-1.0, 1000.0),
+            (0.001, 1e6),
+        ],
+    )
     def test_ohms_law(self, resistor, voltage, resistance):
         """Resistor follows Ohm's law: I = V/R"""
         # JAX inputs: [V(A,B), vres, R, $temperature, tnom, zeta, res, mfactor]
         jax_inputs = [voltage, voltage, resistance, 300.15, 300.0, 0.0, resistance, 1.0]
 
         interp_params = {
-            'V(A,B)': voltage,
-            'vres': voltage,
-            'R': resistance,
-            '$temperature': 300.15,
-            'tnom': 300.0,
-            'zeta': 0.0,
-            'res': resistance,
-            'mfactor': 1.0,
+            "V(A,B)": voltage,
+            "vres": voltage,
+            "R": resistance,
+            "$temperature": 300.15,
+            "tnom": 300.0,
+            "zeta": 0.0,
+            "res": resistance,
+            "mfactor": 1.0,
         }
 
         jax_residuals, jax_jacobian = resistor.jax_fn(jax_inputs)
         interp_residuals, interp_jacobian = resistor.module.run_init_eval(interp_params)
 
         expected_current = voltage / resistance
-        jax_current = float(jax_residuals['A']['resist'])
+        jax_current = float(jax_residuals["A"]["resist"])
         interp_current = interp_residuals[0][0]
 
         # Use 1e-6 tolerance for floating point comparisons
-        assert_allclose(jax_current, expected_current, rtol=1e-6,
-                       err_msg=f"JAX: V={voltage}, R={resistance}")
-        assert_allclose(interp_current, expected_current, rtol=1e-6,
-                       err_msg=f"Interpreter: V={voltage}, R={resistance}")
-        assert_allclose(jax_current, interp_current, rtol=1e-6,
-                       err_msg="JAX vs Interpreter mismatch")
+        assert_allclose(
+            jax_current, expected_current, rtol=1e-6, err_msg=f"JAX: V={voltage}, R={resistance}"
+        )
+        assert_allclose(
+            interp_current,
+            expected_current,
+            rtol=1e-6,
+            err_msg=f"Interpreter: V={voltage}, R={resistance}",
+        )
+        assert_allclose(
+            jax_current, interp_current, rtol=1e-6, err_msg="JAX vs Interpreter mismatch"
+        )
 
-    @pytest.mark.parametrize("temperature,tnom,zeta", [
-        (300.0, 300.0, 0.0),   # No temp effect
-        (350.0, 300.0, 1.0),   # Linear temp coefficient
-        (250.0, 300.0, 1.0),   # Below tnom
-        (400.0, 300.0, 2.0),   # Quadratic temp coefficient
-    ])
+    @pytest.mark.parametrize(
+        "temperature,tnom,zeta",
+        [
+            (300.0, 300.0, 0.0),  # No temp effect
+            (350.0, 300.0, 1.0),  # Linear temp coefficient
+            (250.0, 300.0, 1.0),  # Below tnom
+            (400.0, 300.0, 2.0),  # Quadratic temp coefficient
+        ],
+    )
     def test_temperature_dependence(self, resistor, temperature, tnom, zeta):
         """Resistor temperature dependence matches between JAX and interpreter"""
         voltage = 1.0
@@ -118,24 +129,25 @@ class TestResistorDetailed:
         jax_inputs = [voltage, voltage, resistance, temperature, tnom, zeta, resistance, 1.0]
 
         interp_params = {
-            'V(A,B)': voltage,
-            'vres': voltage,
-            'R': resistance,
-            '$temperature': temperature,
-            'tnom': tnom,
-            'zeta': zeta,
-            'res': resistance,
-            'mfactor': 1.0,
+            "V(A,B)": voltage,
+            "vres": voltage,
+            "R": resistance,
+            "$temperature": temperature,
+            "tnom": tnom,
+            "zeta": zeta,
+            "res": resistance,
+            "mfactor": 1.0,
         }
 
         jax_residuals, _ = resistor.jax_fn(jax_inputs)
         interp_residuals, _ = resistor.module.run_init_eval(interp_params)
 
-        jax_current = float(jax_residuals['A']['resist'])
+        jax_current = float(jax_residuals["A"]["resist"])
         interp_current = interp_residuals[0][0]
 
-        assert_allclose(jax_current, interp_current, rtol=1e-6,
-                       err_msg=f"T={temperature}, zeta={zeta}")
+        assert_allclose(
+            jax_current, interp_current, rtol=1e-6, err_msg=f"T={temperature}, zeta={zeta}"
+        )
 
 
 class TestDiodeDetailed:
@@ -182,10 +194,7 @@ class TestEkvMosfet:
         assert jax_jacobian is not None
 
         # Check at least some entries are non-zero
-        has_nonzero = any(
-            abs(float(v['resist'])) > 1e-20
-            for v in jax_residuals.values()
-        )
+        has_nonzero = any(abs(float(v["resist"])) > 1e-20 for v in jax_residuals.values())
         # Note: at zero bias, currents may be zero, that's OK
 
     def test_ekv_matches_interpreter(self, ekv):
@@ -201,13 +210,13 @@ class TestEkvMosfet:
         for i, (resist, react) in enumerate(interp_residuals):
             if i < len(jax_nodes):
                 node_name = jax_nodes[i]
-                jax_resist = float(jax_residuals[node_name]['resist'])
+                jax_resist = float(jax_residuals[node_name]["resist"])
 
                 if abs(resist) > 1e-20 or abs(jax_resist) > 1e-20:
                     assert_allclose(
-                        jax_resist, resist,
-                        rtol=1e-4, atol=1e-12,
-                        err_msg=f"EKV residual[{node_name}] ({i}) mismatch"
+                        jax_resist,
+                        resist,
+                        rtol=1e-4,
+                        atol=1e-12,
+                        err_msg=f"EKV residual[{node_name}] ({i}) mismatch",
                     )
-
-

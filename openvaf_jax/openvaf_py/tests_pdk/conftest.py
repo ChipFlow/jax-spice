@@ -16,9 +16,7 @@ from pdk_utils import PDK_PATHS, compile_pdk_model
 
 def pytest_configure(config):
     """Register custom markers"""
-    config.addinivalue_line(
-        "markers", "requires_pdk(name): skip test if PDK not available"
-    )
+    config.addinivalue_line("markers", "requires_pdk(name): skip test if PDK not available")
 
 
 def pytest_collection_modifyitems(config, items):
@@ -28,9 +26,9 @@ def pytest_collection_modifyitems(config, items):
             pdk_name = marker.args[0]
             if PDK_PATHS.get(pdk_name) is None:
                 env_var = f"PDK_{pdk_name.upper()}_PATH"
-                item.add_marker(pytest.mark.skip(
-                    reason=f"PDK '{pdk_name}' not available (set {env_var})"
-                ))
+                item.add_marker(
+                    pytest.mark.skip(reason=f"PDK '{pdk_name}' not available (set {env_var})")
+                )
 
 
 @pytest.fixture(scope="module")

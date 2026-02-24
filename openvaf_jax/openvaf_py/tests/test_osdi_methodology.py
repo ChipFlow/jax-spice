@@ -23,15 +23,15 @@ import pytest
 import openvaf_jax
 
 # Physical constants (exactly as in OpenVAF integration.rs)
-KB = 1.3806488e-23      # Boltzmann constant [J/K]
-Q = 1.602176565e-19     # Elementary charge [C]
-T_ROOM = 300.0          # Room temperature [K]
-VT = KB * T_ROOM / Q    # Thermal voltage at 300K
-ALPHA = 0.172           # SPICE integration parameter (from mock_sim)
+KB = 1.3806488e-23  # Boltzmann constant [J/K]
+Q = 1.602176565e-19  # Elementary charge [C]
+T_ROOM = 300.0  # Room temperature [K]
+VT = KB * T_ROOM / Q  # Thermal voltage at 300K
+ALPHA = 0.172  # SPICE integration parameter (from mock_sim)
 
 # Test parameters (from test_limit in integration.rs)
-IS = 1e-12              # Saturation current [A]
-CJ0 = 10e-9             # Junction capacitance [F]
+IS = 1e-12  # Saturation current [A]
+CJ0 = 10e-9  # Junction capacitance [F]
 
 # Critical voltage for limiting
 VCRIT = VT * log(VT / (sqrt(2) * IS))
@@ -75,6 +75,7 @@ class TestDiodeLimOSDI:
     def diode_jax(self, diode_lim):
         """Create JAX function from diode_lim model using CompiledModel pattern"""
         from conftest import CompiledModel
+
         translator = openvaf_jax.OpenVAFToJAX(diode_lim)
         return CompiledModel(diode_lim, translator)
 
@@ -87,8 +88,8 @@ class TestDiodeLimOSDI:
         """Model has is and cj0 parameters"""
         param_names = list(diode_lim.param_names)
         # Find positions of is and cj0 in the parameter list
-        is_found = any('is' in p.lower() for p in param_names)
-        cj0_found = any('cj0' in p.lower() for p in param_names)
+        is_found = any("is" in p.lower() for p in param_names)
+        cj0_found = any("cj0" in p.lower() for p in param_names)
         assert is_found, f"Parameter 'is' not found in {param_names}"
         assert cj0_found, f"Parameter 'cj0' not found in {param_names}"
 
@@ -103,19 +104,19 @@ class TestDiodeLimOSDI:
         # Build parameter dict for interpreter
         params = {}
         for name in diode_lim.param_names:
-            if name == '$temperature':
+            if name == "$temperature":
                 params[name] = T_ROOM
-            elif name == 'is':
+            elif name == "is":
                 params[name] = IS
-            elif name == 'cj0':
+            elif name == "cj0":
                 params[name] = CJ0
-            elif name == 'rs':
+            elif name == "rs":
                 params[name] = 0.0  # No series resistance
-            elif name == 'rth':
+            elif name == "rth":
                 params[name] = 0.0  # No thermal resistance
-            elif 'V(' in name:
+            elif "V(" in name:
                 params[name] = 0.0  # Zero voltage
-            elif 'Temp' in name or 'dT' in name:
+            elif "Temp" in name or "dT" in name:
                 params[name] = 0.0  # No temperature rise
             else:
                 params[name] = 0.0
@@ -133,21 +134,21 @@ class TestDiodeLimOSDI:
 
         params = {}
         for name in diode_lim.param_names:
-            if name == '$temperature':
+            if name == "$temperature":
                 params[name] = T_ROOM
-            elif name == 'is':
+            elif name == "is":
                 params[name] = IS
-            elif name == 'cj0':
+            elif name == "cj0":
                 params[name] = CJ0
-            elif name == 'rs':
+            elif name == "rs":
                 params[name] = 0.0
-            elif name == 'rth':
+            elif name == "rth":
                 params[name] = 0.0
-            elif 'V(A,CI)' in name:  # Anode to internal node voltage
+            elif "V(A,CI)" in name:  # Anode to internal node voltage
                 params[name] = vd_test
-            elif 'V(' in name:
+            elif "V(" in name:
                 params[name] = 0.0
-            elif 'Temp' in name or 'dT' in name:
+            elif "Temp" in name or "dT" in name:
                 params[name] = 0.0
             else:
                 params[name] = 0.0
@@ -168,21 +169,21 @@ class TestDiodeLimOSDI:
 
         params = {}
         for name in diode_lim.param_names:
-            if name == '$temperature':
+            if name == "$temperature":
                 params[name] = T_ROOM
-            elif name == 'is':
+            elif name == "is":
                 params[name] = IS
-            elif name == 'cj0':
+            elif name == "cj0":
                 params[name] = CJ0
-            elif name == 'rs':
+            elif name == "rs":
                 params[name] = 0.0
-            elif name == 'rth':
+            elif name == "rth":
                 params[name] = 0.0
-            elif 'V(A,CI)' in name:
+            elif "V(A,CI)" in name:
                 params[name] = vd_test
-            elif 'V(' in name:
+            elif "V(" in name:
                 params[name] = 0.0
-            elif 'Temp' in name or 'dT' in name:
+            elif "Temp" in name or "dT" in name:
                 params[name] = 0.0
             else:
                 params[name] = 0.0
@@ -206,7 +207,9 @@ class TestSimpleResistorOSDI:
     @pytest.fixture(scope="class")
     def resistor(self):
         """Compile resistor model"""
-        va_path = PROJECT_ROOT / "vendor" / "OpenVAF" / "integration_tests" / "RESISTOR" / "resistor.va"
+        va_path = (
+            PROJECT_ROOT / "vendor" / "OpenVAF" / "integration_tests" / "RESISTOR" / "resistor.va"
+        )
         modules = openvaf_py.compile_va(str(va_path))
         assert len(modules) == 1
         return modules[0]
@@ -215,35 +218,39 @@ class TestSimpleResistorOSDI:
     def resistor_jax(self, resistor):
         """Create JAX function from resistor model using CompiledModel pattern"""
         from conftest import CompiledModel
+
         translator = openvaf_jax.OpenVAFToJAX(resistor)
         return CompiledModel(resistor, translator)
 
-    @pytest.mark.parametrize("voltage,resistance", [
-        (1.0, 1000.0),
-        (0.5, 500.0),
-        (-1.0, 1000.0),
-        (5.0, 100.0),
-    ])
+    @pytest.mark.parametrize(
+        "voltage,resistance",
+        [
+            (1.0, 1000.0),
+            (0.5, 500.0),
+            (-1.0, 1000.0),
+            (5.0, 100.0),
+        ],
+    )
     def test_jax_vs_interpreter_residual(self, resistor, resistor_jax, voltage, resistance):
         """JAX output matches interpreter for resistor"""
         # Build interpreter params
         interp_params = {}
         for name in resistor.param_names:
-            if name == 'V(A,B)':
+            if name == "V(A,B)":
                 interp_params[name] = voltage
-            elif name == 'vres':
+            elif name == "vres":
                 interp_params[name] = voltage
-            elif name == 'R':
+            elif name == "R":
                 interp_params[name] = resistance
-            elif name == '$temperature':
+            elif name == "$temperature":
                 interp_params[name] = T_ROOM
-            elif name == 'tnom':
+            elif name == "tnom":
                 interp_params[name] = T_ROOM
-            elif name == 'zeta':
+            elif name == "zeta":
                 interp_params[name] = 0.0
-            elif name == 'res':
+            elif name == "res":
                 interp_params[name] = resistance
-            elif name == 'mfactor':
+            elif name == "mfactor":
                 interp_params[name] = 1.0
             else:
                 interp_params[name] = 0.0
@@ -257,39 +264,45 @@ class TestSimpleResistorOSDI:
         # Compare
         expected_current = voltage / resistance
         interp_current = interp_residuals[0][0]
-        jax_current = float(jax_residuals['A']['resist'])
+        jax_current = float(jax_residuals["A"]["resist"])
 
         rtol = 1e-6
-        assert abs(interp_current - expected_current) / max(abs(expected_current), 1e-15) < rtol, \
+        assert abs(interp_current - expected_current) / max(abs(expected_current), 1e-15) < rtol, (
             f"Interpreter mismatch: {interp_current} vs {expected_current}"
-        assert abs(jax_current - expected_current) / max(abs(expected_current), 1e-15) < rtol, \
+        )
+        assert abs(jax_current - expected_current) / max(abs(expected_current), 1e-15) < rtol, (
             f"JAX mismatch: {jax_current} vs {expected_current}"
-        assert abs(jax_current - interp_current) / max(abs(interp_current), 1e-15) < rtol, \
+        )
+        assert abs(jax_current - interp_current) / max(abs(interp_current), 1e-15) < rtol, (
             f"JAX vs Interpreter: {jax_current} vs {interp_current}"
+        )
 
-    @pytest.mark.parametrize("voltage,resistance", [
-        (1.0, 1000.0),
-        (5.0, 100.0),
-    ])
+    @pytest.mark.parametrize(
+        "voltage,resistance",
+        [
+            (1.0, 1000.0),
+            (5.0, 100.0),
+        ],
+    )
     def test_jax_vs_interpreter_jacobian(self, resistor, resistor_jax, voltage, resistance):
         """JAX Jacobian matches interpreter for resistor"""
         interp_params = {}
         for name in resistor.param_names:
-            if name == 'V(A,B)':
+            if name == "V(A,B)":
                 interp_params[name] = voltage
-            elif name == 'vres':
+            elif name == "vres":
                 interp_params[name] = voltage
-            elif name == 'R':
+            elif name == "R":
                 interp_params[name] = resistance
-            elif name == '$temperature':
+            elif name == "$temperature":
                 interp_params[name] = T_ROOM
-            elif name == 'tnom':
+            elif name == "tnom":
                 interp_params[name] = T_ROOM
-            elif name == 'zeta':
+            elif name == "zeta":
                 interp_params[name] = 0.0
-            elif name == 'res':
+            elif name == "res":
                 interp_params[name] = resistance
-            elif name == 'mfactor':
+            elif name == "mfactor":
                 interp_params[name] = 1.0
             else:
                 interp_params[name] = 0.0
@@ -302,15 +315,18 @@ class TestSimpleResistorOSDI:
         expected_conductance = 1.0 / resistance
         interp_jac_dict = {(r, c): resist for r, c, resist, _ in interp_jacobian}
         interp_gd = interp_jac_dict.get((0, 0), 0.0)
-        jax_gd = float(jax_jacobian[('A', 'A')]['resist'])
+        jax_gd = float(jax_jacobian[("A", "A")]["resist"])
 
         rtol = 1e-5
-        assert abs(interp_gd - expected_conductance) / expected_conductance < rtol, \
+        assert abs(interp_gd - expected_conductance) / expected_conductance < rtol, (
             f"Interpreter Jacobian mismatch: {interp_gd} vs {expected_conductance}"
-        assert abs(jax_gd - expected_conductance) / expected_conductance < rtol, \
+        )
+        assert abs(jax_gd - expected_conductance) / expected_conductance < rtol, (
             f"JAX Jacobian mismatch: {jax_gd} vs {expected_conductance}"
-        assert abs(jax_gd - interp_gd) / max(abs(interp_gd), 1e-15) < rtol, \
+        )
+        assert abs(jax_gd - interp_gd) / max(abs(interp_gd), 1e-15) < rtol, (
             f"JAX vs Interpreter Jacobian: {jax_gd} vs {interp_gd}"
+        )
 
 
 class TestDAEEquations:

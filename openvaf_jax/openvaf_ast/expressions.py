@@ -91,8 +91,7 @@ def compare(left: ast.expr, op: ast.cmpop, right: ast.expr) -> ast.Compare:
     return ast.Compare(left=left, ops=[op], comparators=[right])
 
 
-def compare_chain(left: ast.expr, ops: List[ast.cmpop],
-                  comparators: List[ast.expr]) -> ast.Compare:
+def compare_chain(left: ast.expr, ops: List[ast.cmpop], comparators: List[ast.expr]) -> ast.Compare:
     """Create a chained comparison (e.g., 0 < x < 10).
 
     Args:
@@ -122,8 +121,11 @@ def boolop(op: ast.boolop, values: List[ast.expr]) -> ast.BoolOp:
     return ast.BoolOp(op=op, values=values)
 
 
-def call(func: ast.expr, args: Optional[List[ast.expr]] = None,
-         keywords: Optional[List[ast.keyword]] = None) -> ast.Call:
+def call(
+    func: ast.expr,
+    args: Optional[List[ast.expr]] = None,
+    keywords: Optional[List[ast.keyword]] = None,
+) -> ast.Call:
     """Create a function call node.
 
     Args:
@@ -137,15 +139,10 @@ def call(func: ast.expr, args: Optional[List[ast.expr]] = None,
     Example:
         >>> call(name('print'), [const('hello')])  # Generates: print('hello')
     """
-    return ast.Call(
-        func=func,
-        args=args or [],
-        keywords=keywords or []
-    )
+    return ast.Call(func=func, args=args or [], keywords=keywords or [])
 
 
-def attr(value: ast.expr, attr_name: str,
-         ctx: Optional[ast.expr_context] = None) -> ast.Attribute:
+def attr(value: ast.expr, attr_name: str, ctx: Optional[ast.expr_context] = None) -> ast.Attribute:
     """Create an attribute access node.
 
     Args:
@@ -162,8 +159,9 @@ def attr(value: ast.expr, attr_name: str,
     return ast.Attribute(value=value, attr=attr_name, ctx=ctx or ast.Load())
 
 
-def subscript(value: ast.expr, index: ast.expr,
-              ctx: Optional[ast.expr_context] = None) -> ast.Subscript:
+def subscript(
+    value: ast.expr, index: ast.expr, ctx: Optional[ast.expr_context] = None
+) -> ast.Subscript:
     """Create a subscript access node.
 
     Args:
@@ -180,8 +178,7 @@ def subscript(value: ast.expr, index: ast.expr,
     return ast.Subscript(value=value, slice=index, ctx=ctx or ast.Load())
 
 
-def list_expr(elts: List[ast.expr],
-              ctx: Optional[ast.expr_context] = None) -> ast.List:
+def list_expr(elts: List[ast.expr], ctx: Optional[ast.expr_context] = None) -> ast.List:
     """Create a list literal node.
 
     Args:
@@ -197,8 +194,7 @@ def list_expr(elts: List[ast.expr],
     return ast.List(elts=elts, ctx=ctx or ast.Load())
 
 
-def tuple_expr(elts: List[ast.expr],
-               ctx: Optional[ast.expr_context] = None) -> ast.Tuple:
+def tuple_expr(elts: List[ast.expr], ctx: Optional[ast.expr_context] = None) -> ast.Tuple:
     """Create a tuple literal node.
 
     Args:
@@ -218,6 +214,7 @@ def tuple_expr(elts: List[ast.expr],
 # JAX-specific expression builders
 # =============================================================================
 
+
 def jnp_call(method: str, *args: ast.expr) -> ast.Call:
     """Create a jnp.method(*args) call.
 
@@ -233,11 +230,10 @@ def jnp_call(method: str, *args: ast.expr) -> ast.Call:
         >>> jnp_call('array', list_expr([name('a'), name('b')]))
         # Generates: jnp.array([a, b])
     """
-    return call(attr(name('jnp'), method), list(args))
+    return call(attr(name("jnp"), method), list(args))
 
 
-def jnp_where(cond: ast.expr, true_val: ast.expr,
-              false_val: ast.expr) -> ast.Call:
+def jnp_where(cond: ast.expr, true_val: ast.expr, false_val: ast.expr) -> ast.Call:
     """Create a jnp.where(cond, true_val, false_val) call.
 
     Args:
@@ -252,11 +248,10 @@ def jnp_where(cond: ast.expr, true_val: ast.expr,
         >>> jnp_where(name('cond'), name('a'), name('b'))
         # Generates: jnp.where(cond, a, b)
     """
-    return jnp_call('where', cond, true_val, false_val)
+    return jnp_call("where", cond, true_val, false_val)
 
 
-def jnp_select(condlist: List[ast.expr], choicelist: List[ast.expr],
-               default: ast.expr) -> ast.Call:
+def jnp_select(condlist: List[ast.expr], choicelist: List[ast.expr], default: ast.expr) -> ast.Call:
     """Create a jnp.select(condlist, choicelist, default) call.
 
     This is more efficient than nested jnp.where for multiple conditions
@@ -274,10 +269,7 @@ def jnp_select(condlist: List[ast.expr], choicelist: List[ast.expr],
         >>> jnp_select([cond1, cond2], [val1, val2], default)
         # Generates: jnp.select([cond1, cond2], [val1, val2], default)
     """
-    return call(
-        attr(name('jnp'), 'select'),
-        [list_expr(condlist), list_expr(choicelist), default]
-    )
+    return call(attr(name("jnp"), "select"), [list_expr(condlist), list_expr(choicelist), default])
 
 
 def jnp_float64(value: ast.expr) -> ast.Call:
@@ -289,7 +281,7 @@ def jnp_float64(value: ast.expr) -> ast.Call:
     Returns:
         ast.Call node for jnp.float64(value)
     """
-    return jnp_call('float64', value)
+    return jnp_call("float64", value)
 
 
 def jnp_bool(value: ast.expr) -> ast.Call:
@@ -301,17 +293,17 @@ def jnp_bool(value: ast.expr) -> ast.Call:
     Returns:
         ast.Call node for jnp.bool_(value)
     """
-    return call(attr(name('jnp'), 'bool_'), [value])
+    return call(attr(name("jnp"), "bool_"), [value])
 
 
 def jnp_inf() -> ast.Attribute:
     """Create jnp.inf reference."""
-    return attr(name('jnp'), 'inf')
+    return attr(name("jnp"), "inf")
 
 
 def jnp_nan() -> ast.Attribute:
     """Create jnp.nan reference."""
-    return attr(name('jnp'), 'nan')
+    return attr(name("jnp"), "nan")
 
 
 def lax_call(method: str, *args: ast.expr) -> ast.Call:
@@ -328,12 +320,12 @@ def lax_call(method: str, *args: ast.expr) -> ast.Call:
         >>> lax_call('while_loop', name('cond'), name('body'), name('init'))
         # Generates: lax.while_loop(cond, body, init)
     """
-    return call(attr(name('lax'), method), list(args))
+    return call(attr(name("lax"), method), list(args))
 
 
-def lax_while_loop(cond_fn: Union[str, ast.expr],
-                   body_fn: Union[str, ast.expr],
-                   init_state: ast.expr) -> ast.Call:
+def lax_while_loop(
+    cond_fn: Union[str, ast.expr], body_fn: Union[str, ast.expr], init_state: ast.expr
+) -> ast.Call:
     """Create a lax.while_loop(cond_fn, body_fn, init_state) call.
 
     Args:
@@ -346,16 +338,20 @@ def lax_while_loop(cond_fn: Union[str, ast.expr],
     """
     cond = name(cond_fn) if isinstance(cond_fn, str) else cond_fn
     body = name(body_fn) if isinstance(body_fn, str) else body_fn
-    return lax_call('while_loop', cond, body, init_state)
+    return lax_call("while_loop", cond, body, init_state)
 
 
 # =============================================================================
 # Safe operation patterns
 # =============================================================================
 
-def safe_divide(dividend: ast.expr, divisor: ast.expr,
-                zero_ref: Optional[ast.expr] = None,
-                one_ref: Optional[ast.expr] = None) -> ast.Call:
+
+def safe_divide(
+    dividend: ast.expr,
+    divisor: ast.expr,
+    zero_ref: Optional[ast.expr] = None,
+    one_ref: Optional[ast.expr] = None,
+) -> ast.Call:
     """Create a safe division that handles divide-by-zero.
 
     Generates: jnp.where(divisor == 0, 0, dividend / jnp.where(divisor == 0, 1, divisor))
@@ -369,8 +365,8 @@ def safe_divide(dividend: ast.expr, divisor: ast.expr,
     Returns:
         ast.Call node for safe division
     """
-    zero = zero_ref or name('_ZERO')
-    one = one_ref or name('_ONE')
+    zero = zero_ref or name("_ZERO")
+    one = one_ref or name("_ONE")
 
     is_zero = compare(divisor, ast.Eq(), zero)
     safe_divisor = jnp_where(is_zero, one, divisor)

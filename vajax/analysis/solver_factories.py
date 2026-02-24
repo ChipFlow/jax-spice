@@ -1000,8 +1000,7 @@ def make_umfpack_ffi_full_mna_solver(
 
     if not umfpack_jax.is_available():
         raise RuntimeError(
-            "UMFPACK FFI extension not available. "
-            "Install with: cd vajax/sparse && pip install ."
+            "UMFPACK FFI extension not available. Install with: cd vajax/sparse && pip install ."
         )
 
     n_unknowns = n_nodes - 1

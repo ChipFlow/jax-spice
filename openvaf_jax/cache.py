@@ -28,15 +28,18 @@ _vmapped_jit_cache: Dict[Tuple[str, Tuple], Callable] = {}
 
 
 @overload
-def exec_with_cache(code: str, fn_name: str,
-                    return_hash: Literal[False] = ...) -> Callable: ...
+def exec_with_cache(code: str, fn_name: str, return_hash: Literal[False] = ...) -> Callable: ...
+
 
 @overload
-def exec_with_cache(code: str, fn_name: str,
-                    return_hash: Literal[True]) -> Tuple[Callable, str]: ...
+def exec_with_cache(
+    code: str, fn_name: str, return_hash: Literal[True]
+) -> Tuple[Callable, str]: ...
 
-def exec_with_cache(code: str, fn_name: str,
-                    return_hash: bool = False) -> Union[Callable, Tuple[Callable, str]]:
+
+def exec_with_cache(
+    code: str, fn_name: str, return_hash: bool = False
+) -> Union[Callable, Tuple[Callable, str]]:
     """Execute code and cache the resulting function by code hash.
 
     This dramatically speeds up repeated compilations (e.g., re-parsing the same
@@ -62,7 +65,7 @@ def exec_with_cache(code: str, fn_name: str,
         fn = _exec_fn_cache[code_hash]
         return (fn, code_hash) if return_hash else fn
 
-    local_ns = {'jnp': jnp, 'lax': lax}
+    local_ns = {"jnp": jnp, "lax": lax}
     exec(code, local_ns)
     fn = cast(Callable, local_ns[fn_name])
 
@@ -113,14 +116,15 @@ def cache_stats() -> Dict[str, int]:
         Dict with 'exec_fn_count' and 'vmapped_jit_count'
     """
     return {
-        'exec_fn_count': len(_exec_fn_cache),
-        'vmapped_jit_count': len(_vmapped_jit_cache),
+        "exec_fn_count": len(_exec_fn_cache),
+        "vmapped_jit_count": len(_vmapped_jit_cache),
     }
 
 
 # =============================================================================
 # Persistent Code Cache
 # =============================================================================
+
 
 def get_persistent_cache_dir() -> Path:
     """Get the persistent cache directory, creating it if needed.
@@ -135,11 +139,11 @@ def get_persistent_cache_dir() -> Path:
     if _PERSISTENT_CACHE_DIR is not None:
         return _PERSISTENT_CACHE_DIR
 
-    cache_dir = os.environ.get('VAJAX_CACHE_DIR')
+    cache_dir = os.environ.get("VAJAX_CACHE_DIR")
     if cache_dir:
-        _PERSISTENT_CACHE_DIR = Path(cache_dir) / 'openvaf'
+        _PERSISTENT_CACHE_DIR = Path(cache_dir) / "openvaf"
     else:
-        _PERSISTENT_CACHE_DIR = Path.home() / '.cache' / 'vajax' / 'openvaf'
+        _PERSISTENT_CACHE_DIR = Path.home() / ".cache" / "vajax" / "openvaf"
 
     _PERSISTENT_CACHE_DIR.mkdir(parents=True, exist_ok=True)
     return _PERSISTENT_CACHE_DIR
@@ -190,9 +194,9 @@ def load_cached_model(model_type: str, va_path: Path) -> Optional[Dict[str, Any]
     va_hash = compute_va_hash(va_path)
     cache_path = get_model_cache_path(model_type, va_hash)
 
-    metadata_file = cache_path / 'metadata.json'
-    init_code_file = cache_path / 'init_fn.py'
-    eval_code_file = cache_path / 'eval_fn.py'
+    metadata_file = cache_path / "metadata.json"
+    init_code_file = cache_path / "init_fn.py"
+    eval_code_file = cache_path / "eval_fn.py"
 
     # Check if all required files exist
     if not all(f.exists() for f in [metadata_file, init_code_file, eval_code_file]):
@@ -201,7 +205,7 @@ def load_cached_model(model_type: str, va_path: Path) -> Optional[Dict[str, Any]
 
     try:
         # Load metadata
-        with open(metadata_file, 'r') as f:
+        with open(metadata_file, "r") as f:
             metadata = json.load(f)
 
         # Load generated code
@@ -210,10 +214,10 @@ def load_cached_model(model_type: str, va_path: Path) -> Optional[Dict[str, Any]
 
         logger.info(f"  {model_type}: loaded from persistent cache (hash={va_hash})")
         return {
-            'metadata': metadata,
-            'init_code': init_code,
-            'eval_code': eval_code,
-            'va_hash': va_hash,
+            "metadata": metadata,
+            "init_code": init_code,
+            "eval_code": eval_code,
+            "va_hash": va_hash,
         }
     except Exception as e:
         logger.warning(f"  {model_type}: failed to load cache: {e}")
@@ -247,15 +251,15 @@ def save_model_cache(
         cache_path.mkdir(parents=True, exist_ok=True)
 
         # Save metadata
-        metadata_file = cache_path / 'metadata.json'
-        with open(metadata_file, 'w') as f:
+        metadata_file = cache_path / "metadata.json"
+        with open(metadata_file, "w") as f:
             json.dump(metadata, f, indent=2)
 
         # Save generated code
-        init_code_file = cache_path / 'init_fn.py'
+        init_code_file = cache_path / "init_fn.py"
         init_code_file.write_text(init_code)
 
-        eval_code_file = cache_path / 'eval_fn.py'
+        eval_code_file = cache_path / "eval_fn.py"
         eval_code_file.write_text(eval_code)
 
         logger.info(f"  {model_type}: saved to persistent cache (hash={va_hash})")
@@ -268,6 +272,7 @@ def save_model_cache(
 def clear_persistent_cache():
     """Clear the entire persistent cache directory."""
     import shutil
+
     cache_dir = get_persistent_cache_dir()
     if cache_dir.exists():
         shutil.rmtree(cache_dir)

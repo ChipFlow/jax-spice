@@ -9,7 +9,6 @@ These tests target VA features identified during the Ring benchmark investigatio
 See: PSP103_module.include lines 1834-1836 for the noise branch issue.
 """
 
-
 import numpy as np
 import pytest
 from conftest import INTEGRATION_PATH
@@ -44,9 +43,9 @@ class TestCollapsableResistor:
 
         # Find and set rs parameter
         for i, (name, kind) in enumerate(zip(param_names, param_kinds)):
-            if name == 'rs' and kind == 'param':
+            if name == "rs" and kind == "param":
                 inputs[i] = rs
-            elif 'V(CI,C)' in name or 'V(br_ci_c)' in name:
+            elif "V(CI,C)" in name or "V(br_ci_c)" in name:
                 inputs[i] = voltage_ci_c
 
         # Evaluate
@@ -56,7 +55,7 @@ class TestCollapsableResistor:
         # I = V/R = 1.0/100 = 0.01 A
         # We just check it's finite and reasonable (not ~1e40)
         for node, res in residuals.items():
-            resist_val = float(res.get('resist', 0.0))
+            resist_val = float(res.get("resist", 0.0))
             assert np.isfinite(resist_val), f"Non-finite residual at {node}"
             assert abs(resist_val) < 1e10, f"Residual too large at {node}: {resist_val}"
 
@@ -72,7 +71,7 @@ class TestCollapsableResistor:
 
         # Set rs = 0
         for i, (name, kind) in enumerate(zip(param_names, param_kinds)):
-            if name == 'rs' and kind == 'param':
+            if name == "rs" and kind == "param":
                 inputs[i] = rs
 
         # Evaluate
@@ -80,10 +79,12 @@ class TestCollapsableResistor:
 
         # All residuals should be finite and reasonable
         for node, res in residuals.items():
-            resist_val = float(res.get('resist', 0.0))
+            resist_val = float(res.get("resist", 0.0))
             assert np.isfinite(resist_val), f"Non-finite residual at {node}"
             # In collapsed mode, residuals should NOT have 1e40-scale values
-            assert abs(resist_val) < 1e20, f"Residual too large in collapsed mode at {node}: {resist_val}"
+            assert abs(resist_val) < 1e20, (
+                f"Residual too large in collapsed mode at {node}: {resist_val}"
+            )
 
 
 class TestPSP103NoiseCorrelationNode:
@@ -106,8 +107,9 @@ class TestPSP103NoiseCorrelationNode:
         # NOI should be node4 based on PSP103_module.include
         assert len(nodes) >= 5, "PSP103 should have at least 5 nodes"
         # The nodes list includes internal nodes
-        assert 'node4' in nodes or any('noi' in n.lower() for n in nodes), \
+        assert "node4" in nodes or any("noi" in n.lower() for n in nodes), (
             f"NOI node not found in {nodes}"
+        )
 
     def test_has_vnoi_voltage_input(self, psp103_model):
         """PSP103 should have V(NOI) as a voltage input parameter."""
@@ -116,12 +118,13 @@ class TestPSP103NoiseCorrelationNode:
 
         vnoi_found = False
         for name, kind in zip(param_names, param_kinds):
-            if 'V(NOI)' in name and kind == 'voltage':
+            if "V(NOI)" in name and kind == "voltage":
                 vnoi_found = True
                 break
 
-        assert vnoi_found, "V(NOI) voltage param not found. Voltage params: " + \
-            str([n for n, k in zip(param_names, param_kinds) if k == 'voltage'])
+        assert vnoi_found, "V(NOI) voltage param not found. Voltage params: " + str(
+            [n for n, k in zip(param_names, param_kinds) if k == "voltage"]
+        )
 
     def test_has_branch_current_input(self, psp103_model):
         """PSP103 should have I(NOII) as a current input parameter."""
@@ -130,12 +133,13 @@ class TestPSP103NoiseCorrelationNode:
 
         inoii_found = False
         for name, kind in zip(param_names, param_kinds):
-            if 'I(NOII)' in name and kind == 'current':
+            if "I(NOII)" in name and kind == "current":
                 inoii_found = True
                 break
 
-        assert inoii_found, "I(NOII) current param not found. Current params: " + \
-            str([n for n, k in zip(param_names, param_kinds) if k == 'current'])
+        assert inoii_found, "I(NOII) current param not found. Current params: " + str(
+            [n for n, k in zip(param_names, param_kinds) if k == "current"]
+        )
 
     def test_noi_zero_voltage_residuals(self, psp103_model):
         """With V(NOI)=0, all residuals should be finite and reasonable."""
@@ -146,10 +150,10 @@ class TestPSP103NoiseCorrelationNode:
 
         # Ensure V(NOI) = 0
         for i, (name, kind) in enumerate(zip(param_names, param_kinds)):
-            if 'V(NOI)' in name and kind == 'voltage':
+            if "V(NOI)" in name and kind == "voltage":
                 inputs[i] = 0.0
             # Also ensure I(NOII) = 0 for DC
-            if 'I(NOII)' in name and kind == 'current':
+            if "I(NOII)" in name and kind == "current":
                 inputs[i] = 0.0
 
         # Evaluate
@@ -158,13 +162,14 @@ class TestPSP103NoiseCorrelationNode:
         # All residuals should be finite and reasonable (NOT 1e40 scale)
         max_residual = 0.0
         for node, res in residuals.items():
-            resist_val = float(res.get('resist', 0.0))
+            resist_val = float(res.get("resist", 0.0))
             max_residual = max(max_residual, abs(resist_val))
             assert np.isfinite(resist_val), f"Non-finite residual at {node}"
 
         # The key test: residuals should NOT be ~1e40
-        assert max_residual < 1e30, \
+        assert max_residual < 1e30, (
             f"Residuals too large (max={max_residual:.2e}), likely NOI node issue"
+        )
 
     @pytest.mark.xfail(reason="NOI node with mig=1e-40 creates 1e40 residuals by design")
     def test_noi_nonzero_voltage_stability(self, psp103_model):
@@ -181,7 +186,7 @@ class TestPSP103NoiseCorrelationNode:
 
         # Set V(NOI) = 0.6V (the problematic value from Ring benchmark)
         for i, (name, kind) in enumerate(zip(param_names, param_kinds)):
-            if 'V(NOI)' in name and kind == 'voltage':
+            if "V(NOI)" in name and kind == "voltage":
                 inputs[i] = 0.6
 
         # Evaluate
@@ -190,12 +195,13 @@ class TestPSP103NoiseCorrelationNode:
         # Check residuals - this will fail with current implementation
         max_residual = 0.0
         for node, res in residuals.items():
-            resist_val = float(res.get('resist', 0.0))
+            resist_val = float(res.get("resist", 0.0))
             max_residual = max(max_residual, abs(resist_val))
 
         # This assertion will fail: we expect ~6e39, want < 1e30
-        assert max_residual < 1e30, \
+        assert max_residual < 1e30, (
             f"V(NOI)=0.6 causes residual {max_residual:.2e} (expected ~6e39 bug)"
+        )
 
 
 class TestCollapsiblePairs:
@@ -205,6 +211,7 @@ class TestCollapsiblePairs:
     def psp103_module(self):
         """Get raw PSP103 module."""
         import openvaf_py
+
         model_path = INTEGRATION_PATH / "PSP103" / "psp103.va"
         modules = openvaf_py.compile_va(str(model_path))
         return modules[0]
@@ -229,15 +236,16 @@ class TestCollapsiblePairs:
         # Find NOI node index (should be node4)
         noi_idx = None
         for i, node in enumerate(nodes):
-            if 'node4' in node or 'noi' in node.lower():
+            if "node4" in node or "noi" in node.lower():
                 noi_idx = i
                 break
 
         if noi_idx is not None:
             # NOI should not appear in any collapsible pair
             for pair in pairs:
-                assert noi_idx not in pair, \
+                assert noi_idx not in pair, (
                     f"NOI (node {noi_idx}) should not be collapsible, found in {pair}"
+                )
 
 
 class TestLargeConductance:
@@ -260,21 +268,22 @@ class TestLargeConductance:
         param_kinds = resistor_model.param_kinds
 
         for i, (name, kind) in enumerate(zip(param_names, param_kinds)):
-            if name == 'R' and kind == 'param':
+            if name == "R" and kind == "param":
                 inputs[i] = small_r
-            elif 'V(A,B)' in name:
+            elif "V(A,B)" in name:
                 inputs[i] = voltage
 
         residuals, jacobian = resistor_model.jax_fn(inputs)
 
         # Check residual is I = V/R = 1e10
         for node, res in residuals.items():
-            resist_val = float(res.get('resist', 0.0))
+            resist_val = float(res.get("resist", 0.0))
             # Should be ±1e10
             if abs(resist_val) > 1e5:  # Skip small values
                 expected = voltage / small_r
-                assert abs(resist_val) < 2 * expected, \
+                assert abs(resist_val) < 2 * expected, (
                     f"Large conductance residual wrong: {resist_val} vs expected {expected}"
+                )
 
 
 class TestInternalNodeAllocation:
@@ -284,6 +293,7 @@ class TestInternalNodeAllocation:
     def diode_module(self):
         """Get raw diode module."""
         import openvaf_py
+
         model_path = INTEGRATION_PATH / "DIODE" / "diode.va"
         modules = openvaf_py.compile_va(str(model_path))
         return modules[0]
@@ -300,5 +310,4 @@ class TestInternalNodeAllocation:
         n_residuals = diode_module.num_residuals
 
         # Residuals = one per node (KCL for each)
-        assert n_residuals == n_nodes, \
-            f"Residual count ({n_residuals}) != node count ({n_nodes})"
+        assert n_residuals == n_nodes, f"Residual count ({n_residuals}) != node count ({n_nodes})"

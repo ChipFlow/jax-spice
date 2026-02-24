@@ -77,18 +77,18 @@ class CompiledPDKModel:
         """Build input array with sensible defaults"""
         inputs = []
         for name, kind in zip(self.param_names, self.param_kinds):
-            if kind == 'voltage':
+            if kind == "voltage":
                 inputs.append(0.0)
-            elif kind == 'param':
-                if 'temperature' in name.lower() or name == '$temperature':
+            elif kind == "param":
+                if "temperature" in name.lower() or name == "$temperature":
                     inputs.append(300.15)
-                elif name.lower() in ('tnom', 'tref'):
+                elif name.lower() in ("tnom", "tref"):
                     inputs.append(300.0)
-                elif name.lower() == 'mfactor':
+                elif name.lower() == "mfactor":
                     inputs.append(1.0)
                 else:
                     inputs.append(1.0)
-            elif kind == 'hidden_state':
+            elif kind == "hidden_state":
                 inputs.append(0.0)
             else:
                 inputs.append(0.0)

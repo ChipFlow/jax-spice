@@ -309,9 +309,7 @@ class TestNodeCountComparison:
 
         expected = vacask_unknowns + 1
         ratio = abs(n_total - expected) / expected
-        assert ratio <= 0.1, (
-            f"c6288: VAJAX={n_total}, expected~{expected} ({ratio * 100:.1f}% off)"
-        )
+        assert ratio <= 0.1, f"c6288: VAJAX={n_total}, expected~{expected} ({ratio * 100:.1f}% off)"
 
 
 class TestNodeCollapseStandalone:

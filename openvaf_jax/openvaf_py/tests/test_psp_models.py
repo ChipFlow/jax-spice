@@ -29,7 +29,7 @@ class TestPSP102:
     def test_compilation(self, psp102_model: CompiledModel):
         """PSP102 model compiles without error"""
         assert psp102_model.module is not None
-        assert 'psp102' in psp102_model.name.lower()
+        assert "psp102" in psp102_model.name.lower()
         assert len(psp102_model.nodes) >= 4
 
     def test_valid_output(self, psp102_model: CompiledModel):
@@ -39,7 +39,7 @@ class TestPSP102:
 
         assert residuals is not None
         for node, res in residuals.items():
-            resist = float(res['resist'])
+            resist = float(res["resist"])
             assert not np.isnan(resist), f"NaN at {node}"
 
     def test_has_jacobian(self, psp102_model: CompiledModel):
@@ -53,7 +53,7 @@ class TestPSP103:
     def test_compilation(self, psp103_model: CompiledModel):
         """PSP103 model compiles without error"""
         assert psp103_model.module is not None
-        assert 'psp103' in psp103_model.name.lower()
+        assert "psp103" in psp103_model.name.lower()
         assert len(psp103_model.nodes) >= 4
 
     def test_valid_output(self, psp103_model: CompiledModel):
@@ -63,15 +63,13 @@ class TestPSP103:
 
         assert residuals is not None
         for node, res in residuals.items():
-            resist = float(res['resist'])
+            resist = float(res["resist"])
             assert not np.isnan(resist), f"NaN at {node}"
 
     def test_complexity(self, psp103_model: CompiledModel):
         """PSP103 is a complex model"""
         # PSP103 should have many hidden states
-        hidden_count = sum(
-            1 for k in psp103_model.param_kinds if k == 'hidden_state'
-        )
+        hidden_count = sum(1 for k in psp103_model.param_kinds if k == "hidden_state")
         assert hidden_count > 100, f"PSP103 should be complex, has {hidden_count} hidden states"
 
 
@@ -81,7 +79,7 @@ class TestJUNCAP:
     def test_compilation(self, juncap_model: CompiledModel):
         """JUNCAP200 model compiles without error"""
         assert juncap_model.module is not None
-        assert 'juncap' in juncap_model.name.lower()
+        assert "juncap" in juncap_model.name.lower()
         assert len(juncap_model.nodes) >= 2
 
     def test_valid_output(self, juncap_model: CompiledModel):
@@ -91,7 +89,7 @@ class TestJUNCAP:
 
         assert residuals is not None
         for node, res in residuals.items():
-            resist = float(res['resist'])
+            resist = float(res["resist"])
             assert not np.isnan(resist), f"NaN at {node}"
 
     def test_is_two_terminal(self, juncap_model: CompiledModel):

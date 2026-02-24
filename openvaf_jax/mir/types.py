@@ -9,23 +9,23 @@ from typing import Any, Dict, List, NewType, Optional
 
 # Type-safe identifiers for MIR elements
 # These are strings at runtime but distinct types for type checking
-BlockId = NewType('BlockId', str)
+BlockId = NewType("BlockId", str)
 """Identifier for a basic block (e.g., 'block0')."""
 
-ValueId = NewType('ValueId', str)
+ValueId = NewType("ValueId", str)
 """Identifier for an SSA value (e.g., 'v123')."""
 
 
 # Pre-allocated MIR constants (from OpenVAF mir/src/dfg/values.rs:57-76)
 # These are always present at fixed positions but not shown in MIR dumps
-V_GRAVESTONE = ValueId('v0')  # Dead value placeholder
-V_FALSE = ValueId('v1')       # bool: false
-V_TRUE = ValueId('v2')        # bool: true
-V_F_ZERO = ValueId('v3')      # f64: 0.0
-V_ZERO = ValueId('v4')        # i32: 0
-V_ONE = ValueId('v5')         # i32: 1
-V_F_ONE = ValueId('v6')       # f64: 1.0
-V_F_N_ONE = ValueId('v7')     # f64: -1.0
+V_GRAVESTONE = ValueId("v0")  # Dead value placeholder
+V_FALSE = ValueId("v1")  # bool: false
+V_TRUE = ValueId("v2")  # bool: true
+V_F_ZERO = ValueId("v3")  # f64: 0.0
+V_ZERO = ValueId("v4")  # i32: 0
+V_ONE = ValueId("v5")  # i32: 1
+V_F_ONE = ValueId("v6")  # f64: 1.0
+V_F_N_ONE = ValueId("v7")  # f64: -1.0
 
 
 @dataclass
@@ -37,6 +37,7 @@ class PhiOperand:
     - block: The predecessor block this value comes from
     - value: The value ID from that block
     """
+
     block: BlockId
     value: ValueId
 
@@ -57,6 +58,7 @@ class MIRInstruction:
     - EXIT: Function return
     - CALL: Function call
     """
+
     opcode: str
     block: str
     result: Optional[ValueId] = None
@@ -77,24 +79,24 @@ class MIRInstruction:
 
     @property
     def is_phi(self) -> bool:
-        return self.opcode.lower() == 'phi'
+        return self.opcode.lower() == "phi"
 
     @property
     def is_terminator(self) -> bool:
         """Returns True if this instruction ends a basic block."""
-        return self.opcode.lower() in ('br', 'jmp', 'exit')
+        return self.opcode.lower() in ("br", "jmp", "exit")
 
     @property
     def is_branch(self) -> bool:
-        return self.opcode.lower() == 'br'
+        return self.opcode.lower() == "br"
 
     @property
     def is_jump(self) -> bool:
-        return self.opcode.lower() == 'jmp'
+        return self.opcode.lower() == "jmp"
 
     @property
     def is_exit(self) -> bool:
-        return self.opcode.lower() == 'exit'
+        return self.opcode.lower() == "exit"
 
 
 @dataclass
@@ -106,6 +108,7 @@ class Block:
     - Single exit point (last instruction, a terminator)
     - No branches except at the end
     """
+
     name: str
     instructions: List[MIRInstruction] = field(default_factory=list)
     predecessors: List[str] = field(default_factory=list)
@@ -127,8 +130,7 @@ class Block:
     @property
     def body_instructions(self) -> List[MIRInstruction]:
         """Get non-PHI, non-terminator instructions."""
-        return [inst for inst in self.instructions
-                if not inst.is_phi and not inst.is_terminator]
+        return [inst for inst in self.instructions if not inst.is_phi and not inst.is_terminator]
 
 
 @dataclass
@@ -137,6 +139,7 @@ class MIRFunction:
 
     Contains all blocks, constants, and parameters for a function.
     """
+
     name: str
     blocks: Dict[str, Block] = field(default_factory=dict)
 
@@ -150,7 +153,7 @@ class MIRFunction:
     params: List[str] = field(default_factory=list)
 
     # Entry block name
-    entry_block: str = 'block0'
+    entry_block: str = "block0"
 
     @property
     def all_instructions(self) -> List[MIRInstruction]:
@@ -170,9 +173,7 @@ class MIRFunction:
 
 
 def parse_mir_function(
-    name: str,
-    mir_data: Dict[str, Any],
-    str_constants: Optional[Dict[str, str]] = None
+    name: str, mir_data: Dict[str, Any], str_constants: Optional[Dict[str, str]] = None
 ) -> MIRFunction:
     """Parse MIR data from openvaf_py into MIRFunction.
 
@@ -185,29 +186,29 @@ def parse_mir_function(
         Parsed MIRFunction
     """
     # Extract function declarations for resolving func_ref in call instructions
-    function_decls = dict(mir_data.get('function_decls', {}))
+    function_decls = dict(mir_data.get("function_decls", {}))
 
     func = MIRFunction(
         name=name,
-        constants=dict(mir_data.get('constants', {})),
-        bool_constants=dict(mir_data.get('bool_constants', {})),
-        int_constants=dict(mir_data.get('int_constants', {})),
+        constants=dict(mir_data.get("constants", {})),
+        bool_constants=dict(mir_data.get("bool_constants", {})),
+        int_constants=dict(mir_data.get("int_constants", {})),
         str_constants=dict(str_constants) if str_constants else {},
-        params=list(mir_data.get('params', [])),
+        params=list(mir_data.get("params", [])),
     )
 
     # Parse blocks
-    blocks_data = mir_data.get('blocks', {})
+    blocks_data = mir_data.get("blocks", {})
     for block_name, block_data in blocks_data.items():
         block = Block(
             name=block_name,
-            predecessors=list(block_data.get('predecessors', [])),
-            successors=list(block_data.get('successors', [])),
+            predecessors=list(block_data.get("predecessors", [])),
+            successors=list(block_data.get("successors", [])),
         )
         func.blocks[block_name] = block
 
     # Parse instructions and add to blocks
-    instructions = mir_data.get('instructions', [])
+    instructions = mir_data.get("instructions", [])
     for inst_data in instructions:
         inst = _parse_instruction(inst_data, function_decls)
         block_name = inst.block
@@ -218,8 +219,8 @@ def parse_mir_function(
     # The entry block is the one with no predecessors
     if func.blocks:
         # First try 'block0' which is the conventional entry
-        if 'block0' in func.blocks:
-            func.entry_block = 'block0'
+        if "block0" in func.blocks:
+            func.entry_block = "block0"
         else:
             # Find block with no predecessors
             for block_name, block in func.blocks.items():
@@ -230,17 +231,17 @@ def parse_mir_function(
                 # Fallback: use block with lowest numeric suffix
                 def block_num(name: str) -> int:
                     try:
-                        return int(name.replace('block', ''))
+                        return int(name.replace("block", ""))
                     except ValueError:
                         return 2**31 - 1  # Large int as fallback
+
                 func.entry_block = min(func.blocks.keys(), key=block_num)
 
     return func
 
 
 def _parse_instruction(
-    inst_data: Dict[str, Any],
-    function_decls: Optional[Dict[str, Dict[str, Any]]] = None
+    inst_data: Dict[str, Any], function_decls: Optional[Dict[str, Dict[str, Any]]] = None
 ) -> MIRInstruction:
     """Parse a single instruction from MIR data.
 
@@ -248,50 +249,49 @@ def _parse_instruction(
         inst_data: Raw instruction dict from MIR
         function_decls: Function declarations dict for resolving func_ref
     """
-    opcode = inst_data.get('opcode', '').lower()
+    opcode = inst_data.get("opcode", "").lower()
 
     # Wrap result with ValueId if present
-    result_str = inst_data.get('result')
+    result_str = inst_data.get("result")
     result = ValueId(result_str) if result_str else None
 
     # Wrap operands with ValueId
-    operands = [ValueId(op) for op in inst_data.get('operands', [])]
+    operands = [ValueId(op) for op in inst_data.get("operands", [])]
 
     inst = MIRInstruction(
         opcode=opcode,
-        block=inst_data.get('block', ''),
+        block=inst_data.get("block", ""),
         result=result,
         operands=operands,
     )
 
     # Parse PHI operands
-    if opcode == 'phi':
-        phi_ops = inst_data.get('phi_operands', [])
+    if opcode == "phi":
+        phi_ops = inst_data.get("phi_operands", [])
         inst.phi_operands = [
-            PhiOperand(block=BlockId(op['block']), value=ValueId(op['value']))
-            for op in phi_ops
+            PhiOperand(block=BlockId(op["block"]), value=ValueId(op["value"])) for op in phi_ops
         ]
 
     # Parse branch-specific fields
-    if opcode == 'br':
-        cond_str = inst_data.get('condition')
+    if opcode == "br":
+        cond_str = inst_data.get("condition")
         inst.condition = ValueId(cond_str) if cond_str else None
-        inst.true_block = inst_data.get('true_block')
-        inst.false_block = inst_data.get('false_block')
-        inst.loop_entry = inst_data.get('loop_entry', False)
-    elif opcode == 'jmp':
+        inst.true_block = inst_data.get("true_block")
+        inst.false_block = inst_data.get("false_block")
+        inst.loop_entry = inst_data.get("loop_entry", False)
+    elif opcode == "jmp":
         # JMP uses 'destination' in raw MIR data
-        inst.target_block = inst_data.get('destination') or inst_data.get('target_block')
+        inst.target_block = inst_data.get("destination") or inst_data.get("target_block")
 
     # Parse call-specific fields
-    if opcode == 'call':
+    if opcode == "call":
         # Try direct func_name first
-        func_name = inst_data.get('func_name')
+        func_name = inst_data.get("func_name")
         if not func_name:
             # Look up via func_ref in function_decls
-            func_ref = inst_data.get('func_ref')
+            func_ref = inst_data.get("func_ref")
             if func_ref and function_decls and func_ref in function_decls:
-                func_name = function_decls[func_ref].get('name')
+                func_name = function_decls[func_ref].get("name")
         inst.func_name = func_name
 
     return inst

@@ -3,7 +3,6 @@
 These tests require the GF130 PDK to be available via PDK_GF130_PATH environment variable.
 """
 
-
 import pytest
 from pdk_utils import PDK_PATHS, CompiledPDKModel, compile_pdk_model, sanitize_pdk_path
 
@@ -151,7 +150,7 @@ class TestGF130JAXExecution:
             # Check at least one output is not NaN
             has_valid = False
             for node, res in residuals.items():
-                if np.isfinite(float(res['resist'])):
+                if np.isfinite(float(res["resist"])):
                     has_valid = True
                     break
 

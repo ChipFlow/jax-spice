@@ -180,9 +180,7 @@ class VaModule:
         """
         ...
 
-    def evaluate(
-        self, params: Dict[str, float]
-    ) -> Dict[str, List[Tuple[float, float]]]:
+    def evaluate(self, params: Dict[str, float]) -> Dict[str, List[Tuple[float, float]]]:
         """Evaluate the module with given parameter values.
 
         Args:
@@ -213,7 +211,6 @@ class VaModule:
     def __repr__(self) -> str:
         """String representation of the module."""
         ...
-
 
 def compile_va(
     path: str,

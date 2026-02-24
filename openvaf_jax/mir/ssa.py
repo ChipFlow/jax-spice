@@ -25,6 +25,7 @@ class BranchInfo:
 
     Maps a block to its branch condition and targets.
     """
+
     block: str
     condition: str  # The value ID used as condition
     true_block: str
@@ -33,6 +34,7 @@ class BranchInfo:
 
 class PHIResolutionType(Enum):
     """Type of PHI resolution strategy."""
+
     TWO_WAY = "two_way"  # Simple jnp.where(cond, true, false)
     MULTI_WAY = "multi_way"  # Nested where for 3+ predecessors
     LOOP_INIT = "loop_init"  # Initial value from outside loop
@@ -46,6 +48,7 @@ class PHIResolution:
 
     Contains all information needed to generate code for a PHI node.
     """
+
     type: PHIResolutionType
 
     # For TWO_WAY: condition may be negated (e.g., '!v5')
@@ -55,8 +58,8 @@ class PHIResolution:
 
     # For NESTED_TWO_WAY: branches can be nested PHIResolutions
     # Use these instead of true_value/false_value when branch needs further resolution
-    nested_true: Optional['PHIResolution'] = None
-    nested_false: Optional['PHIResolution'] = None
+    nested_true: Optional["PHIResolution"] = None
+    nested_false: Optional["PHIResolution"] = None
 
     # For MULTI_WAY: list of (condition_expr, value) pairs + default
     # condition_expr may have negation prefix (e.g., '!v5')
@@ -84,7 +87,7 @@ class SSAAnalyzer:
         self,
         mir_func: MIRFunction,
         cfg: CFGAnalyzer,
-        sccp: Optional['SCCP'] = None,
+        sccp: Optional["SCCP"] = None,
     ):
         """Initialize SSA analyzer.
 
@@ -103,7 +106,9 @@ class SSAAnalyzer:
         self._succ_pair_map: Optional[Dict[FrozenSet[str], List[str]]] = None
         self._pred_to_branch_target: Optional[Dict[str, Dict[str, str]]] = None
         self._reachable_from: Optional[Dict[str, Set[str]]] = None  # Transitive closure
-        self._dominated_reachable_cache: Dict[Tuple[str, str, str], bool] = {}  # Cache for dominated reachability
+        self._dominated_reachable_cache: Dict[
+            Tuple[str, str, str], bool
+        ] = {}  # Cache for dominated reachability
 
     @property
     def branch_conditions(self) -> Dict[str, Dict[str, Tuple[ValueId, bool]]]:
@@ -204,8 +209,7 @@ class SSAAnalyzer:
 
         return reachable
 
-    def resolve_phi(self, phi: MIRInstruction,
-                    loop: Optional[LoopInfo] = None) -> PHIResolution:
+    def resolve_phi(self, phi: MIRInstruction, loop: Optional[LoopInfo] = None) -> PHIResolution:
         """Resolve a PHI node to a code generation strategy.
 
         Args:
@@ -225,12 +229,11 @@ class SSAAnalyzer:
         live_operands = self._get_live_operands(phi)
 
         if len(live_operands) == 0:
-            return PHIResolution(type=PHIResolutionType.FALLBACK, single_value=ValueId('0'))
+            return PHIResolution(type=PHIResolutionType.FALLBACK, single_value=ValueId("0"))
 
         if len(live_operands) == 1:
             return PHIResolution(
-                type=PHIResolutionType.FALLBACK,
-                single_value=live_operands[0].value
+                type=PHIResolutionType.FALLBACK, single_value=live_operands[0].value
             )
 
         # If SCCP reduced operands, create a "virtual" PHI with filtered operands
@@ -310,8 +313,7 @@ class SSAAnalyzer:
 
         return succ_to_blocks
 
-    def _resolve_loop_phi(self, phi: MIRInstruction,
-                          loop: LoopInfo) -> PHIResolution:
+    def _resolve_loop_phi(self, phi: MIRInstruction, loop: LoopInfo) -> PHIResolution:
         """Resolve PHI in a loop header.
 
         Loop PHIs have two kinds of operands:
@@ -432,22 +434,17 @@ class SSAAnalyzer:
 
         # Strategy 4: Dominator-based resolution
         # Walk up the dominator tree to find a branching dominator
-        resolution = self._resolve_via_dominator(phi.block, [pred0, pred1],
-                                                  {pred0: val0, pred1: val1})
+        resolution = self._resolve_via_dominator(
+            phi.block, [pred0, pred1], {pred0: val0, pred1: val1}
+        )
         if resolution:
             return resolution
 
         # Fallback: couldn't find condition, use first value
-        return PHIResolution(
-            type=PHIResolutionType.FALLBACK,
-            single_value=val0
-        )
+        return PHIResolution(type=PHIResolutionType.FALLBACK, single_value=val0)
 
     def _resolve_via_dominator(
-        self,
-        phi_block: str,
-        pred_blocks: List[str],
-        val_by_pred: Dict[str, ValueId]
+        self, phi_block: str, pred_blocks: List[str], val_by_pred: Dict[str, ValueId]
     ) -> Optional[PHIResolution]:
         """Resolve PHI using dominator tree.
 
@@ -615,7 +612,12 @@ class SSAAnalyzer:
             cond_var, _ = cond_info[true_target]
 
             # Case 1: pred0 only from true, pred1 only from false
-            if pred0_from_true and not pred0_from_false and pred1_from_false and not pred1_from_true:
+            if (
+                pred0_from_true
+                and not pred0_from_false
+                and pred1_from_false
+                and not pred1_from_true
+            ):
                 return PHIResolution(
                     type=PHIResolutionType.TWO_WAY,
                     condition=cond_var,
@@ -624,7 +626,12 @@ class SSAAnalyzer:
                 )
 
             # Case 2: pred0 only from false, pred1 only from true
-            if pred0_from_false and not pred0_from_true and pred1_from_true and not pred1_from_false:
+            if (
+                pred0_from_false
+                and not pred0_from_true
+                and pred1_from_true
+                and not pred1_from_false
+            ):
                 return PHIResolution(
                     type=PHIResolutionType.TWO_WAY,
                     condition=cond_var,
@@ -669,13 +676,10 @@ class SSAAnalyzer:
         # Optimization: If only one non-v3 value, use it directly
         # v3 (constant 0.0) is often a placeholder for "unused" paths
         # (e.g., PMOS values when running NMOS, or vice versa)
-        non_v3_vals = [v for v in unique_vals if str(v) != 'v3']
+        non_v3_vals = [v for v in unique_vals if str(v) != "v3"]
         if len(non_v3_vals) == 1:
             # All paths either compute this value or use v3 placeholder
-            return PHIResolution(
-                type=PHIResolutionType.FALLBACK,
-                single_value=non_v3_vals[0]
-            )
+            return PHIResolution(type=PHIResolutionType.FALLBACK, single_value=non_v3_vals[0])
 
         # If only 2 unique values, try dominator-based TWO_WAY resolution
         if len(unique_vals) == 2:
@@ -686,9 +690,7 @@ class SSAAnalyzer:
 
             # Try ancestor trace as fallback for 2-value case
             # This handles cases where the controlling branch isn't in the dominator tree
-            resolution = self._resolve_via_ancestor_trace_for_groups(
-                val_to_preds, unique_vals
-            )
+            resolution = self._resolve_via_ancestor_trace_for_groups(val_to_preds, unique_vals)
             if resolution:
                 return resolution
 
@@ -699,8 +701,7 @@ class SSAAnalyzer:
 
         # Fallback to first value if tree building fails
         return PHIResolution(
-            type=PHIResolutionType.FALLBACK,
-            single_value=phi.phi_operands[0].value
+            type=PHIResolutionType.FALLBACK, single_value=phi.phi_operands[0].value
         )
 
     def _build_phi_decision_tree(
@@ -723,8 +724,7 @@ class SSAAnalyzer:
         # Base case: 1 predecessor - return FALLBACK with that value
         if len(pred_blocks) == 1:
             return PHIResolution(
-                type=PHIResolutionType.FALLBACK,
-                single_value=val_by_pred[pred_blocks[0]]
+                type=PHIResolutionType.FALLBACK, single_value=val_by_pred[pred_blocks[0]]
             )
 
         # Base case: 2 predecessors with same value - return FALLBACK
@@ -732,10 +732,7 @@ class SSAAnalyzer:
             val0 = val_by_pred[pred_blocks[0]]
             val1 = val_by_pred[pred_blocks[1]]
             if val0 == val1:
-                return PHIResolution(
-                    type=PHIResolutionType.FALLBACK,
-                    single_value=val0
-                )
+                return PHIResolution(type=PHIResolutionType.FALLBACK, single_value=val0)
 
         # Find a branch that separates predecessors into two non-empty groups
         split = self._find_separating_branch(pred_blocks)
@@ -832,8 +829,12 @@ class SSAAnalyzer:
                 if pred == block_name:
                     # Check which branch target the PHI block is
                     # (One of true_target or false_target must be the PHI block for this to matter)
-                    from_true = (true_target in pred_blocks) or self._is_reachable(true_target, pred)
-                    from_false = (false_target in pred_blocks) or self._is_reachable(false_target, pred)
+                    from_true = (true_target in pred_blocks) or self._is_reachable(
+                        true_target, pred
+                    )
+                    from_false = (false_target in pred_blocks) or self._is_reachable(
+                        false_target, pred
+                    )
 
                     # If this block branches directly to another predecessor via true/false,
                     # classify based on which target reaches more of our predecessors
@@ -901,10 +902,7 @@ class SSAAnalyzer:
         return None
 
     def _peel_via_dominator(
-        self,
-        phi_block: str,
-        remaining: List[str],
-        val_by_pred: Dict[str, ValueId]
+        self, phi_block: str, remaining: List[str], val_by_pred: Dict[str, ValueId]
     ) -> Optional[Tuple[str, ValueId, List[str]]]:
         """Peel off a subset of predecessors using dominator-based condition.
 
@@ -961,9 +959,7 @@ class SSAAnalyzer:
         return None
 
     def _resolve_via_ancestor_trace_for_groups(
-        self,
-        val_to_preds: Dict[ValueId, List[BlockId]],
-        unique_vals: List[ValueId]
+        self, val_to_preds: Dict[ValueId, List[BlockId]], unique_vals: List[ValueId]
     ) -> Optional[PHIResolution]:
         """Resolve 2-value multi-way PHI by finding branch that separates value groups.
 
@@ -1039,9 +1035,7 @@ class SSAAnalyzer:
         return None
 
     def _peel_via_ancestor_trace(
-        self,
-        remaining: List[str],
-        val_by_pred: Dict[str, ValueId]
+        self, remaining: List[str], val_by_pred: Dict[str, ValueId]
     ) -> Optional[Tuple[str, ValueId, List[str]]]:
         """Peel off one predecessor from a 2-predecessor list using ancestor trace.
 
@@ -1083,19 +1077,30 @@ class SSAAnalyzer:
             cond_var, _ = cond_info[true_target]
 
             # pred0 only from true, pred1 only from false
-            if pred0_from_true and not pred0_from_false and pred1_from_false and not pred1_from_true:
+            if (
+                pred0_from_true
+                and not pred0_from_false
+                and pred1_from_false
+                and not pred1_from_true
+            ):
                 # Peel pred0 with condition true
                 return (str(cond_var), val0, [pred0])
 
             # pred0 only from false, pred1 only from true
-            if pred0_from_false and not pred0_from_true and pred1_from_true and not pred1_from_false:
+            if (
+                pred0_from_false
+                and not pred0_from_true
+                and pred1_from_true
+                and not pred1_from_false
+            ):
                 # Peel pred1 with condition true
                 return (str(cond_var), val1, [pred1])
 
         return None
 
-    def _find_condition_for_groups(self, preds_a: List[BlockId],
-                                    preds_b: List[BlockId]) -> Optional[str]:
+    def _find_condition_for_groups(
+        self, preds_a: List[BlockId], preds_b: List[BlockId]
+    ) -> Optional[str]:
         """Find a condition that separates two groups of predecessors."""
         branch_conds = self.branch_conditions
 
@@ -1148,9 +1153,9 @@ class SSAAnalyzer:
 
         return False
 
-    def _peel_one_predecessor(self, remaining: List[BlockId],
-                               val_by_pred: Dict[BlockId, ValueId]
-                               ) -> Optional[Tuple[str, ValueId, BlockId]]:
+    def _peel_one_predecessor(
+        self, remaining: List[BlockId], val_by_pred: Dict[BlockId, ValueId]
+    ) -> Optional[Tuple[str, ValueId, BlockId]]:
         """Try to peel off one predecessor from the remaining set.
 
         Returns (condition, value, predecessor) if successful.
@@ -1162,8 +1167,9 @@ class SSAAnalyzer:
                 # Check if this target is one of our remaining predecessors
                 if target in remaining:
                     # Check if only this predecessor is reachable from this target
-                    reachable_preds = [p for p in remaining
-                                       if p == target or self._any_reachable(target, [p])]
+                    reachable_preds = [
+                        p for p in remaining if p == target or self._any_reachable(target, [p])
+                    ]
 
                     if len(reachable_preds) == 1:
                         pred = reachable_preds[0]

@@ -53,7 +53,7 @@ class TestAllModels:
         finite_count = 0
         nan_count = 0
         for node, res in residuals.items():
-            resist = float(res['resist'])
+            resist = float(res["resist"])
             if np.isfinite(resist):
                 finite_count += 1
             else:
@@ -71,12 +71,16 @@ class TestAllModels:
         model = compile_model(INTEGRATION_PATH / model_path)
         assert model.module.num_jacobian > 0
 
-    @pytest.mark.parametrize("model_name,model_path", [
-        m for m in INTEGRATION_MODELS
-        if m[0] not in ('bsim3', 'bsimcmg', 'hicum', 'mextram')  # Known to have some NaN
-        and m[0] not in CODEGEN_BROKEN_MODELS  # Codegen bugs
-        and m[0] not in HANGING_MODELS  # Cause CI timeout
-    ])
+    @pytest.mark.parametrize(
+        "model_name,model_path",
+        [
+            m
+            for m in INTEGRATION_MODELS
+            if m[0] not in ("bsim3", "bsimcmg", "hicum", "mextram")  # Known to have some NaN
+            and m[0] not in CODEGEN_BROKEN_MODELS  # Codegen bugs
+            and m[0] not in HANGING_MODELS  # Cause CI timeout
+        ],
+    )
     def test_model_all_residuals_finite(self, compile_model, model_name, model_path):
         """Model produces ALL finite residuals (stricter test).
 
@@ -88,7 +92,7 @@ class TestAllModels:
 
         # All residuals must be finite
         for node, res in residuals.items():
-            resist = float(res['resist'])
+            resist = float(res["resist"])
             assert np.isfinite(resist), f"{model_name} has NaN resist at {node}"
 
 
@@ -96,21 +100,32 @@ class TestModelCategories:
     """Test models by category to verify category-specific behavior."""
 
     # Simple 2-terminal devices
-    SIMPLE_MODELS = ['resistor', 'diode', 'diode_cmc', 'isrc']
+    SIMPLE_MODELS = ["resistor", "diode", "diode_cmc", "isrc"]
 
     # MOSFET models (4+ terminals)
-    MOSFET_MODELS = ['ekv', 'bsim3', 'bsim4', 'bsim6', 'bsimbulk', 'bsimcmg',
-                     'bsimsoi', 'psp102', 'psp103', 'hisim2']
+    MOSFET_MODELS = [
+        "ekv",
+        "bsim3",
+        "bsim4",
+        "bsim6",
+        "bsimbulk",
+        "bsimcmg",
+        "bsimsoi",
+        "psp102",
+        "psp103",
+        "hisim2",
+    ]
 
     # BJT models (3+ terminals)
-    BJT_MODELS = ['hicum', 'mextram']
+    BJT_MODELS = ["hicum", "mextram"]
 
     # HEMT models
-    HEMT_MODELS = ['asmhemt', 'mvsg']
+    HEMT_MODELS = ["asmhemt", "mvsg"]
 
-    @pytest.mark.parametrize("model_name,model_path", [
-        m for m in INTEGRATION_MODELS if m[0] in ['resistor', 'diode', 'diode_cmc']
-    ])
+    @pytest.mark.parametrize(
+        "model_name,model_path",
+        [m for m in INTEGRATION_MODELS if m[0] in ["resistor", "diode", "diode_cmc"]],
+    )
     def test_simple_device_zero_bias(self, compile_model, model_name, model_path):
         """Simple devices at zero bias should have near-zero current."""
         model = compile_model(INTEGRATION_PATH / model_path)
@@ -119,14 +134,15 @@ class TestModelCategories:
 
         # At zero bias, currents should be small
         for node, res in residuals.items():
-            resist = float(res['resist'])
+            resist = float(res["resist"])
             if np.isfinite(resist):
                 # Allow small currents (leakage, etc.) but not large ones
                 assert abs(resist) < 1e10, f"{model_name} has large current at {node}: {resist}"
 
-    @pytest.mark.parametrize("model_name,model_path", [
-        m for m in INTEGRATION_MODELS if m[0] in ['ekv', 'bsim4', 'psp103']
-    ])
+    @pytest.mark.parametrize(
+        "model_name,model_path",
+        [m for m in INTEGRATION_MODELS if m[0] in ["ekv", "bsim4", "psp103"]],
+    )
     def test_mosfet_has_four_terminals(self, compile_model, model_name, model_path):
         """MOSFET models should have at least 4 terminals (D, G, S, B)."""
         model = compile_model(INTEGRATION_PATH / model_path)

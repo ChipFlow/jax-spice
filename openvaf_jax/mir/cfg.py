@@ -20,6 +20,7 @@ class LoopInfo:
     A natural loop is defined by a back-edge (edge to a dominator).
     The loop header dominates all nodes in the loop body.
     """
+
     header: str
     body: Set[str]  # All blocks in the loop (including header)
     exits: List[str]  # Blocks outside the loop reachable from loop
@@ -224,8 +225,11 @@ class CFGAnalyzer:
                     continue
 
                 # Get processed predecessors (those with idom already set)
-                preds = [p for p in self.blocks[block].predecessors
-                         if p in reachable and idom.get(p) is not None]
+                preds = [
+                    p
+                    for p in self.blocks[block].predecessors
+                    if p in reachable and idom.get(p) is not None
+                ]
 
                 if not preds:
                     continue
@@ -280,17 +284,18 @@ class CFGAnalyzer:
             edges = header_to_edges[header]
             body = self._compute_loop_body(header, edges)
             exits = self._compute_loop_exits(body)
-            loops.append(LoopInfo(
-                header=header,
-                body=body,
-                exits=exits,
-                back_edges=edges,
-            ))
+            loops.append(
+                LoopInfo(
+                    header=header,
+                    body=body,
+                    exits=exits,
+                    back_edges=edges,
+                )
+            )
 
         return loops
 
-    def _compute_loop_body(self, header: str,
-                           back_edges: List[Tuple[str, str]]) -> Set[str]:
+    def _compute_loop_body(self, header: str, back_edges: List[Tuple[str, str]]) -> Set[str]:
         """Compute all blocks in a natural loop.
 
         The loop body includes all blocks that can reach the back-edge
@@ -395,12 +400,14 @@ class CFGAnalyzer:
             edges = header_to_edges[header]
             body = self._compute_loop_body(header, edges)
             exits = self._compute_loop_exits(body)
-            loops.append(LoopInfo(
-                header=header,
-                body=body,
-                exits=exits,
-                back_edges=edges,
-            ))
+            loops.append(
+                LoopInfo(
+                    header=header,
+                    body=body,
+                    exits=exits,
+                    back_edges=edges,
+                )
+            )
 
         return loops
 
@@ -496,18 +503,14 @@ class CFGAnalyzer:
 
         return result
 
-    def get_block_predecessors_outside_loop(self, block: str,
-                                             loop: LoopInfo) -> List[str]:
+    def get_block_predecessors_outside_loop(self, block: str, loop: LoopInfo) -> List[str]:
         """Get predecessors of a block that are outside the given loop."""
         if block not in self.blocks:
             return []
-        return [p for p in self.blocks[block].predecessors
-                if p not in loop.body]
+        return [p for p in self.blocks[block].predecessors if p not in loop.body]
 
-    def get_block_successors_outside_loop(self, block: str,
-                                           loop: LoopInfo) -> List[str]:
+    def get_block_successors_outside_loop(self, block: str, loop: LoopInfo) -> List[str]:
         """Get successors of a block that are outside the given loop."""
         if block not in self.blocks:
             return []
-        return [s for s in self.blocks[block].successors
-                if s not in loop.body]
+        return [s for s in self.blocks[block].successors if s not in loop.body]

@@ -1,13 +1,14 @@
 """Test JAX translator with diode model"""
+
 import math
 
 import openvaf_py
 
 import openvaf_jax
 
-print("="*70)
+print("=" * 70)
 print("Testing JAX translator with diode")
-print("="*70)
+print("=" * 70)
 
 # Compile the diode
 modules = openvaf_py.compile_va(
@@ -24,6 +25,7 @@ translator = openvaf_jax.OpenVAFToJAX(diode)
 eval_fn = translator.translate()
 print("JAX function compiled!")
 
+
 def test_diode(V_diode, temperature=300.15):
     """Test diode at given forward voltage"""
     # Physical constants
@@ -33,79 +35,79 @@ def test_diode(V_diode, temperature=300.15):
 
     # Diode parameters (defaults from typical model)
     Is = 1e-14  # Saturation current
-    N = 1.0     # Ideality factor
-    Rs = 0.0    # Series resistance
-    Rth = 0.0   # Thermal resistance
+    N = 1.0  # Ideality factor
+    Rs = 0.0  # Series resistance
+    Rth = 0.0  # Thermal resistance
 
     # Build parameter dict for interpreter
     params = {}
     for i, (name, kind) in enumerate(zip(diode.param_names, diode.param_kinds)):
-        if kind == 'voltage':
-            if name == 'V(A,CI)':
+        if kind == "voltage":
+            if name == "V(A,CI)":
                 params[name] = V_diode  # Main diode voltage
-            elif name == 'V(CI,C)':
+            elif name == "V(CI,C)":
                 params[name] = 0.0  # Rs voltage drop
-            elif name == 'V(dT)':
+            elif name == "V(dT)":
                 params[name] = 0.0  # Temperature rise
-            elif name == 'V(A)':
+            elif name == "V(A)":
                 params[name] = V_diode
             else:
                 params[name] = 0.0
-        elif kind == 'temperature':
+        elif kind == "temperature":
             params[name] = temperature
-        elif kind == 'param':
+        elif kind == "param":
             # Set model parameters
-            if name == 'is':
+            if name == "is":
                 params[name] = Is
-            elif name == 'n':
+            elif name == "n":
                 params[name] = N
-            elif name == 'rs':
+            elif name == "rs":
                 params[name] = Rs
-            elif name == 'rth':
+            elif name == "rth":
                 params[name] = Rth
-            elif name == 'tnom':
+            elif name == "tnom":
                 params[name] = 300.0
-            elif name == 'minr':
+            elif name == "minr":
                 params[name] = 1e-6
-            elif name in ('zetais', 'zetars', 'zetarth'):
+            elif name in ("zetais", "zetars", "zetarth"):
                 params[name] = 0.0
-            elif name == 'ea':
+            elif name == "ea":
                 params[name] = 1.11  # Silicon bandgap
-            elif name == 'vj':
+            elif name == "vj":
                 params[name] = 0.9  # Junction voltage
-            elif name == 'm':
+            elif name == "m":
                 params[name] = 0.5  # Grading coefficient
-            elif name == 'cj0':
+            elif name == "cj0":
                 params[name] = 0.0  # Zero junction capacitance
             else:
                 params[name] = 0.0
-        elif kind == 'hidden_state':
+        elif kind == "hidden_state":
             # Compute hidden states
-            if name == 'tdev':
+            if name == "tdev":
                 params[name] = temperature
-            elif name == 'vt':
+            elif name == "vt":
                 params[name] = vt
-            elif name == 'is_t':
+            elif name == "is_t":
                 params[name] = Is  # Temperature-adjusted Is
-            elif name == 'rs_t':
+            elif name == "rs_t":
                 params[name] = Rs
-            elif name == 'rth_t':
+            elif name == "rth_t":
                 params[name] = Rth
-            elif name == 'vd':
+            elif name == "vd":
                 params[name] = V_diode
-            elif name == 'vr':
+            elif name == "vr":
                 params[name] = 0.0
-            elif name == 'id':
+            elif name == "id":
                 # Ideal diode current
                 params[name] = Is * (math.exp(V_diode / (N * vt)) - 1)
-            elif name in ('vf', 'x', 'y', 'vd_smooth', 'qd', 'pterm', 'cd', 'gd'):
+            elif name in ("vf", "x", "y", "vd_smooth", "qd", "pterm", "cd", "gd"):
                 params[name] = 0.0
             else:
                 params[name] = 0.0
-        elif kind == 'current':
+        elif kind == "current":
             params[name] = 0.0
-        elif kind == 'sysfun':
-            if name == 'mfactor':
+        elif kind == "sysfun":
+            if name == "mfactor":
                 params[name] = 1.0
             else:
                 params[name] = 0.0
@@ -118,7 +120,7 @@ def test_diode(V_diode, temperature=300.15):
         interp_I = interp_res[0][0]  # First residual, resistive part
     except Exception as e:
         print(f"Interpreter error: {e}")
-        interp_I = float('nan')
+        interp_I = float("nan")
 
     # Build JAX inputs array
     jax_inputs = []
@@ -128,15 +130,16 @@ def test_diode(V_diode, temperature=300.15):
     # Run JAX
     try:
         jax_res, jax_jac = eval_fn(jax_inputs)
-        jax_I = float(jax_res['sim_node0']['resist'])
+        jax_I = float(jax_res["sim_node0"]["resist"])
     except Exception as e:
         print(f"JAX error: {e}")
-        jax_I = float('nan')
+        jax_I = float("nan")
 
     # Expected (ideal diode equation)
     expected_I = Is * (math.exp(V_diode / (N * vt)) - 1)
 
     return interp_I, jax_I, expected_I
+
 
 print("\n=== Diode I-V Curve Test ===")
 print(f"{'V (V)':<10} {'Interp I':<15} {'JAX I':<15} {'Expected I':<15} {'Match':<8}")

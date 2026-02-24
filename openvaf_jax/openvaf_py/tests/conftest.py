@@ -34,7 +34,6 @@ INTEGRATION_MODELS = [
     ("isrc", "CURRENT_SOURCE/current_source.va"),
     ("vccs", "VCCS/vccs.va"),
     ("cccs", "CCCS/cccs.va"),
-
     # MOSFETs
     ("ekv", "EKV/ekv.va"),
     ("bsim3", "BSIM3/bsim3.va"),
@@ -43,20 +42,16 @@ INTEGRATION_MODELS = [
     ("bsimbulk", "BSIMBULK/bsimbulk.va"),
     ("bsimcmg", "BSIMCMG/bsimcmg.va"),
     ("bsimsoi", "BSIMSOI/bsimsoi.va"),
-
     # PSP
     ("psp102", "PSP102/psp102.va"),
     ("psp103", "PSP103/psp103.va"),
     ("juncap", "PSP103/juncap200.va"),
-
     # HiSIM
     ("hisim2", "HiSIM2/hisim2.va"),
     ("hisimhv", "HiSIMHV/hisimhv.va"),
-
     # BJT
     ("hicum", "HICUML2/hicuml2.va"),
     ("mextram", "MEXTRAM/mextram.va"),
-
     # HEMT
     ("asmhemt", "ASMHEMT/asmhemt.va"),
     ("mvsg", "MVSG_CMC/mvsg_cmc.va"),
@@ -65,10 +60,10 @@ INTEGRATION_MODELS = [
 
 # Default tolerances for comparisons
 TOLERANCES = {
-    'residual': {'rtol': 1e-6, 'atol': 1e-15},
-    'jacobian': {'rtol': 1e-5, 'atol': 1e-12},
-    'current': {'rtol': 1e-6, 'atol': 1e-15},
-    'conductance': {'rtol': 1e-5, 'atol': 1e-12},
+    "residual": {"rtol": 1e-6, "atol": 1e-15},
+    "jacobian": {"rtol": 1e-5, "atol": 1e-12},
+    "current": {"rtol": 1e-6, "atol": 1e-15},
+    "conductance": {"rtol": 1e-5, "atol": 1e-12},
 }
 
 
@@ -134,7 +129,7 @@ class CompiledModel:
         Uses the actual defaults computed by the translator from the VA source.
         """
         # Start with the translator's init_inputs which have correct VA defaults
-        init_inputs = list(self._default_init_meta['init_inputs'])
+        init_inputs = list(self._default_init_meta["init_inputs"])
 
         # Build reverse mapping: init_index -> user_index
         # So we can map init defaults back to user param order
@@ -146,17 +141,17 @@ class CompiledModel:
         # Build user inputs array with proper defaults
         inputs = []
         for i, (name, kind) in enumerate(zip(self.param_names, self.param_kinds)):
-            if kind == 'voltage':
+            if kind == "voltage":
                 inputs.append(0.0)
-            elif kind == 'current':
+            elif kind == "current":
                 inputs.append(0.0)
-            elif kind == 'temperature':
+            elif kind == "temperature":
                 inputs.append(300.15)  # Operating temperature in Kelvin
-            elif kind == 'hidden_state':
+            elif kind == "hidden_state":
                 inputs.append(0.0)
-            elif kind == 'sysfun':
-                inputs.append(1.0 if 'mfactor' in name.lower() else 0.0)
-            elif kind == 'param':
+            elif kind == "sysfun":
+                inputs.append(1.0 if "mfactor" in name.lower() else 0.0)
+            elif kind == "param":
                 # Find if this param has a mapping to init_inputs
                 found = False
                 for ii, ui in init_to_user.items():
@@ -186,7 +181,7 @@ class CompiledModel:
         # Extract mfactor from inputs for simparams
         mfactor = 1.0
         for i, (name, kind, value) in enumerate(zip(self.param_names, self.param_kinds, inputs)):
-            if kind == 'sysfun' and name == 'mfactor':
+            if kind == "sysfun" and name == "mfactor":
                 mfactor = value
                 break
 
@@ -199,7 +194,7 @@ class CompiledModel:
         # Build init inputs from user inputs (map to init param positions)
         # init_inputs needs params in init function's expected order
         inputs_arr = jnp.asarray(inputs)
-        init_inputs = jnp.array(init_meta['init_inputs'])
+        init_inputs = jnp.array(init_meta["init_inputs"])
 
         # Apply user's param values to init_inputs using vectorized scatter
         # This ensures cache is computed with correct runtime params (e.g., R for resistor)
@@ -211,11 +206,13 @@ class CompiledModel:
         cache, _ = init_fn(init_inputs)
 
         # Build eval inputs
-        shared_indices = eval_meta['shared_indices']
-        voltage_indices = eval_meta['voltage_indices']
+        shared_indices = eval_meta["shared_indices"]
+        voltage_indices = eval_meta["voltage_indices"]
 
         shared_params = inputs_arr[jnp.array(shared_indices)] if shared_indices else jnp.array([])
-        varying_params = inputs_arr[jnp.array(voltage_indices)] if voltage_indices else jnp.array([])
+        varying_params = (
+            inputs_arr[jnp.array(voltage_indices)] if voltage_indices else jnp.array([])
+        )
 
         # Run eval with dynamic simparams
         simparams = jnp.array([0.0, mfactor, 1e-12])  # [analysis_type, mfactor, gmin]
@@ -225,27 +222,36 @@ class CompiledModel:
         # Cache split: shared_cache is empty, all cache in device_cache
         shared_cache = jnp.array([])
         device_cache = cache
-        result = eval_fn(shared_params, varying_params, shared_cache, device_cache, simparams, limit_state_in, limit_funcs)
+        result = eval_fn(
+            shared_params,
+            varying_params,
+            shared_cache,
+            device_cache,
+            simparams,
+            limit_state_in,
+            limit_funcs,
+        )
         res_resist, res_react, jac_resist, jac_react = result[:4]
 
         # Convert JAX arrays to NumPy first (single device-to-host transfer)
         # Then build dicts from NumPy - much faster than indexing JAX arrays
         import numpy as np
+
         res_resist_np = np.asarray(res_resist)
         res_react_np = np.asarray(res_react)
         jac_resist_np = np.asarray(jac_resist)
         jac_react_np = np.asarray(jac_react)
 
         # Convert to dicts
-        node_names = eval_meta['node_names']
-        jacobian_keys = eval_meta['jacobian_keys']
+        node_names = eval_meta["node_names"]
+        jacobian_keys = eval_meta["jacobian_keys"]
 
         residuals = {
-            name: {'resist': res_resist_np[i], 'react': res_react_np[i]}
+            name: {"resist": res_resist_np[i], "react": res_react_np[i]}
             for i, name in enumerate(node_names)
         }
         jacobian = {
-            key: {'resist': jac_resist_np[i], 'react': jac_react_np[i]}
+            key: {"resist": jac_resist_np[i], "react": jac_react_np[i]}
             for i, key in enumerate(jacobian_keys)
         }
         return residuals, jacobian

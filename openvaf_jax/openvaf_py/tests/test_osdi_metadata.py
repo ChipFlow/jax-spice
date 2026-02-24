@@ -102,7 +102,9 @@ class TestParameterMetadata:
         actual = get_osdi_descriptor(va_path)
 
         # Build lookup by name
-        expected_desc = {p.name: p.description for p in expected.params if not p.name.startswith("$")}
+        expected_desc = {
+            p.name: p.description for p in expected.params if not p.name.startswith("$")
+        }
         actual_desc = {p["name"]: p["description"] for p in actual["params"]}
 
         for name in expected_desc:
@@ -127,7 +129,9 @@ class TestParameterMetadata:
         actual = get_osdi_descriptor(va_path)
 
         # Build lookup by name
-        expected_inst = {p.name: p.is_instance for p in expected.params if not p.name.startswith("$")}
+        expected_inst = {
+            p.name: p.is_instance for p in expected.params if not p.name.startswith("$")
+        }
         actual_inst = {p["name"]: p["is_instance"] for p in actual["params"]}
 
         for name in expected_inst:

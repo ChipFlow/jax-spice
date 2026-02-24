@@ -56,7 +56,7 @@ class TestEKV:
     def test_compilation(self, ekv_model: CompiledModel):
         """EKV model compiles without error"""
         assert ekv_model.module is not None
-        assert 'ekv' in ekv_model.name.lower()
+        assert "ekv" in ekv_model.name.lower()
         assert len(ekv_model.nodes) >= 4
 
     def test_valid_output(self, ekv_model: CompiledModel):
@@ -66,7 +66,7 @@ class TestEKV:
 
         assert residuals is not None
         for node, res in residuals.items():
-            assert not np.isnan(float(res['resist'])), f"NaN at {node}"
+            assert not np.isnan(float(res["resist"])), f"NaN at {node}"
 
 
 class TestBSIM3:
@@ -75,7 +75,7 @@ class TestBSIM3:
     def test_compilation(self, bsim3_model: CompiledModel):
         """BSIM3 model compiles without error"""
         assert bsim3_model.module is not None
-        assert 'bsim3' in bsim3_model.name.lower()
+        assert "bsim3" in bsim3_model.name.lower()
         assert len(bsim3_model.nodes) >= 4
 
     def test_valid_output(self, bsim3_model: CompiledModel):
@@ -85,7 +85,7 @@ class TestBSIM3:
 
         assert residuals is not None
         for node, res in residuals.items():
-            assert not np.isnan(float(res['resist'])), f"NaN at {node}"
+            assert not np.isnan(float(res["resist"])), f"NaN at {node}"
 
     def test_jacobian_valid(self, bsim3_model: CompiledModel):
         """BSIM3 jacobian is valid"""
@@ -102,7 +102,7 @@ class TestBSIM4:
     def test_compilation(self, bsim4_model: CompiledModel):
         """BSIM4 model compiles without error"""
         assert bsim4_model.module is not None
-        assert 'bsim4' in bsim4_model.name.lower()
+        assert "bsim4" in bsim4_model.name.lower()
         assert len(bsim4_model.nodes) >= 4
 
     def test_valid_output(self, bsim4_model: CompiledModel):
@@ -112,10 +112,7 @@ class TestBSIM4:
 
         assert residuals is not None
         # Check at least some outputs are finite
-        finite_count = sum(
-            1 for res in residuals.values()
-            if np.isfinite(float(res['resist']))
-        )
+        finite_count = sum(1 for res in residuals.values() if np.isfinite(float(res["resist"])))
         assert finite_count > 0, "BSIM4 produced no finite outputs"
 
     def test_has_many_jacobian_entries(self, bsim4_model: CompiledModel):
@@ -129,7 +126,7 @@ class TestBSIM6:
     def test_compilation(self, bsim6_model: CompiledModel):
         """BSIM6 model compiles without error"""
         assert bsim6_model.module is not None
-        assert 'bsim6' in bsim6_model.name.lower()
+        assert "bsim6" in bsim6_model.name.lower()
         assert len(bsim6_model.nodes) >= 4
 
     def test_valid_output(self, bsim6_model: CompiledModel):
@@ -146,7 +143,7 @@ class TestBSIMBULK:
     def test_compilation(self, bsimbulk_model: CompiledModel):
         """BSIMBULK model compiles without error"""
         assert bsimbulk_model.module is not None
-        assert 'bsimbulk' in bsimbulk_model.name.lower()
+        assert "bsimbulk" in bsimbulk_model.name.lower()
         assert len(bsimbulk_model.nodes) >= 4
 
     def test_valid_output(self, bsimbulk_model: CompiledModel):
@@ -163,7 +160,7 @@ class TestBSIMCMG:
     def test_compilation(self, bsimcmg_model: CompiledModel):
         """BSIMCMG model compiles without error"""
         assert bsimcmg_model.module is not None
-        assert 'bsimcmg' in bsimcmg_model.name.lower()
+        assert "bsimcmg" in bsimcmg_model.name.lower()
         assert len(bsimcmg_model.nodes) >= 4
 
     def test_valid_output(self, bsimcmg_model: CompiledModel):
@@ -174,10 +171,10 @@ class TestBSIMCMG:
         assert residuals is not None
         # BSIMCMG has NaN at internal nodes (di, si) - only check terminal nodes
         # This is a known limitation, see test_all_models.py exclusion
-        terminal_nodes = ['d', 'g', 's', 'e']  # Main terminals
+        terminal_nodes = ["d", "g", "s", "e"]  # Main terminals
         for node in terminal_nodes:
             if node in residuals:
-                resist = float(residuals[node]['resist'])
+                resist = float(residuals[node]["resist"])
                 assert np.isfinite(resist), f"Non-finite resist at terminal {node}: {resist}"
 
 
@@ -187,7 +184,7 @@ class TestBSIMSOI:
     def test_compilation(self, bsimsoi_model: CompiledModel):
         """BSIMSOI model compiles without error"""
         assert bsimsoi_model.module is not None
-        assert 'bsimsoi' in bsimsoi_model.name.lower()
+        assert "bsimsoi" in bsimsoi_model.name.lower()
         assert len(bsimsoi_model.nodes) >= 4
 
     @pytest.mark.skip(reason=BSIMSOI_SKIP)
@@ -202,10 +199,13 @@ class TestBSIMSOI:
 class TestMOSFETBehavior:
     """Test physical behavior of MOSFET models"""
 
-    @pytest.mark.parametrize("fixture_name", [
-        "ekv_model",
-        "bsim3_model",
-    ])
+    @pytest.mark.parametrize(
+        "fixture_name",
+        [
+            "ekv_model",
+            "bsim3_model",
+        ],
+    )
     def test_has_multiple_nodes(self, request, fixture_name):
         """MOSFET model has multiple terminal nodes"""
         model = request.getfixturevalue(fixture_name)

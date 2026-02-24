@@ -30,7 +30,7 @@ class TestHiSIM2:
     def test_compilation(self, hisim2_model: CompiledModel):
         """HiSIM2 model compiles without error"""
         assert hisim2_model.module is not None
-        assert 'hisim2' in hisim2_model.name.lower()
+        assert "hisim2" in hisim2_model.name.lower()
         assert len(hisim2_model.nodes) >= 4
 
     @pytest.mark.skip(reason=SKIP_REASON)
@@ -41,7 +41,7 @@ class TestHiSIM2:
 
         assert residuals is not None
         for node, res in residuals.items():
-            resist = float(res['resist'])
+            resist = float(res["resist"])
             assert not np.isnan(resist), f"NaN at {node}"
 
     def test_has_jacobian(self, hisim2_model: CompiledModel):
@@ -55,7 +55,7 @@ class TestHiSIMHV:
     def test_compilation(self, hisimhv_model: CompiledModel):
         """HiSIMHV model compiles without error"""
         assert hisimhv_model.module is not None
-        assert 'hisimhv' in hisimhv_model.name.lower()
+        assert "hisimhv" in hisimhv_model.name.lower()
         assert len(hisimhv_model.nodes) >= 4
 
     @pytest.mark.skip(reason=SKIP_REASON)
@@ -66,13 +66,11 @@ class TestHiSIMHV:
 
         assert residuals is not None
         for node, res in residuals.items():
-            resist = float(res['resist'])
+            resist = float(res["resist"])
             assert not np.isnan(resist), f"NaN at {node}"
 
     def test_complexity(self, hisimhv_model: CompiledModel):
         """HiSIMHV is a complex model"""
         # HiSIMHV should have many parameters
-        param_count = sum(
-            1 for k in hisimhv_model.param_kinds if k == 'param'
-        )
+        param_count = sum(1 for k in hisimhv_model.param_kinds if k == "param")
         assert param_count > 100, f"HiSIMHV should have many params, has {param_count}"

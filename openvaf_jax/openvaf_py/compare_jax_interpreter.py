@@ -1,19 +1,23 @@
 """Compare JAX translator results with MIR interpreter"""
+
 import openvaf_py
 
 import openvaf_jax
 
-print("="*70)
+print("=" * 70)
 print("Comparing JAX translator vs MIR interpreter for resistor")
-print("="*70)
+print("=" * 70)
 
 # Load the module
-modules = openvaf_py.compile_va("/Users/roberttaylor/Code/ChipFlow/reference/OpenVAF/integration_tests/RESISTOR/resistor.va")
+modules = openvaf_py.compile_va(
+    "/Users/roberttaylor/Code/ChipFlow/reference/OpenVAF/integration_tests/RESISTOR/resistor.va"
+)
 res = modules[0]
 
 # Create JAX translator
 translator = openvaf_jax.OpenVAFToJAX(res)
 jax_eval = translator.translate()
+
 
 def compare_test(V, R, temperature, tnom, zeta, mfactor):
     """Compare JAX vs interpreter results"""
@@ -21,14 +25,14 @@ def compare_test(V, R, temperature, tnom, zeta, mfactor):
 
     # Run MIR interpreter
     params = {
-        'V(A,B)': V,
-        'vres': V,
-        'R': R,
-        '$temperature': temperature,
-        'tnom': tnom,
-        'zeta': zeta,
-        'res': R,
-        'mfactor': mfactor,
+        "V(A,B)": V,
+        "vres": V,
+        "R": R,
+        "$temperature": temperature,
+        "tnom": tnom,
+        "zeta": zeta,
+        "res": R,
+        "mfactor": mfactor,
     }
     interp_residuals, interp_jacobian = res.run_init_eval(params)
 
@@ -38,10 +42,10 @@ def compare_test(V, R, temperature, tnom, zeta, mfactor):
 
     # Compare residuals
     interp_I = interp_residuals[0][0]  # node0 resist
-    jax_I = float(jax_residuals['sim_node0']['resist'])
+    jax_I = float(jax_residuals["sim_node0"]["resist"])
 
     # Compute expected
-    resistance = R * (temperature/tnom)**zeta
+    resistance = R * (temperature / tnom) ** zeta
     expected_I = mfactor * V / resistance
 
     print(f"  Expected I     = {expected_I:.9f}")
@@ -53,12 +57,15 @@ def compare_test(V, R, temperature, tnom, zeta, mfactor):
 
     # Compare Jacobian
     interp_jac_00 = interp_jacobian[0][2]  # row=0, col=0, resist
-    jax_jac_00 = float(jax_jacobian[('sim_node0', 'sim_node0')]['resist'])
+    jax_jac_00 = float(jax_jacobian[("sim_node0", "sim_node0")]["resist"])
     expected_jac = mfactor / resistance
 
-    print(f"  Jacobian (0,0): interp={interp_jac_00:.9f}, jax={jax_jac_00:.9f}, expected={expected_jac:.9f}")
+    print(
+        f"  Jacobian (0,0): interp={interp_jac_00:.9f}, jax={jax_jac_00:.9f}, expected={expected_jac:.9f}"
+    )
 
     return abs(jax_I - interp_I) < 1e-6
+
 
 # Run comparison tests
 results = []
@@ -72,9 +79,9 @@ results.append(compare_test(V=1.0, R=1000.0, temperature=300.0, tnom=300.0, zeta
 results.append(compare_test(V=1.0, R=1000.0, temperature=250.0, tnom=300.0, zeta=1.0, mfactor=1.0))
 results.append(compare_test(V=0.1, R=100.0, temperature=273.15, tnom=300.0, zeta=1.5, mfactor=0.5))
 
-print("\n" + "="*70)
+print("\n" + "=" * 70)
 print(f"Results: {sum(results)}/{len(results)} tests passed")
-print("="*70)
+print("=" * 70)
 
 if all(results):
     print("\nSUCCESS: JAX translator matches MIR interpreter!")

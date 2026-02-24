@@ -23,7 +23,7 @@ class TestASMHEMT:
     def test_compilation(self, asmhemt_model: CompiledModel):
         """ASMHEMT model compiles without error"""
         assert asmhemt_model.module is not None
-        assert 'asmhemt' in asmhemt_model.name.lower()
+        assert "asmhemt" in asmhemt_model.name.lower()
         # ASMHEMT may have more internal nodes
         assert len(asmhemt_model.nodes) >= 4
 
@@ -34,7 +34,7 @@ class TestASMHEMT:
 
         assert residuals is not None
         for node, res in residuals.items():
-            resist = float(res['resist'])
+            resist = float(res["resist"])
             assert not np.isnan(resist), f"NaN at {node}"
 
     def test_has_jacobian(self, asmhemt_model: CompiledModel):
@@ -48,7 +48,7 @@ class TestMVSG:
     def test_compilation(self, mvsg_model: CompiledModel):
         """MVSG model compiles without error"""
         assert mvsg_model.module is not None
-        assert 'mvsg' in mvsg_model.name.lower()
+        assert "mvsg" in mvsg_model.name.lower()
         # MVSG may have more internal nodes
         assert len(mvsg_model.nodes) >= 4
 
@@ -59,7 +59,7 @@ class TestMVSG:
 
         assert residuals is not None
         for node, res in residuals.items():
-            resist = float(res['resist'])
+            resist = float(res["resist"])
             assert not np.isnan(resist), f"NaN at {node}"
 
     def test_has_jacobian(self, mvsg_model: CompiledModel):

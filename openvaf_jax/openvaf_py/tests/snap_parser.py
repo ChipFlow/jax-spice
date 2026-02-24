@@ -218,7 +218,9 @@ def parse_snap_file(path: str | Path) -> SnapshotData:
                     if flags_match:
                         flags = parse_flags(flags_match.group(1))
 
-                    result.params.append(ParamInfo(name=name, units=units, description=desc, flags=flags))
+                    result.params.append(
+                        ParamInfo(name=name, units=units, description=desc, flags=flags)
+                    )
 
         # Parse terminal count
         elif re.match(r"^\d+ terminals?$", line):
@@ -246,7 +248,9 @@ def parse_snap_file(path: str | Path) -> SnapshotData:
                 if runits_match:
                     runits = runits_match.group(1)
 
-                result.nodes.append(NodeInfo(name=name, units=units, residual_units=runits, is_flow=is_flow))
+                result.nodes.append(
+                    NodeInfo(name=name, units=units, residual_units=runits, is_flow=is_flow)
+                )
 
         # Parse jacobian entry
         elif line.startswith("jacobian ("):
@@ -274,7 +278,9 @@ def parse_snap_file(path: str | Path) -> SnapshotData:
             # collapsible (CI, C) or collapsible (dT, gnd)
             match = re.search(r"collapsible \((\w+), (\w+)\)", line)
             if match:
-                result.collapsible.append(CollapsiblePair(node1=match.group(1), node2=match.group(2)))
+                result.collapsible.append(
+                    CollapsiblePair(node1=match.group(1), node2=match.group(2))
+                )
 
         # Parse noise
         elif line.startswith('noise "'):
@@ -308,7 +314,9 @@ def load_snap_file(model_name: str, snap_dir: str | Path | None = None) -> Snaps
     """
     if snap_dir is None:
         # Default to OpenVAF test data directory
-        snap_dir = Path(__file__).parent.parent / "vendor" / "OpenVAF" / "openvaf" / "test_data" / "osdi"
+        snap_dir = (
+            Path(__file__).parent.parent / "vendor" / "OpenVAF" / "openvaf" / "test_data" / "osdi"
+        )
 
     snap_path = Path(snap_dir) / f"{model_name}.snap"
     return parse_snap_file(snap_path)

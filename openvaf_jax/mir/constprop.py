@@ -32,13 +32,15 @@ from .types import (
 
 class LatticeState(Enum):
     """State in the constant propagation lattice."""
-    TOP = auto()      # Unknown/unexecuted - could be anything
+
+    TOP = auto()  # Unknown/unexecuted - could be anything
     CONSTANT = auto()  # Known constant value
-    BOTTOM = auto()    # Not constant - varies at runtime
+    BOTTOM = auto()  # Not constant - varies at runtime
 
 
 class ConstType(Enum):
     """Type of a constant value."""
+
     BOOL = "bool"
     INT = "int"
     FLOAT = "float"
@@ -60,27 +62,28 @@ class LatticeValue:
     CONSTANT means we know the exact value.
     BOTTOM means the value varies (not constant).
     """
+
     state: LatticeState
     const_type: Optional[ConstType] = None
     value: Optional[Any] = None  # The constant value if state == CONSTANT
 
     @classmethod
-    def top(cls) -> 'LatticeValue':
+    def top(cls) -> "LatticeValue":
         """Create TOP (unknown) lattice value."""
         return cls(LatticeState.TOP)
 
     @classmethod
-    def bottom(cls) -> 'LatticeValue':
+    def bottom(cls) -> "LatticeValue":
         """Create BOTTOM (not constant) lattice value."""
         return cls(LatticeState.BOTTOM)
 
     @classmethod
-    def constant(cls, value: Any, const_type: ConstType) -> 'LatticeValue':
+    def constant(cls, value: Any, const_type: ConstType) -> "LatticeValue":
         """Create a constant lattice value."""
         return cls(LatticeState.CONSTANT, const_type, value)
 
     @classmethod
-    def from_python(cls, value: Any) -> 'LatticeValue':
+    def from_python(cls, value: Any) -> "LatticeValue":
         """Create lattice value from Python value, inferring type."""
         if isinstance(value, bool):
             return cls.constant(value, ConstType.BOOL)
@@ -365,76 +368,76 @@ class SCCP:
             a_val, b_val = operands[0].value, operands[1].value
 
             # Integer comparisons
-            if op == 'ieq':
+            if op == "ieq":
                 return LatticeValue.constant(a_val == b_val, ConstType.BOOL)
-            if op == 'ine':
+            if op == "ine":
                 return LatticeValue.constant(a_val != b_val, ConstType.BOOL)
-            if op == 'ilt':
+            if op == "ilt":
                 return LatticeValue.constant(a_val < b_val, ConstType.BOOL)
-            if op == 'ile':
+            if op == "ile":
                 return LatticeValue.constant(a_val <= b_val, ConstType.BOOL)
-            if op == 'igt':
+            if op == "igt":
                 return LatticeValue.constant(a_val > b_val, ConstType.BOOL)
-            if op == 'ige':
+            if op == "ige":
                 return LatticeValue.constant(a_val >= b_val, ConstType.BOOL)
 
             # Float comparisons
-            if op == 'feq':
+            if op == "feq":
                 return LatticeValue.constant(a_val == b_val, ConstType.BOOL)
-            if op == 'fne':
+            if op == "fne":
                 return LatticeValue.constant(a_val != b_val, ConstType.BOOL)
-            if op == 'flt':
+            if op == "flt":
                 return LatticeValue.constant(a_val < b_val, ConstType.BOOL)
-            if op == 'fle':
+            if op == "fle":
                 return LatticeValue.constant(a_val <= b_val, ConstType.BOOL)
-            if op == 'fgt':
+            if op == "fgt":
                 return LatticeValue.constant(a_val > b_val, ConstType.BOOL)
-            if op == 'fge':
+            if op == "fge":
                 return LatticeValue.constant(a_val >= b_val, ConstType.BOOL)
 
             # Boolean operations
-            if op == 'and':
+            if op == "and":
                 return LatticeValue.constant(a_val and b_val, ConstType.BOOL)
-            if op == 'or':
+            if op == "or":
                 return LatticeValue.constant(a_val or b_val, ConstType.BOOL)
 
             # Integer arithmetic
-            if op == 'iadd':
+            if op == "iadd":
                 return LatticeValue.constant(a_val + b_val, ConstType.INT)
-            if op == 'isub':
+            if op == "isub":
                 return LatticeValue.constant(a_val - b_val, ConstType.INT)
-            if op == 'imul':
+            if op == "imul":
                 return LatticeValue.constant(a_val * b_val, ConstType.INT)
 
             # Float arithmetic
-            if op == 'fadd':
+            if op == "fadd":
                 return LatticeValue.constant(a_val + b_val, ConstType.FLOAT)
-            if op == 'fsub':
+            if op == "fsub":
                 return LatticeValue.constant(a_val - b_val, ConstType.FLOAT)
-            if op == 'fmul':
+            if op == "fmul":
                 return LatticeValue.constant(a_val * b_val, ConstType.FLOAT)
-            if op == 'fdiv' and b_val != 0:
+            if op == "fdiv" and b_val != 0:
                 return LatticeValue.constant(a_val / b_val, ConstType.FLOAT)
 
         if len(operands) == 1:
             a_val = operands[0].value
             a_type = operands[0].const_type
 
-            if op == 'not':
+            if op == "not":
                 return LatticeValue.constant(not a_val, ConstType.BOOL)
-            if op == 'fneg':
+            if op == "fneg":
                 return LatticeValue.constant(-a_val, ConstType.FLOAT)
-            if op == 'ineg':
+            if op == "ineg":
                 return LatticeValue.constant(-a_val, ConstType.INT)
 
             # Type conversions
-            if op == 'itof':
+            if op == "itof":
                 return LatticeValue.constant(float(a_val), ConstType.FLOAT)
-            if op == 'ftoi':
+            if op == "ftoi":
                 return LatticeValue.constant(int(a_val), ConstType.INT)
-            if op == 'btoi':
+            if op == "btoi":
                 return LatticeValue.constant(int(a_val), ConstType.INT)
-            if op == 'itob':
+            if op == "itob":
                 return LatticeValue.constant(bool(a_val), ConstType.BOOL)
 
         # Can't evaluate - mark as not constant
@@ -445,7 +448,11 @@ class SCCP:
         if term.is_branch:
             # Conditional branch
             cond_str = str(term.condition) if term.condition else None
-            cond_val = self.lattice.get(cond_str, LatticeValue.top()) if cond_str else LatticeValue.bottom()
+            cond_val = (
+                self.lattice.get(cond_str, LatticeValue.top())
+                if cond_str
+                else LatticeValue.bottom()
+            )
 
             if cond_val.is_top():
                 # Condition unknown - don't add any edges yet

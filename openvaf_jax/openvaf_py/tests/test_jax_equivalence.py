@@ -81,10 +81,18 @@ class TestResistorEquivalence:
             res_resist, res_react, jac_resist, jac_react = result
 
             # Check shapes
-            assert res_resist.shape == (num_residuals,), f"Expected resist residual shape ({num_residuals},), got {res_resist.shape}"
-            assert res_react.shape == (num_residuals,), f"Expected react residual shape ({num_residuals},), got {res_react.shape}"
-            assert jac_resist.shape == (num_jacobian,), f"Expected resist jacobian shape ({num_jacobian},), got {jac_resist.shape}"
-            assert jac_react.shape == (num_jacobian,), f"Expected react jacobian shape ({num_jacobian},), got {jac_react.shape}"
+            assert res_resist.shape == (num_residuals,), (
+                f"Expected resist residual shape ({num_residuals},), got {res_resist.shape}"
+            )
+            assert res_react.shape == (num_residuals,), (
+                f"Expected react residual shape ({num_residuals},), got {res_react.shape}"
+            )
+            assert jac_resist.shape == (num_jacobian,), (
+                f"Expected resist jacobian shape ({num_jacobian},), got {jac_resist.shape}"
+            )
+            assert jac_react.shape == (num_jacobian,), (
+                f"Expected react jacobian shape ({num_jacobian},), got {jac_react.shape}"
+            )
         except Exception as e:
             pytest.fail(f"Function call failed: {e}")
 
@@ -118,10 +126,18 @@ class TestResistorEquivalence:
         res_resist, res_react, jac_resist, jac_react = result
 
         # All outputs should be finite
-        assert jnp.all(jnp.isfinite(res_resist)), f"Resist residuals contain non-finite values: {res_resist}"
-        assert jnp.all(jnp.isfinite(res_react)), f"React residuals contain non-finite values: {res_react}"
-        assert jnp.all(jnp.isfinite(jac_resist)), f"Resist Jacobian contains non-finite values: {jac_resist}"
-        assert jnp.all(jnp.isfinite(jac_react)), f"React Jacobian contains non-finite values: {jac_react}"
+        assert jnp.all(jnp.isfinite(res_resist)), (
+            f"Resist residuals contain non-finite values: {res_resist}"
+        )
+        assert jnp.all(jnp.isfinite(res_react)), (
+            f"React residuals contain non-finite values: {res_react}"
+        )
+        assert jnp.all(jnp.isfinite(jac_resist)), (
+            f"Resist Jacobian contains non-finite values: {jac_resist}"
+        )
+        assert jnp.all(jnp.isfinite(jac_react)), (
+            f"React Jacobian contains non-finite values: {jac_react}"
+        )
 
 
 class TestDiodeEquivalence:
@@ -224,8 +240,10 @@ class TestJITCompilation:
         # Results should match
         for i, (r1, r2) in enumerate(zip(result1, result2)):
             np.testing.assert_array_almost_equal(
-                np.array(r1), np.array(r2),
-                decimal=10, err_msg=f"JIT result[{i}] should be reproducible"
+                np.array(r1),
+                np.array(r2),
+                decimal=10,
+                err_msg=f"JIT result[{i}] should be reproducible",
             )
 
     def test_jit_multiple_inputs(self, resistor_translator):
@@ -245,9 +263,7 @@ class TestJITCompilation:
         result2 = jitted_fn(inputs2)
 
         # At least some outputs should be different for different inputs
-        any_different = any(
-            not jnp.allclose(r1, r2) for r1, r2 in zip(result1, result2)
-        )
+        any_different = any(not jnp.allclose(r1, r2) for r1, r2 in zip(result1, result2))
         assert any_different, "Different inputs should produce different outputs"
 
 
@@ -284,14 +300,18 @@ class TestVmapBatching:
         num_residuals = resistor_translator.module.num_residuals
         num_jacobian = resistor_translator.module.num_jacobian
 
-        assert batch_res_resist.shape == (batch_size, num_residuals), \
+        assert batch_res_resist.shape == (batch_size, num_residuals), (
             f"Expected batch resist residual shape ({batch_size}, {num_residuals}), got {batch_res_resist.shape}"
-        assert batch_res_react.shape == (batch_size, num_residuals), \
+        )
+        assert batch_res_react.shape == (batch_size, num_residuals), (
             f"Expected batch react residual shape ({batch_size}, {num_residuals}), got {batch_res_react.shape}"
-        assert batch_jac_resist.shape == (batch_size, num_jacobian), \
+        )
+        assert batch_jac_resist.shape == (batch_size, num_jacobian), (
             f"Expected batch resist jacobian shape ({batch_size}, {num_jacobian}), got {batch_jac_resist.shape}"
-        assert batch_jac_react.shape == (batch_size, num_jacobian), \
+        )
+        assert batch_jac_react.shape == (batch_size, num_jacobian), (
             f"Expected batch react jacobian shape ({batch_size}, {num_jacobian}), got {batch_jac_react.shape}"
+        )
 
     def test_vmap_consistency_with_loop(self, resistor_translator):
         """Test that vmap produces same results as explicit loop."""
@@ -302,7 +322,9 @@ class TestVmapBatching:
         # Create batch input
         num_params = resistor_translator.module.func_num_params
         batch_size = 5
-        batch_inputs = jnp.arange(batch_size * num_params).reshape(batch_size, num_params).astype(jnp.float64)
+        batch_inputs = (
+            jnp.arange(batch_size * num_params).reshape(batch_size, num_params).astype(jnp.float64)
+        )
 
         # Vmap result - returns (res_resist, res_react, jac_resist, jac_react)
         batched_fn = vmap(eval_fn)
@@ -328,20 +350,28 @@ class TestVmapBatching:
 
         # Results should match
         np.testing.assert_array_almost_equal(
-            np.array(vmap_res_resist), np.array(loop_res_resist),
-            decimal=10, err_msg="Vmap resist residuals should match loop"
+            np.array(vmap_res_resist),
+            np.array(loop_res_resist),
+            decimal=10,
+            err_msg="Vmap resist residuals should match loop",
         )
         np.testing.assert_array_almost_equal(
-            np.array(vmap_res_react), np.array(loop_res_react),
-            decimal=10, err_msg="Vmap react residuals should match loop"
+            np.array(vmap_res_react),
+            np.array(loop_res_react),
+            decimal=10,
+            err_msg="Vmap react residuals should match loop",
         )
         np.testing.assert_array_almost_equal(
-            np.array(vmap_jac_resist), np.array(loop_jac_resist),
-            decimal=10, err_msg="Vmap resist jacobian should match loop"
+            np.array(vmap_jac_resist),
+            np.array(loop_jac_resist),
+            decimal=10,
+            err_msg="Vmap resist jacobian should match loop",
         )
         np.testing.assert_array_almost_equal(
-            np.array(vmap_jac_react), np.array(loop_jac_react),
-            decimal=10, err_msg="Vmap react jacobian should match loop"
+            np.array(vmap_jac_react),
+            np.array(loop_jac_react),
+            decimal=10,
+            err_msg="Vmap react jacobian should match loop",
         )
 
 

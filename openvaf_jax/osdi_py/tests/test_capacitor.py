@@ -33,7 +33,9 @@ def compile_capacitor_if_needed(osdi_path: str) -> None:
         )
 
     # Find capacitor.va source
-    va_source = repo_root / "vendor" / "OpenVAF" / "external" / "vacask" / "devices" / "capacitor.va"
+    va_source = (
+        repo_root / "vendor" / "OpenVAF" / "external" / "vacask" / "devices" / "capacitor.va"
+    )
     if not va_source.exists():
         va_source = repo_root / "vendor" / "VACASK" / "devices" / "capacitor.va"
 
@@ -116,11 +118,7 @@ def test_instance_eval():
     instance.process_params(300.0, 2)  # T=300K, 2 terminals
 
     # Evaluate at V(A,B) = 1V
-    flags = (
-        osdi_py.CALC_RESIST_RESIDUAL
-        | osdi_py.CALC_REACT_RESIDUAL
-        | osdi_py.ANALYSIS_DC
-    )
+    flags = osdi_py.CALC_RESIST_RESIDUAL | osdi_py.CALC_REACT_RESIDUAL | osdi_py.ANALYSIS_DC
     prev_solve = [1.0, 0.0]  # V(A)=1V, V(B)=0V
 
     ret_flags = instance.eval(prev_solve, flags, 0.0)
@@ -141,8 +139,12 @@ def test_instance_eval():
 
     # Node A: charge flows INTO node from capacitor (positive)
     # Node B: charge flows OUT of node into capacitor (negative)
-    assert abs(react_residual[0] - expected_Q) < 1e-20, f"react_residual[0] = {react_residual[0]}, expected {expected_Q}"
-    assert abs(react_residual[1] + expected_Q) < 1e-20, f"react_residual[1] = {react_residual[1]}, expected {-expected_Q}"
+    assert abs(react_residual[0] - expected_Q) < 1e-20, (
+        f"react_residual[0] = {react_residual[0]}, expected {expected_Q}"
+    )
+    assert abs(react_residual[1] + expected_Q) < 1e-20, (
+        f"react_residual[1] = {react_residual[1]}, expected {-expected_Q}"
+    )
 
 
 def test_jacobian():
@@ -206,7 +208,7 @@ def test_mfactor():
     model = lib.create_model()
 
     C = 1e-12  # Base capacitance
-    M = 5.0    # Multiplier
+    M = 5.0  # Multiplier
 
     # Set parameters
     params = lib.get_params()
@@ -233,7 +235,9 @@ def test_mfactor():
     # Q = M * C * V = 5 * 1e-12 * 1.0 = 5e-12
     expected_Q = M * C * 1.0
 
-    assert abs(react_residual[0] - expected_Q) < 1e-20, f"react_residual[0] = {react_residual[0]}, expected {expected_Q}"
+    assert abs(react_residual[0] - expected_Q) < 1e-20, (
+        f"react_residual[0] = {react_residual[0]}, expected {expected_Q}"
+    )
 
 
 if __name__ == "__main__":

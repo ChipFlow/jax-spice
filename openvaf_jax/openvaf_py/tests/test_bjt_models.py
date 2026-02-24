@@ -23,7 +23,7 @@ class TestHICUM:
     def test_compilation(self, hicum_model: CompiledModel):
         """HICUM model compiles without error"""
         assert hicum_model.module is not None
-        assert 'hicum' in hicum_model.name.lower()
+        assert "hicum" in hicum_model.name.lower()
         assert len(hicum_model.nodes) >= 4
 
     def test_valid_output(self, hicum_model: CompiledModel):
@@ -33,7 +33,7 @@ class TestHICUM:
 
         assert residuals is not None
         for node, res in residuals.items():
-            resist = float(res['resist'])
+            resist = float(res["resist"])
             assert not np.isnan(resist), f"NaN at {node}"
 
     def test_has_jacobian(self, hicum_model: CompiledModel):
@@ -42,9 +42,7 @@ class TestHICUM:
 
     def test_complexity(self, hicum_model: CompiledModel):
         """HICUM is a complex model"""
-        hidden_count = sum(
-            1 for k in hicum_model.param_kinds if k == 'hidden_state'
-        )
+        hidden_count = sum(1 for k in hicum_model.param_kinds if k == "hidden_state")
         assert hidden_count > 50, f"HICUM should be complex, has {hidden_count} hidden states"
 
 
@@ -64,7 +62,7 @@ class TestMEXTRAM:
 
         assert residuals is not None
         for node, res in residuals.items():
-            resist = float(res['resist'])
+            resist = float(res["resist"])
             assert not np.isnan(resist), f"NaN at {node}"
 
     def test_has_jacobian(self, mextram_model: CompiledModel):
@@ -73,9 +71,7 @@ class TestMEXTRAM:
 
     def test_complexity(self, mextram_model: CompiledModel):
         """MEXTRAM is a complex model"""
-        hidden_count = sum(
-            1 for k in mextram_model.param_kinds if k == 'hidden_state'
-        )
+        hidden_count = sum(1 for k in mextram_model.param_kinds if k == "hidden_state")
         assert hidden_count > 50, f"MEXTRAM should be complex, has {hidden_count} hidden states"
 
 

@@ -14,10 +14,10 @@ import pytest
 from conftest import INTEGRATION_PATH, assert_allclose
 
 # Physical constants (same as OpenVAF tests)
-KB = 1.3806488e-23      # Boltzmann constant [J/K]
-Q = 1.602176565e-19     # Elementary charge [C]
-T_ROOM = 300.0          # Room temperature [K]
-VT = KB * T_ROOM / Q    # Thermal voltage at 300K (~25.85mV)
+KB = 1.3806488e-23  # Boltzmann constant [J/K]
+Q = 1.602176565e-19  # Elementary charge [C]
+T_ROOM = 300.0  # Room temperature [K]
+VT = KB * T_ROOM / Q  # Thermal voltage at 300K (~25.85mV)
 
 
 class TestResistorAnalytical:
@@ -27,12 +27,15 @@ class TestResistorAnalytical:
     def resistor(self, compile_model):
         return compile_model(INTEGRATION_PATH / "RESISTOR/resistor.va")
 
-    @pytest.mark.parametrize("voltage,resistance", [
-        (1.0, 1000.0),
-        (0.5, 500.0),
-        (-1.0, 1000.0),
-        (0.01, 100.0),
-    ])
+    @pytest.mark.parametrize(
+        "voltage,resistance",
+        [
+            (1.0, 1000.0),
+            (0.5, 500.0),
+            (-1.0, 1000.0),
+            (0.01, 100.0),
+        ],
+    )
     def test_ohms_law_current(self, resistor, voltage, resistance):
         """I = V/R"""
         # JAX inputs: [V(A,B), vres, R, $temperature, tnom, zeta, res, mfactor]
@@ -41,15 +44,19 @@ class TestResistorAnalytical:
         jax_residuals, _ = resistor.jax_fn(jax_inputs)
 
         expected_current = voltage / resistance
-        actual_current = float(jax_residuals['A']['resist'])
+        actual_current = float(jax_residuals["A"]["resist"])
 
-        assert_allclose(actual_current, expected_current, rtol=1e-6,
-                       err_msg=f"V={voltage}, R={resistance}")
+        assert_allclose(
+            actual_current, expected_current, rtol=1e-6, err_msg=f"V={voltage}, R={resistance}"
+        )
 
-    @pytest.mark.parametrize("voltage,resistance", [
-        (1.0, 1000.0),
-        (5.0, 100.0),
-    ])
+    @pytest.mark.parametrize(
+        "voltage,resistance",
+        [
+            (1.0, 1000.0),
+            (5.0, 100.0),
+        ],
+    )
     def test_ohms_law_conductance(self, resistor, voltage, resistance):
         """dI/dV = 1/R (Jacobian)"""
         jax_inputs = [voltage, voltage, resistance, T_ROOM, T_ROOM, 0.0, resistance, 1.0]
@@ -57,16 +64,20 @@ class TestResistorAnalytical:
         _, jax_jacobian = resistor.jax_fn(jax_inputs)
 
         expected_conductance = 1.0 / resistance
-        actual_conductance = float(jax_jacobian[('A', 'A')]['resist'])
+        actual_conductance = float(jax_jacobian[("A", "A")]["resist"])
 
-        assert_allclose(actual_conductance, expected_conductance, rtol=1e-6,
-                       err_msg=f"R={resistance}")
+        assert_allclose(
+            actual_conductance, expected_conductance, rtol=1e-6, err_msg=f"R={resistance}"
+        )
 
-    @pytest.mark.parametrize("temperature,zeta", [
-        (T_ROOM, 0.0),      # No temp dependence
-        (350.0, 1.0),       # Linear: R * (T/Tnom)^1
-        (400.0, 2.0),       # Quadratic: R * (T/Tnom)^2
-    ])
+    @pytest.mark.parametrize(
+        "temperature,zeta",
+        [
+            (T_ROOM, 0.0),  # No temp dependence
+            (350.0, 1.0),  # Linear: R * (T/Tnom)^1
+            (400.0, 2.0),  # Quadratic: R * (T/Tnom)^2
+        ],
+    )
     def test_temperature_scaling(self, resistor, temperature, zeta):
         """R_eff = R * (T/Tnom)^zeta"""
         voltage = 1.0
@@ -80,10 +91,11 @@ class TestResistorAnalytical:
         jax_inputs = [voltage, voltage, R_nominal, temperature, tnom, zeta, R_eff, 1.0]
 
         jax_residuals, _ = resistor.jax_fn(jax_inputs)
-        actual_current = float(jax_residuals['A']['resist'])
+        actual_current = float(jax_residuals["A"]["resist"])
 
-        assert_allclose(actual_current, expected_current, rtol=1e-6,
-                       err_msg=f"T={temperature}, zeta={zeta}")
+        assert_allclose(
+            actual_current, expected_current, rtol=1e-6, err_msg=f"T={temperature}, zeta={zeta}"
+        )
 
 
 class TestCurrentSourceAnalytical:
