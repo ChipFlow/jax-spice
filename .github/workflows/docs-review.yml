@@ -34,7 +34,7 @@ jobs:
             --no-install-package umfpack-jax
 
       - name: Build docs
-        run: uv run mkdocs build --site-dir ./site
+        run: .venv/bin/mkdocs build --site-dir ./site
 
       - name: Install Claude Code
         run: npm install -g @anthropic-ai/claude-code
@@ -63,7 +63,7 @@ jobs:
           Extract Python code snippets from the docs and test them where possible:
           - Check that all `from vajax import ...` and `from vajax.X import ...` statements work
           - Check that referenced classes, functions, and methods actually exist with the documented signatures
-          - Run: uv run python -c "<snippet>" for import/syntax checks
+          - Run: .venv/bin/python -c "<snippet>" for import/syntax checks
           - NOTE: Skip snippets that require .osdi files, .sim files, or compiled VA models — those need native deps not available in CI
           - NOTE: Skip snippets that are clearly illustrative pseudocode (e.g. showing netlist syntax)
 
