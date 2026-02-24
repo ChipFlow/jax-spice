@@ -1,21 +1,21 @@
 # VAJAX CI Summary
 
-_Last updated: 2026-02-24 01:44 UTC_
+_Last updated: 2026-02-24 01:50 UTC_
 
-_Commit: [2cb5651b](https://github.com/ChipFlow/vajax/commit/2cb5651be1331fcb08506718e91e5fb270ee4490)_
+_Commit: [19c0c7e3](https://github.com/ChipFlow/vajax/commit/19c0c7e38e2e9c1c53ddeb257dbe0190ace763cb)_
 
 ## Test Coverage
 
 | Suite | Passed | Failed | Errors | Skipped | Total | Time |
 |-------|--------|--------|--------|---------|-------|------|
-| benchmark-dense | 5 | 0 | 0 | 1 | 6 | 539.8s | PASS |
-| benchmark-sparse | 6 | 0 | 0 | 1 | 7 | 562.9s | PASS |
-| benchmarks | 5 | 0 | 0 | 0 | 5 | 748.4s | PASS |
-| ngspice | 0 | 0 | 0 | 71 | 71 | 250.3s | PASS |
-| openvaf-py | 320 | 0 | 0 | 92 | 412 | 1052.6s | PASS |
+| benchmark-dense | 5 | 0 | 0 | 1 | 6 | 363.3s | PASS |
+| benchmark-sparse | 6 | 0 | 0 | 1 | 7 | 374.8s | PASS |
+| benchmarks | 5 | 0 | 0 | 0 | 5 | 366.3s | PASS |
+| ngspice | 0 | 0 | 0 | 71 | 71 | 248.8s | PASS |
+| openvaf-py | 320 | 0 | 0 | 92 | 412 | 1047.6s | PASS |
 | unit | 72 | 0 | 0 | 5 | 77 | 20.9s | PASS |
-| xyce | 36 | 0 | 0 | 1893 | 1929 | 258.1s | PASS |
-| **Total** | **444** | **0** | **0** | **2063** | **2507** | 3433.0s |
+| xyce | 36 | 0 | 0 | 1893 | 1929 | 256.9s | PASS |
+| **Total** | **444** | **0** | **0** | **2063** | **2507** | 2678.6s |
 
 
 ## Performance
