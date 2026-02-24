@@ -1,8 +1,8 @@
-# JAX-SPICE CI Summary
+# VAJAX CI Summary
 
-_Last updated: 2026-02-24 00:13 UTC_
+_Last updated: 2026-02-24 01:43 UTC_
 
-_Commit: [fc4ca691](https://github.com/ChipFlow/jax-spice/commit/fc4ca6912c9eef447ca9008c4834d58f06f7e873)_
+_Commit: [19c0c7e3](https://github.com/ChipFlow/vajax/commit/19c0c7e38e2e9c1c53ddeb257dbe0190ace763cb)_
 
 ## Test Coverage
 
@@ -22,7 +22,7 @@ _Commit: [fc4ca691](https://github.com/ChipFlow/jax-spice/commit/fc4ca6912c9eef4
 
 ### CPU Benchmarks
 
-| Benchmark | Steps | JAX-SPICE (ms/step) | VACASK (ms/step) | Ratio | Startup |
+| Benchmark | Steps | VAJAX (ms/step) | VACASK (ms/step) | Ratio | Startup |
 |-----------|-------|---------------------|------------------|-------|---------|
 | rc | 1,000,000 | 0.0125 | 0.0019 | 6.74x | 3.6s |
 | graetz | 1,000,000 | 0.0197 | 0.0038 | 5.25x | 9.6s |
@@ -30,19 +30,10 @@ _Commit: [fc4ca691](https://github.com/ChipFlow/jax-spice/commit/fc4ca6912c9eef4
 | ring | 19,999 | 0.5460 | 0.1087 | 5.02x | 155.0s |
 | tb_dp | 299 | 0.1022 | N/A | N/A | 5.0s |
 
-### GPU Benchmarks
-
-| Benchmark | Steps | JAX-SPICE (ms/step) | VACASK (ms/step) | Ratio | Startup |
-|-----------|-------|---------------------|------------------|-------|---------|
-| mul | 500,000 | 0.4450 | N/A | N/A | 11.2s |
-| c6288 | 1,000 | 20.0180 | 56.7875 | 0.35x | 222.1s |
-| ring | 19,999 | 1.4897 | 0.0453 | 32.91x | 189.9s |
-| rc | 1,000,000 | 0.2395 | 0.0009 | 256.04x | 3.1s |
-| graetz | 1,000,000 | 0.3042 | 0.0019 | 160.96x | 7.9s |
-| tb_dp | 299 | 4.9916 | N/A | N/A | 5.5s |
+_No gpu benchmarks benchmark data available._
 
 
 ---
 
-[View workflows](https://github.com/ChipFlow/jax-spice/actions) | 
-[Repository](https://github.com/ChipFlow/jax-spice)
+[View workflows](https://github.com/ChipFlow/vajax/actions) | 
+[Repository](https://github.com/ChipFlow/vajax)
