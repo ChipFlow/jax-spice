@@ -1,6 +1,6 @@
 # VAJAX CI Summary
 
-_Last updated: 2026-02-24 01:50 UTC_
+_Last updated: 2026-02-24 01:54 UTC_
 
 _Commit: [19c0c7e3](https://github.com/ChipFlow/vajax/commit/19c0c7e38e2e9c1c53ddeb257dbe0190ace763cb)_
 
@@ -24,11 +24,11 @@ _Commit: [19c0c7e3](https://github.com/ChipFlow/vajax/commit/19c0c7e38e2e9c1c53d
 
 | Benchmark | Steps | VAJAX (ms/step) | VACASK (ms/step) | Ratio | Startup |
 |-----------|-------|---------------------|------------------|-------|---------|
-| rc | 1,000,000 | 0.0125 | 0.0019 | 6.74x | 3.6s |
-| graetz | 1,000,000 | 0.0197 | 0.0038 | 5.25x | 9.6s |
-| mul | 500,000 | 0.0418 | 0.0039 | 10.82x | 7.1s |
-| ring | 19,999 | 0.5460 | 0.1087 | 5.02x | 155.0s |
-| tb_dp | 299 | 0.1022 | N/A | N/A | 5.0s |
+| rc | 1,000,000 | 0.0125 | 0.0019 | 6.73x | 3.7s |
+| graetz | 1,000,000 | 0.0188 | 0.0038 | 4.96x | 9.7s |
+| mul | 500,000 | 0.0408 | 0.0038 | 10.72x | 7.3s |
+| ring | 19,999 | 0.5257 | 0.1081 | 4.86x | 155.4s |
+| tb_dp | 299 | 0.1069 | N/A | N/A | 4.9s |
 
 _No gpu benchmarks benchmark data available._
 
