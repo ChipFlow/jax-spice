@@ -18,8 +18,8 @@ This guide covers development setup, code organization, and contribution guideli
 git clone <repo-url>
 cd vajax
 
-# Install dependencies with uv
-uv sync
+# Install dependencies with uv (--extra test includes pytest and test utilities)
+uv sync --extra test
 
 # Run tests to verify setup
 JAX_PLATFORMS=cpu uv run pytest tests/ -v
@@ -71,10 +71,10 @@ vajax/
 
 | Module | Purpose | Key Files |
 |--------|---------|-----------|
-| `vajax.devices` | Device models | `base.py`, `mosfet_simple.py`, `openvaf_device.py` |
-| `vajax.analysis` | Solvers | `mna.py`, `dc.py`, `transient.py` |
+| `vajax.devices` | Device models | `verilog_a.py`, `vsource.py` |
+| `vajax.analysis` | Solvers | `engine.py`, `mna.py`, `dc_operating_point.py`, `solver.py`, `transient/` |
 | `vajax.netlist` | Parsing | `parser.py`, `circuit.py` |
-| `vajax.benchmarks` | Benchmarks | `runner.py` |
+| `vajax.benchmarks` | Benchmarks | `registry.py`, `runner.py` |
 
 ## Running Tests
 
@@ -131,23 +131,12 @@ Configuration is in `pyproject.toml`:
 
 ## Architecture Concepts
 
-### Device Model Protocol
+### Device Model Architecture
 
-All devices implement a common interface:
-
-```python
-from vajax.devices import DeviceStamps
-from vajax.analysis import AnalysisContext
-from jax import Array
-
-def evaluate(
-    terminal_voltages: Array,  # Voltages at device terminals
-    params: dict,              # Device parameters
-    context: AnalysisContext   # Time, temperature, etc.
-) -> DeviceStamps:
-    """Return currents and conductances for MNA stamping."""
-    ...
-```
+All devices except voltage/current sources are compiled from Verilog-A via
+OpenVAF and wrapped by `VerilogADevice` (`vajax/devices/verilog_a.py`).
+Device instances are grouped by type and evaluated in parallel using `jax.vmap`
+for GPU efficiency. The engine handles MNA stamping automatically.
 
 ### Modified Nodal Analysis (MNA)
 
@@ -190,50 +179,32 @@ I_all = jax.vmap(mosfet_evaluate)(V_batched, params_batched)
 
 ## Adding a New Device
 
-1. Create `vajax/devices/your_device.py`:
+All devices (resistors, capacitors, diodes, MOSFETs, etc.) are routed through
+OpenVAF Verilog-A compilation via `VerilogADevice` in `vajax/devices/verilog_a.py`.
+The only exceptions are voltage and current sources, which are handled separately
+in `vajax/devices/vsource.py`.
 
-```python
-import jax.numpy as jnp
-from vajax.devices.base import DeviceStamps
-from vajax.analysis.context import AnalysisContext
+To add a new device:
 
-def your_device(
-    V: jnp.ndarray,           # Terminal voltages [V1, V2, ...]
-    params: dict,              # Device parameters
-    context: AnalysisContext
-) -> DeviceStamps:
-    """Your device model.
+1. Write or obtain a Verilog-A model (`.va` file)
+2. Compile it with OpenVAF to produce an `.osdi` module
+3. Reference it in a VACASK `.sim` netlist with `load "your_model.osdi"`
+4. The engine will automatically wrap it via `VerilogADevice` with batched
+   `jax.vmap` evaluation for GPU efficiency
 
-    Parameters:
-        V: Terminal voltages
-        params: dict with keys 'param1', 'param2', etc.
-        context: Analysis context
+There is no need to write Python device code — OpenVAF handles the compilation
+from Verilog-A to JAX-compatible functions.
 
-    Returns:
-        DeviceStamps with currents and conductances
-    """
-    # Extract parameters
-    param1 = params.get('param1', default_value)
-
-    # Compute currents
-    I = ...  # Current into each terminal
-
-    # Compute conductances (dI/dV)
-    G = ...  # 2D array of shape (n_terminals, n_terminals)
-
-    return DeviceStamps(currents=I, conductances=G)
-```
-
-2. Export from `vajax/devices/__init__.py`
-
-3. Add tests in `tests/test_your_device.py`
+To add tests, create `tests/test_your_device.py` using the public
+`CircuitEngine` API with a `.sim` netlist that exercises the device.
 
 ## Adding a New Analysis Type
 
 1. Create `vajax/analysis/your_analysis.py`
-2. Use `MNASystem` for device management
-3. Build on existing patterns from `dc.py` or `transient.py`
-4. Export from `vajax/analysis/__init__.py`
+2. Use `DeviceInfo` and `DeviceType` from `vajax/analysis/mna.py` for device management
+3. For transient-style analyses, subclass `TransientStrategy` ABC from `vajax/analysis/transient/base.py`
+4. Build on existing patterns from `dc_operating_point.py` or the `transient/` package
+5. Export from `vajax/analysis/__init__.py`
 
 ## Debugging Tips
 

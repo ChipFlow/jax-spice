@@ -135,10 +135,8 @@ def configure_precision(force_x64: bool | None = None) -> bool:
 
     if enable_x64:
         logger.info("Using 64-bit float precision")
-        print("Using 64-bit float precision")
     else:
-        logger.warn("Using 32-bit float precision")
-        print("Using 32-bit float precision")
+        logger.warning("Using 32-bit float precision")
 
     jax.config.update("jax_enable_x64", enable_x64)
     return enable_x64

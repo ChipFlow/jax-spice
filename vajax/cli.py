@@ -208,9 +208,9 @@ def cmd_benchmark(args: argparse.Namespace) -> int:
             configure_precision(force_x64=False)
 
         print(f"Running benchmark: {args.name}")
-        print(f"  Circuit: {bench.circuit_path}")
+        print(f"  Circuit: {bench.sim_path}")
 
-        engine = CircuitEngine(str(bench.circuit_path))
+        engine = CircuitEngine(str(bench.sim_path))
         engine.parse()
 
         # Run with profiling if requested
@@ -247,9 +247,12 @@ def cmd_convert(args: argparse.Namespace) -> int:
         return 1
 
     try:
-        from vajax.netlist_converter import convert_netlist
+        from vajax.netlist_converter import Converter
+        from vajax.netlist_converter.ng2vclib.dfl import default_config
 
-        convert_netlist(input_path, output_path)
+        cfg = default_config()
+        converter = Converter(cfg, dialect=args.dialect)
+        converter.convert(str(input_path), str(output_path))
         print(f"Converted: {input_path} -> {output_path}")
         return 0
     except ImportError:
@@ -306,7 +309,10 @@ Examples:
 
     # Run command (default when circuit file is provided)
     run_parser = subparsers.add_parser("run", help="Run simulation")
-    run_parser.add_argument("circuit", help="Circuit file (.sim or SPICE)")
+    run_parser.add_argument(
+        "circuit",
+        help="Circuit file (.sim VACASK format; use 'vajax convert' for SPICE netlists)",
+    )
     run_parser.add_argument("-o", "--output", help="Output file path")
     run_parser.add_argument(
         "-f",
@@ -354,7 +360,14 @@ Examples:
     # Convert command
     conv_parser = subparsers.add_parser("convert", help="Convert SPICE to VACASK format")
     conv_parser.add_argument("input", help="Input SPICE file")
-    conv_parser.add_argument("output", help="Output VACASK file")
+    conv_parser.add_argument("output", help="Output VACASK .sim file")
+    conv_parser.add_argument(
+        "-d",
+        "--dialect",
+        choices=["ngspice", "hspice", "ltspice"],
+        default="ngspice",
+        help="SPICE dialect (default: ngspice)",
+    )
     conv_parser.set_defaults(func=cmd_convert)
 
     # Info command

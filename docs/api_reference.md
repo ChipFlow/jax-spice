@@ -11,7 +11,8 @@ from vajax import CircuitEngine
 
 engine = CircuitEngine("circuit.sim")
 engine.parse()
-result = engine.run_transient(t_stop=1e-6, dt=1e-9)
+engine.prepare(t_stop=1e-6, dt=1e-9)
+result = engine.run_transient()
 ```
 
 #### Constructor
@@ -21,7 +22,7 @@ CircuitEngine(sim_path: Path | str)
 ```
 
 **Parameters:**
-- `sim_path`: Path to circuit file (`.sim` VACASK format or SPICE netlist)
+- `sim_path`: Path to circuit file (`.sim` VACASK format; use `vajax convert` for SPICE netlists)
 
 #### Methods
 
@@ -37,28 +38,44 @@ Loads the netlist, compiles Verilog-A models via OpenVAF, and prepares the circu
 
 ---
 
-##### run_transient()
+##### prepare()
 
-Run transient (time-domain) simulation.
+Prepare for transient analysis by configuring all parameters. Call this once
+before `run_transient()`. If `run_transient()` is called without `prepare()`,
+it will auto-prepare from netlist defaults.
 
 ```python
-result = engine.run_transient(
-    t_stop: float = None,      # Stop time (seconds)
-    dt: float = None,          # Time step (seconds)
-    use_scan: bool = True,     # Use lax.scan for GPU efficiency
-    use_sparse: bool = False,  # Use sparse solver (for large circuits)
-    max_steps: int = None,     # Maximum number of steps
-    abstol: float = 1e4,       # Absolute tolerance for NR convergence
-) -> TransientResult
+engine.prepare(
+    *,
+    t_stop: float = None,              # Stop time (seconds)
+    dt: float = None,                  # Time step / initial timestep (seconds)
+    use_sparse: bool = None,           # Force sparse (True) or dense (False) solver
+    backend: str = None,               # 'gpu', 'cpu', or None (auto-select)
+    temperature: float = 300.15,       # Simulation temperature (Kelvin)
+    adaptive_config: AdaptiveConfig = None,  # Adaptive timestep configuration
+    checkpoint_interval: int = None,   # GPU memory checkpointing interval
+)
 ```
 
 **Parameters:**
-- `t_stop`: Simulation stop time. If None, uses value from netlist `.control` section
-- `dt`: Time step. If None, uses value from netlist
-- `use_scan`: Use `jax.lax.scan` for fully-traced GPU execution
-- `use_sparse`: Use sparse matrix solver (required for >1000 nodes)
-- `max_steps`: Override maximum number of time steps
-- `abstol`: Convergence tolerance for Newton-Raphson
+- `t_stop`: Simulation stop time. If None, uses value from netlist analysis params
+- `dt`: Time step. If None, uses value from netlist. For adaptive mode, this is the initial timestep
+- `use_sparse`: Use sparse matrix solver (recommended for >1000 nodes). Defaults to False (dense)
+- `backend`: Force GPU or CPU backend. If None, auto-selects based on circuit size
+- `temperature`: Simulation temperature in Kelvin (default: 300.15K)
+- `adaptive_config`: Override adaptive timestep settings (LTE ratio, tolerances, etc.)
+- `checkpoint_interval`: If set, use GPU memory checkpointing with this many steps per buffer
+
+---
+
+##### run_transient()
+
+Run transient (time-domain) simulation. Requires `prepare()` to have been
+called first (or will auto-prepare from netlist defaults).
+
+```python
+result = engine.run_transient() -> TransientResult
+```
 
 **Returns:** `TransientResult`
 
@@ -229,7 +246,8 @@ class TransientResult:
 
 **Example:**
 ```python
-result = engine.run_transient(t_stop=1e-6, dt=1e-9)
+engine.prepare(t_stop=1e-6, dt=1e-9)
+result = engine.run_transient()
 
 # Access results
 print(f"Simulated {result.num_steps} time points")
@@ -428,7 +446,8 @@ engine = CircuitEngine("ring_oscillator.sim")
 engine.parse()
 
 # Run transient analysis
-tran = engine.run_transient(t_stop=100e-9, dt=1e-9, use_sparse=True)
+engine.prepare(t_stop=100e-9, dt=1e-9, use_sparse=True)
+tran = engine.run_transient()
 print(f"Transient: {tran.num_steps} steps, final Vout={tran.voltage('out')[-1]:.3f}V")
 
 # Run AC analysis

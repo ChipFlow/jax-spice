@@ -102,6 +102,7 @@ for the full analysis.
 uv sync
 
 # Run tests
+uv sync --extra test
 JAX_PLATFORMS=cpu uv run pytest tests/ -v
 
 # Run a benchmark
@@ -155,8 +156,9 @@ from vajax import CircuitEngine
 engine = CircuitEngine("path/to/circuit.sim")
 engine.parse()
 
-# Run transient analysis
-result = engine.run_transient(t_stop=1e-6, dt=1e-9, use_scan=True)
+# Prepare and run transient analysis
+engine.prepare(t_stop=1e-6, dt=1e-9)
+result = engine.run_transient()
 
 # Access results
 print(f"Simulated {len(result.times)} time points")
@@ -243,13 +245,13 @@ engine.parse()
 ### Transient Analysis
 
 ```python
-# Run transient simulation
-result = engine.run_transient(
+# Prepare and run transient simulation
+engine.prepare(
     t_stop=1e-6,      # Stop time
     dt=1e-9,          # Time step
-    use_scan=True,    # Use lax.scan for GPU efficiency
     use_sparse=True,  # Use sparse solver for large circuits
 )
+result = engine.run_transient()
 
 # Access results
 times = result.times           # Array of time points
