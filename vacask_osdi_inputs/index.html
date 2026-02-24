@@ -1,0 +1,1474 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="GPU-Accelerated Analog Circuit Simulator built on JAX">
+      
+      
+      
+      
+        <link rel="prev" href="../osdi_parameter_architecture/">
+      
+      
+        <link rel="next" href="../sim_back_vs_openvaf_jax/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.3">
+    
+    
+      
+        <title>OSDI Inputs - VAJAX</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#vacask-osdi-model-input-handling" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="VAJAX" class="md-header__button md-logo" aria-label="VAJAX" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            VAJAX
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              OSDI Inputs
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/ChipFlow/vajax" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    ChipFlow/vajax
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="VAJAX" class="md-nav__button md-logo" aria-label="VAJAX" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    VAJAX
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/ChipFlow/vajax" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    ChipFlow/vajax
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    User Guide
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    User Guide
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api_reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cli_reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CLI Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../transient_options/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Transient Options
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../performance_analysis/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Performance Analysis
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../vacask_sim_format/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    VACASK Sim Format
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Developer Guide
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Developer Guide
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../architecture_overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../gpu_solver_architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GPU Solver Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../gpu_solver_jacobian/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GPU Solver Jacobian
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sparse_solver_roadmap/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Sparse Solver Roadmap
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../debug_tools/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Debug Tools
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../phi_nodes_guide/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PHI Nodes Guide
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../verilog_a_system_functions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Verilog-A System Functions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../osdi_parameter_architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    OSDI Parameter Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    OSDI Inputs
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    OSDI Inputs
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#overview" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Overview
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#1-osdi-library-loading" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. OSDI Library Loading
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-model-and-instance-parameters" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Model and Instance Parameters
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-voltage-provision-to-models" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Voltage Provision to Models
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-the-eval-function" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. The Eval Function
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5-jacobian-handling" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. Jacobian Handling
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#6-residual-handling" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6. Residual Handling
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#7-complete-evaluation-flow" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7. Complete Evaluation Flow
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#8-key-differences-from-openvaf_jax" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        8. Key Differences from openvaf_jax
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#9-implications-for-gpu-solver" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        9. Implications for GPU Solver
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#10-file-references" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        10. File References
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sim_back_vs_openvaf_jax/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Code Generation Backends
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../ci-status/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CI Status
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#overview" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Overview
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#1-osdi-library-loading" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. OSDI Library Loading
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-model-and-instance-parameters" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Model and Instance Parameters
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-voltage-provision-to-models" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Voltage Provision to Models
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-the-eval-function" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. The Eval Function
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5-jacobian-handling" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. Jacobian Handling
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#6-residual-handling" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6. Residual Handling
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#7-complete-evaluation-flow" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7. Complete Evaluation Flow
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#8-key-differences-from-openvaf_jax" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        8. Key Differences from openvaf_jax
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#9-implications-for-gpu-solver" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        9. Implications for GPU Solver
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#10-file-references" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        10. File References
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="vacask-osdi-model-input-handling">VACASK OSDI Model Input Handling<a class="headerlink" href="#vacask-osdi-model-input-handling" title="Permanent link">&para;</a></h1>
+<p>This document describes how VACASK interfaces with OSDI compiled models (.so/.dylib files) generated by OpenVAF.</p>
+<h2 id="overview">Overview<a class="headerlink" href="#overview" title="Permanent link">&para;</a></h2>
+<p>VACASK loads OSDI shared libraries at runtime and interfaces with them through the OSDI API. This is fundamentally different from <code>openvaf_jax</code> which generates JAX functions - VACASK uses the native compiled code directly.</p>
+<h2 id="1-osdi-library-loading">1. OSDI Library Loading<a class="headerlink" href="#1-osdi-library-loading" title="Permanent link">&para;</a></h2>
+<p><strong>Files:</strong> <code>VACASK/lib/dynload.cpp</code>, <code>VACASK/lib/osdifile.cpp</code></p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="n">OsdiFile</span><span class="o">::</span><span class="n">open</span><span class="p">()</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="w">  </span><span class="err">└─</span><span class="o">&gt;</span><span class="w"> </span><span class="n">openDynamicLibrary</span><span class="p">(</span><span class="n">filename</span><span class="p">)</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="w">      </span><span class="err">├─</span><span class="o">&gt;</span><span class="w"> </span><span class="n">dlopen</span><span class="p">(</span><span class="n">filename</span><span class="p">,</span><span class="w"> </span><span class="n">RTLD_NOW</span><span class="p">)</span><span class="w"> </span><span class="p">[</span><span class="n">Linux</span><span class="o">/</span><span class="n">macOS</span><span class="p">]</span>
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="w">      </span><span class="err">└─</span><span class="o">&gt;</span><span class="w"> </span><span class="n">LoadLibrary</span><span class="p">(</span><span class="n">filename</span><span class="p">)</span><span class="w"> </span><span class="p">[</span><span class="n">Windows</span><span class="p">]</span>
+</code></pre></div>
+<p><strong>Symbols Retrieved from Library:</strong>
+- <code>OSDI_DESCRIPTORS</code> - Array of device descriptors
+- <code>OSDI_NUM_DESCRIPTORS</code> - Number of devices
+- <code>OSDI_VERSION_MAJOR/MINOR</code> - API version
+- <code>OSDI_LIM_TABLE</code> - Limit function table
+- <code>osdi_log</code> - Logging callback</p>
+<h2 id="2-model-and-instance-parameters">2. Model and Instance Parameters<a class="headerlink" href="#2-model-and-instance-parameters" title="Permanent link">&para;</a></h2>
+<p><strong>Parameter Access Architecture:</strong></p>
+<p>Parameters are accessed through a callback function pointer in the descriptor:
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="kt">void</span><span class="w"> </span><span class="o">*</span><span class="p">(</span><span class="o">*</span><span class="n">access</span><span class="p">)(</span><span class="kt">void</span><span class="w"> </span><span class="o">*</span><span class="n">inst</span><span class="p">,</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="o">*</span><span class="n">model</span><span class="p">,</span><span class="w"> </span><span class="kt">uint32_t</span><span class="w"> </span><span class="n">id</span><span class="p">,</span><span class="w"> </span><span class="kt">uint32_t</span><span class="w"> </span><span class="n">flags</span><span class="p">)</span>
+</code></pre></div></p>
+<p><strong>Parameter Types:</strong>
+- <strong>Model Parameters:</strong> Shared across all instances (e.g., process corners)
+- <strong>Instance Parameters:</strong> Per-device (e.g., W, L)
+- <strong>Output Variables (OpVars):</strong> Read-only computed values</p>
+<p><strong>Access Flags:</strong>
+- <code>ACCESS_FLAG_READ</code> (0) - Read parameter
+- <code>ACCESS_FLAG_SET</code> (1) - Set parameter
+- <code>ACCESS_FLAG_INSTANCE</code> (4) - Instance vs model parameter</p>
+<p><strong>Parameter Storage:</strong>
+- Model data: allocated at <code>descriptor-&gt;model_size</code> bytes
+- Instance data: allocated at <code>descriptor-&gt;instance_size</code> bytes
+- Parameters stored at offsets within these structures</p>
+<h2 id="3-voltage-provision-to-models">3. Voltage Provision to Models<a class="headerlink" href="#3-voltage-provision-to-models" title="Permanent link">&para;</a></h2>
+<p><strong>Key Insight:</strong> Voltages are NOT passed as function arguments. Instead:</p>
+<ol>
+<li>
+<p><strong>Node Mapping Setup:</strong>
+   <div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="k">auto</span><span class="w"> </span><span class="n">nodeMapping</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">nodeMappingArray</span><span class="p">();</span><span class="w">  </span><span class="c1">// at descriptor-&gt;node_mapping_offset</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="n">nodeMapping</span><span class="p">[</span><span class="n">i</span><span class="p">]</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">nodes_</span><span class="p">[</span><span class="n">i</span><span class="p">]</span><span class="o">-&gt;</span><span class="n">unknownIndex</span><span class="p">();</span><span class="w">  </span><span class="c1">// circuit matrix index</span>
+</code></pre></div></p>
+</li>
+<li>
+<p><strong>Solution Vector Passed via OsdiSimInfo:</strong>
+   <div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="n">simInfo</span><span class="p">.</span><span class="n">prev_solve</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">evalSetup</span><span class="o">-&gt;</span><span class="n">oldSolution</span><span class="p">;</span><span class="w">  </span><span class="c1">// entire circuit solution</span>
+</code></pre></div></p>
+</li>
+<li>
+<p><strong>Model Reads Voltages Internally:</strong>
+   <div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="c1">// Inside OSDI model (generated by OpenVAF)</span>
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="n">voltage_at_node_i</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">prev_solve</span><span class="p">[</span><span class="n">nodeMapping</span><span class="p">[</span><span class="n">i</span><span class="p">]];</span>
+</code></pre></div></p>
+</li>
+</ol>
+<h2 id="4-the-eval-function">4. The Eval Function<a class="headerlink" href="#4-the-eval-function" title="Permanent link">&para;</a></h2>
+<p><strong>Signature:</strong>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="kt">uint32_t</span><span class="w"> </span><span class="p">(</span><span class="o">*</span><span class="n">eval</span><span class="p">)(</span><span class="kt">void</span><span class="w"> </span><span class="o">*</span><span class="n">handle</span><span class="p">,</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="o">*</span><span class="n">inst</span><span class="p">,</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="o">*</span><span class="n">model</span><span class="p">,</span><span class="w"> </span><span class="n">OsdiSimInfo</span><span class="w"> </span><span class="o">*</span><span class="n">info</span><span class="p">)</span>
+</code></pre></div></p>
+<p><strong>Called From:</strong> <code>OsdiInstance::evalCore()</code> in osdiinstance.cpp</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="k">auto</span><span class="w"> </span><span class="n">evalFlags</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">descr</span><span class="o">-&gt;</span><span class="n">eval</span><span class="p">(</span><span class="o">&amp;</span><span class="n">handle</span><span class="p">,</span><span class="w"> </span><span class="n">core</span><span class="p">(),</span><span class="w"> </span><span class="n">model_</span><span class="o">-&gt;</span><span class="n">core</span><span class="p">(),</span><span class="w"> </span><span class="o">&amp;</span><span class="n">simInfo</span><span class="p">);</span>
+</code></pre></div>
+<p><strong>OsdiSimInfo Structure:</strong>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="k">typedef</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">OsdiSimInfo</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="w">    </span><span class="n">OsdiSimParas</span><span class="w"> </span><span class="n">paras</span><span class="p">;</span><span class="w">      </span><span class="c1">// gmin, tnom, scale, iteration, etc.</span>
+<a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a><span class="w">    </span><span class="kt">double</span><span class="w"> </span><span class="n">abstime</span><span class="p">;</span><span class="w">          </span><span class="c1">// Current simulation time</span>
+<a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a><span class="w">    </span><span class="kt">double</span><span class="w"> </span><span class="o">*</span><span class="n">prev_solve</span><span class="p">;</span><span class="w">      </span><span class="c1">// Circuit solution vector (node voltages!)</span>
+<a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a><span class="w">    </span><span class="kt">double</span><span class="w"> </span><span class="o">*</span><span class="n">prev_state</span><span class="p">;</span><span class="w">      </span><span class="c1">// Previous internal state</span>
+<a id="__codelineno-7-6" name="__codelineno-7-6" href="#__codelineno-7-6"></a><span class="w">    </span><span class="kt">double</span><span class="w"> </span><span class="o">*</span><span class="n">next_state</span><span class="p">;</span><span class="w">      </span><span class="c1">// Next internal state</span>
+<a id="__codelineno-7-7" name="__codelineno-7-7" href="#__codelineno-7-7"></a><span class="w">    </span><span class="kt">uint32_t</span><span class="w"> </span><span class="n">flags</span><span class="p">;</span><span class="w">          </span><span class="c1">// What to compute</span>
+<a id="__codelineno-7-8" name="__codelineno-7-8" href="#__codelineno-7-8"></a><span class="p">}</span><span class="w"> </span><span class="n">OsdiSimInfo</span><span class="p">;</span>
+</code></pre></div></p>
+<p><strong>Calculation Flags:</strong>
+- <code>CALC_RESIST_RESIDUAL</code> - Compute resistive residual (f)
+- <code>CALC_REACT_RESIDUAL</code> - Compute reactive residual (q)
+- <code>CALC_RESIST_JACOBIAN</code> - Compute resistive Jacobian (df/dx)
+- <code>CALC_REACT_JACOBIAN</code> - Compute reactive Jacobian (dq/dx)
+- <code>ANALYSIS_DC</code> / <code>ANALYSIS_TRAN</code> / <code>ANALYSIS_AC</code>
+- <code>ENABLE_LIM</code> / <code>INIT_LIM</code> - Limiting control</p>
+<h2 id="5-jacobian-handling">5. Jacobian Handling<a class="headerlink" href="#5-jacobian-handling" title="Permanent link">&para;</a></h2>
+<p><strong>Critical Design:</strong> Jacobians are NOT returned by eval(). Instead, matrix pointers are bound beforehand, and the model writes directly to them.</p>
+<p><strong>Binding Phase (before iteration):</strong>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="c1">// From bindCore()</span>
+<a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a><span class="k">auto</span><span class="w"> </span><span class="n">jacResistArray</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">resistiveJacobianPointers</span><span class="p">();</span><span class="w">  </span><span class="c1">// at descriptor-&gt;jacobian_ptr_resist_offset</span>
+<a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a><span class="k">for</span><span class="p">(</span><span class="k">auto</span><span class="o">&amp;</span><span class="w"> </span><span class="n">entry</span><span class="w"> </span><span class="o">:</span><span class="w"> </span><span class="n">jacobian_entries</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a><span class="w">    </span><span class="n">jacResistArray</span><span class="p">[</span><span class="n">i</span><span class="p">]</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">matResist</span><span class="o">-&gt;</span><span class="n">valuePtr</span><span class="p">(</span><span class="n">row</span><span class="p">,</span><span class="w"> </span><span class="n">col</span><span class="p">);</span><span class="w">  </span><span class="c1">// Direct matrix pointer!</span>
+<a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a><span class="p">}</span>
+</code></pre></div></p>
+<p><strong>During Eval:</strong>
+The OSDI model writes Jacobian values directly to the bound matrix pointers - no intermediate copies.</p>
+<p><strong>Load Phase (after eval):</strong>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="n">descr</span><span class="o">-&gt;</span><span class="n">load_jacobian_resist</span><span class="p">(</span><span class="n">core</span><span class="p">(),</span><span class="w"> </span><span class="n">model_</span><span class="o">-&gt;</span><span class="n">core</span><span class="p">());</span>
+<a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a><span class="n">descr</span><span class="o">-&gt;</span><span class="n">load_jacobian_react</span><span class="p">(</span><span class="n">core</span><span class="p">(),</span><span class="w"> </span><span class="n">model_</span><span class="o">-&gt;</span><span class="n">core</span><span class="p">(),</span><span class="w"> </span><span class="n">factor</span><span class="p">);</span>
+</code></pre></div></p>
+<h2 id="6-residual-handling">6. Residual Handling<a class="headerlink" href="#6-residual-handling" title="Permanent link">&para;</a></h2>
+<p><strong>Storage:</strong> Residuals are stored in the instance core structure at offsets:
+<div class="highlight"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="c1">// OsdiNode structure</span>
+<a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a><span class="kt">uint32_t</span><span class="w"> </span><span class="n">resist_residual_off</span><span class="p">;</span><span class="w">   </span><span class="c1">// Offset to resistive residual</span>
+<a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a><span class="kt">uint32_t</span><span class="w"> </span><span class="n">react_residual_off</span><span class="p">;</span><span class="w">    </span><span class="c1">// Offset to reactive residual</span>
+</code></pre></div></p>
+<p><strong>Extraction:</strong>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="k">for</span><span class="p">(</span><span class="k">auto</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">:</span><span class="w"> </span><span class="n">device</span><span class="o">-&gt;</span><span class="n">nonzeroResistiveResiduals</span><span class="p">())</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a><span class="w">    </span><span class="k">auto</span><span class="w"> </span><span class="n">resOff</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">descr</span><span class="o">-&gt;</span><span class="n">nodes</span><span class="p">[</span><span class="n">i</span><span class="p">].</span><span class="n">resist_residual_off</span><span class="p">;</span>
+<a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a><span class="w">    </span><span class="k">auto</span><span class="w"> </span><span class="n">contrib</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="o">*</span><span class="n">getDataPtr</span><span class="o">&lt;</span><span class="kt">double</span><span class="o">*&gt;</span><span class="p">(</span><span class="n">core</span><span class="p">(),</span><span class="w"> </span><span class="n">resOff</span><span class="p">);</span>
+<a id="__codelineno-11-4" name="__codelineno-11-4" href="#__codelineno-11-4"></a><span class="w">    </span><span class="c1">// Load to matrix RHS</span>
+<a id="__codelineno-11-5" name="__codelineno-11-5" href="#__codelineno-11-5"></a><span class="p">}</span>
+</code></pre></div></p>
+<h2 id="7-complete-evaluation-flow">7. Complete Evaluation Flow<a class="headerlink" href="#7-complete-evaluation-flow" title="Permanent link">&para;</a></h2>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a>1. SETUP PHASE:
+<a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a>   Circuit::setup()
+<a id="__codelineno-12-3" name="__codelineno-12-3" href="#__codelineno-12-3"></a>     └─&gt; OsdiDevice::setup()
+<a id="__codelineno-12-4" name="__codelineno-12-4" href="#__codelineno-12-4"></a>         └─&gt; OsdiInstance::setup()
+<a id="__codelineno-12-5" name="__codelineno-12-5" href="#__codelineno-12-5"></a>             └─&gt; setup_instance(handle, core, model_core, temp)
+<a id="__codelineno-12-6" name="__codelineno-12-6" href="#__codelineno-12-6"></a>                 └─&gt; Allocate internal states
+<a id="__codelineno-12-7" name="__codelineno-12-7" href="#__codelineno-12-7"></a>
+<a id="__codelineno-12-8" name="__codelineno-12-8" href="#__codelineno-12-8"></a>2. BIND PHASE (once per matrix structure change):
+<a id="__codelineno-12-9" name="__codelineno-12-9" href="#__codelineno-12-9"></a>   OsdiInstance::bindCore()
+<a id="__codelineno-12-10" name="__codelineno-12-10" href="#__codelineno-12-10"></a>     └─&gt; Bind Jacobian pointers to matrix entries
+<a id="__codelineno-12-11" name="__codelineno-12-11" href="#__codelineno-12-11"></a>     └─&gt; Bind node mapping to circuit unknowns
+<a id="__codelineno-12-12" name="__codelineno-12-12" href="#__codelineno-12-12"></a>
+<a id="__codelineno-12-13" name="__codelineno-12-13" href="#__codelineno-12-13"></a>3. ITERATION LOOP (Newton-Raphson):
+<a id="__codelineno-12-14" name="__codelineno-12-14" href="#__codelineno-12-14"></a>   OsdiDevice::evalAndLoad()
+<a id="__codelineno-12-15" name="__codelineno-12-15" href="#__codelineno-12-15"></a>
+<a id="__codelineno-12-16" name="__codelineno-12-16" href="#__codelineno-12-16"></a>   a. Populate OsdiSimInfo:
+<a id="__codelineno-12-17" name="__codelineno-12-17" href="#__codelineno-12-17"></a>      ├─&gt; simInfo.paras = {gmin, tnom, scale, iteration, ...}
+<a id="__codelineno-12-18" name="__codelineno-12-18" href="#__codelineno-12-18"></a>      ├─&gt; simInfo.abstime = current_time
+<a id="__codelineno-12-19" name="__codelineno-12-19" href="#__codelineno-12-19"></a>      ├─&gt; simInfo.prev_solve = circuit_solution_vector  // VOLTAGES HERE!
+<a id="__codelineno-12-20" name="__codelineno-12-20" href="#__codelineno-12-20"></a>      ├─&gt; simInfo.prev_state = previous_internal_states
+<a id="__codelineno-12-21" name="__codelineno-12-21" href="#__codelineno-12-21"></a>      ├─&gt; simInfo.next_state = next_internal_states
+<a id="__codelineno-12-22" name="__codelineno-12-22" href="#__codelineno-12-22"></a>      └─&gt; simInfo.flags = CALC_RESIST_RESIDUAL | CALC_RESIST_JACOBIAN | ...
+<a id="__codelineno-12-23" name="__codelineno-12-23" href="#__codelineno-12-23"></a>
+<a id="__codelineno-12-24" name="__codelineno-12-24" href="#__codelineno-12-24"></a>   b. For each instance:
+<a id="__codelineno-12-25" name="__codelineno-12-25" href="#__codelineno-12-25"></a>      eval(&amp;handle, instance_core, model_core, &amp;simInfo)
+<a id="__codelineno-12-26" name="__codelineno-12-26" href="#__codelineno-12-26"></a>        └─&gt; Model internally:
+<a id="__codelineno-12-27" name="__codelineno-12-27" href="#__codelineno-12-27"></a>            ├─&gt; Reads voltages: V[i] = prev_solve[nodeMapping[i]]
+<a id="__codelineno-12-28" name="__codelineno-12-28" href="#__codelineno-12-28"></a>            ├─&gt; Computes currents, charges
+<a id="__codelineno-12-29" name="__codelineno-12-29" href="#__codelineno-12-29"></a>            ├─&gt; Writes residuals to instance_core offsets
+<a id="__codelineno-12-30" name="__codelineno-12-30" href="#__codelineno-12-30"></a>            ├─&gt; Writes Jacobians DIRECTLY to matrix pointers
+<a id="__codelineno-12-31" name="__codelineno-12-31" href="#__codelineno-12-31"></a>            └─&gt; Updates internal states
+<a id="__codelineno-12-32" name="__codelineno-12-32" href="#__codelineno-12-32"></a>
+<a id="__codelineno-12-33" name="__codelineno-12-33" href="#__codelineno-12-33"></a>   c. For each instance:
+<a id="__codelineno-12-34" name="__codelineno-12-34" href="#__codelineno-12-34"></a>      loadCore()
+<a id="__codelineno-12-35" name="__codelineno-12-35" href="#__codelineno-12-35"></a>        ├─&gt; load_residual_resist() → to matrix RHS
+<a id="__codelineno-12-36" name="__codelineno-12-36" href="#__codelineno-12-36"></a>        ├─&gt; load_residual_react() → to matrix RHS
+<a id="__codelineno-12-37" name="__codelineno-12-37" href="#__codelineno-12-37"></a>        └─&gt; Jacobians already written by eval!
+<a id="__codelineno-12-38" name="__codelineno-12-38" href="#__codelineno-12-38"></a>
+<a id="__codelineno-12-39" name="__codelineno-12-39" href="#__codelineno-12-39"></a>4. SOLVE and repeat until converged
+</code></pre></div>
+<h2 id="8-key-differences-from-openvaf_jax">8. Key Differences from openvaf_jax<a class="headerlink" href="#8-key-differences-from-openvaf_jax" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Aspect</th>
+<th>VACASK + OSDI</th>
+<th>openvaf_jax</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Code type</td>
+<td>Native compiled (.so)</td>
+<td>JAX Python functions</td>
+</tr>
+<tr>
+<td>Voltage input</td>
+<td>Via prev_solve array + node mapping</td>
+<td>Direct function arguments</td>
+</tr>
+<tr>
+<td>Jacobian output</td>
+<td>Direct write to matrix pointers</td>
+<td>Returned as dictionary</td>
+</tr>
+<tr>
+<td>Residual output</td>
+<td>Read from instance core offsets</td>
+<td>Returned as dictionary</td>
+</tr>
+<tr>
+<td>Autodiff</td>
+<td>Not used - analytical Jacobians</td>
+<td>Can use JAX autodiff</td>
+</tr>
+<tr>
+<td>GPU support</td>
+<td>CPU only</td>
+<td>JAX GPU acceleration</td>
+</tr>
+</tbody>
+</table>
+<h2 id="9-implications-for-gpu-solver">9. Implications for GPU Solver<a class="headerlink" href="#9-implications-for-gpu-solver" title="Permanent link">&para;</a></h2>
+<p>The GPU solver currently uses JAX autodiff for Jacobians, but this misses:</p>
+<ol>
+<li><strong>Minimum Conductances:</strong> OSDI models enforce <code>gds &gt;= GDSMIN</code>, autodiff doesn't</li>
+<li><strong>Limiting Functions:</strong> <code>$limit()</code> in Verilog-A handled by OSDI, not autodiff</li>
+<li><strong>Analytical Derivatives:</strong> OpenVAF computes symbolic derivatives with numerical stability</li>
+</ol>
+<p><strong>Solution:</strong> Use <code>openvaf_jax</code> to get the same analytical Jacobians that OSDI models provide, rather than relying on autodiff.</p>
+<h2 id="10-file-references">10. File References<a class="headerlink" href="#10-file-references" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Purpose</th>
+<th>VACASK File</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Library loading</td>
+<td><code>lib/dynload.cpp</code>, <code>lib/osdifile.cpp</code></td>
+</tr>
+<tr>
+<td>Instance evaluation</td>
+<td><code>lib/osdiinstance.cpp</code></td>
+</tr>
+<tr>
+<td>Device management</td>
+<td><code>lib/osdidevice.cpp</code></td>
+</tr>
+<tr>
+<td>OSDI API definitions</td>
+<td><code>include/osdi.h</code></td>
+</tr>
+<tr>
+<td>Parameter access</td>
+<td><code>lib/osdimodel.cpp</code></td>
+</tr>
+</tbody>
+</table>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["content.code.copy", "navigation.instant", "navigation.sections", "navigation.top", "toc.follow"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>

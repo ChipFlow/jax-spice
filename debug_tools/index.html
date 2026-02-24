@@ -1,0 +1,2307 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="GPU-Accelerated Analog Circuit Simulator built on JAX">
+      
+      
+      
+      
+        <link rel="prev" href="../sparse_solver_roadmap/">
+      
+      
+        <link rel="next" href="../phi_nodes_guide/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.3">
+    
+    
+      
+        <title>Debug Tools - VAJAX</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#debug-tools-reference" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="VAJAX" class="md-header__button md-logo" aria-label="VAJAX" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            VAJAX
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Debug Tools
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/ChipFlow/vajax" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    ChipFlow/vajax
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="VAJAX" class="md-nav__button md-logo" aria-label="VAJAX" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    VAJAX
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/ChipFlow/vajax" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    ChipFlow/vajax
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    User Guide
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    User Guide
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api_reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cli_reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CLI Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../transient_options/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Transient Options
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../performance_analysis/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Performance Analysis
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../vacask_sim_format/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    VACASK Sim Format
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Developer Guide
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Developer Guide
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../architecture_overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../gpu_solver_architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GPU Solver Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../gpu_solver_jacobian/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GPU Solver Jacobian
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sparse_solver_roadmap/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Sparse Solver Roadmap
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Debug Tools
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Debug Tools
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#quick-start" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Quick Start
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#module-overview" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Module Overview
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#model-comparison-model_comparisonpy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Model Comparison (model_comparison.py)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Model Comparison (model_comparison.py)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#modelcomparator" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ModelComparator
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#cacheanalysis" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        CacheAnalysis
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#mir-inspector-mir_inspectorpy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        MIR Inspector (mir_inspector.py)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="MIR Inspector (mir_inspector.py)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#mirinspector" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        MIRInspector
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#finding-specific-values" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Finding Specific Values
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#mir-graph-mir_graphpy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        MIR Graph (mir_graph.py)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="MIR Graph (mir_graph.py)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#mirgraph" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        MIRGraph
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#value-tracing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Value Tracing
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#parameter-mapping" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Parameter Mapping
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#dae-system-queries" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        DAE System Queries
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#control-flow" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Control Flow
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#constants" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Constants
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#jacobian-comparison-jacobianpy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Jacobian Comparison (jacobian.py)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#cli-tools" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        CLI Tools
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="CLI Tools">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#mir-cfg-analyzer" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        MIR CFG Analyzer
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#transient-diagnostics-transient_diagnosticspy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Transient Diagnostics (transient_diagnostics.py)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Transient Diagnostics (transient_diagnostics.py)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#parsing-debug-output" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Parsing Debug Output
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#capturing-a-full-step-trace" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Capturing a Full Step Trace
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#convergence-sweep" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Convergence Sweep
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#vacask-step-comparison" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        VACASK Step Comparison
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#lte-solver-comparison-cli" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        LTE Solver Comparison CLI
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#transient-debugging-workflow" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Transient Debugging Workflow
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Transient Debugging Workflow">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#1-convergence-sweep" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Convergence Sweep
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#2-capture-step-trace" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Capture Step Trace
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#3-vacask-comparison" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. VACASK Comparison
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#debugging-workflow" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Debugging Workflow
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Debugging Workflow">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#1-initial-comparison" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Initial Comparison
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#2-cache-analysis" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Cache Analysis
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#3-mir-inspection" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. MIR Inspection
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#4-phi-node-analysis" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. PHI Node Analysis
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#common-issues" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Common Issues
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Common Issues">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#1-jax-returns-near-zero-current" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. JAX returns near-zero current
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#2-jacobian-sparsity-mismatch" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Jacobian sparsity mismatch
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#3-temperature-related-errors" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Temperature-related errors
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../phi_nodes_guide/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PHI Nodes Guide
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../verilog_a_system_functions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Verilog-A System Functions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../osdi_parameter_architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    OSDI Parameter Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../vacask_osdi_inputs/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    OSDI Inputs
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sim_back_vs_openvaf_jax/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Code Generation Backends
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../ci-status/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CI Status
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#quick-start" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Quick Start
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#module-overview" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Module Overview
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#model-comparison-model_comparisonpy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Model Comparison (model_comparison.py)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Model Comparison (model_comparison.py)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#modelcomparator" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ModelComparator
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#cacheanalysis" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        CacheAnalysis
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#mir-inspector-mir_inspectorpy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        MIR Inspector (mir_inspector.py)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="MIR Inspector (mir_inspector.py)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#mirinspector" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        MIRInspector
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#finding-specific-values" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Finding Specific Values
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#mir-graph-mir_graphpy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        MIR Graph (mir_graph.py)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="MIR Graph (mir_graph.py)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#mirgraph" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        MIRGraph
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#value-tracing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Value Tracing
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#parameter-mapping" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Parameter Mapping
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#dae-system-queries" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        DAE System Queries
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#control-flow" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Control Flow
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#constants" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Constants
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#jacobian-comparison-jacobianpy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Jacobian Comparison (jacobian.py)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#cli-tools" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        CLI Tools
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="CLI Tools">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#mir-cfg-analyzer" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        MIR CFG Analyzer
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#transient-diagnostics-transient_diagnosticspy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Transient Diagnostics (transient_diagnostics.py)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Transient Diagnostics (transient_diagnostics.py)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#parsing-debug-output" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Parsing Debug Output
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#capturing-a-full-step-trace" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Capturing a Full Step Trace
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#convergence-sweep" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Convergence Sweep
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#vacask-step-comparison" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        VACASK Step Comparison
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#lte-solver-comparison-cli" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        LTE Solver Comparison CLI
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#transient-debugging-workflow" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Transient Debugging Workflow
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Transient Debugging Workflow">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#1-convergence-sweep" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Convergence Sweep
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#2-capture-step-trace" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Capture Step Trace
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#3-vacask-comparison" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. VACASK Comparison
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#debugging-workflow" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Debugging Workflow
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Debugging Workflow">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#1-initial-comparison" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Initial Comparison
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#2-cache-analysis" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Cache Analysis
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#3-mir-inspection" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. MIR Inspection
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#4-phi-node-analysis" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. PHI Node Analysis
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#common-issues" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Common Issues
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Common Issues">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#1-jax-returns-near-zero-current" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. JAX returns near-zero current
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#2-jacobian-sparsity-mismatch" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Jacobian sparsity mismatch
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#3-temperature-related-errors" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Temperature-related errors
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="debug-tools-reference">Debug Tools Reference<a class="headerlink" href="#debug-tools-reference" title="Permanent link">&para;</a></h1>
+<p>This document describes the debugging utilities in <code>vajax.debug</code> for troubleshooting OSDI vs JAX discrepancies.</p>
+<h2 id="quick-start">Quick Start<a class="headerlink" href="#quick-start" title="Permanent link">&para;</a></h2>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">vajax.debug</span><span class="w"> </span><span class="kn">import</span> <span class="n">quick_compare</span><span class="p">,</span> <span class="n">inspect_model</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="c1"># Compare OSDI vs JAX at a bias point</span>
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="n">result</span> <span class="o">=</span> <span class="n">quick_compare</span><span class="p">(</span>
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>    <span class="n">va_path</span><span class="o">=</span><span class="s2">&quot;vendor/OpenVAF/integration_tests/PSP102/psp102.va&quot;</span><span class="p">,</span>
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>    <span class="n">osdi_path</span><span class="o">=</span><span class="s2">&quot;/tmp/osdi_jax_test_cache/psp102.osdi&quot;</span><span class="p">,</span>
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>    <span class="n">params</span><span class="o">=</span><span class="p">{</span><span class="s1">&#39;TYPE&#39;</span><span class="p">:</span> <span class="mi">1</span><span class="p">,</span> <span class="s1">&#39;W&#39;</span><span class="p">:</span> <span class="mf">1e-6</span><span class="p">,</span> <span class="s1">&#39;L&#39;</span><span class="p">:</span> <span class="mf">1e-7</span><span class="p">},</span>
+<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>    <span class="n">voltages</span><span class="o">=</span><span class="p">[</span><span class="mf">0.5</span><span class="p">,</span> <span class="mf">0.6</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">],</span>
+<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a><span class="p">)</span>
+<a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a><span class="nb">print</span><span class="p">(</span><span class="n">result</span><span class="p">)</span>
+<a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a>
+<a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a><span class="c1"># Inspect MIR structure</span>
+<a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a><span class="n">inspect_model</span><span class="p">(</span><span class="s2">&quot;vendor/OpenVAF/integration_tests/PSP102/psp102.va&quot;</span><span class="p">)</span>
+<a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a>
+<a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a><span class="c1"># Graph-based queries (requires networkx)</span>
+<a id="__codelineno-0-16" name="__codelineno-0-16" href="#__codelineno-0-16"></a><span class="kn">from</span><span class="w"> </span><span class="nn">vajax.debug</span><span class="w"> </span><span class="kn">import</span> <span class="n">MIRGraph</span>
+<a id="__codelineno-0-17" name="__codelineno-0-17" href="#__codelineno-0-17"></a><span class="n">graph</span> <span class="o">=</span> <span class="n">MIRGraph</span><span class="o">.</span><span class="n">from_va_file</span><span class="p">(</span><span class="s2">&quot;model.va&quot;</span><span class="p">,</span> <span class="n">func</span><span class="o">=</span><span class="s1">&#39;eval&#39;</span><span class="p">)</span>
+<a id="__codelineno-0-18" name="__codelineno-0-18" href="#__codelineno-0-18"></a><span class="n">graph</span><span class="o">.</span><span class="n">dae_residual</span><span class="p">(</span><span class="s1">&#39;dt&#39;</span><span class="p">)</span>      <span class="c1"># Find residual variable</span>
+<a id="__codelineno-0-19" name="__codelineno-0-19" href="#__codelineno-0-19"></a><span class="n">graph</span><span class="o">.</span><span class="n">param_to_value</span><span class="p">(</span><span class="s1">&#39;rth&#39;</span><span class="p">)</span>   <span class="c1"># Map param to MIR value</span>
+</code></pre></div>
+<h2 id="module-overview">Module Overview<a class="headerlink" href="#module-overview" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Module</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>model_comparison</code></td>
+<td>Compare OSDI vs JAX outputs (residuals, Jacobians, cache)</td>
+</tr>
+<tr>
+<td><code>mir_inspector</code></td>
+<td>Inspect MIR data (params, PHI nodes, constants)</td>
+</tr>
+<tr>
+<td><code>mir_graph</code></td>
+<td>Graph-based MIR queries (requires networkx)</td>
+</tr>
+<tr>
+<td><code>jacobian</code></td>
+<td>Format-aware Jacobian comparison (OSDI sparse vs JAX dense)</td>
+</tr>
+<tr>
+<td><code>mir_tracer</code></td>
+<td>Trace value flow through MIR</td>
+</tr>
+<tr>
+<td><code>param_analyzer</code></td>
+<td>Analyze parameter kinds and OSDI comparison</td>
+</tr>
+<tr>
+<td><code>mir_analysis</code></td>
+<td>CFG analysis with networkx (optional dependency)</td>
+</tr>
+<tr>
+<td><code>transient_diagnostics</code></td>
+<td>Runtime transient step analysis (LTE, NR, step acceptance)</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="model-comparison-model_comparisonpy">Model Comparison (<code>model_comparison.py</code>)<a class="headerlink" href="#model-comparison-model_comparisonpy" title="Permanent link">&para;</a></h2>
+<h3 id="modelcomparator">ModelComparator<a class="headerlink" href="#modelcomparator" title="Permanent link">&para;</a></h3>
+<p>Full-featured comparison between OSDI and JAX implementations.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">vajax.debug</span><span class="w"> </span><span class="kn">import</span> <span class="n">ModelComparator</span>
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="n">comparator</span> <span class="o">=</span> <span class="n">ModelComparator</span><span class="p">(</span>
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>    <span class="n">va_path</span><span class="o">=</span><span class="s2">&quot;path/to/model.va&quot;</span><span class="p">,</span>
+<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>    <span class="n">osdi_path</span><span class="o">=</span><span class="s2">&quot;path/to/model.osdi&quot;</span><span class="p">,</span>
+<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a>    <span class="n">params</span><span class="o">=</span><span class="p">{</span><span class="s1">&#39;TYPE&#39;</span><span class="p">:</span> <span class="mi">1</span><span class="p">,</span> <span class="s1">&#39;W&#39;</span><span class="p">:</span> <span class="mf">1e-6</span><span class="p">,</span> <span class="s1">&#39;L&#39;</span><span class="p">:</span> <span class="mf">1e-7</span><span class="p">},</span>
+<a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a>    <span class="n">temperature</span><span class="o">=</span><span class="mf">300.0</span><span class="p">,</span>
+<a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a><span class="p">)</span>
+<a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a>
+<a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a><span class="c1"># Compare at a single bias point</span>
+<a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a><span class="n">result</span> <span class="o">=</span> <span class="n">comparator</span><span class="o">.</span><span class="n">compare_at_bias</span><span class="p">([</span><span class="mf">0.5</span><span class="p">,</span> <span class="mf">0.6</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">])</span>
+<a id="__codelineno-1-12" name="__codelineno-1-12" href="#__codelineno-1-12"></a><span class="nb">print</span><span class="p">(</span><span class="n">result</span><span class="p">)</span>
+<a id="__codelineno-1-13" name="__codelineno-1-13" href="#__codelineno-1-13"></a><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Passed: </span><span class="si">{</span><span class="n">result</span><span class="o">.</span><span class="n">passed</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+<a id="__codelineno-1-14" name="__codelineno-1-14" href="#__codelineno-1-14"></a><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Issues: </span><span class="si">{</span><span class="n">result</span><span class="o">.</span><span class="n">issues</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+<a id="__codelineno-1-15" name="__codelineno-1-15" href="#__codelineno-1-15"></a>
+<a id="__codelineno-1-16" name="__codelineno-1-16" href="#__codelineno-1-16"></a><span class="c1"># Print side-by-side residual table</span>
+<a id="__codelineno-1-17" name="__codelineno-1-17" href="#__codelineno-1-17"></a><span class="n">comparator</span><span class="o">.</span><span class="n">print_residual_table</span><span class="p">([</span><span class="mf">0.5</span><span class="p">,</span> <span class="mf">0.6</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">])</span>
+<a id="__codelineno-1-18" name="__codelineno-1-18" href="#__codelineno-1-18"></a>
+<a id="__codelineno-1-19" name="__codelineno-1-19" href="#__codelineno-1-19"></a><span class="c1"># Analyze cache for potential issues</span>
+<a id="__codelineno-1-20" name="__codelineno-1-20" href="#__codelineno-1-20"></a><span class="n">cache_analysis</span> <span class="o">=</span> <span class="n">comparator</span><span class="o">.</span><span class="n">analyze_cache</span><span class="p">()</span>
+<a id="__codelineno-1-21" name="__codelineno-1-21" href="#__codelineno-1-21"></a><span class="nb">print</span><span class="p">(</span><span class="n">cache_analysis</span><span class="p">)</span>
+<a id="__codelineno-1-22" name="__codelineno-1-22" href="#__codelineno-1-22"></a>
+<a id="__codelineno-1-23" name="__codelineno-1-23" href="#__codelineno-1-23"></a><span class="c1"># Sweep comparison</span>
+<a id="__codelineno-1-24" name="__codelineno-1-24" href="#__codelineno-1-24"></a><span class="n">results</span> <span class="o">=</span> <span class="n">comparator</span><span class="o">.</span><span class="n">sweep_comparison</span><span class="p">(</span>
+<a id="__codelineno-1-25" name="__codelineno-1-25" href="#__codelineno-1-25"></a>    <span class="n">base_voltages</span><span class="o">=</span><span class="p">[</span><span class="mf">0.5</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">],</span>
+<a id="__codelineno-1-26" name="__codelineno-1-26" href="#__codelineno-1-26"></a>    <span class="n">sweep_index</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>  <span class="c1"># Sweep Vgs</span>
+<a id="__codelineno-1-27" name="__codelineno-1-27" href="#__codelineno-1-27"></a>    <span class="n">sweep_values</span><span class="o">=</span><span class="p">[</span><span class="mf">0.0</span><span class="p">,</span> <span class="mf">0.3</span><span class="p">,</span> <span class="mf">0.6</span><span class="p">,</span> <span class="mf">0.9</span><span class="p">,</span> <span class="mf">1.2</span><span class="p">],</span>
+<a id="__codelineno-1-28" name="__codelineno-1-28" href="#__codelineno-1-28"></a><span class="p">)</span>
+</code></pre></div>
+<h3 id="cacheanalysis">CacheAnalysis<a class="headerlink" href="#cacheanalysis" title="Permanent link">&para;</a></h3>
+<p>Detects potential issues in JAX cache values:</p>
+<ul>
+<li><strong>inf/nan detection</strong>: Catches numerical instabilities</li>
+<li><strong>Large values</strong>: Flags values &gt; 1e10 that might cause overflow</li>
+<li><strong>Temperature-related</strong>: Finds VT values (0.025-0.030) and their implied temperatures</li>
+</ul>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="n">cache</span> <span class="o">=</span> <span class="n">comparator</span><span class="o">.</span><span class="n">analyze_cache</span><span class="p">()</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Cache size: </span><span class="si">{</span><span class="n">cache</span><span class="o">.</span><span class="n">size</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Non-zero: </span><span class="si">{</span><span class="n">cache</span><span class="o">.</span><span class="n">nonzero_count</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Has inf: </span><span class="si">{</span><span class="n">cache</span><span class="o">.</span><span class="n">has_inf</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Has nan: </span><span class="si">{</span><span class="n">cache</span><span class="o">.</span><span class="n">has_nan</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+<a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a>
+<a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a><span class="c1"># Check temperature values</span>
+<a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a><span class="k">for</span> <span class="n">idx</span><span class="p">,</span> <span class="n">val</span><span class="p">,</span> <span class="n">implied_t</span> <span class="ow">in</span> <span class="n">cache</span><span class="o">.</span><span class="n">temperature_related</span><span class="p">:</span>
+<a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a>    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;cache[</span><span class="si">{</span><span class="n">idx</span><span class="si">}</span><span class="s2">] = </span><span class="si">{</span><span class="n">val</span><span class="si">:</span><span class="s2">.6f</span><span class="si">}</span><span class="s2"> implies T = </span><span class="si">{</span><span class="n">implied_t</span><span class="si">:</span><span class="s2">.1f</span><span class="si">}</span><span class="s2">K&quot;</span><span class="p">)</span>
+</code></pre></div>
+<hr />
+<h2 id="mir-inspector-mir_inspectorpy">MIR Inspector (<code>mir_inspector.py</code>)<a class="headerlink" href="#mir-inspector-mir_inspectorpy" title="Permanent link">&para;</a></h2>
+<h3 id="mirinspector">MIRInspector<a class="headerlink" href="#mirinspector" title="Permanent link">&para;</a></h3>
+<p>Examine MIR (Mid-level IR) structure for debugging translation issues.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">vajax.debug</span><span class="w"> </span><span class="kn">import</span> <span class="n">MIRInspector</span>
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>
+<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="n">inspector</span> <span class="o">=</span> <span class="n">MIRInspector</span><span class="p">(</span><span class="s2">&quot;path/to/model.va&quot;</span><span class="p">)</span>
+<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a>
+<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a><span class="c1"># Overall statistics</span>
+<a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a><span class="n">inspector</span><span class="o">.</span><span class="n">print_mir_stats</span><span class="p">()</span>
+<a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a>
+<a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a><span class="c1"># Parameter summary</span>
+<a id="__codelineno-3-9" name="__codelineno-3-9" href="#__codelineno-3-9"></a><span class="n">inspector</span><span class="o">.</span><span class="n">print_param_summary</span><span class="p">(</span><span class="s1">&#39;eval&#39;</span><span class="p">)</span>  <span class="c1"># or &#39;init&#39;</span>
+<a id="__codelineno-3-10" name="__codelineno-3-10" href="#__codelineno-3-10"></a>
+<a id="__codelineno-3-11" name="__codelineno-3-11" href="#__codelineno-3-11"></a><span class="c1"># PHI node analysis</span>
+<a id="__codelineno-3-12" name="__codelineno-3-12" href="#__codelineno-3-12"></a><span class="n">inspector</span><span class="o">.</span><span class="n">print_phi_summary</span><span class="p">(</span><span class="s1">&#39;eval&#39;</span><span class="p">)</span>
+<a id="__codelineno-3-13" name="__codelineno-3-13" href="#__codelineno-3-13"></a>
+<a id="__codelineno-3-14" name="__codelineno-3-14" href="#__codelineno-3-14"></a><span class="c1"># Find TYPE parameter (NMOS/PMOS models)</span>
+<a id="__codelineno-3-15" name="__codelineno-3-15" href="#__codelineno-3-15"></a><span class="n">inspector</span><span class="o">.</span><span class="n">print_type_param_info</span><span class="p">()</span>
+</code></pre></div>
+<h3 id="finding-specific-values">Finding Specific Values<a class="headerlink" href="#finding-specific-values" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="c1"># Find constants near a value (e.g., P_CELSIUS0 = 273.15)</span>
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="n">constants</span> <span class="o">=</span> <span class="n">inspector</span><span class="o">.</span><span class="n">find_constants_near</span><span class="p">(</span><span class="mf">273.15</span><span class="p">,</span> <span class="n">tolerance</span><span class="o">=</span><span class="mf">0.01</span><span class="p">)</span>
+<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">value</span> <span class="ow">in</span> <span class="n">constants</span><span class="p">:</span>
+<a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a>    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">name</span><span class="si">}</span><span class="s2"> = </span><span class="si">{</span><span class="n">value</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+<a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a>
+<a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a><span class="c1"># Find PHI nodes with zero operand (indicates conditional branch)</span>
+<a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a><span class="n">zero_phis</span> <span class="o">=</span> <span class="n">inspector</span><span class="o">.</span><span class="n">find_phi_nodes_with_value</span><span class="p">(</span><span class="s1">&#39;v3&#39;</span><span class="p">)</span>  <span class="c1"># v3 is typically 0.0</span>
+<a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a><span class="k">for</span> <span class="n">phi</span> <span class="ow">in</span> <span class="n">zero_phis</span><span class="p">[:</span><span class="mi">5</span><span class="p">]:</span>
+<a id="__codelineno-4-9" name="__codelineno-4-9" href="#__codelineno-4-9"></a>    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;PHI </span><span class="si">{</span><span class="n">phi</span><span class="o">.</span><span class="n">result</span><span class="si">}</span><span class="s2"> in </span><span class="si">{</span><span class="n">phi</span><span class="o">.</span><span class="n">block</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+<a id="__codelineno-4-10" name="__codelineno-4-10" href="#__codelineno-4-10"></a>    <span class="k">for</span> <span class="n">pred</span><span class="p">,</span> <span class="n">val</span> <span class="ow">in</span> <span class="n">phi</span><span class="o">.</span><span class="n">operands</span><span class="p">:</span>
+<a id="__codelineno-4-11" name="__codelineno-4-11" href="#__codelineno-4-11"></a>        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;  </span><span class="si">{</span><span class="n">pred</span><span class="si">}</span><span class="s2"> -&gt; </span><span class="si">{</span><span class="n">val</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+</code></pre></div>
+<hr />
+<h2 id="mir-graph-mir_graphpy">MIR Graph (<code>mir_graph.py</code>)<a class="headerlink" href="#mir-graph-mir_graphpy" title="Permanent link">&para;</a></h2>
+<p>Graph-based queries for MIR analysis. Requires <code>networkx</code>.</p>
+<h3 id="mirgraph">MIRGraph<a class="headerlink" href="#mirgraph" title="Permanent link">&para;</a></h3>
+<p>Build a queryable graph from a VA model:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">vajax.debug</span><span class="w"> </span><span class="kn">import</span> <span class="n">MIRGraph</span>
+<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>
+<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="n">graph</span> <span class="o">=</span> <span class="n">MIRGraph</span><span class="o">.</span><span class="n">from_va_file</span><span class="p">(</span><span class="s2">&quot;model.va&quot;</span><span class="p">,</span> <span class="n">func</span><span class="o">=</span><span class="s1">&#39;eval&#39;</span><span class="p">,</span> <span class="n">include_dae</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+</code></pre></div>
+<h3 id="value-tracing">Value Tracing<a class="headerlink" href="#value-tracing" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="c1"># What instruction defines a value?</span>
+<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="n">graph</span><span class="o">.</span><span class="n">who_defines</span><span class="p">(</span><span class="s1">&#39;v273116&#39;</span><span class="p">)</span>
+<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="c1"># Returns: {&#39;opcode&#39;: &#39;optbarrier&#39;, &#39;block&#39;: &#39;block1458&#39;, ...}</span>
+<a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a>
+<a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a><span class="c1"># What instructions use a value?</span>
+<a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a><span class="n">graph</span><span class="o">.</span><span class="n">who_uses</span><span class="p">(</span><span class="s1">&#39;v142825&#39;</span><span class="p">)</span>
+<a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a><span class="c1"># Returns: [{&#39;target&#39;: &#39;value:v142827&#39;, &#39;opcode&#39;: &#39;fgt&#39;, ...}, ...]</span>
+<a id="__codelineno-6-8" name="__codelineno-6-8" href="#__codelineno-6-8"></a>
+<a id="__codelineno-6-9" name="__codelineno-6-9" href="#__codelineno-6-9"></a><span class="c1"># Trace dependencies backwards</span>
+<a id="__codelineno-6-10" name="__codelineno-6-10" href="#__codelineno-6-10"></a><span class="n">graph</span><span class="o">.</span><span class="n">trace_back</span><span class="p">(</span><span class="s1">&#39;v273116&#39;</span><span class="p">,</span> <span class="n">depth</span><span class="o">=</span><span class="mi">5</span><span class="p">)</span>
+<a id="__codelineno-6-11" name="__codelineno-6-11" href="#__codelineno-6-11"></a>
+<a id="__codelineno-6-12" name="__codelineno-6-12" href="#__codelineno-6-12"></a><span class="c1"># Trace usage forwards</span>
+<a id="__codelineno-6-13" name="__codelineno-6-13" href="#__codelineno-6-13"></a><span class="n">graph</span><span class="o">.</span><span class="n">trace_forward</span><span class="p">(</span><span class="s1">&#39;v142825&#39;</span><span class="p">,</span> <span class="n">depth</span><span class="o">=</span><span class="mi">5</span><span class="p">)</span>
+</code></pre></div>
+<h3 id="parameter-mapping">Parameter Mapping<a class="headerlink" href="#parameter-mapping" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="c1"># Find MIR value ID for a parameter</span>
+<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="n">graph</span><span class="o">.</span><span class="n">param_to_value</span><span class="p">(</span><span class="s1">&#39;rth&#39;</span><span class="p">)</span>  <span class="c1"># Returns &#39;v142825&#39;</span>
+<a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a>
+<a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a><span class="c1"># Reverse lookup</span>
+<a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a><span class="n">graph</span><span class="o">.</span><span class="n">value_to_param</span><span class="p">(</span><span class="s1">&#39;v142825&#39;</span><span class="p">)</span>  <span class="c1"># Returns &#39;rth&#39;</span>
+</code></pre></div>
+<h3 id="dae-system-queries">DAE System Queries<a class="headerlink" href="#dae-system-queries" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="c1"># Get resist/react value IDs for a node</span>
+<a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a><span class="n">graph</span><span class="o">.</span><span class="n">dae_residual</span><span class="p">(</span><span class="s1">&#39;dt&#39;</span><span class="p">)</span>
+<a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a><span class="c1"># Returns: {&#39;resist&#39;: &#39;v273116&#39;, &#39;react&#39;: &#39;v273117&#39;}</span>
+</code></pre></div>
+<h3 id="control-flow">Control Flow<a class="headerlink" href="#control-flow" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="c1"># Find path from entry to a block</span>
+<a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a><span class="n">graph</span><span class="o">.</span><span class="n">path_to_block</span><span class="p">(</span><span class="s1">&#39;block1451&#39;</span><span class="p">)</span>
+<a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a><span class="c1"># Returns: [&#39;block0&#39;, &#39;block4&#39;, ..., &#39;block1450&#39;, &#39;block1451&#39;]</span>
+<a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a>
+<a id="__codelineno-9-5" name="__codelineno-9-5" href="#__codelineno-9-5"></a><span class="c1"># Get PHI nodes in a block</span>
+<a id="__codelineno-9-6" name="__codelineno-9-6" href="#__codelineno-9-6"></a><span class="n">graph</span><span class="o">.</span><span class="n">phi_info</span><span class="p">(</span><span class="s1">&#39;block1453&#39;</span><span class="p">)</span>
+<a id="__codelineno-9-7" name="__codelineno-9-7" href="#__codelineno-9-7"></a><span class="c1"># Returns: [{&#39;result&#39;: &#39;v252438&#39;, &#39;operands&#39;: [...], ...}, ...]</span>
+<a id="__codelineno-9-8" name="__codelineno-9-8" href="#__codelineno-9-8"></a>
+<a id="__codelineno-9-9" name="__codelineno-9-9" href="#__codelineno-9-9"></a><span class="c1"># Get branch condition for a block</span>
+<a id="__codelineno-9-10" name="__codelineno-9-10" href="#__codelineno-9-10"></a><span class="n">graph</span><span class="o">.</span><span class="n">branch_condition</span><span class="p">(</span><span class="s1">&#39;block1450&#39;</span><span class="p">)</span>
+<a id="__codelineno-9-11" name="__codelineno-9-11" href="#__codelineno-9-11"></a><span class="c1"># Returns: {&#39;condition&#39;: &#39;v142827&#39;, &#39;true_block&#39;: &#39;block1451&#39;, &#39;false_block&#39;: &#39;block1453&#39;}</span>
+<a id="__codelineno-9-12" name="__codelineno-9-12" href="#__codelineno-9-12"></a>
+<a id="__codelineno-9-13" name="__codelineno-9-13" href="#__codelineno-9-13"></a><span class="c1"># Find all blocks that branch on a value</span>
+<a id="__codelineno-9-14" name="__codelineno-9-14" href="#__codelineno-9-14"></a><span class="n">graph</span><span class="o">.</span><span class="n">blocks_with_condition</span><span class="p">(</span><span class="s1">&#39;v142827&#39;</span><span class="p">)</span>
+<a id="__codelineno-9-15" name="__codelineno-9-15" href="#__codelineno-9-15"></a><span class="c1"># Returns: [&#39;block1450&#39;]</span>
+</code></pre></div>
+<h3 id="constants">Constants<a class="headerlink" href="#constants" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="c1"># Check if a value is a constant</span>
+<a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a><span class="n">is_const</span><span class="p">,</span> <span class="n">value</span> <span class="o">=</span> <span class="n">graph</span><span class="o">.</span><span class="n">is_constant</span><span class="p">(</span><span class="s1">&#39;v3&#39;</span><span class="p">)</span>
+<a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a><span class="c1"># Returns: (True, 0.0)</span>
+</code></pre></div>
+<hr />
+<h2 id="jacobian-comparison-jacobianpy">Jacobian Comparison (<code>jacobian.py</code>)<a class="headerlink" href="#jacobian-comparison-jacobianpy" title="Permanent link">&para;</a></h2>
+<p>Format-aware comparison between OSDI (sparse, column-major) and JAX (dense, row-major).</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">vajax.debug</span><span class="w"> </span><span class="kn">import</span> <span class="n">compare_jacobians</span><span class="p">,</span> <span class="n">print_jacobian_structure</span>
+<a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a>
+<a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a><span class="c1"># Compare Jacobians</span>
+<a id="__codelineno-11-4" name="__codelineno-11-4" href="#__codelineno-11-4"></a><span class="n">result</span> <span class="o">=</span> <span class="n">compare_jacobians</span><span class="p">(</span>
+<a id="__codelineno-11-5" name="__codelineno-11-5" href="#__codelineno-11-5"></a>    <span class="n">osdi_jac</span><span class="p">,</span> <span class="n">jax_jac</span><span class="p">,</span> <span class="n">n_nodes</span><span class="p">,</span> <span class="n">jacobian_keys</span><span class="p">,</span>
+<a id="__codelineno-11-6" name="__codelineno-11-6" href="#__codelineno-11-6"></a>    <span class="n">rtol</span><span class="o">=</span><span class="mf">1e-4</span><span class="p">,</span> <span class="n">atol</span><span class="o">=</span><span class="mf">1e-10</span>
+<a id="__codelineno-11-7" name="__codelineno-11-7" href="#__codelineno-11-7"></a><span class="p">)</span>
+<a id="__codelineno-11-8" name="__codelineno-11-8" href="#__codelineno-11-8"></a><span class="nb">print</span><span class="p">(</span><span class="n">result</span><span class="o">.</span><span class="n">report</span><span class="p">)</span>
+<a id="__codelineno-11-9" name="__codelineno-11-9" href="#__codelineno-11-9"></a><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Passed: </span><span class="si">{</span><span class="n">result</span><span class="o">.</span><span class="n">passed</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+<a id="__codelineno-11-10" name="__codelineno-11-10" href="#__codelineno-11-10"></a><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Max abs diff: </span><span class="si">{</span><span class="n">result</span><span class="o">.</span><span class="n">max_abs_diff</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+<a id="__codelineno-11-11" name="__codelineno-11-11" href="#__codelineno-11-11"></a><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Mismatched positions: </span><span class="si">{</span><span class="n">result</span><span class="o">.</span><span class="n">mismatched_positions</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+<a id="__codelineno-11-12" name="__codelineno-11-12" href="#__codelineno-11-12"></a>
+<a id="__codelineno-11-13" name="__codelineno-11-13" href="#__codelineno-11-13"></a><span class="c1"># Print structure</span>
+<a id="__codelineno-11-14" name="__codelineno-11-14" href="#__codelineno-11-14"></a><span class="n">print_jacobian_structure</span><span class="p">(</span><span class="n">jacobian_keys</span><span class="p">,</span> <span class="n">n_nodes</span><span class="p">)</span>
+</code></pre></div>
+<hr />
+<h2 id="cli-tools">CLI Tools<a class="headerlink" href="#cli-tools" title="Permanent link">&para;</a></h2>
+<h3 id="mir-cfg-analyzer">MIR CFG Analyzer<a class="headerlink" href="#mir-cfg-analyzer" title="Permanent link">&para;</a></h3>
+<p>Analyze control flow graph from command line:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="c1"># Find PHI nodes</span>
+<a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a>uv<span class="w"> </span>run<span class="w"> </span>scripts/analyze_mir_cfg.py<span class="w"> </span>vendor/OpenVAF/integration_tests/PSP102/psp102.va<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-12-3" name="__codelineno-12-3" href="#__codelineno-12-3"></a><span class="w">    </span>--func<span class="w"> </span><span class="nb">eval</span><span class="w"> </span>--find-phis
+<a id="__codelineno-12-4" name="__codelineno-12-4" href="#__codelineno-12-4"></a>
+<a id="__codelineno-12-5" name="__codelineno-12-5" href="#__codelineno-12-5"></a><span class="c1"># Find branch points</span>
+<a id="__codelineno-12-6" name="__codelineno-12-6" href="#__codelineno-12-6"></a>uv<span class="w"> </span>run<span class="w"> </span>scripts/analyze_mir_cfg.py<span class="w"> </span>vendor/OpenVAF/integration_tests/PSP102/psp102.va<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-12-7" name="__codelineno-12-7" href="#__codelineno-12-7"></a><span class="w">    </span>--func<span class="w"> </span><span class="nb">eval</span><span class="w"> </span>--branches
+<a id="__codelineno-12-8" name="__codelineno-12-8" href="#__codelineno-12-8"></a>
+<a id="__codelineno-12-9" name="__codelineno-12-9" href="#__codelineno-12-9"></a><span class="c1"># Trace paths to a block</span>
+<a id="__codelineno-12-10" name="__codelineno-12-10" href="#__codelineno-12-10"></a>uv<span class="w"> </span>run<span class="w"> </span>scripts/analyze_mir_cfg.py<span class="w"> </span>vendor/OpenVAF/integration_tests/PSP102/psp102.va<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-12-11" name="__codelineno-12-11" href="#__codelineno-12-11"></a><span class="w">    </span>--func<span class="w"> </span><span class="nb">eval</span><span class="w"> </span>--target<span class="w"> </span>block123
+<a id="__codelineno-12-12" name="__codelineno-12-12" href="#__codelineno-12-12"></a>
+<a id="__codelineno-12-13" name="__codelineno-12-13" href="#__codelineno-12-13"></a><span class="c1"># Analyze specific block with PHIs</span>
+<a id="__codelineno-12-14" name="__codelineno-12-14" href="#__codelineno-12-14"></a>uv<span class="w"> </span>run<span class="w"> </span>scripts/analyze_mir_cfg.py<span class="w"> </span>vendor/OpenVAF/integration_tests/PSP102/psp102.va<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-12-15" name="__codelineno-12-15" href="#__codelineno-12-15"></a><span class="w">    </span>--func<span class="w"> </span><span class="nb">eval</span><span class="w"> </span>--analyze-block<span class="w"> </span>block4654
+</code></pre></div>
+<hr />
+<h2 id="transient-diagnostics-transient_diagnosticspy">Transient Diagnostics (<code>transient_diagnostics.py</code>)<a class="headerlink" href="#transient-diagnostics-transient_diagnosticspy" title="Permanent link">&para;</a></h2>
+<p>Runtime analysis of transient simulation steps — LTE behaviour, NR convergence,
+step acceptance/rejection, and VACASK comparison.</p>
+<h3 id="parsing-debug-output">Parsing Debug Output<a class="headerlink" href="#parsing-debug-output" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">vajax.debug</span><span class="w"> </span><span class="kn">import</span> <span class="n">parse_debug_output</span><span class="p">,</span> <span class="n">StepRecord</span>
+<a id="__codelineno-13-2" name="__codelineno-13-2" href="#__codelineno-13-2"></a>
+<a id="__codelineno-13-3" name="__codelineno-13-3" href="#__codelineno-13-3"></a><span class="c1"># Parse debug_steps text captured from a transient run</span>
+<a id="__codelineno-13-4" name="__codelineno-13-4" href="#__codelineno-13-4"></a><span class="n">records</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">StepRecord</span><span class="p">]</span> <span class="o">=</span> <span class="n">parse_debug_output</span><span class="p">(</span><span class="n">debug_text</span><span class="p">)</span>
+<a id="__codelineno-13-5" name="__codelineno-13-5" href="#__codelineno-13-5"></a><span class="k">for</span> <span class="n">r</span> <span class="ow">in</span> <span class="n">records</span><span class="p">[:</span><span class="mi">5</span><span class="p">]:</span>
+<a id="__codelineno-13-6" name="__codelineno-13-6" href="#__codelineno-13-6"></a>    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Step </span><span class="si">{</span><span class="n">r</span><span class="o">.</span><span class="n">step</span><span class="si">}</span><span class="s2">: t=</span><span class="si">{</span><span class="n">r</span><span class="o">.</span><span class="n">t_ps</span><span class="si">}</span><span class="s2">ps dt=</span><span class="si">{</span><span class="n">r</span><span class="o">.</span><span class="n">dt_ps</span><span class="si">}</span><span class="s2">ps NR=</span><span class="si">{</span><span class="n">r</span><span class="o">.</span><span class="n">nr_iters</span><span class="si">}</span><span class="s2"> accepted=</span><span class="si">{</span><span class="n">r</span><span class="o">.</span><span class="n">accepted</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+</code></pre></div>
+<h3 id="capturing-a-full-step-trace">Capturing a Full Step Trace<a class="headerlink" href="#capturing-a-full-step-trace" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">vajax.debug</span><span class="w"> </span><span class="kn">import</span> <span class="n">capture_step_trace</span><span class="p">,</span> <span class="n">print_step_summary</span>
+<a id="__codelineno-14-2" name="__codelineno-14-2" href="#__codelineno-14-2"></a>
+<a id="__codelineno-14-3" name="__codelineno-14-3" href="#__codelineno-14-3"></a><span class="c1"># Run a benchmark with debug_steps=True and get parsed results</span>
+<a id="__codelineno-14-4" name="__codelineno-14-4" href="#__codelineno-14-4"></a><span class="n">records</span><span class="p">,</span> <span class="n">summary</span> <span class="o">=</span> <span class="n">capture_step_trace</span><span class="p">(</span><span class="s2">&quot;ring&quot;</span><span class="p">,</span> <span class="n">use_sparse</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<a id="__codelineno-14-5" name="__codelineno-14-5" href="#__codelineno-14-5"></a><span class="n">print_step_summary</span><span class="p">(</span><span class="n">records</span><span class="p">,</span> <span class="n">summary</span><span class="p">)</span>
+</code></pre></div>
+<h3 id="convergence-sweep">Convergence Sweep<a class="headerlink" href="#convergence-sweep" title="Permanent link">&para;</a></h3>
+<p>Run a benchmark at multiple <code>t_stop</code> values to find where convergence degrades:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">vajax.debug</span><span class="w"> </span><span class="kn">import</span> <span class="n">convergence_sweep</span>
+<a id="__codelineno-15-2" name="__codelineno-15-2" href="#__codelineno-15-2"></a>
+<a id="__codelineno-15-3" name="__codelineno-15-3" href="#__codelineno-15-3"></a><span class="n">results</span> <span class="o">=</span> <span class="n">convergence_sweep</span><span class="p">(</span><span class="s2">&quot;graetz&quot;</span><span class="p">,</span> <span class="p">[</span><span class="mf">1e-3</span><span class="p">,</span> <span class="mf">5e-3</span><span class="p">,</span> <span class="mf">7e-3</span><span class="p">,</span> <span class="mf">10e-3</span><span class="p">])</span>
+<a id="__codelineno-15-4" name="__codelineno-15-4" href="#__codelineno-15-4"></a><span class="k">for</span> <span class="n">r</span> <span class="ow">in</span> <span class="n">results</span><span class="p">:</span>
+<a id="__codelineno-15-5" name="__codelineno-15-5" href="#__codelineno-15-5"></a>    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;t_stop=</span><span class="si">{</span><span class="n">r</span><span class="o">.</span><span class="n">t_stop</span><span class="si">:</span><span class="s2">.0e</span><span class="si">}</span><span class="s2">: steps=</span><span class="si">{</span><span class="n">r</span><span class="o">.</span><span class="n">num_steps</span><span class="si">}</span><span class="s2">, conv=</span><span class="si">{</span><span class="n">r</span><span class="o">.</span><span class="n">convergence_rate</span><span class="si">:</span><span class="s2">.1%</span><span class="si">}</span><span class="s2">, &quot;</span>
+<a id="__codelineno-15-6" name="__codelineno-15-6" href="#__codelineno-15-6"></a>          <span class="sa">f</span><span class="s2">&quot;rejected=</span><span class="si">{</span><span class="n">r</span><span class="o">.</span><span class="n">rejected_steps</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+</code></pre></div>
+<h3 id="vacask-step-comparison">VACASK Step Comparison<a class="headerlink" href="#vacask-step-comparison" title="Permanent link">&para;</a></h3>
+<p>Parse VACASK <code>tran_debug=1</code> output for side-by-side comparison:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">vajax.debug</span><span class="w"> </span><span class="kn">import</span> <span class="n">parse_vacask_debug_output</span>
+<a id="__codelineno-16-2" name="__codelineno-16-2" href="#__codelineno-16-2"></a>
+<a id="__codelineno-16-3" name="__codelineno-16-3" href="#__codelineno-16-3"></a><span class="n">vacask_records</span> <span class="o">=</span> <span class="n">parse_vacask_debug_output</span><span class="p">(</span><span class="n">vacask_stdout</span><span class="p">)</span>
+<a id="__codelineno-16-4" name="__codelineno-16-4" href="#__codelineno-16-4"></a><span class="n">accepted</span> <span class="o">=</span> <span class="p">[</span><span class="n">r</span> <span class="k">for</span> <span class="n">r</span> <span class="ow">in</span> <span class="n">vacask_records</span> <span class="k">if</span> <span class="n">r</span><span class="o">.</span><span class="n">status</span> <span class="o">==</span> <span class="s2">&quot;accept&quot;</span><span class="p">]</span>
+<a id="__codelineno-16-5" name="__codelineno-16-5" href="#__codelineno-16-5"></a><span class="n">rejected</span> <span class="o">=</span> <span class="p">[</span><span class="n">r</span> <span class="k">for</span> <span class="n">r</span> <span class="ow">in</span> <span class="n">vacask_records</span> <span class="k">if</span> <span class="n">r</span><span class="o">.</span><span class="n">status</span> <span class="o">==</span> <span class="s2">&quot;reject&quot;</span><span class="p">]</span>
+<a id="__codelineno-16-6" name="__codelineno-16-6" href="#__codelineno-16-6"></a><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;VACASK: </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">accepted</span><span class="p">)</span><span class="si">}</span><span class="s2"> accepted, </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">rejected</span><span class="p">)</span><span class="si">}</span><span class="s2"> rejected&quot;</span><span class="p">)</span>
+</code></pre></div>
+<h3 id="lte-solver-comparison-cli">LTE Solver Comparison CLI<a class="headerlink" href="#lte-solver-comparison-cli" title="Permanent link">&para;</a></h3>
+<p>Compare per-step LTE between different solver backends:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a><span class="c1"># Capture a trace</span>
+<a id="__codelineno-17-2" name="__codelineno-17-2" href="#__codelineno-17-2"></a><span class="nv">JAX_PLATFORMS</span><span class="o">=</span>cpu<span class="w"> </span>uv<span class="w"> </span>run<span class="w"> </span>python<span class="w"> </span>scripts/compare_lte_solvers.py<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-17-3" name="__codelineno-17-3" href="#__codelineno-17-3"></a><span class="w">    </span>--benchmark<span class="w"> </span>ring<span class="w"> </span>--output<span class="w"> </span>/tmp/lte_trace.json
+<a id="__codelineno-17-4" name="__codelineno-17-4" href="#__codelineno-17-4"></a>
+<a id="__codelineno-17-5" name="__codelineno-17-5" href="#__codelineno-17-5"></a><span class="c1"># Compare two traces</span>
+<a id="__codelineno-17-6" name="__codelineno-17-6" href="#__codelineno-17-6"></a>uv<span class="w"> </span>run<span class="w"> </span>python<span class="w"> </span>scripts/compare_lte_solvers.py<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-17-7" name="__codelineno-17-7" href="#__codelineno-17-7"></a><span class="w">    </span>--compare<span class="w"> </span>/tmp/trace_a.json<span class="w"> </span>/tmp/trace_b.json
+<a id="__codelineno-17-8" name="__codelineno-17-8" href="#__codelineno-17-8"></a>
+<a id="__codelineno-17-9" name="__codelineno-17-9" href="#__codelineno-17-9"></a><span class="c1"># Run both dense and sparse locally and compare</span>
+<a id="__codelineno-17-10" name="__codelineno-17-10" href="#__codelineno-17-10"></a><span class="nv">JAX_PLATFORMS</span><span class="o">=</span>cpu<span class="w"> </span>uv<span class="w"> </span>run<span class="w"> </span>python<span class="w"> </span>scripts/compare_lte_solvers.py<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-17-11" name="__codelineno-17-11" href="#__codelineno-17-11"></a><span class="w">    </span>--benchmark<span class="w"> </span>ring<span class="w"> </span>--compare-local
+</code></pre></div>
+<hr />
+<h2 id="transient-debugging-workflow">Transient Debugging Workflow<a class="headerlink" href="#transient-debugging-workflow" title="Permanent link">&para;</a></h2>
+<h3 id="1-convergence-sweep">1. Convergence Sweep<a class="headerlink" href="#1-convergence-sweep" title="Permanent link">&para;</a></h3>
+<p>Start by checking if convergence degrades at specific simulation durations:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">vajax.debug</span><span class="w"> </span><span class="kn">import</span> <span class="n">convergence_sweep</span>
+<a id="__codelineno-18-2" name="__codelineno-18-2" href="#__codelineno-18-2"></a>
+<a id="__codelineno-18-3" name="__codelineno-18-3" href="#__codelineno-18-3"></a><span class="n">results</span> <span class="o">=</span> <span class="n">convergence_sweep</span><span class="p">(</span><span class="s2">&quot;graetz&quot;</span><span class="p">,</span> <span class="p">[</span><span class="mf">1e-3</span><span class="p">,</span> <span class="mf">5e-3</span><span class="p">,</span> <span class="mf">7e-3</span><span class="p">,</span> <span class="mf">10e-3</span><span class="p">])</span>
+<a id="__codelineno-18-4" name="__codelineno-18-4" href="#__codelineno-18-4"></a><span class="c1"># Look for t_stop values where rejected_steps spikes or convergence_rate drops</span>
+</code></pre></div>
+<h3 id="2-capture-step-trace">2. Capture Step Trace<a class="headerlink" href="#2-capture-step-trace" title="Permanent link">&para;</a></h3>
+<p>Zoom in on a problematic duration with full per-step data:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-19-1" name="__codelineno-19-1" href="#__codelineno-19-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">vajax.debug</span><span class="w"> </span><span class="kn">import</span> <span class="n">capture_step_trace</span><span class="p">,</span> <span class="n">print_step_summary</span>
+<a id="__codelineno-19-2" name="__codelineno-19-2" href="#__codelineno-19-2"></a>
+<a id="__codelineno-19-3" name="__codelineno-19-3" href="#__codelineno-19-3"></a><span class="n">records</span><span class="p">,</span> <span class="n">summary</span> <span class="o">=</span> <span class="n">capture_step_trace</span><span class="p">(</span><span class="s2">&quot;graetz&quot;</span><span class="p">,</span> <span class="n">use_sparse</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+<a id="__codelineno-19-4" name="__codelineno-19-4" href="#__codelineno-19-4"></a><span class="n">print_step_summary</span><span class="p">(</span><span class="n">records</span><span class="p">,</span> <span class="n">summary</span><span class="p">)</span>
+<a id="__codelineno-19-5" name="__codelineno-19-5" href="#__codelineno-19-5"></a>
+<a id="__codelineno-19-6" name="__codelineno-19-6" href="#__codelineno-19-6"></a><span class="c1"># Find rejection clusters</span>
+<a id="__codelineno-19-7" name="__codelineno-19-7" href="#__codelineno-19-7"></a><span class="n">rejected</span> <span class="o">=</span> <span class="p">[</span><span class="n">r</span> <span class="k">for</span> <span class="n">r</span> <span class="ow">in</span> <span class="n">records</span> <span class="k">if</span> <span class="ow">not</span> <span class="n">r</span><span class="o">.</span><span class="n">accepted</span><span class="p">]</span>
+<a id="__codelineno-19-8" name="__codelineno-19-8" href="#__codelineno-19-8"></a><span class="k">for</span> <span class="n">r</span> <span class="ow">in</span> <span class="n">rejected</span><span class="p">[:</span><span class="mi">10</span><span class="p">]:</span>
+<a id="__codelineno-19-9" name="__codelineno-19-9" href="#__codelineno-19-9"></a>    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;  Step </span><span class="si">{</span><span class="n">r</span><span class="o">.</span><span class="n">step</span><span class="si">}</span><span class="s2">: t=</span><span class="si">{</span><span class="n">r</span><span class="o">.</span><span class="n">t_ps</span><span class="si">}</span><span class="s2">ps LTE=</span><span class="si">{</span><span class="n">r</span><span class="o">.</span><span class="n">lte_norm</span><span class="si">}</span><span class="s2"> NR_fail=</span><span class="si">{</span><span class="n">r</span><span class="o">.</span><span class="n">nr_failed</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+</code></pre></div>
+<h3 id="3-vacask-comparison">3. VACASK Comparison<a class="headerlink" href="#3-vacask-comparison" title="Permanent link">&para;</a></h3>
+<p>Compare step-by-step behaviour with VACASK reference:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-20-1" name="__codelineno-20-1" href="#__codelineno-20-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">vajax.debug</span><span class="w"> </span><span class="kn">import</span> <span class="n">parse_debug_output</span><span class="p">,</span> <span class="n">parse_vacask_debug_output</span>
+<a id="__codelineno-20-2" name="__codelineno-20-2" href="#__codelineno-20-2"></a>
+<a id="__codelineno-20-3" name="__codelineno-20-3" href="#__codelineno-20-3"></a><span class="n">jax_records</span> <span class="o">=</span> <span class="n">parse_debug_output</span><span class="p">(</span><span class="n">jax_debug_text</span><span class="p">)</span>
+<a id="__codelineno-20-4" name="__codelineno-20-4" href="#__codelineno-20-4"></a><span class="n">vacask_records</span> <span class="o">=</span> <span class="n">parse_vacask_debug_output</span><span class="p">(</span><span class="n">vacask_debug_text</span><span class="p">)</span>
+<a id="__codelineno-20-5" name="__codelineno-20-5" href="#__codelineno-20-5"></a>
+<a id="__codelineno-20-6" name="__codelineno-20-6" href="#__codelineno-20-6"></a><span class="c1"># Compare accepted step counts, dt ranges, rejection patterns</span>
+</code></pre></div>
+<hr />
+<h2 id="debugging-workflow">Debugging Workflow<a class="headerlink" href="#debugging-workflow" title="Permanent link">&para;</a></h2>
+<h3 id="1-initial-comparison">1. Initial Comparison<a class="headerlink" href="#1-initial-comparison" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-21-1" name="__codelineno-21-1" href="#__codelineno-21-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">vajax.debug</span><span class="w"> </span><span class="kn">import</span> <span class="n">quick_compare</span>
+<a id="__codelineno-21-2" name="__codelineno-21-2" href="#__codelineno-21-2"></a>
+<a id="__codelineno-21-3" name="__codelineno-21-3" href="#__codelineno-21-3"></a><span class="n">result</span> <span class="o">=</span> <span class="n">quick_compare</span><span class="p">(</span><span class="n">va_path</span><span class="p">,</span> <span class="n">osdi_path</span><span class="p">,</span> <span class="n">params</span><span class="p">,</span> <span class="n">voltages</span><span class="p">)</span>
+<a id="__codelineno-21-4" name="__codelineno-21-4" href="#__codelineno-21-4"></a><span class="nb">print</span><span class="p">(</span><span class="n">result</span><span class="p">)</span>
+<a id="__codelineno-21-5" name="__codelineno-21-5" href="#__codelineno-21-5"></a>
+<a id="__codelineno-21-6" name="__codelineno-21-6" href="#__codelineno-21-6"></a><span class="k">if</span> <span class="ow">not</span> <span class="n">result</span><span class="o">.</span><span class="n">passed</span><span class="p">:</span>
+<a id="__codelineno-21-7" name="__codelineno-21-7" href="#__codelineno-21-7"></a>    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;Issues found:&quot;</span><span class="p">)</span>
+<a id="__codelineno-21-8" name="__codelineno-21-8" href="#__codelineno-21-8"></a>    <span class="k">for</span> <span class="n">issue</span> <span class="ow">in</span> <span class="n">result</span><span class="o">.</span><span class="n">issues</span><span class="p">:</span>
+<a id="__codelineno-21-9" name="__codelineno-21-9" href="#__codelineno-21-9"></a>        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;  - </span><span class="si">{</span><span class="n">issue</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+</code></pre></div>
+<h3 id="2-cache-analysis">2. Cache Analysis<a class="headerlink" href="#2-cache-analysis" title="Permanent link">&para;</a></h3>
+<p>If residuals differ, check the cache first:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-22-1" name="__codelineno-22-1" href="#__codelineno-22-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">vajax.debug</span><span class="w"> </span><span class="kn">import</span> <span class="n">ModelComparator</span>
+<a id="__codelineno-22-2" name="__codelineno-22-2" href="#__codelineno-22-2"></a>
+<a id="__codelineno-22-3" name="__codelineno-22-3" href="#__codelineno-22-3"></a><span class="n">comparator</span> <span class="o">=</span> <span class="n">ModelComparator</span><span class="p">(</span><span class="n">va_path</span><span class="p">,</span> <span class="n">osdi_path</span><span class="p">,</span> <span class="n">params</span><span class="p">)</span>
+<a id="__codelineno-22-4" name="__codelineno-22-4" href="#__codelineno-22-4"></a><span class="n">cache</span> <span class="o">=</span> <span class="n">comparator</span><span class="o">.</span><span class="n">analyze_cache</span><span class="p">()</span>
+<a id="__codelineno-22-5" name="__codelineno-22-5" href="#__codelineno-22-5"></a>
+<a id="__codelineno-22-6" name="__codelineno-22-6" href="#__codelineno-22-6"></a><span class="c1"># Check for problems</span>
+<a id="__codelineno-22-7" name="__codelineno-22-7" href="#__codelineno-22-7"></a><span class="k">if</span> <span class="n">cache</span><span class="o">.</span><span class="n">has_inf</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+<a id="__codelineno-22-8" name="__codelineno-22-8" href="#__codelineno-22-8"></a>    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;WARNING: </span><span class="si">{</span><span class="n">cache</span><span class="o">.</span><span class="n">has_inf</span><span class="si">}</span><span class="s2"> inf values in cache&quot;</span><span class="p">)</span>
+<a id="__codelineno-22-9" name="__codelineno-22-9" href="#__codelineno-22-9"></a><span class="k">if</span> <span class="n">cache</span><span class="o">.</span><span class="n">has_nan</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+<a id="__codelineno-22-10" name="__codelineno-22-10" href="#__codelineno-22-10"></a>    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;WARNING: </span><span class="si">{</span><span class="n">cache</span><span class="o">.</span><span class="n">has_nan</span><span class="si">}</span><span class="s2"> nan values in cache&quot;</span><span class="p">)</span>
+</code></pre></div>
+<h3 id="3-mir-inspection">3. MIR Inspection<a class="headerlink" href="#3-mir-inspection" title="Permanent link">&para;</a></h3>
+<p>If cache looks OK, inspect MIR structure:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-23-1" name="__codelineno-23-1" href="#__codelineno-23-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">vajax.debug</span><span class="w"> </span><span class="kn">import</span> <span class="n">MIRInspector</span>
+<a id="__codelineno-23-2" name="__codelineno-23-2" href="#__codelineno-23-2"></a>
+<a id="__codelineno-23-3" name="__codelineno-23-3" href="#__codelineno-23-3"></a><span class="n">inspector</span> <span class="o">=</span> <span class="n">MIRInspector</span><span class="p">(</span><span class="n">va_path</span><span class="p">)</span>
+<a id="__codelineno-23-4" name="__codelineno-23-4" href="#__codelineno-23-4"></a><span class="n">inspector</span><span class="o">.</span><span class="n">print_mir_stats</span><span class="p">()</span>
+<a id="__codelineno-23-5" name="__codelineno-23-5" href="#__codelineno-23-5"></a><span class="n">inspector</span><span class="o">.</span><span class="n">print_phi_summary</span><span class="p">(</span><span class="s1">&#39;eval&#39;</span><span class="p">)</span>
+<a id="__codelineno-23-6" name="__codelineno-23-6" href="#__codelineno-23-6"></a>
+<a id="__codelineno-23-7" name="__codelineno-23-7" href="#__codelineno-23-7"></a><span class="c1"># For NMOS/PMOS models, check TYPE handling</span>
+<a id="__codelineno-23-8" name="__codelineno-23-8" href="#__codelineno-23-8"></a><span class="n">inspector</span><span class="o">.</span><span class="n">print_type_param_info</span><span class="p">()</span>
+</code></pre></div>
+<h3 id="4-phi-node-analysis">4. PHI Node Analysis<a class="headerlink" href="#4-phi-node-analysis" title="Permanent link">&para;</a></h3>
+<p>If PHI nodes are suspected:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-24-1" name="__codelineno-24-1" href="#__codelineno-24-1"></a><span class="c1"># Find PHIs with zero operand (often indicates branch issue)</span>
+<a id="__codelineno-24-2" name="__codelineno-24-2" href="#__codelineno-24-2"></a><span class="n">zero_phis</span> <span class="o">=</span> <span class="n">inspector</span><span class="o">.</span><span class="n">find_phi_nodes_with_value</span><span class="p">(</span><span class="s1">&#39;v3&#39;</span><span class="p">)</span>
+<a id="__codelineno-24-3" name="__codelineno-24-3" href="#__codelineno-24-3"></a><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Found </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">zero_phis</span><span class="p">)</span><span class="si">}</span><span class="s2"> PHIs with zero operand&quot;</span><span class="p">)</span>
+<a id="__codelineno-24-4" name="__codelineno-24-4" href="#__codelineno-24-4"></a>
+<a id="__codelineno-24-5" name="__codelineno-24-5" href="#__codelineno-24-5"></a><span class="c1"># Use CLI for detailed analysis</span>
+<a id="__codelineno-24-6" name="__codelineno-24-6" href="#__codelineno-24-6"></a><span class="c1"># uv run scripts/analyze_mir_cfg.py model.va --func eval --analyze-block blockXXX</span>
+</code></pre></div>
+<hr />
+<h2 id="common-issues">Common Issues<a class="headerlink" href="#common-issues" title="Permanent link">&para;</a></h2>
+<h3 id="1-jax-returns-near-zero-current">1. JAX returns near-zero current<a class="headerlink" href="#1-jax-returns-near-zero-current" title="Permanent link">&para;</a></h3>
+<p><strong>Symptom</strong>: OSDI returns expected current, JAX returns ~1e-15</p>
+<p><strong>Likely cause</strong>: PHI node resolution in NMOS/PMOS branching</p>
+<p><strong>Debug steps</strong>:
+1. Check TYPE parameter is passed correctly
+2. Analyze PHI nodes for zero operands
+3. Trace control flow with <code>--analyze-block</code></p>
+<h3 id="2-jacobian-sparsity-mismatch">2. Jacobian sparsity mismatch<a class="headerlink" href="#2-jacobian-sparsity-mismatch" title="Permanent link">&para;</a></h3>
+<p><strong>Symptom</strong>: OSDI has N non-zeros, JAX has M &lt;&lt; N</p>
+<p><strong>Likely cause</strong>: Branch not taken, computations skipped</p>
+<p><strong>Debug steps</strong>:
+1. Use <code>print_jacobian_structure()</code> to see expected pattern
+2. Check if missing entries follow a pattern (e.g., all in one row/column)</p>
+<h3 id="3-temperature-related-errors">3. Temperature-related errors<a class="headerlink" href="#3-temperature-related-errors" title="Permanent link">&para;</a></h3>
+<p><strong>Symptom</strong>: Current off by ~1% at room temperature</p>
+<p><strong>Likely cause</strong>: TNOM vs $temperature handling</p>
+<p><strong>Debug steps</strong>:
+1. Check cache for VT values: <code>cache.temperature_related</code>
+2. Verify expected VT at 300K: 0.02585 V
+3. Check for sentinel values (1e21) in init params</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["content.code.copy", "navigation.instant", "navigation.sections", "navigation.top", "toc.follow"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>

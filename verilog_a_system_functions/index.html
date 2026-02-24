@@ -1,0 +1,2362 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="GPU-Accelerated Analog Circuit Simulator built on JAX">
+      
+      
+      
+      
+        <link rel="prev" href="../phi_nodes_guide/">
+      
+      
+        <link rel="next" href="../osdi_parameter_architecture/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.3">
+    
+    
+      
+        <title>Verilog-A System Functions - VAJAX</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#verilog-a-system-functions-analysis" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="VAJAX" class="md-header__button md-logo" aria-label="VAJAX" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            VAJAX
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Verilog-A System Functions
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/ChipFlow/vajax" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    ChipFlow/vajax
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="VAJAX" class="md-nav__button md-logo" aria-label="VAJAX" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    VAJAX
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/ChipFlow/vajax" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    ChipFlow/vajax
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    User Guide
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    User Guide
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api_reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cli_reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CLI Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../transient_options/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Transient Options
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../performance_analysis/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Performance Analysis
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../vacask_sim_format/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    VACASK Sim Format
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Developer Guide
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Developer Guide
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../architecture_overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../gpu_solver_architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GPU Solver Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../gpu_solver_jacobian/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GPU Solver Jacobian
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sparse_solver_roadmap/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Sparse Solver Roadmap
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../debug_tools/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Debug Tools
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../phi_nodes_guide/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PHI Nodes Guide
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Verilog-A System Functions
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Verilog-A System Functions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#summary-statistics" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Summary Statistics
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#simulation-critical-functions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Simulation-Critical Functions
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Simulation-Critical Functions">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#temperature-274-uses" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        $temperature (274 uses)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#simparam-481-uses" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        $simparam (481 uses)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="$simparam (481 uses)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#standard-parameters-lrm-table-9-27" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Standard Parameters (LRM Table 9-27)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#usage-in-vendored-models" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Usage in Vendored Models
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#mfactor-191-uses" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        $mfactor (191 uses)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#vt-28-uses" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        $vt (28 uses)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#abstime-5-uses" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        $abstime (5 uses)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#device-behavior-functions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Device Behavior Functions
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Device Behavior Functions">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#param_given-1891-uses" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        $param_given (1891 uses)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#limit-270-uses" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        $limit (270 uses)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#port_connected-57-uses" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        $port_connected (57 uses)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#discontinuity-42-uses" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        $discontinuity (42 uses)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#debug-functions-ignored" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Debug Functions (Ignored)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#gap-analysis" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Gap Analysis
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Gap Analysis">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#currently-missing-in-jax-path" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Currently Missing in JAX Path
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#recommendations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Recommendations
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#implementation-details" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Implementation Details
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Implementation Details">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#jax-parameter-handling" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        JAX Parameter Handling
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#special-input-array-indices" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Special Input Array Indices
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#openvaf-compile-time-handling" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        OpenVAF Compile-Time Handling
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#osdi-structures" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        OSDI Structures
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#references" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        References
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="References">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#lrm-section-references" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        LRM Section References
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../osdi_parameter_architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    OSDI Parameter Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../vacask_osdi_inputs/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    OSDI Inputs
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sim_back_vs_openvaf_jax/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Code Generation Backends
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../ci-status/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CI Status
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#summary-statistics" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Summary Statistics
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#simulation-critical-functions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Simulation-Critical Functions
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Simulation-Critical Functions">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#temperature-274-uses" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        $temperature (274 uses)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#simparam-481-uses" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        $simparam (481 uses)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="$simparam (481 uses)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#standard-parameters-lrm-table-9-27" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Standard Parameters (LRM Table 9-27)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#usage-in-vendored-models" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Usage in Vendored Models
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#mfactor-191-uses" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        $mfactor (191 uses)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#vt-28-uses" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        $vt (28 uses)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#abstime-5-uses" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        $abstime (5 uses)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#device-behavior-functions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Device Behavior Functions
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Device Behavior Functions">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#param_given-1891-uses" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        $param_given (1891 uses)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#limit-270-uses" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        $limit (270 uses)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#port_connected-57-uses" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        $port_connected (57 uses)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#discontinuity-42-uses" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        $discontinuity (42 uses)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#debug-functions-ignored" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Debug Functions (Ignored)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#gap-analysis" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Gap Analysis
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Gap Analysis">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#currently-missing-in-jax-path" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Currently Missing in JAX Path
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#recommendations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Recommendations
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#implementation-details" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Implementation Details
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Implementation Details">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#jax-parameter-handling" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        JAX Parameter Handling
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#special-input-array-indices" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Special Input Array Indices
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#openvaf-compile-time-handling" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        OpenVAF Compile-Time Handling
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#osdi-structures" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        OSDI Structures
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#references" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        References
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="References">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#lrm-section-references" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        LRM Section References
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="verilog-a-system-functions-analysis">Verilog-A System Functions Analysis<a class="headerlink" href="#verilog-a-system-functions-analysis" title="Permanent link">&para;</a></h1>
+<p>Analysis of <code>$</code> system functions used in OpenVAF and VACASK <code>.va</code> files, and how they are handled in the JAX and OSDI paths.</p>
+<blockquote>
+<p><strong>Reference</strong>: This document summarizes system functions per the <a href="../vendor/OpenVAF/docs/VAMS-LRM-2023/09-system-tasks-functions.md">Verilog-AMS Language Reference Manual (VAMS-LRM-2023)</a>, Section 9.</p>
+</blockquote>
+<h2 id="summary-statistics">Summary Statistics<a class="headerlink" href="#summary-statistics" title="Permanent link">&para;</a></h2>
+<p>From 135 <code>.va</code> files analyzed:</p>
+<table>
+<thead>
+<tr>
+<th>Function</th>
+<th style="text-align: right;">Count</th>
+<th>Category</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>$param_given</code></td>
+<td style="text-align: right;">1891</td>
+<td>Device</td>
+<td>Check if param was explicitly set</td>
+</tr>
+<tr>
+<td><code>$strobe</code></td>
+<td style="text-align: right;">1434</td>
+<td>Debug</td>
+<td>Print at end of timestep</td>
+</tr>
+<tr>
+<td><code>$simparam</code></td>
+<td style="text-align: right;">481</td>
+<td>Simulation</td>
+<td>Simulator parameters</td>
+</tr>
+<tr>
+<td><code>$temperature</code></td>
+<td style="text-align: right;">274</td>
+<td>Simulation</td>
+<td>Device temperature in K</td>
+</tr>
+<tr>
+<td><code>$limit</code></td>
+<td style="text-align: right;">270</td>
+<td>Device</td>
+<td>Limiting function for convergence</td>
+</tr>
+<tr>
+<td><code>$write</code></td>
+<td style="text-align: right;">251</td>
+<td>Debug</td>
+<td>Print immediately</td>
+</tr>
+<tr>
+<td><code>$warning</code></td>
+<td style="text-align: right;">212</td>
+<td>Debug</td>
+<td>Issue warning message</td>
+</tr>
+<tr>
+<td><code>$mfactor</code></td>
+<td style="text-align: right;">191</td>
+<td>Simulation</td>
+<td>Device multiplier</td>
+</tr>
+<tr>
+<td><code>$finish</code></td>
+<td style="text-align: right;">92</td>
+<td>Debug</td>
+<td>End simulation</td>
+</tr>
+<tr>
+<td><code>$fatal</code></td>
+<td style="text-align: right;">64</td>
+<td>Debug</td>
+<td>Fatal error, stop simulation</td>
+</tr>
+<tr>
+<td><code>$port_connected</code></td>
+<td style="text-align: right;">57</td>
+<td>Device</td>
+<td>Check if port is connected</td>
+</tr>
+<tr>
+<td><code>$discontinuity</code></td>
+<td style="text-align: right;">42</td>
+<td>Device</td>
+<td>Notify simulator of discontinuity</td>
+</tr>
+<tr>
+<td><code>$vt</code></td>
+<td style="text-align: right;">28</td>
+<td>Simulation</td>
+<td>Thermal voltage kT/q</td>
+</tr>
+<tr>
+<td><code>$display</code></td>
+<td style="text-align: right;">11</td>
+<td>Debug</td>
+<td>Print with newline</td>
+</tr>
+<tr>
+<td><code>$abstime</code></td>
+<td style="text-align: right;">5</td>
+<td>Simulation</td>
+<td>Absolute simulation time</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="simulation-critical-functions">Simulation-Critical Functions<a class="headerlink" href="#simulation-critical-functions" title="Permanent link">&para;</a></h2>
+<p>These must be handled correctly for accurate simulation results.</p>
+<h3 id="temperature-274-uses"><code>$temperature</code> (274 uses)<a class="headerlink" href="#temperature-274-uses" title="Permanent link">&para;</a></h3>
+<p>Returns the circuit ambient temperature in Kelvin (LRM 9.15).</p>
+<blockquote>
+<p><strong>LRM Definition</strong>: <code>$temperature</code> returns the ambient temperature as a real value in Kelvin.</p>
+</blockquote>
+<table>
+<thead>
+<tr>
+<th>Path</th>
+<th>Handling</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>JAX</strong></td>
+<td>Param with <code>kind='temperature'</code> → uses <code>temperature</code> argument from <code>translate_init()</code>/<code>translate_eval()</code></td>
+</tr>
+<tr>
+<td><strong>OSDI</strong></td>
+<td><code>OsdiSimInfo.temperature</code> field</td>
+</tr>
+</tbody>
+</table>
+<h3 id="simparam-481-uses"><code>$simparam</code> (481 uses)<a class="headerlink" href="#simparam-481-uses" title="Permanent link">&para;</a></h3>
+<p>Queries simulator parameters (LRM 9.15). Usage pattern: <code>$simparam("name", default)</code></p>
+<blockquote>
+<p><strong>LRM Definition</strong>: <code>$simparam()</code> queries the simulator for a real-valued simulation parameter named <code>param_name</code>. If <code>param_name</code> is not known and no default is supplied, an error is generated.</p>
+</blockquote>
+<h4 id="standard-parameters-lrm-table-9-27">Standard Parameters (LRM Table 9-27)<a class="headerlink" href="#standard-parameters-lrm-table-9-27" title="Permanent link">&para;</a></h4>
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Units</th>
+<th>LRM Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>gdev</code></td>
+<td>1/Ohms</td>
+<td>Additional conductance for conductance homotopy convergence</td>
+</tr>
+<tr>
+<td><code>gmin</code></td>
+<td>1/Ohms</td>
+<td>Minimum conductance placed in parallel with nonlinear branches</td>
+</tr>
+<tr>
+<td><code>imax</code></td>
+<td>Amps</td>
+<td>Branch current threshold above which constitutive relation should be linearized</td>
+</tr>
+<tr>
+<td><code>imelt</code></td>
+<td>Amps</td>
+<td>Branch current threshold indicating device failure</td>
+</tr>
+<tr>
+<td><code>iteration</code></td>
+<td>-</td>
+<td>Iteration number of the analog solver</td>
+</tr>
+<tr>
+<td><code>scale</code></td>
+<td>-</td>
+<td>Scale factor for device instance geometry parameters</td>
+</tr>
+<tr>
+<td><code>shrink</code></td>
+<td>-</td>
+<td>Optical linear shrink factor</td>
+</tr>
+<tr>
+<td><code>simulatorSubversion</code></td>
+<td>-</td>
+<td>The simulator sub-version</td>
+</tr>
+<tr>
+<td><code>simulatorVersion</code></td>
+<td>-</td>
+<td>The simulator version</td>
+</tr>
+<tr>
+<td><code>sourceScaleFactor</code></td>
+<td>-</td>
+<td>Multiplicative factor for independent sources (source stepping homotopy)</td>
+</tr>
+<tr>
+<td><code>tnom</code></td>
+<td>Celsius</td>
+<td>Default temperature at which model parameters were extracted</td>
+</tr>
+<tr>
+<td><code>timeUnit</code></td>
+<td>s</td>
+<td>Time unit as specified in 'timescale</td>
+</tr>
+<tr>
+<td><code>timePrecision</code></td>
+<td>s</td>
+<td>Time precision as specified in 'timescale</td>
+</tr>
+</tbody>
+</table>
+<h4 id="usage-in-vendored-models">Usage in Vendored Models<a class="headerlink" href="#usage-in-vendored-models" title="Permanent link">&para;</a></h4>
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Default</th>
+<th style="text-align: right;">Count</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>gmin</code></td>
+<td>1e-12</td>
+<td style="text-align: right;">88</td>
+<td>Standard LRM parameter</td>
+</tr>
+<tr>
+<td><code>tnom</code></td>
+<td>27</td>
+<td style="text-align: right;">74</td>
+<td>Standard LRM parameter</td>
+</tr>
+<tr>
+<td><code>scale</code></td>
+<td>1</td>
+<td style="text-align: right;">41</td>
+<td>Standard LRM parameter</td>
+</tr>
+<tr>
+<td><code>iteration</code></td>
+<td>10</td>
+<td style="text-align: right;">36</td>
+<td>Standard LRM parameter</td>
+</tr>
+<tr>
+<td><code>iniLim</code></td>
+<td>-1</td>
+<td style="text-align: right;">36</td>
+<td><strong>Non-standard</strong> (SPICE-specific)</td>
+</tr>
+<tr>
+<td><code>oldlimit</code></td>
+<td>0</td>
+<td style="text-align: right;">34</td>
+<td><strong>Non-standard</strong> (SPICE-specific)</td>
+</tr>
+<tr>
+<td><code>defl</code></td>
+<td>1e-4</td>
+<td style="text-align: right;">30</td>
+<td><strong>Non-standard</strong> (SPICE default L)</td>
+</tr>
+<tr>
+<td><code>defw</code></td>
+<td>1e-4</td>
+<td style="text-align: right;">30</td>
+<td><strong>Non-standard</strong> (SPICE default W)</td>
+</tr>
+<tr>
+<td><code>defas</code></td>
+<td>0</td>
+<td style="text-align: right;">30</td>
+<td><strong>Non-standard</strong> (SPICE default AS)</td>
+</tr>
+<tr>
+<td><code>defad</code></td>
+<td>0</td>
+<td style="text-align: right;">30</td>
+<td><strong>Non-standard</strong> (SPICE default AD)</td>
+</tr>
+<tr>
+<td><code>reltol</code></td>
+<td>1e-3</td>
+<td style="text-align: right;">10</td>
+<td><strong>Non-standard</strong> (SPICE tolerance)</td>
+</tr>
+<tr>
+<td><code>epsmin</code></td>
+<td>1e-28</td>
+<td style="text-align: right;">10</td>
+<td><strong>Non-standard</strong></td>
+</tr>
+<tr>
+<td><code>abstol</code></td>
+<td>1e-12</td>
+<td style="text-align: right;">6</td>
+<td><strong>Non-standard</strong> (SPICE tolerance)</td>
+</tr>
+<tr>
+<td><code>vntol</code></td>
+<td>1e-6</td>
+<td style="text-align: right;">6</td>
+<td><strong>Non-standard</strong> (SPICE voltage tolerance)</td>
+</tr>
+</tbody>
+</table>
+<table>
+<thead>
+<tr>
+<th>Path</th>
+<th>Handling</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>JAX</strong></td>
+<td>Only <code>gmin</code> handled → <code>inputs[-1]</code>. Others return 0.0 or default.</td>
+</tr>
+<tr>
+<td><strong>OSDI</strong></td>
+<td><code>OsdiSimParas</code> struct with <code>names[]</code> and <code>vals[]</code> arrays</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Gap</strong>: JAX only handles <code>gmin</code>. Models using <code>scale</code>, <code>tnom</code>, or iteration-dependent behavior may differ.</p>
+<h3 id="mfactor-191-uses"><code>$mfactor</code> (191 uses)<a class="headerlink" href="#mfactor-191-uses" title="Permanent link">&para;</a></h3>
+<p>Shunt multiplicity factor (LRM 9.18).</p>
+<blockquote>
+<p><strong>LRM Definition</strong>: <code>$mfactor</code> is the shunt multiplicity factor of the instance, that is, the number of identical devices that should be combined in parallel and modeled. The value is computed by multiplying values from the top of the hierarchy down to the instance.</p>
+</blockquote>
+<p><strong>Hierarchy Combination</strong>: <code>$mfactor = $mfactor_specified * $mfactor_hier</code></p>
+<p><strong>Top-level value</strong>: 1.0</p>
+<table>
+<thead>
+<tr>
+<th>Path</th>
+<th>Handling</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>JAX</strong></td>
+<td>Param with <code>kind='sysfun'</code> → uses <code>mfactor</code> argument (default 1.0)</td>
+</tr>
+<tr>
+<td><strong>OSDI</strong></td>
+<td>Instance parameter in OSDI descriptor</td>
+</tr>
+</tbody>
+</table>
+<h3 id="vt-28-uses"><code>$vt</code> (28 uses)<a class="headerlink" href="#vt-28-uses" title="Permanent link">&para;</a></h3>
+<p>Thermal voltage kT/q (LRM 9.15).</p>
+<blockquote>
+<p><strong>LRM Definition</strong>: <code>$vt</code> can optionally have temperature (in Kelvin units) as an input argument and returns the thermal voltage (kT/q) at the given temperature. <code>$vt</code> without the optional input temperature argument returns the thermal voltage using <code>$temperature</code>.</p>
+</blockquote>
+<p><strong>Formula</strong>: <code>$vt(T) = k * T / q</code> where k = Boltzmann constant, q = electron charge</p>
+<p>Usage patterns found:
+- <code>$vt</code> or <code>$vt()</code> - 21 uses - thermal voltage at simulation temperature
+- <code>$vt($temperature)</code> - 4 uses - explicit simulation temperature
+- <code>$vt(Tnom)</code> - 1 use - thermal voltage at nominal temperature
+- <code>$vt(DevTemp)</code> - 1 use - thermal voltage at device temperature</p>
+<table>
+<thead>
+<tr>
+<th>Path</th>
+<th>Handling</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>JAX</strong></td>
+<td>Computed inline as <code>k * T / q</code> where T comes from temperature param</td>
+</tr>
+<tr>
+<td><strong>OSDI</strong></td>
+<td>Computed inline</td>
+</tr>
+</tbody>
+</table>
+<h3 id="abstime-5-uses"><code>$abstime</code> (5 uses)<a class="headerlink" href="#abstime-5-uses" title="Permanent link">&para;</a></h3>
+<p>Absolute simulation time (LRM Table 9-7). Only relevant for transient analysis.</p>
+<blockquote>
+<p><strong>LRM Definition</strong>: <code>$abstime</code> returns the absolute time as a real number in seconds. The absolute time at the beginning of a simulation is typically zero.</p>
+</blockquote>
+<table>
+<thead>
+<tr>
+<th>Path</th>
+<th>Handling</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>JAX</strong></td>
+<td>Param with <code>kind='abstime'</code> → defaults to 0.0. For transient, caller updates the input.</td>
+</tr>
+<tr>
+<td><strong>OSDI</strong></td>
+<td><code>OsdiSimInfo.abstime</code> field</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Note</strong>: For DC analysis, <code>abstime=0.0</code> is correct. For transient analysis, the simulator must provide the current time value.</p>
+<hr />
+<h2 id="device-behavior-functions">Device Behavior Functions<a class="headerlink" href="#device-behavior-functions" title="Permanent link">&para;</a></h2>
+<h3 id="param_given-1891-uses"><code>$param_given</code> (1891 uses)<a class="headerlink" href="#param_given-1891-uses" title="Permanent link">&para;</a></h3>
+<p>Checks if a parameter was explicitly provided vs using default (LRM 9.19).</p>
+<blockquote>
+<p><strong>LRM Definition</strong>: The <code>$param_given()</code> function can be used to determine whether a parameter value was obtained from the default value in its declaration statement or if that value was overridden. The return value shall be one (1) if the parameter was overridden, either by a <code>defparam</code> statement or by a module instance parameter value assignment, and zero (0) otherwise.</p>
+</blockquote>
+<p><strong>Note</strong>: The return value is constant during simulation (fixed at elaboration). This allows use in genvar expressions controlling conditional/looping behavior of analog operators.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">$param_given</span><span class="p">(</span><span class="n">VTH0</span><span class="p">))</span><span class="w"> </span><span class="k">begin</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="w">    </span><span class="c1">// Use provided VTH0</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="k">end</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="k">begin</span>
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="w">    </span><span class="c1">// Calculate VTH0 from other params</span>
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="k">end</span>
+</code></pre></div>
+<table>
+<thead>
+<tr>
+<th>Path</th>
+<th>Handling</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>JAX</strong></td>
+<td>Param with <code>kind='param_given'</code> → 1.0 if param in user dict, else 0.0</td>
+</tr>
+<tr>
+<td><strong>OSDI</strong></td>
+<td>Tracked per-parameter in OSDI descriptor</td>
+</tr>
+</tbody>
+</table>
+<h3 id="limit-270-uses"><code>$limit</code> (270 uses)<a class="headerlink" href="#limit-270-uses" title="Permanent link">&para;</a></h3>
+<p>Convergence limiting functions (LRM 9.17.3).</p>
+<blockquote>
+<p><strong>LRM Definition</strong>: The <code>$limit()</code> function is a special-purpose system function whose purpose, like that of <code>limexp()</code>, is to provide the simulator with help in managing convergence problems. <code>$limit()</code> has internal state containing information about the argument from iteration to iteration. It internally limits the change of the output from iteration to iteration in order to improve convergence.</p>
+</blockquote>
+<p><strong>Built-in limiting algorithms</strong>:
+- <code>pnjlim</code> - Limiting arguments to exponentials (PN junction)
+  - Additional args: <code>vte</code> (step size), <code>vcrit</code> (critical voltage)
+- <code>fetlim</code> - Limiting potential across MOS oxide
+  - Additional arg: <code>vto</code> (threshold voltage)
+- User-defined functions can also be used</p>
+<p>Common patterns:
+- <code>$limit(V(g, ...), "fetlim", ...)</code> - 76 uses
+- <code>$limit(V(b, ...), "pnjlim", ...)</code> - 72 uses
+- <code>$limit(V(d_int, ...), ...)</code> - 40 uses</p>
+<table>
+<thead>
+<tr>
+<th>Path</th>
+<th>Handling</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>JAX</strong></td>
+<td>Translated to JAX limiting functions</td>
+</tr>
+<tr>
+<td><strong>OSDI</strong></td>
+<td>Native OSDI limiting support</td>
+</tr>
+</tbody>
+</table>
+<h3 id="port_connected-57-uses"><code>$port_connected</code> (57 uses)<a class="headerlink" href="#port_connected-57-uses" title="Permanent link">&para;</a></h3>
+<p>Checks if an optional port is connected (LRM 9.19).</p>
+<blockquote>
+<p><strong>LRM Definition</strong>: The <code>$port_connected()</code> function can be used to determine whether a connection was specified for a port. The return value shall be one (1) if the port was connected to a net (by order or by name) when the module was instantiated, and zero (0) otherwise. Note that the port may be connected to a net that has no other connections, but <code>$port_connected()</code> shall still return one.</p>
+</blockquote>
+<p><strong>Note</strong>: The return value is constant during simulation (fixed at elaboration).</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">$port_connected</span><span class="p">(</span><span class="n">bulk</span><span class="p">))</span><span class="w"> </span><span class="k">begin</span>
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="w">    </span><span class="c1">// 4-terminal device</span>
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="k">end</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="k">begin</span>
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="w">    </span><span class="c1">// 3-terminal device (bulk tied internally)</span>
+<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="k">end</span>
+</code></pre></div>
+<table>
+<thead>
+<tr>
+<th>Path</th>
+<th>Handling</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>JAX</strong></td>
+<td>Assumed all ports connected (returns true)</td>
+</tr>
+<tr>
+<td><strong>OSDI</strong></td>
+<td>Proper port connection checking</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Gap</strong>: Models with optional ports may behave differently.</p>
+<h3 id="discontinuity-42-uses"><code>$discontinuity</code> (42 uses)<a class="headerlink" href="#discontinuity-42-uses" title="Permanent link">&para;</a></h3>
+<p>Notifies simulator of a discontinuity for timestep control (LRM 9.17.1).</p>
+<blockquote>
+<p><strong>LRM Definition</strong>: The <code>$discontinuity</code> task is used to give hints to the simulator about the behavior of the module so the simulator can control its simulation algorithms to properly handle the discontinuity. <code>$discontinuity(i)</code> implies a discontinuity in the i'th derivative of the constitutive equation. <code>$discontinuity(0)</code> indicates a discontinuity in the equation, <code>$discontinuity(1)</code> indicates a discontinuity in slope, etc.</p>
+</blockquote>
+<p><strong>Special case</strong>: <code>$discontinuity(-1)</code> is used with the <code>$limit()</code> function.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="n">$discontinuity</span><span class="p">(</span><span class="o">-</span><span class="mh">1</span><span class="p">);</span><span class="w">  </span><span class="c1">// Always notify (42 uses found)</span>
+</code></pre></div>
+<table>
+<thead>
+<tr>
+<th>Path</th>
+<th>Handling</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>JAX</strong></td>
+<td>Ignored (DC analysis only currently)</td>
+</tr>
+<tr>
+<td><strong>OSDI</strong></td>
+<td>Passed to simulator for timestep control</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="debug-functions-ignored">Debug Functions (Ignored)<a class="headerlink" href="#debug-functions-ignored" title="Permanent link">&para;</a></h2>
+<p>These functions are for debugging/output and are safely ignored during simulation.</p>
+<table>
+<thead>
+<tr>
+<th>Function</th>
+<th style="text-align: right;">Count</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>$strobe</code></td>
+<td style="text-align: right;">1434</td>
+<td>Print at end of timestep</td>
+</tr>
+<tr>
+<td><code>$write</code></td>
+<td style="text-align: right;">251</td>
+<td>Print immediately</td>
+</tr>
+<tr>
+<td><code>$warning</code></td>
+<td style="text-align: right;">212</td>
+<td>Issue warning message</td>
+</tr>
+<tr>
+<td><code>$finish</code></td>
+<td style="text-align: right;">92</td>
+<td>End simulation</td>
+</tr>
+<tr>
+<td><code>$fatal</code></td>
+<td style="text-align: right;">64</td>
+<td>Fatal error</td>
+</tr>
+<tr>
+<td><code>$display</code></td>
+<td style="text-align: right;">11</td>
+<td>Print with newline</td>
+</tr>
+<tr>
+<td><code>$debug</code></td>
+<td style="text-align: right;">4</td>
+<td>Debug output</td>
+</tr>
+<tr>
+<td><code>$fopen</code></td>
+<td style="text-align: right;">2</td>
+<td>Open file</td>
+</tr>
+<tr>
+<td><code>$fdisplay</code></td>
+<td style="text-align: right;">2</td>
+<td>Write to file</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="gap-analysis">Gap Analysis<a class="headerlink" href="#gap-analysis" title="Permanent link">&para;</a></h2>
+<h3 id="currently-missing-in-jax-path">Currently Missing in JAX Path<a class="headerlink" href="#currently-missing-in-jax-path" title="Permanent link">&para;</a></h3>
+<ol>
+<li><strong><code>$simparam</code> parameters beyond <code>gmin</code></strong></li>
+<li><code>tnom</code> - May affect temperature-dependent calculations</li>
+<li><code>scale</code> - Layout scaling (41 uses)</li>
+<li><code>iteration</code> - Iteration-dependent limiting (36 uses)</li>
+<li>
+<p>Tolerance values - May affect limiting behavior</p>
+</li>
+<li>
+<p><strong><code>$port_connected</code></strong> - Always returns true</p>
+</li>
+<li>
+<p>Risk: Models with optional ports (bulk, substrate) may behave differently</p>
+</li>
+<li>
+<p><strong><code>$vt(T)</code> with explicit temperature</strong></p>
+</li>
+<li>Need to verify correct handling of <code>$vt(Tnom)</code> vs <code>$vt($temperature)</code></li>
+</ol>
+<h3 id="recommendations">Recommendations<a class="headerlink" href="#recommendations" title="Permanent link">&para;</a></h3>
+<ol>
+<li><strong>Add <code>tnom</code> simparam support</strong> - Used in 74 places for temperature normalization</li>
+<li><strong>Add <code>scale</code> simparam support</strong> - Used in 41 places for geometry scaling</li>
+<li><strong>Consider <code>$port_connected</code></strong> - May explain differences in some models</li>
+<li><strong>Verify <code>$vt</code> temperature handling</strong> - Ensure consistency with OSDI</li>
+</ol>
+<hr />
+<h2 id="implementation-details">Implementation Details<a class="headerlink" href="#implementation-details" title="Permanent link">&para;</a></h2>
+<h3 id="jax-parameter-handling">JAX Parameter Handling<a class="headerlink" href="#jax-parameter-handling" title="Permanent link">&para;</a></h3>
+<p>Parameters are handled by <code>kind</code> in <code>_build_param_inputs()</code>:</p>
+<table>
+<thead>
+<tr>
+<th>Kind</th>
+<th>Handling</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>param</code></td>
+<td>User-provided or OSDI default</td>
+</tr>
+<tr>
+<td><code>voltage</code></td>
+<td>Placeholder 0.0 (set at runtime)</td>
+</tr>
+<tr>
+<td><code>temperature</code></td>
+<td>Uses <code>temperature</code> argument</td>
+</tr>
+<tr>
+<td><code>sysfun</code> (mfactor)</td>
+<td>Uses <code>mfactor</code> argument</td>
+</tr>
+<tr>
+<td><code>param_given</code></td>
+<td>1.0 if param in user dict, else 0.0</td>
+</tr>
+<tr>
+<td><code>port_connected</code></td>
+<td>Always 1.0 (all ports assumed connected)</td>
+</tr>
+<tr>
+<td><code>abstime</code></td>
+<td>Defaults to 0.0 (DC); caller updates for transient</td>
+</tr>
+<tr>
+<td><code>hidden_state</code></td>
+<td>Placeholder 0.0 (filled by init)</td>
+</tr>
+<tr>
+<td><code>current</code></td>
+<td>Placeholder 0.0</td>
+</tr>
+</tbody>
+</table>
+<h3 id="special-input-array-indices">Special Input Array Indices<a class="headerlink" href="#special-input-array-indices" title="Permanent link">&para;</a></h3>
+<p>For codegen, special values accessed via negative indices:
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>inputs[-1]  →  gmin (from $simparam(&quot;gmin&quot;))
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>inputs[-2]  →  analysis_type (for analysis() function)
+</code></pre></div></p>
+<h3 id="openvaf-compile-time-handling">OpenVAF Compile-Time Handling<a class="headerlink" href="#openvaf-compile-time-handling" title="Permanent link">&para;</a></h3>
+<p>Some system functions are evaluated at compile time by OpenVAF:
+- <code>$simparam("name", default)</code> with default → default value inlined
+- <code>$discontinuity</code> → Simulator hint, stripped during optimization
+- <code>$vt</code> → Computed inline as <code>k * T / q</code></p>
+<p>This means warnings for unknown <code>$simparam</code> only appear if OpenVAF preserves the call.</p>
+<h3 id="osdi-structures">OSDI Structures<a class="headerlink" href="#osdi-structures" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="k">typedef</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">OsdiSimParas</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="w">    </span><span class="kt">char</span><span class="o">**</span><span class="w"> </span><span class="n">names</span><span class="p">;</span><span class="w">      </span><span class="c1">// Array of simparam names</span>
+<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="w">    </span><span class="kt">double</span><span class="o">*</span><span class="w"> </span><span class="n">vals</span><span class="p">;</span><span class="w">      </span><span class="c1">// Array of simparam values</span>
+<a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="p">}</span><span class="w"> </span><span class="n">OsdiSimParas</span><span class="p">;</span>
+<a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a>
+<a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a><span class="k">typedef</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">OsdiSimInfo</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a><span class="w">    </span><span class="kt">double</span><span class="w"> </span><span class="n">temperature</span><span class="p">;</span><span class="w">  </span><span class="c1">// Simulation temperature (K)</span>
+<a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a><span class="w">    </span><span class="kt">double</span><span class="w"> </span><span class="n">abstime</span><span class="p">;</span><span class="w">      </span><span class="c1">// Absolute time (s)</span>
+<a id="__codelineno-4-9" name="__codelineno-4-9" href="#__codelineno-4-9"></a><span class="w">    </span><span class="c1">// ... other fields</span>
+<a id="__codelineno-4-10" name="__codelineno-4-10" href="#__codelineno-4-10"></a><span class="p">}</span><span class="w"> </span><span class="n">OsdiSimInfo</span><span class="p">;</span>
+</code></pre></div>
+<hr />
+<h2 id="references">References<a class="headerlink" href="#references" title="Permanent link">&para;</a></h2>
+<ul>
+<li><a href="../vendor/OpenVAF/docs/VAMS-LRM-2023/09-system-tasks-functions.md">Verilog-AMS LRM 2023 - System Tasks and Functions</a> - Section 9</li>
+<li><a href="https://help.simetrix.co.uk/8.0/simetrix/mergedProjects/verilog_a_reference/topics/veriloga_verilog_areference_verilog_afunctions.htm">Verilog-A Language Reference (SIMetrix)</a></li>
+<li><a href="../vendor/OpenVAF/docs/osdi_v4p0.md">OSDI v4.0 Specification</a></li>
+<li><a href="../vendor/OpenVAF/">OpenVAF Source</a></li>
+</ul>
+<h3 id="lrm-section-references">LRM Section References<a class="headerlink" href="#lrm-section-references" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Section</th>
+<th>Content</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>9.15</td>
+<td>Analog kernel parameter functions (<code>$temperature</code>, <code>$vt</code>, <code>$simparam</code>, <code>$simparam$str</code>)</td>
+</tr>
+<tr>
+<td>9.17</td>
+<td>Analog kernel control functions (<code>$discontinuity</code>, <code>$bound_step</code>, <code>$limit</code>)</td>
+</tr>
+<tr>
+<td>9.18</td>
+<td>Hierarchical parameter functions (<code>$mfactor</code>, <code>$xposition</code>, <code>$yposition</code>, <code>$angle</code>, <code>$hflip</code>, <code>$vflip</code>)</td>
+</tr>
+<tr>
+<td>9.19</td>
+<td>Explicit binding detection (<code>$param_given</code>, <code>$port_connected</code>)</td>
+</tr>
+<tr>
+<td>Table 9-27</td>
+<td>Standard <code>$simparam</code> parameter names</td>
+</tr>
+<tr>
+<td>Table 9-28</td>
+<td>Standard <code>$simparam$str</code> parameter names</td>
+</tr>
+</tbody>
+</table>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["content.code.copy", "navigation.instant", "navigation.sections", "navigation.top", "toc.follow"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>

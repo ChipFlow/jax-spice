@@ -1,0 +1,1767 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="GPU-Accelerated Analog Circuit Simulator built on JAX">
+      
+      
+      
+      
+        <link rel="prev" href="../transient_options/">
+      
+      
+        <link rel="next" href="../vacask_sim_format/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.3">
+    
+    
+      
+        <title>Performance Analysis - VAJAX</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#performance-analysis" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="VAJAX" class="md-header__button md-logo" aria-label="VAJAX" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            VAJAX
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Performance Analysis
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/ChipFlow/vajax" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    ChipFlow/vajax
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="VAJAX" class="md-nav__button md-logo" aria-label="VAJAX" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    VAJAX
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/ChipFlow/vajax" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    ChipFlow/vajax
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    User Guide
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    User Guide
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api_reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cli_reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CLI Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../transient_options/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Transient Options
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Performance Analysis
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Performance Analysis
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#benchmark-results" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Benchmark Results
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Benchmark Results">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#cpu-vajax-vs-vacask" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        CPU: VAJAX vs VACASK
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#gpu-vajax-acceleration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        GPU: VAJAX Acceleration
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#accuracy-vs-vacask" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Accuracy (vs VACASK)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#per-step-overhead-analysis" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Per-Step Overhead Analysis
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Per-Step Overhead Analysis">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#overhead-breakdown" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Overhead Breakdown
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#scaling-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Scaling Model
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#why-jax-has-per-step-overhead" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Why JAX Has Per-Step Overhead
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Why JAX Has Per-Step Overhead">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#1-functional-array-updates" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Functional Array Updates
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#2-vmap-batching-for-small-counts" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Vmap Batching for Small Counts
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#3-coo-matrix-assembly" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. COO Matrix Assembly
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#4-integration-coefficient-recomputation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. Integration Coefficient Recomputation
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#gpu-acceleration-why-large-circuits-win" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        GPU Acceleration: Why Large Circuits Win
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="GPU Acceleration: Why Large Circuits Win">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#c6288-5000-nodes-gpu-advantage" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        c6288 (5000 nodes): GPU Advantage
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#rc-4-nodes-gpu-disadvantage" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        rc (4 nodes): GPU Disadvantage
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#potential-optimizations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Potential Optimizations
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../vacask_sim_format/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    VACASK Sim Format
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Developer Guide
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Developer Guide
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../architecture_overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../gpu_solver_architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GPU Solver Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../gpu_solver_jacobian/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GPU Solver Jacobian
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sparse_solver_roadmap/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Sparse Solver Roadmap
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../debug_tools/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Debug Tools
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../phi_nodes_guide/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PHI Nodes Guide
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../verilog_a_system_functions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Verilog-A System Functions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../osdi_parameter_architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    OSDI Parameter Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../vacask_osdi_inputs/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    OSDI Inputs
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sim_back_vs_openvaf_jax/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Code Generation Backends
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../ci-status/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CI Status
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#benchmark-results" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Benchmark Results
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Benchmark Results">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#cpu-vajax-vs-vacask" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        CPU: VAJAX vs VACASK
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#gpu-vajax-acceleration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        GPU: VAJAX Acceleration
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#accuracy-vs-vacask" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Accuracy (vs VACASK)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#per-step-overhead-analysis" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Per-Step Overhead Analysis
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Per-Step Overhead Analysis">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#overhead-breakdown" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Overhead Breakdown
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#scaling-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Scaling Model
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#why-jax-has-per-step-overhead" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Why JAX Has Per-Step Overhead
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Why JAX Has Per-Step Overhead">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#1-functional-array-updates" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Functional Array Updates
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#2-vmap-batching-for-small-counts" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Vmap Batching for Small Counts
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#3-coo-matrix-assembly" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. COO Matrix Assembly
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#4-integration-coefficient-recomputation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. Integration Coefficient Recomputation
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#gpu-acceleration-why-large-circuits-win" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        GPU Acceleration: Why Large Circuits Win
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="GPU Acceleration: Why Large Circuits Win">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#c6288-5000-nodes-gpu-advantage" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        c6288 (5000 nodes): GPU Advantage
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#rc-4-nodes-gpu-disadvantage" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        rc (4 nodes): GPU Disadvantage
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#potential-optimizations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Potential Optimizations
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="performance-analysis">Performance Analysis<a class="headerlink" href="#performance-analysis" title="Permanent link">&para;</a></h1>
+<p>This document analyzes VAJAX performance characteristics, explaining the
+overhead profile relative to VACASK (C++ reference simulator) and the GPU
+acceleration crossover point.</p>
+<h2 id="benchmark-results">Benchmark Results<a class="headerlink" href="#benchmark-results" title="Permanent link">&para;</a></h2>
+<p>All measurements from GitHub Actions CI runners (CPU: ubuntu-latest, GPU: nvidia-runner-1).
+VACASK numbers on CPU use live execution; GPU comparisons use reference values.</p>
+<h3 id="cpu-vajax-vs-vacask">CPU: VAJAX vs VACASK<a class="headerlink" href="#cpu-vajax-vs-vacask" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Benchmark</th>
+<th style="text-align: right;">Nodes</th>
+<th style="text-align: right;">Steps</th>
+<th style="text-align: right;">JAX (ms/step)</th>
+<th style="text-align: right;">VACASK (ms/step)</th>
+<th style="text-align: right;">Ratio</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>rc</td>
+<td style="text-align: right;">4</td>
+<td style="text-align: right;">1M</td>
+<td style="text-align: right;">0.012</td>
+<td style="text-align: right;">0.002</td>
+<td style="text-align: right;">6.6x</td>
+</tr>
+<tr>
+<td>graetz</td>
+<td style="text-align: right;">6</td>
+<td style="text-align: right;">1M</td>
+<td style="text-align: right;">0.020</td>
+<td style="text-align: right;">0.004</td>
+<td style="text-align: right;">5.4x</td>
+</tr>
+<tr>
+<td>mul</td>
+<td style="text-align: right;">8</td>
+<td style="text-align: right;">500k</td>
+<td style="text-align: right;">0.041</td>
+<td style="text-align: right;">0.004</td>
+<td style="text-align: right;">10.9x</td>
+</tr>
+<tr>
+<td>ring</td>
+<td style="text-align: right;">47</td>
+<td style="text-align: right;">20k</td>
+<td style="text-align: right;">0.511</td>
+<td style="text-align: right;">0.109</td>
+<td style="text-align: right;">4.7x</td>
+</tr>
+<tr>
+<td>c6288</td>
+<td style="text-align: right;">~5000</td>
+<td style="text-align: right;">1k</td>
+<td style="text-align: right;">88.060</td>
+<td style="text-align: right;">76.390</td>
+<td style="text-align: right;">1.2x</td>
+</tr>
+</tbody>
+</table>
+<h3 id="gpu-vajax-acceleration">GPU: VAJAX Acceleration<a class="headerlink" href="#gpu-vajax-acceleration" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Benchmark</th>
+<th style="text-align: right;">Nodes</th>
+<th style="text-align: right;">GPU (ms/step)</th>
+<th style="text-align: right;">CPU (ms/step)</th>
+<th style="text-align: right;">GPU Speedup</th>
+<th style="text-align: right;">vs VACASK CPU</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>c6288</td>
+<td style="text-align: right;">~5000</td>
+<td style="text-align: right;">19.81</td>
+<td style="text-align: right;">88.06</td>
+<td style="text-align: right;">4.4x</td>
+<td style="text-align: right;">0.35x (faster)</td>
+</tr>
+<tr>
+<td>ring</td>
+<td style="text-align: right;">47</td>
+<td style="text-align: right;">1.49</td>
+<td style="text-align: right;">0.51</td>
+<td style="text-align: right;">0.3x</td>
+<td style="text-align: right;">33x (slower)</td>
+</tr>
+<tr>
+<td>graetz</td>
+<td style="text-align: right;">6</td>
+<td style="text-align: right;">0.30</td>
+<td style="text-align: right;">0.02</td>
+<td style="text-align: right;">0.07x</td>
+<td style="text-align: right;">161x (slower)</td>
+</tr>
+<tr>
+<td>rc</td>
+<td style="text-align: right;">4</td>
+<td style="text-align: right;">0.24</td>
+<td style="text-align: right;">0.01</td>
+<td style="text-align: right;">0.05x</td>
+<td style="text-align: right;">257x (slower)</td>
+</tr>
+</tbody>
+</table>
+<p>GPU results for circuits below ~500 nodes reflect GPU kernel overhead on tiny
+workloads, not simulation inefficiency. The auto-threshold (<code>gpu_threshold=500</code>)
+prevents this in normal usage; the benchmark uses <code>--force-gpu</code> to measure all
+circuits for tracking purposes.</p>
+<h3 id="accuracy-vs-vacask">Accuracy (vs VACASK)<a class="headerlink" href="#accuracy-vs-vacask" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Benchmark</th>
+<th style="text-align: right;">Dense RMS</th>
+<th style="text-align: right;">Sparse RMS</th>
+<th style="text-align: right;">Threshold</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>rc</td>
+<td style="text-align: right;">0.00%</td>
+<td style="text-align: right;">0.00%</td>
+<td style="text-align: right;">5%</td>
+</tr>
+<tr>
+<td>graetz</td>
+<td style="text-align: right;">0.00%</td>
+<td style="text-align: right;">0.00%</td>
+<td style="text-align: right;">15%</td>
+</tr>
+<tr>
+<td>mul</td>
+<td style="text-align: right;">0.00%</td>
+<td style="text-align: right;">0.00%</td>
+<td style="text-align: right;">2%</td>
+</tr>
+<tr>
+<td>c6288</td>
+<td style="text-align: right;">-</td>
+<td style="text-align: right;">2.01%</td>
+<td style="text-align: right;">10%</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="per-step-overhead-analysis">Per-Step Overhead Analysis<a class="headerlink" href="#per-step-overhead-analysis" title="Permanent link">&para;</a></h2>
+<p>The overhead ratio decreases as circuit size increases, confirming a <strong>fixed
+per-step overhead</strong> in the JAX path that VACASK doesn't have:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>Overhead ratio vs circuit size:
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>    mul (8 nodes)     ████████████████████████████████  10.9x
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>    rc (4 nodes)      ████████████████████             6.6x
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>    graetz (6 nodes)  ████████████████                 5.4x
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>    ring (47 nodes)   ██████████████                   4.7x
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>    c6288 (5k nodes)  ████                             1.2x
+</code></pre></div>
+<h3 id="overhead-breakdown">Overhead Breakdown<a class="headerlink" href="#overhead-breakdown" title="Permanent link">&para;</a></h3>
+<p>Each timestep in <code>full_mna.py</code> body_fn executes ~11 major operations beyond the
+core Newton-Raphson solve:</p>
+<table>
+<thead>
+<tr>
+<th>Operation</th>
+<th>Estimated Cost</th>
+<th>VACASK Equivalent</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>LTE estimation</td>
+<td>2-3 us</td>
+<td>Similar</td>
+<td>Per-node tolerance checking, error coefficients</td>
+</tr>
+<tr>
+<td>Voltage prediction</td>
+<td>1-2 us</td>
+<td>Simpler predictor</td>
+<td>Lagrange polynomial from multi-point history</td>
+</tr>
+<tr>
+<td>BDF2 coefficients</td>
+<td>0.5-1 us</td>
+<td>Pre-computed</td>
+<td>Variable-step formula recomputed every step</td>
+</tr>
+<tr>
+<td>History management</td>
+<td>1-2 us</td>
+<td>In-place mutation</td>
+<td><code>jnp.roll</code> on V_history, dt_history arrays</td>
+</tr>
+<tr>
+<td><code>jnp.where</code> branching</td>
+<td>2-3 us</td>
+<td>Runtime <code>if</code></td>
+<td>Evaluates both branches unconditionally</td>
+</tr>
+<tr>
+<td>Vmap device eval</td>
+<td>1-2 us/NR iter</td>
+<td>Sequential loop</td>
+<td>Overhead dominates for &lt;10 devices</td>
+</tr>
+<tr>
+<td>COO assembly</td>
+<td>1-2 us/NR iter</td>
+<td>Direct stamping</td>
+<td>Concatenate + sum duplicates</td>
+</tr>
+<tr>
+<td>Simparams <code>.at[].set()</code></td>
+<td>0.5-1 us/NR iter</td>
+<td>Struct writes</td>
+<td>Creates intermediate arrays</td>
+</tr>
+<tr>
+<td><strong>Total fixed overhead</strong></td>
+<td><strong>~10-15 us/step</strong></td>
+<td><strong>~0 us</strong></td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<h3 id="scaling-model">Scaling Model<a class="headerlink" href="#scaling-model" title="Permanent link">&para;</a></h3>
+<p>The per-step cost can be modeled as:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>T_jax(n) = T_fixed + T_compute(n)
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>T_vacask(n) = T_compute_vacask(n)
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>where:
+<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>  T_fixed ~ 10-15 us (JAX overhead, independent of circuit size)
+<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a>  T_compute(n) ~ T_compute_vacask(n) for large n (same algorithm)
+</code></pre></div>
+<p>This explains the convergence to 1.2x at ~5000 nodes:</p>
+<table>
+<thead>
+<tr>
+<th>Circuit</th>
+<th style="text-align: right;">T_fixed</th>
+<th style="text-align: right;">T_compute</th>
+<th style="text-align: right;">Overhead %</th>
+<th style="text-align: right;">Overall Ratio</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>rc</td>
+<td style="text-align: right;">10 us</td>
+<td style="text-align: right;">2 us</td>
+<td style="text-align: right;">83%</td>
+<td style="text-align: right;">6.6x</td>
+</tr>
+<tr>
+<td>graetz</td>
+<td style="text-align: right;">10 us</td>
+<td style="text-align: right;">4 us</td>
+<td style="text-align: right;">71%</td>
+<td style="text-align: right;">5.4x</td>
+</tr>
+<tr>
+<td>ring</td>
+<td style="text-align: right;">10 us</td>
+<td style="text-align: right;">100 us</td>
+<td style="text-align: right;">9%</td>
+<td style="text-align: right;">4.7x</td>
+</tr>
+<tr>
+<td>c6288</td>
+<td style="text-align: right;">10 us</td>
+<td style="text-align: right;">76,000 us</td>
+<td style="text-align: right;">0.01%</td>
+<td style="text-align: right;">1.2x</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="why-jax-has-per-step-overhead">Why JAX Has Per-Step Overhead<a class="headerlink" href="#why-jax-has-per-step-overhead" title="Permanent link">&para;</a></h2>
+<h3 id="1-functional-array-updates">1. Functional Array Updates<a class="headerlink" href="#1-functional-array-updates" title="Permanent link">&para;</a></h3>
+<p>JAX arrays are immutable. Inside <code>lax.while_loop</code>, conditional updates use
+<code>jnp.where</code> which evaluates <strong>both branches</strong> and selects elementwise:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="c1"># JAX: evaluates both new_val and old_val, then selects</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="n">state</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">where</span><span class="p">(</span><span class="n">accept_step</span><span class="p">,</span> <span class="n">new_val</span><span class="p">,</span> <span class="n">old_val</span><span class="p">)</span>
+</code></pre></div>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="c1">// VACASK (C++): skips the else branch entirely</span>
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">accept_step</span><span class="p">)</span><span class="w"> </span><span class="n">state</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">new_val</span><span class="p">;</span>
+</code></pre></div>
+<p>The body_fn has ~15 such conditional updates per step for history management,
+step acceptance, and NR failure handling.</p>
+<h3 id="2-vmap-batching-for-small-counts">2. Vmap Batching for Small Counts<a class="headerlink" href="#2-vmap-batching-for-small-counts" title="Permanent link">&para;</a></h3>
+<p>Device evaluation uses <code>jax.vmap</code> to batch all instances of each device type.
+This is essential for GPU parallelism on large circuits but adds overhead for
+small batch sizes:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="c1"># 2 resistors: vmap adds vectorization overhead &gt; sequential evaluation</span>
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="n">vmapped_eval</span> <span class="o">=</span> <span class="n">jax</span><span class="o">.</span><span class="n">vmap</span><span class="p">(</span><span class="n">device_eval</span><span class="p">)(</span><span class="n">batched_params</span><span class="p">)</span>
+</code></pre></div>
+<p>For rc (2 resistors), the vmap overhead exceeds the actual computation.
+For c6288 (~86,000 transistors), vmap amortizes perfectly.</p>
+<h3 id="3-coo-matrix-assembly">3. COO Matrix Assembly<a class="headerlink" href="#3-coo-matrix-assembly" title="Permanent link">&para;</a></h3>
+<p>VAJAX builds the Jacobian from COO (coordinate) format:
+1. Each device type produces (row, col, value) triplets
+2. Triplets are concatenated across device types
+3. Duplicate indices are summed to form the final matrix</p>
+<p>VACASK stamps directly into a pre-allocated matrix with known positions.
+The COO approach enables JAX tracing and GPU parallelism but adds indirection.</p>
+<h3 id="4-integration-coefficient-recomputation">4. Integration Coefficient Recomputation<a class="headerlink" href="#4-integration-coefficient-recomputation" title="Permanent link">&para;</a></h3>
+<p>Variable-step BDF2 requires recomputing integration coefficients each step
+based on the step-size ratio. VACASK may use lookup tables or simplified
+formulas for common step ratios.</p>
+<hr />
+<h2 id="gpu-acceleration-why-large-circuits-win">GPU Acceleration: Why Large Circuits Win<a class="headerlink" href="#gpu-acceleration-why-large-circuits-win" title="Permanent link">&para;</a></h2>
+<p>GPU acceleration becomes beneficial when the per-step compute time exceeds
+the kernel launch and memory overhead (~100-500 us per step). This happens
+around 500+ nodes.</p>
+<h3 id="c6288-5000-nodes-gpu-advantage">c6288 (5000 nodes): GPU Advantage<a class="headerlink" href="#c6288-5000-nodes-gpu-advantage" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Jacobian: 5000x5000 matrix operations</li>
+<li>Dense solve: O(n^3) = O(125 billion) operations per NR iteration</li>
+<li>GPU parallelism: thousands of concurrent threads</li>
+<li>Result: 4.4x speedup over CPU, <strong>2.9x faster than VACASK</strong></li>
+</ul>
+<h3 id="rc-4-nodes-gpu-disadvantage">rc (4 nodes): GPU Disadvantage<a class="headerlink" href="#rc-4-nodes-gpu-disadvantage" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Jacobian: 4x4 matrix operations</li>
+<li>Dense solve: 64 multiply-adds per NR iteration</li>
+<li>GPU overhead: kernel launch &gt; actual compute</li>
+<li>Result: 20x slower than CPU (expected and correct)</li>
+</ul>
+<p>The <code>gpu_threshold</code> parameter (default: 500 nodes) automatically routes small
+circuits to CPU, avoiding this overhead in normal usage.</p>
+<hr />
+<h2 id="potential-optimizations">Potential Optimizations<a class="headerlink" href="#potential-optimizations" title="Permanent link">&para;</a></h2>
+<p>These are known areas where the per-step overhead could be reduced:</p>
+<ol>
+<li>
+<p><strong>Fused operations</strong>: Combine BDF2 coefficient computation with history
+   updates into a single kernel to reduce launch overhead.</p>
+</li>
+<li>
+<p><strong>Direct stamping</strong>: For CPU path, stamp directly into pre-allocated
+   Jacobian instead of building COO triplets.</p>
+</li>
+<li>
+<p><strong>Sequential device eval on CPU</strong>: Use a simple loop instead of vmap
+   when running on CPU with few device instances.</p>
+</li>
+<li>
+<p><strong>Pre-computed coefficients</strong>: Cache BDF2 coefficients for common
+   step-size ratios.</p>
+</li>
+<li>
+<p><strong>Reduced history depth</strong>: Currently maintains multi-step history for
+   BDF2; simpler methods (trapezoidal) would reduce overhead.</p>
+</li>
+</ol>
+<p>These optimizations would primarily benefit small-circuit CPU performance
+without affecting the large-circuit GPU path where VAJAX already
+outperforms VACASK.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["content.code.copy", "navigation.instant", "navigation.sections", "navigation.top", "toc.follow"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>

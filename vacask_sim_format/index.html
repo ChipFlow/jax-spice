@@ -1,0 +1,1757 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="GPU-Accelerated Analog Circuit Simulator built on JAX">
+      
+      
+      
+      
+        <link rel="prev" href="../performance_analysis/">
+      
+      
+        <link rel="next" href="../architecture_overview/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.3">
+    
+    
+      
+        <title>VACASK Sim Format - VAJAX</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#vacask-sim-file-format" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="VAJAX" class="md-header__button md-logo" aria-label="VAJAX" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            VAJAX
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              VACASK Sim Format
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/ChipFlow/vajax" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    ChipFlow/vajax
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="VAJAX" class="md-nav__button md-logo" aria-label="VAJAX" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    VAJAX
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/ChipFlow/vajax" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    ChipFlow/vajax
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    User Guide
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    User Guide
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api_reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cli_reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CLI Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../transient_options/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Transient Options
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../performance_analysis/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Performance Analysis
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    VACASK Sim Format
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    VACASK Sim Format
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#file-structure" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        File Structure
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="File Structure">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#1-load-statements" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Load Statements
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#2-model-definitions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Model Definitions
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#3-subcircuit-definitions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Subcircuit Definitions
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#4-instance-statements" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. Instance Statements
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#5-control-block" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. Control Block
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#key-test-cases" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Key Test Cases
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Key Test Cases">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#simple-tests-vendorvacasktest" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Simple Tests (vendor/VACASK/test/)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#benchmark-tests-vendorvacaskbenchmark" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Benchmark Tests (vendor/VACASK/benchmark/)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#c6288-and-gate-test" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        C6288 AND Gate Test
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#adapting-for-vajax" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Adapting for vajax
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Adapting for vajax">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#step-1-parse-the-sim-file" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 1: Parse the .sim file
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#step-2-replace-osdi-with-openvaf_jax" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 2: Replace OSDI with openvaf_jax
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#step-3-map-model-names-to-jax-functions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 3: Map model names to JAX functions
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#step-4-build-circuit-with-analytical-jacobians" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 4: Build circuit with analytical Jacobians
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#vajax-parser-compatibility" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        vajax Parser Compatibility
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="vajax Parser Compatibility">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#supported-features" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Supported Features
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#known-limitations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Known Limitations
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#working-test-cases" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Working Test Cases
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#vacask-bison-grammar-reference" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        VACASK Bison Grammar Reference
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#file-locations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        File Locations
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Developer Guide
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Developer Guide
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../architecture_overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../gpu_solver_architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GPU Solver Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../gpu_solver_jacobian/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GPU Solver Jacobian
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sparse_solver_roadmap/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Sparse Solver Roadmap
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../debug_tools/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Debug Tools
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../phi_nodes_guide/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PHI Nodes Guide
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../verilog_a_system_functions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Verilog-A System Functions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../osdi_parameter_architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    OSDI Parameter Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../vacask_osdi_inputs/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    OSDI Inputs
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sim_back_vs_openvaf_jax/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Code Generation Backends
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../ci-status/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CI Status
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#file-structure" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        File Structure
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="File Structure">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#1-load-statements" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Load Statements
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#2-model-definitions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Model Definitions
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#3-subcircuit-definitions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Subcircuit Definitions
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#4-instance-statements" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. Instance Statements
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#5-control-block" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. Control Block
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#key-test-cases" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Key Test Cases
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Key Test Cases">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#simple-tests-vendorvacasktest" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Simple Tests (vendor/VACASK/test/)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#benchmark-tests-vendorvacaskbenchmark" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Benchmark Tests (vendor/VACASK/benchmark/)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#c6288-and-gate-test" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        C6288 AND Gate Test
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#adapting-for-vajax" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Adapting for vajax
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Adapting for vajax">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#step-1-parse-the-sim-file" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 1: Parse the .sim file
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#step-2-replace-osdi-with-openvaf_jax" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 2: Replace OSDI with openvaf_jax
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#step-3-map-model-names-to-jax-functions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 3: Map model names to JAX functions
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#step-4-build-circuit-with-analytical-jacobians" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 4: Build circuit with analytical Jacobians
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#vajax-parser-compatibility" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        vajax Parser Compatibility
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="vajax Parser Compatibility">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#supported-features" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Supported Features
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#known-limitations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Known Limitations
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#working-test-cases" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Working Test Cases
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#vacask-bison-grammar-reference" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        VACASK Bison Grammar Reference
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#file-locations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        File Locations
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="vacask-sim-file-format">VACASK .sim File Format<a class="headerlink" href="#vacask-sim-file-format" title="Permanent link">&para;</a></h1>
+<p>This document describes the VACASK simulation file format and how to adapt it for use with vajax using openvaf_jax models instead of OSDI.</p>
+<h2 id="file-structure">File Structure<a class="headerlink" href="#file-structure" title="Permanent link">&para;</a></h2>
+<p>VACASK .sim files are netlist files with a custom syntax defined in <code>lib/dflparser.y</code> (a Bison grammar). Key elements:</p>
+<h3 id="1-load-statements">1. Load Statements<a class="headerlink" href="#1-load-statements" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>load &quot;psp103v4.osdi&quot;
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>load &quot;spice/resistor.osdi&quot;
+</code></pre></div>
+<p>These load OSDI compiled libraries. For vajax, we need to:
+- Replace with openvaf_jax compilation of the corresponding .va files
+- Map the module name (e.g., <code>psp103va</code>) to the JAX function</p>
+<h3 id="2-model-definitions">2. Model Definitions<a class="headerlink" href="#2-model-definitions" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>model psp103n psp103va (
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>    type=1
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>    vfbo=-1.1
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>    toxo=1.5e-9
+<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>    ...
+<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a>)
+</code></pre></div>
+<ul>
+<li>First identifier: model name (user-defined)</li>
+<li>Second identifier: module name from OSDI library</li>
+<li>Parameters in parentheses: model parameters</li>
+</ul>
+<h3 id="3-subcircuit-definitions">3. Subcircuit Definitions<a class="headerlink" href="#3-subcircuit-definitions" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>subckt nmos (d g s b)
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>parameters w=1u l=0.2u
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>  m (d g s b) psp103n w=w l=l
+<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>ends
+<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a>
+<a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a>subckt and(out in1 in2)
+<a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a>  mp1 (outx in1 vdd vdd) pmos w=1u l=0.2u
+<a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a>  mn1 (outx in1 int vss) nmos w=0.5u l=0.2u
+<a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a>  ...
+<a id="__codelineno-2-10" name="__codelineno-2-10" href="#__codelineno-2-10"></a>ends
+</code></pre></div>
+<h3 id="4-instance-statements">4. Instance Statements<a class="headerlink" href="#4-instance-statements" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>v1 (1 0) vsource dc=1
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>r1 (1 0) resistor r=2k
+<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>m (d g s b) psp103n w=w l=l
+</code></pre></div>
+<p>Format: <code>name (nodes) model_name param=value ...</code></p>
+<h3 id="5-control-block">5. Control Block<a class="headerlink" href="#5-control-block" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>control
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>  options nr_convtol=1
+<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>  save v(p0) v(p1)
+<a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a>  elaborate circuit(&quot;and_test&quot;)
+<a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a>  analysis tranand tran stop=0.8n step=10p
+<a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a>  postprocess(PYTHON, &quot;runme.py&quot;)
+<a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a>endc
+</code></pre></div>
+<h2 id="key-test-cases">Key Test Cases<a class="headerlink" href="#key-test-cases" title="Permanent link">&para;</a></h2>
+<h3 id="simple-tests-vendorvacasktest">Simple Tests (vendor/VACASK/test/)<a class="headerlink" href="#simple-tests-vendorvacasktest" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>File</th>
+<th>Description</th>
+<th>Models Used</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>test_resistor.sim</code></td>
+<td>Basic resistor</td>
+<td>resistor.osdi</td>
+</tr>
+<tr>
+<td><code>test_diode.sim</code></td>
+<td>Diode I-V sweep</td>
+<td>diode.osdi, resistor.osdi</td>
+</tr>
+<tr>
+<td><code>test_capacitor.sim</code></td>
+<td>Capacitor</td>
+<td>capacitor.osdi</td>
+</tr>
+<tr>
+<td><code>test_op.sim</code></td>
+<td>Operating point</td>
+<td>Various</td>
+</tr>
+<tr>
+<td><code>test_inverter.sim</code></td>
+<td>CMOS inverter</td>
+<td>MOSFET model</td>
+</tr>
+</tbody>
+</table>
+<h3 id="benchmark-tests-vendorvacaskbenchmark">Benchmark Tests (vendor/VACASK/benchmark/)<a class="headerlink" href="#benchmark-tests-vendorvacaskbenchmark" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Directory</th>
+<th>Description</th>
+<th>Key Files</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>c6288/vacask/</code></td>
+<td>16x16 multiplier</td>
+<td>runme.sim, models.inc, multiplier.inc</td>
+</tr>
+<tr>
+<td><code>ring/</code></td>
+<td>Ring oscillator</td>
+<td>Various</td>
+</tr>
+<tr>
+<td><code>graetz/</code></td>
+<td>Graetz rectifier</td>
+<td>Various</td>
+</tr>
+</tbody>
+</table>
+<h3 id="c6288-and-gate-test">C6288 AND Gate Test<a class="headerlink" href="#c6288-and-gate-test" title="Permanent link">&para;</a></h3>
+<p>The <code>and_test</code> subcircuit in <code>benchmark/c6288/vacask/runme.sim</code> is our target:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>subckt and(out in1 in2)
+<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>  mp2 (outx in2 vdd vdd) pmos w=1u l=0.2u
+<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a>  mp1 (outx in1 vdd vdd) pmos w=1u l=0.2u
+<a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a>  mn1 (outx in1 int vss) nmos w=0.5u l=0.2u  // &lt;-- Floating &#39;int&#39; node!
+<a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a>  mn2 (int  in2 vss vss) nmos w=0.5u l=0.2u
+<a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a>  mp3 (out outx vdd vdd) pmos w=1u l=0.2u
+<a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a>  mn3 (out outx vss vss) nmos w=0.5u l=0.2u
+<a id="__codelineno-5-8" name="__codelineno-5-8" href="#__codelineno-5-8"></a>ends
+</code></pre></div>
+<p>The <code>int</code> node between mn1 and mn2 is the floating node that causes convergence issues with autodiff Jacobians.</p>
+<h2 id="adapting-for-vajax">Adapting for vajax<a class="headerlink" href="#adapting-for-vajax" title="Permanent link">&para;</a></h2>
+<h3 id="step-1-parse-the-sim-file">Step 1: Parse the .sim file<a class="headerlink" href="#step-1-parse-the-sim-file" title="Permanent link">&para;</a></h3>
+<p>Key elements to extract:
+1. <code>load</code> statements → Compile .va files with openvaf_jax
+2. <code>model</code> statements → Create model parameter dictionaries
+3. <code>subckt</code> definitions → Build subcircuit templates
+4. Instance statements → Create circuit instances
+5. <code>elaborate</code> → Build the flattened circuit
+6. <code>analysis</code> → Run DC/transient analysis</p>
+<h3 id="step-2-replace-osdi-with-openvaf_jax">Step 2: Replace OSDI with openvaf_jax<a class="headerlink" href="#step-2-replace-osdi-with-openvaf_jax" title="Permanent link">&para;</a></h3>
+<p>Instead of:
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="c1"># VACASK: Load OSDI library</span>
+<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="n">osdi_lib</span> <span class="o">=</span> <span class="n">load_osdi</span><span class="p">(</span><span class="s2">&quot;psp103v4.osdi&quot;</span><span class="p">)</span>
+</code></pre></div></p>
+<p>Use:
+<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="c1"># vajax: Compile to JAX</span>
+<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="kn">import</span><span class="w"> </span><span class="nn">openvaf_py</span>
+<a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a><span class="kn">import</span><span class="w"> </span><span class="nn">openvaf_jax</span>
+<a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a>
+<a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a><span class="n">modules</span> <span class="o">=</span> <span class="n">openvaf_py</span><span class="o">.</span><span class="n">compile_va</span><span class="p">(</span><span class="s2">&quot;psp103v4.va&quot;</span><span class="p">)</span>
+<a id="__codelineno-7-6" name="__codelineno-7-6" href="#__codelineno-7-6"></a><span class="n">translator</span> <span class="o">=</span> <span class="n">openvaf_jax</span><span class="o">.</span><span class="n">OpenVAFToJAX</span><span class="p">(</span><span class="n">modules</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span>
+<a id="__codelineno-7-7" name="__codelineno-7-7" href="#__codelineno-7-7"></a><span class="n">psp103_eval</span> <span class="o">=</span> <span class="n">translator</span><span class="o">.</span><span class="n">translate</span><span class="p">()</span>
+</code></pre></div></p>
+<h3 id="step-3-map-model-names-to-jax-functions">Step 3: Map model names to JAX functions<a class="headerlink" href="#step-3-map-model-names-to-jax-functions" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="n">model_registry</span> <span class="o">=</span> <span class="p">{</span>
+<a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a>    <span class="s1">&#39;psp103va&#39;</span><span class="p">:</span> <span class="n">psp103_eval</span><span class="p">,</span>
+<a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a>    <span class="s1">&#39;resistor&#39;</span><span class="p">:</span> <span class="n">resistor_eval</span><span class="p">,</span>
+<a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a>    <span class="s1">&#39;diode&#39;</span><span class="p">:</span> <span class="n">diode_eval</span><span class="p">,</span>
+<a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a><span class="p">}</span>
+</code></pre></div>
+<h3 id="step-4-build-circuit-with-analytical-jacobians">Step 4: Build circuit with analytical Jacobians<a class="headerlink" href="#step-4-build-circuit-with-analytical-jacobians" title="Permanent link">&para;</a></h3>
+<p>Use the JAX functions' returned Jacobians instead of autodiff:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="k">def</span><span class="w"> </span><span class="nf">evaluate_device</span><span class="p">(</span><span class="n">model_fn</span><span class="p">,</span> <span class="n">voltages</span><span class="p">,</span> <span class="n">params</span><span class="p">):</span>
+<a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a>    <span class="n">inputs</span> <span class="o">=</span> <span class="n">build_inputs</span><span class="p">(</span><span class="n">voltages</span><span class="p">,</span> <span class="n">params</span><span class="p">)</span>
+<a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a>    <span class="n">residuals</span><span class="p">,</span> <span class="n">jacobian</span> <span class="o">=</span> <span class="n">model_fn</span><span class="p">(</span><span class="n">inputs</span><span class="p">)</span>  <span class="c1"># Analytical Jacobian!</span>
+<a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a>    <span class="k">return</span> <span class="n">residuals</span><span class="p">,</span> <span class="n">jacobian</span>
+</code></pre></div>
+<h2 id="vajax-parser-compatibility">vajax Parser Compatibility<a class="headerlink" href="#vajax-parser-compatibility" title="Permanent link">&para;</a></h2>
+<p>The existing vajax parser (<code>vajax/netlist/parser.py</code>) is a Python recursive descent parser
+that handles the core VACASK netlist format. It successfully parses <strong>40 out of 46 VACASK-format test files</strong> (87%).</p>
+<h3 id="supported-features">Supported Features<a class="headerlink" href="#supported-features" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>load</code> statements</li>
+<li><code>include</code> statements (with recursive file loading)</li>
+<li><code>ground</code> and <code>global</code> declarations</li>
+<li><code>model</code> definitions with parameters</li>
+<li><code>subckt</code>/<code>ends</code> definitions</li>
+<li>Instance statements with terminals and parameters</li>
+<li><code>control</code>/<code>endc</code> blocks (skipped, not parsed)</li>
+<li><code>embed</code> blocks (skipped)</li>
+<li>Multi-line parameter lists in parentheses</li>
+<li>Comments (<code>//</code>)</li>
+</ul>
+<h3 id="known-limitations">Known Limitations<a class="headerlink" href="#known-limitations" title="Permanent link">&para;</a></h3>
+<p>The following VACASK features are not yet supported:</p>
+<ol>
+<li><strong>Titles with parentheses</strong> - A title like "SPICE JFET (verilog-A)" confuses the parser</li>
+<li><strong>Conditional blocks (<code>@if/@endif</code>)</strong> - Used in <code>test_cblock.sim</code>, <code>test_cblocksweep.sim</code></li>
+<li><strong>Vector parameters (<code>vec=[...]</code>)</strong> - Used in <code>test_sweepvec.sim</code></li>
+<li><strong>Control block content</strong> - Currently skipped; analysis commands not extracted</li>
+</ol>
+<h3 id="working-test-cases">Working Test Cases<a class="headerlink" href="#working-test-cases" title="Permanent link">&para;</a></h3>
+<p>All key test cases parse successfully:
+- <code>test_resistor.sim</code> - Basic resistor
+- <code>test_diode.sim</code> - Diode I-V sweep
+- <code>test_capacitor.sim</code> - Capacitor
+- <code>test_inverter.sim</code> - CMOS inverter
+- <code>benchmark/c6288/vacask/runme.sim</code> - 16x16 multiplier (includes models.inc, multiplier.inc)
+- <code>benchmark/ring/vacask/runme.sim</code> - Ring oscillator
+- <code>benchmark/mul/vacask/runme.sim</code> - Multiplier benchmark</p>
+<h2 id="vacask-bison-grammar-reference">VACASK Bison Grammar Reference<a class="headerlink" href="#vacask-bison-grammar-reference" title="Permanent link">&para;</a></h2>
+<p>The full VACASK parser (<code>lib/dflparser.y</code>) uses:
+- Bison 3.3+ with C++ skeleton
+- Custom scanner (<code>lib/dflscanner.l</code>)
+- Token types: IDENTIFIER, INTEGER, FLOAT, STRING
+- Expression evaluation via RPN (Reverse Polish Notation)</p>
+<p>Key grammar rules:
+- <code>load</code>: <code>LOAD STRING NEWLINE</code>
+- <code>model_def</code>: <code>MODEL IDENTIFIER IDENTIFIER opt_parameter_list NEWLINE</code>
+- <code>subcircuit_def</code>: <code>SUBCKT IDENTIFIER terminal_def ... ENDS</code>
+- <code>instance</code>: <code>IDENTIFIER terminal_def IDENTIFIER opt_parameter_list NEWLINE</code></p>
+<h2 id="file-locations">File Locations<a class="headerlink" href="#file-locations" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Purpose</th>
+<th>Path</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Parser grammar</td>
+<td><code>vendor/VACASK/lib/dflparser.y</code></td>
+</tr>
+<tr>
+<td>Scanner</td>
+<td><code>vendor/VACASK/lib/dflscanner.l</code></td>
+</tr>
+<tr>
+<td>Test cases</td>
+<td><code>vendor/VACASK/test/*.sim</code></td>
+</tr>
+<tr>
+<td>Benchmarks</td>
+<td><code>vendor/VACASK/benchmark/*/vacask/runme.sim</code></td>
+</tr>
+<tr>
+<td>PSP103 model</td>
+<td><code>vendor/VACASK/benchmark/c6288/vacask/models.inc</code></td>
+</tr>
+<tr>
+<td>Gate definitions</td>
+<td><code>vendor/VACASK/benchmark/c6288/vacask/multiplier.inc</code></td>
+</tr>
+</tbody>
+</table>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["content.code.copy", "navigation.instant", "navigation.sections", "navigation.top", "toc.follow"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>

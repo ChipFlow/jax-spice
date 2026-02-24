@@ -1,0 +1,1891 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="GPU-Accelerated Analog Circuit Simulator built on JAX">
+      
+      
+      
+      
+        <link rel="prev" href="../gpu_solver_architecture/">
+      
+      
+        <link rel="next" href="../sparse_solver_roadmap/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.3">
+    
+    
+      
+        <title>GPU Solver Jacobian - VAJAX</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#gpu-solver-jacobian-autodiff-vs-analytical" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="VAJAX" class="md-header__button md-logo" aria-label="VAJAX" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            VAJAX
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              GPU Solver Jacobian
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/ChipFlow/vajax" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    ChipFlow/vajax
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="VAJAX" class="md-nav__button md-logo" aria-label="VAJAX" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    VAJAX
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/ChipFlow/vajax" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    ChipFlow/vajax
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    User Guide
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    User Guide
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api_reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cli_reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CLI Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../transient_options/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Transient Options
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../performance_analysis/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Performance Analysis
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../vacask_sim_format/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    VACASK Sim Format
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Developer Guide
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Developer Guide
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../architecture_overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../gpu_solver_architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GPU Solver Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GPU Solver Jacobian
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GPU Solver Jacobian
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#status-solved" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Status: SOLVED
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-original-problem" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The Original Problem
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="The Original Problem">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#root-cause" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Root Cause
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#comparison-at-and-gate-int-node-floating" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Comparison at AND Gate int Node (Floating)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#how-openvaf_jax-works" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How openvaf_jax Works
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="How openvaf_jax Works">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#key-code-location" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Key Code Location
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#current-state" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Current State
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Current State">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#vacask-path-works" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        VACASK Path (works)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#gpu-path-broken" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        GPU Path (broken)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#solution-options" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Solution Options
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Solution Options">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#option-1-add-gds_min-to-gpu-model-partial-fix" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Option 1: Add gds_min to GPU Model (Partial Fix)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#option-2-use-analytical-jacobian-from-openvaf_jax-preferred" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Option 2: Use Analytical Jacobian from openvaf_jax (Preferred)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#option-3-hybrid-approach" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Option 3: Hybrid Approach
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#files-involved" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Files Involved
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#test-case" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Test Case
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#verification-psp103-via-openvaf_jax-works" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Verification: PSP103 via openvaf_jax Works
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#how-openvaf-handles-hidden-states-cache-slots" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How OpenVAF Handles Hidden States (Cache Slots)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="How OpenVAF Handles Hidden States (Cache Slots)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#the-initeval-split-in-osdi" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The Init/Eval Split in OSDI
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#openvaf-mir-structure" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        OpenVAF MIR Structure
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#how-openvaf_jax-handles-this" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How openvaf_jax Handles This
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#key-insight-voltage-derived-values" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Key Insight: Voltage-Derived Values
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#solution-for-gpu-solver-integration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Solution for GPU Solver Integration
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#solution-implemented" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Solution Implemented
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Solution Implemented">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#key-implementation-details" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Key Implementation Details
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#results" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Results
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sparse_solver_roadmap/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Sparse Solver Roadmap
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../debug_tools/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Debug Tools
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../phi_nodes_guide/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PHI Nodes Guide
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../verilog_a_system_functions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Verilog-A System Functions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../osdi_parameter_architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    OSDI Parameter Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../vacask_osdi_inputs/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    OSDI Inputs
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sim_back_vs_openvaf_jax/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Code Generation Backends
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../ci-status/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CI Status
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#status-solved" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Status: SOLVED
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-original-problem" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The Original Problem
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="The Original Problem">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#root-cause" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Root Cause
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#comparison-at-and-gate-int-node-floating" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Comparison at AND Gate int Node (Floating)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#how-openvaf_jax-works" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How openvaf_jax Works
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="How openvaf_jax Works">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#key-code-location" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Key Code Location
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#current-state" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Current State
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Current State">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#vacask-path-works" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        VACASK Path (works)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#gpu-path-broken" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        GPU Path (broken)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#solution-options" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Solution Options
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Solution Options">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#option-1-add-gds_min-to-gpu-model-partial-fix" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Option 1: Add gds_min to GPU Model (Partial Fix)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#option-2-use-analytical-jacobian-from-openvaf_jax-preferred" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Option 2: Use Analytical Jacobian from openvaf_jax (Preferred)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#option-3-hybrid-approach" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Option 3: Hybrid Approach
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#files-involved" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Files Involved
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#test-case" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Test Case
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#verification-psp103-via-openvaf_jax-works" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Verification: PSP103 via openvaf_jax Works
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#how-openvaf-handles-hidden-states-cache-slots" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How OpenVAF Handles Hidden States (Cache Slots)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="How OpenVAF Handles Hidden States (Cache Slots)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#the-initeval-split-in-osdi" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The Init/Eval Split in OSDI
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#openvaf-mir-structure" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        OpenVAF MIR Structure
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#how-openvaf_jax-handles-this" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How openvaf_jax Handles This
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#key-insight-voltage-derived-values" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Key Insight: Voltage-Derived Values
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#solution-for-gpu-solver-integration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Solution for GPU Solver Integration
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#solution-implemented" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Solution Implemented
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Solution Implemented">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#key-implementation-details" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Key Implementation Details
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#results" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Results
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="gpu-solver-jacobian-autodiff-vs-analytical">GPU Solver Jacobian: Autodiff vs Analytical<a class="headerlink" href="#gpu-solver-jacobian-autodiff-vs-analytical" title="Permanent link">&para;</a></h1>
+<h2 id="status-solved">Status: SOLVED<a class="headerlink" href="#status-solved" title="Permanent link">&para;</a></h2>
+<p>The GPU solver has been fully migrated to analytical Jacobians, eliminating the convergence issues. This document describes the original problem and solution for reference.</p>
+<h2 id="the-original-problem">The Original Problem<a class="headerlink" href="#the-original-problem" title="Permanent link">&para;</a></h2>
+<p>The GPU solver originally used JAX autodiff (via <code>sparsejac</code>) to compute Jacobians. This caused convergence issues for circuits with floating nodes (like series NMOS stacks in AND gates).</p>
+<h3 id="root-cause">Root Cause<a class="headerlink" href="#root-cause" title="Permanent link">&para;</a></h3>
+<p>When a MOSFET is in cutoff or deep saturation, the autodiff-computed <code>dIds/dVds</code> (output conductance) can be extremely small:
+- GPU autodiff: <code>gds ≈ 1e-16 S</code> in cutoff
+- VACASK analytical: <code>gds = 1e-9 S</code> minimum (enforced)</p>
+<p>This creates nearly-singular Jacobians that cause Newton-Raphson to diverge.</p>
+<h3 id="comparison-at-and-gate-int-node-floating">Comparison at AND Gate <code>int</code> Node (Floating)<a class="headerlink" href="#comparison-at-and-gate-int-node-floating" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Property</th>
+<th>GPU (autodiff)</th>
+<th>VACASK (analytical)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>gds in cutoff</td>
+<td>~1e-16 S</td>
+<td>1e-9 S (min enforced)</td>
+</tr>
+<tr>
+<td>Convergence</td>
+<td>Fails (oscillates)</td>
+<td>Succeeds (34 iters)</td>
+</tr>
+<tr>
+<td>Final <code>int</code> voltage</td>
+<td>Diverges to ±2.4V</td>
+<td>Settles to 0.6V</td>
+</tr>
+</tbody>
+</table>
+<h2 id="how-openvaf_jax-works">How openvaf_jax Works<a class="headerlink" href="#how-openvaf_jax-works" title="Permanent link">&para;</a></h2>
+<p>The <code>openvaf_jax.py</code> module translates Verilog-A models (via OpenVAF MIR) to JAX functions that return <strong>both</strong> residual and analytical Jacobian:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="c1"># Generated function signature</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="k">def</span><span class="w"> </span><span class="nf">device_eval</span><span class="p">(</span><span class="n">inputs</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="nb">float</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="n">Tuple</span><span class="p">[</span><span class="n">Dict</span><span class="p">,</span> <span class="n">Dict</span><span class="p">]:</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="sd">    Returns:</span>
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="sd">        residuals: Dict[node, {&#39;resist&#39;: float, &#39;react&#39;: float}]</span>
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="sd">        jacobian: Dict[(row, col), {&#39;resist&#39;: float, &#39;react&#39;: float}]</span>
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="sd">    &quot;&quot;&quot;</span>
+</code></pre></div>
+<h3 id="key-code-location">Key Code Location<a class="headerlink" href="#key-code-location" title="Permanent link">&para;</a></h3>
+<p>In <code>openvaf_jax.py</code> lines 262-277:
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="c1"># Build output expressions</span>
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s2">&quot;    residuals = {&quot;</span><span class="p">)</span>
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="k">for</span> <span class="n">node</span><span class="p">,</span> <span class="n">res</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">dae_data</span><span class="p">[</span><span class="s1">&#39;residuals&#39;</span><span class="p">]</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>    <span class="n">resist_val</span> <span class="o">=</span> <span class="n">res</span><span class="p">[</span><span class="s1">&#39;resist&#39;</span><span class="p">]</span> <span class="k">if</span> <span class="n">res</span><span class="p">[</span><span class="s1">&#39;resist&#39;</span><span class="p">]</span> <span class="ow">in</span> <span class="n">defined_vars</span> <span class="k">else</span> <span class="s1">&#39;0.0&#39;</span>
+<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>    <span class="n">react_val</span> <span class="o">=</span> <span class="n">res</span><span class="p">[</span><span class="s1">&#39;react&#39;</span><span class="p">]</span> <span class="k">if</span> <span class="n">res</span><span class="p">[</span><span class="s1">&#39;react&#39;</span><span class="p">]</span> <span class="ow">in</span> <span class="n">defined_vars</span> <span class="k">else</span> <span class="s1">&#39;0.0&#39;</span>
+<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a>    <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;        &#39;</span><span class="si">{</span><span class="n">node</span><span class="si">}</span><span class="s2">&#39;: </span><span class="se">{{</span><span class="s2">&#39;resist&#39;: </span><span class="si">{</span><span class="n">resist_val</span><span class="si">}</span><span class="s2">, &#39;react&#39;: </span><span class="si">{</span><span class="n">react_val</span><span class="si">}</span><span class="se">}}</span><span class="s2">,&quot;</span><span class="p">)</span>
+<a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a>
+<a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a><span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s2">&quot;    jacobian = {&quot;</span><span class="p">)</span>
+<a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a><span class="k">for</span> <span class="n">entry</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">dae_data</span><span class="p">[</span><span class="s1">&#39;jacobian&#39;</span><span class="p">]:</span>
+<a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a>    <span class="n">key</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;(&#39;</span><span class="si">{</span><span class="n">entry</span><span class="p">[</span><span class="s1">&#39;row&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">&#39;, &#39;</span><span class="si">{</span><span class="n">entry</span><span class="p">[</span><span class="s1">&#39;col&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">&#39;)&quot;</span>
+<a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a>    <span class="n">resist_val</span> <span class="o">=</span> <span class="n">entry</span><span class="p">[</span><span class="s1">&#39;resist&#39;</span><span class="p">]</span> <span class="k">if</span> <span class="n">entry</span><span class="p">[</span><span class="s1">&#39;resist&#39;</span><span class="p">]</span> <span class="ow">in</span> <span class="n">defined_vars</span> <span class="k">else</span> <span class="s1">&#39;0.0&#39;</span>
+<a id="__codelineno-1-12" name="__codelineno-1-12" href="#__codelineno-1-12"></a>    <span class="n">react_val</span> <span class="o">=</span> <span class="n">entry</span><span class="p">[</span><span class="s1">&#39;react&#39;</span><span class="p">]</span> <span class="k">if</span> <span class="n">entry</span><span class="p">[</span><span class="s1">&#39;resist&#39;</span><span class="p">]</span> <span class="ow">in</span> <span class="n">defined_vars</span> <span class="k">else</span> <span class="s1">&#39;0.0&#39;</span>
+<a id="__codelineno-1-13" name="__codelineno-1-13" href="#__codelineno-1-13"></a>    <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;        </span><span class="si">{</span><span class="n">key</span><span class="si">}</span><span class="s2">: </span><span class="se">{{</span><span class="s2">&#39;resist&#39;: </span><span class="si">{</span><span class="n">resist_val</span><span class="si">}</span><span class="s2">, &#39;react&#39;: </span><span class="si">{</span><span class="n">react_val</span><span class="si">}</span><span class="se">}}</span><span class="s2">,&quot;</span><span class="p">)</span>
+</code></pre></div></p>
+<p>The Jacobian entries come from <code>dae_data['jacobian']</code> which is extracted from the OpenVAF MIR - these are <strong>analytical derivatives</strong> computed by OpenVAF's symbolic differentiation of the Verilog-A model.</p>
+<h2 id="current-state">Current State<a class="headerlink" href="#current-state" title="Permanent link">&para;</a></h2>
+<h3 id="vacask-path-works">VACASK Path (works)<a class="headerlink" href="#vacask-path-works" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>c6288.sim → parser → psp103n/psp103p model
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>                          ↓
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>              create_simple_mosfet_eval() ← Uses explicit gm, gds stamps
+<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>                          ↓
+<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a>              build_sparse_jacobian_and_residual() ← Stamps conductances into J
+</code></pre></div>
+<h3 id="gpu-path-broken">GPU Path (broken)<a class="headerlink" href="#gpu-path-broken" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>c6288.sim → parser → psp103n/psp103p model
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>                          ↓
+<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>              create_simple_mosfet_eval() ← Same simplified model
+<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a>                          ↓
+<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a>              build_circuit_residual_fn() ← Residual only, no J
+<a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a>                          ↓
+<a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a>              sparsejac.jacrev(residual_fn) ← Autodiff gives wrong gds
+</code></pre></div>
+<h2 id="solution-options">Solution Options<a class="headerlink" href="#solution-options" title="Permanent link">&para;</a></h2>
+<h3 id="option-1-add-gds_min-to-gpu-model-partial-fix">Option 1: Add gds_min to GPU Model (Partial Fix)<a class="headerlink" href="#option-1-add-gds_min-to-gpu-model-partial-fix" title="Permanent link">&para;</a></h3>
+<p>Add minimum conductance leakage: <code>Ids += gds_min * Vds</code></p>
+<p><strong>Status</strong>: Implemented but insufficient - gds_min only helps in cutoff, not saturation.</p>
+<h3 id="option-2-use-analytical-jacobian-from-openvaf_jax-preferred">Option 2: Use Analytical Jacobian from openvaf_jax (Preferred)<a class="headerlink" href="#option-2-use-analytical-jacobian-from-openvaf_jax-preferred" title="Permanent link">&para;</a></h3>
+<p>Create PSP103 device via openvaf_jax and use its analytical Jacobian:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">openvaf_jax</span><span class="w"> </span><span class="kn">import</span> <span class="n">OpenVAFToJAX</span>
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>
+<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="c1"># Compile PSP103 model to JAX</span>
+<a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="n">translator</span> <span class="o">=</span> <span class="n">OpenVAFToJAX</span><span class="o">.</span><span class="n">from_file</span><span class="p">(</span><span class="s2">&quot;psp103v4.va&quot;</span><span class="p">)</span>
+<a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a><span class="n">psp103_eval</span> <span class="o">=</span> <span class="n">translator</span><span class="o">.</span><span class="n">translate</span><span class="p">()</span>
+<a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a>
+<a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a><span class="c1"># In GPU residual function:</span>
+<a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a><span class="k">def</span><span class="w"> </span><span class="nf">residual_fn</span><span class="p">(</span><span class="n">V</span><span class="p">):</span>
+<a id="__codelineno-4-9" name="__codelineno-4-9" href="#__codelineno-4-9"></a>    <span class="k">for</span> <span class="n">device</span> <span class="ow">in</span> <span class="n">mosfets</span><span class="p">:</span>
+<a id="__codelineno-4-10" name="__codelineno-4-10" href="#__codelineno-4-10"></a>        <span class="n">inputs</span> <span class="o">=</span> <span class="n">build_inputs</span><span class="p">(</span><span class="n">V</span><span class="p">,</span> <span class="n">device</span><span class="p">)</span>
+<a id="__codelineno-4-11" name="__codelineno-4-11" href="#__codelineno-4-11"></a>        <span class="n">residuals</span><span class="p">,</span> <span class="n">jacobian</span> <span class="o">=</span> <span class="n">psp103_eval</span><span class="p">(</span><span class="n">inputs</span><span class="p">)</span>  <span class="c1"># Both from same call!</span>
+<a id="__codelineno-4-12" name="__codelineno-4-12" href="#__codelineno-4-12"></a>        <span class="c1"># Stamp residuals into f</span>
+<a id="__codelineno-4-13" name="__codelineno-4-13" href="#__codelineno-4-13"></a>        <span class="c1"># Jacobian available for building J analytically</span>
+</code></pre></div>
+<p>This requires restructuring the GPU solver to:
+1. Build residual AND Jacobian together (not separately via autodiff)
+2. Use JAX's sparse matrix operations with explicit stamp values</p>
+<h3 id="option-3-hybrid-approach">Option 3: Hybrid Approach<a class="headerlink" href="#option-3-hybrid-approach" title="Permanent link">&para;</a></h3>
+<p>Use autodiff for most of the circuit but override MOSFET gds with minimum value:
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="c1"># After autodiff Jacobian computation</span>
+<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="n">J_diag</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">diag</span><span class="p">(</span><span class="n">J</span><span class="p">)</span>
+<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="n">J_diag</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">where</span><span class="p">(</span><span class="n">jnp</span><span class="o">.</span><span class="n">abs</span><span class="p">(</span><span class="n">J_diag</span><span class="p">)</span> <span class="o">&lt;</span> <span class="n">gds_min</span><span class="p">,</span> <span class="n">jnp</span><span class="o">.</span><span class="n">sign</span><span class="p">(</span><span class="n">J_diag</span><span class="p">)</span> <span class="o">*</span> <span class="n">gds_min</span><span class="p">,</span> <span class="n">J_diag</span><span class="p">)</span>
+</code></pre></div></p>
+<h2 id="files-involved">Files Involved<a class="headerlink" href="#files-involved" title="Permanent link">&para;</a></h2>
+<ul>
+<li><code>vajax/analysis/dc_gpu.py</code> - GPU DC solver</li>
+<li><code>vajax/analysis/transient_gpu.py</code> - GPU transient solver</li>
+<li><code>vajax/benchmarks/c6288.py</code> - <code>create_simple_mosfet_eval()</code> at line 179</li>
+<li><code>openvaf-py/openvaf_jax.py</code> - OpenVAF→JAX translator</li>
+<li><code>vajax/devices/verilog_a.py</code> - VerilogADevice wrapper</li>
+</ul>
+<h2 id="test-case">Test Case<a class="headerlink" href="#test-case" title="Permanent link">&para;</a></h2>
+<p>The <code>and_test</code> circuit in <code>c6288.sim</code> is a good minimal test:
+- 6 MOSFETs (NAND + inverter)
+- Floating <code>int</code> node between series NMOS mn1/mn2
+- VACASK converges in 34 iterations
+- GPU solver diverges</p>
+<h2 id="verification-psp103-via-openvaf_jax-works">Verification: PSP103 via openvaf_jax Works<a class="headerlink" href="#verification-psp103-via-openvaf_jax-works" title="Permanent link">&para;</a></h2>
+<p>Confirmed that PSP103 can be compiled and evaluated via openvaf_jax:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">openvaf_py</span>
+<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="kn">import</span><span class="w"> </span><span class="nn">openvaf_jax</span>
+<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a>
+<a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="n">va_path</span> <span class="o">=</span> <span class="s1">&#39;vendor/OpenVAF/integration_tests/PSP103/psp103.va&#39;</span>
+<a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a><span class="n">modules</span> <span class="o">=</span> <span class="n">openvaf_py</span><span class="o">.</span><span class="n">compile_va</span><span class="p">(</span><span class="n">va_path</span><span class="p">)</span>
+<a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a><span class="n">module</span> <span class="o">=</span> <span class="n">modules</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+<a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a>
+<a id="__codelineno-6-8" name="__codelineno-6-8" href="#__codelineno-6-8"></a><span class="n">translator</span> <span class="o">=</span> <span class="n">openvaf_jax</span><span class="o">.</span><span class="n">OpenVAFToJAX</span><span class="p">(</span><span class="n">module</span><span class="p">)</span>
+<a id="__codelineno-6-9" name="__codelineno-6-9" href="#__codelineno-6-9"></a><span class="n">eval_fn</span> <span class="o">=</span> <span class="n">translator</span><span class="o">.</span><span class="n">translate</span><span class="p">()</span>
+<a id="__codelineno-6-10" name="__codelineno-6-10" href="#__codelineno-6-10"></a>
+<a id="__codelineno-6-11" name="__codelineno-6-11" href="#__codelineno-6-11"></a><span class="c1"># Evaluate - returns BOTH residual and analytical Jacobian</span>
+<a id="__codelineno-6-12" name="__codelineno-6-12" href="#__codelineno-6-12"></a><span class="n">residuals</span><span class="p">,</span> <span class="n">jacobian</span> <span class="o">=</span> <span class="n">eval_fn</span><span class="p">(</span><span class="n">inputs</span><span class="p">)</span>
+</code></pre></div>
+<p>Results:
+- Module: PSP103VA
+- Nodes: 13 (internal nodes for the compact model)
+- Parameters: 2616
+- <strong>Jacobian entries: 56</strong> (analytical, not autodiff!)</p>
+<p>The 56 Jacobian entries are computed symbolically by OpenVAF from the Verilog-A model equations - these are the well-conditioned conductance stamps that SPICE simulators rely on.</p>
+<h2 id="how-openvaf-handles-hidden-states-cache-slots">How OpenVAF Handles Hidden States (Cache Slots)<a class="headerlink" href="#how-openvaf-handles-hidden-states-cache-slots" title="Permanent link">&para;</a></h2>
+<p>OpenVAF's compilation pipeline distinguishes between:
+1. <strong>Model/Instance Parameters</strong>: User-specified values (like VTH0, KP, W, L)
+2. <strong>Voltages</strong>: Circuit node voltages from the solver
+3. <strong>Hidden States (Cache Slots)</strong>: Intermediate values computed by the device model</p>
+<h3 id="the-initeval-split-in-osdi">The Init/Eval Split in OSDI<a class="headerlink" href="#the-initeval-split-in-osdi" title="Permanent link">&para;</a></h3>
+<p>OSDI models have two functions:
+- <strong>Init function</strong>: Runs once per operating point, computes parameter-dependent values
+- <strong>Eval function</strong>: Runs every Newton iteration, uses init outputs + voltages</p>
+<p>The init function computes "cached" values that don't depend on voltages:
+<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="c1">// Example from a resistor model</span>
+<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="c1">// Init computes temperature-adjusted resistance:</span>
+<a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a><span class="n">res</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">R</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="n">pow</span><span class="p">(</span><span class="n">temperature</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="n">tnom</span><span class="p">,</span><span class="w"> </span><span class="n">zeta</span><span class="p">);</span><span class="w">  </span><span class="c1">// Cached, doesn&#39;t change during NR</span>
+</code></pre></div></p>
+<p>These cached values are stored in "cache slots" and passed to the eval function.</p>
+<h3 id="openvaf-mir-structure">OpenVAF MIR Structure<a class="headerlink" href="#openvaf-mir-structure" title="Permanent link">&para;</a></h3>
+<p>In the MIR (Mid-level IR), cached values appear as:
+<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="c1">// From openvaf/sim_back/src/init.rs</span>
+<a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">CacheSlot</span><span class="p">(</span><span class="kt">u32</span><span class="p">);</span>
+<a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a>
+<a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a><span class="c1">// The init function outputs to cache slots</span>
+<a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a><span class="c1">// The eval function reads from cache slots</span>
+</code></pre></div></p>
+<p>The mapping between init outputs and eval inputs is tracked in <code>cache_mapping</code>:
+<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="c1"># From openvaf_py</span>
+<a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a><span class="n">cache_mapping</span> <span class="o">=</span> <span class="p">[</span>
+<a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a>    <span class="p">{</span><span class="s1">&#39;init_value&#39;</span><span class="p">:</span> <span class="s1">&#39;init_v30&#39;</span><span class="p">,</span> <span class="s1">&#39;eval_param&#39;</span><span class="p">:</span> <span class="s1">&#39;v86&#39;</span><span class="p">},</span>  <span class="c1"># sign</span>
+<a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a>    <span class="p">{</span><span class="s1">&#39;init_value&#39;</span><span class="p">:</span> <span class="s1">&#39;init_v31&#39;</span><span class="p">,</span> <span class="s1">&#39;eval_param&#39;</span><span class="p">:</span> <span class="s1">&#39;v37&#39;</span><span class="p">},</span>  <span class="c1"># beta</span>
+<a id="__codelineno-9-5" name="__codelineno-9-5" href="#__codelineno-9-5"></a><span class="p">]</span>
+</code></pre></div></p>
+<h3 id="how-openvaf_jax-handles-this">How openvaf_jax Handles This<a class="headerlink" href="#how-openvaf_jax-handles-this" title="Permanent link">&para;</a></h3>
+<p>The JAX translator currently requires users to provide ALL parameters as inputs,
+including those that should be computed by init:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="c1"># What the user provides:</span>
+<a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a><span class="n">inputs</span> <span class="o">=</span> <span class="p">[</span>
+<a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a>    <span class="mi">0</span><span class="p">,</span>        <span class="c1"># PMOS flag</span>
+<a id="__codelineno-10-4" name="__codelineno-10-4" href="#__codelineno-10-4"></a>    <span class="mf">1.0</span><span class="p">,</span>      <span class="c1"># sign (ideally computed from PMOS)</span>
+<a id="__codelineno-10-5" name="__codelineno-10-5" href="#__codelineno-10-5"></a>    <span class="mf">0.0</span><span class="p">,</span>      <span class="c1"># V(s)</span>
+<a id="__codelineno-10-6" name="__codelineno-10-6" href="#__codelineno-10-6"></a>    <span class="mf">1.2</span><span class="p">,</span>      <span class="c1"># V(g)</span>
+<a id="__codelineno-10-7" name="__codelineno-10-7" href="#__codelineno-10-7"></a>    <span class="mf">1.2</span><span class="p">,</span>      <span class="c1"># Vgs (should be computed: V(g) - V(s))</span>
+<a id="__codelineno-10-8" name="__codelineno-10-8" href="#__codelineno-10-8"></a>    <span class="mf">1.2</span><span class="p">,</span>      <span class="c1"># V(d)</span>
+<a id="__codelineno-10-9" name="__codelineno-10-9" href="#__codelineno-10-9"></a>    <span class="mf">1.2</span><span class="p">,</span>      <span class="c1"># Vds (should be computed: V(d) - V(s))</span>
+<a id="__codelineno-10-10" name="__codelineno-10-10" href="#__codelineno-10-10"></a>    <span class="c1"># ... etc</span>
+<a id="__codelineno-10-11" name="__codelineno-10-11" href="#__codelineno-10-11"></a><span class="p">]</span>
+</code></pre></div>
+<p>The eval function DOES compute voltage-derived values (Vgs, Vds) internally
+from the terminal voltages. But it expects the init-computed values (like beta)
+to be provided.</p>
+<h3 id="key-insight-voltage-derived-values">Key Insight: Voltage-Derived Values<a class="headerlink" href="#key-insight-voltage-derived-values" title="Permanent link">&para;</a></h3>
+<p>Looking at the MOSFET model:
+<div class="highlight"><pre><span></span><code><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="c1">// These are computed EVERY iteration from voltages</span>
+<a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a><span class="n">Vgs</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">V</span><span class="p">(</span><span class="n">g</span><span class="p">)</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="n">V</span><span class="p">(</span><span class="n">s</span><span class="p">);</span>
+<a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a><span class="n">Vds</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">V</span><span class="p">(</span><span class="n">d</span><span class="p">)</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="n">V</span><span class="p">(</span><span class="n">s</span><span class="p">);</span>
+<a id="__codelineno-11-4" name="__codelineno-11-4" href="#__codelineno-11-4"></a><span class="n">Vov</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">Vgs</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="n">VTH0</span><span class="p">;</span>
+<a id="__codelineno-11-5" name="__codelineno-11-5" href="#__codelineno-11-5"></a>
+<a id="__codelineno-11-6" name="__codelineno-11-6" href="#__codelineno-11-6"></a><span class="c1">// These are computed ONCE in init</span>
+<a id="__codelineno-11-7" name="__codelineno-11-7" href="#__codelineno-11-7"></a><span class="n">beta</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">KP</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="n">W</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="n">L</span><span class="p">;</span><span class="w">  </span><span class="c1">// Doesn&#39;t depend on voltages</span>
+</code></pre></div></p>
+<p>The JAX-generated code correctly computes Vgs, Vds, Vov from the input
+voltages on every call. The issue is that values like <code>beta</code> need to be
+computed once and passed in.</p>
+<h3 id="solution-for-gpu-solver-integration">Solution for GPU Solver Integration<a class="headerlink" href="#solution-for-gpu-solver-integration" title="Permanent link">&para;</a></h3>
+<p>To use openvaf_jax models in the GPU solver:</p>
+<ol>
+<li><strong>Run init once</strong> at start of Newton iteration to compute cache slots</li>
+<li><strong>Pass cache values</strong> as part of the inputs array</li>
+<li><strong>Eval function</strong> computes residuals and Jacobians from voltages + cache</li>
+</ol>
+<p>This matches how VACASK works: it runs init once, then calls eval repeatedly
+with the cached values until convergence.</p>
+<h2 id="solution-implemented">Solution Implemented<a class="headerlink" href="#solution-implemented" title="Permanent link">&para;</a></h2>
+<p>The GPU solvers now use analytical Jacobians computed via the Shichman-Hodges MOSFET model:</p>
+<ol>
+<li><strong>dc_gpu.py</strong>: <code>build_analytical_residual_and_jacobian_fn()</code> computes both residual and Jacobian in one pass</li>
+<li><strong>transient_gpu.py</strong>: <code>build_transient_residual_and_jacobian_fn()</code> adds capacitor handling for transient analysis</li>
+</ol>
+<h3 id="key-implementation-details">Key Implementation Details<a class="headerlink" href="#key-implementation-details" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="c1"># Level-1 Shichman-Hodges MOSFET with explicit gm/gds computation</span>
+<a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a><span class="n">vth0</span> <span class="o">=</span> <span class="mf">0.4</span>
+<a id="__codelineno-12-3" name="__codelineno-12-3" href="#__codelineno-12-3"></a><span class="n">kp</span> <span class="o">=</span> <span class="mf">200e-6</span>
+<a id="__codelineno-12-4" name="__codelineno-12-4" href="#__codelineno-12-4"></a><span class="n">lambda_</span> <span class="o">=</span> <span class="mf">0.01</span>
+<a id="__codelineno-12-5" name="__codelineno-12-5" href="#__codelineno-12-5"></a><span class="n">gds_min</span> <span class="o">=</span> <span class="mf">1e-9</span>  <span class="c1"># Minimum conductance for cutoff</span>
+<a id="__codelineno-12-6" name="__codelineno-12-6" href="#__codelineno-12-6"></a>
+<a id="__codelineno-12-7" name="__codelineno-12-7" href="#__codelineno-12-7"></a><span class="c1"># Analytical Jacobian stamps (Y-matrix)</span>
+<a id="__codelineno-12-8" name="__codelineno-12-8" href="#__codelineno-12-8"></a><span class="n">stamps</span> <span class="o">=</span> <span class="p">{</span>
+<a id="__codelineno-12-9" name="__codelineno-12-9" href="#__codelineno-12-9"></a>    <span class="p">(</span><span class="s1">&#39;D&#39;</span><span class="p">,</span> <span class="s1">&#39;D&#39;</span><span class="p">):</span> <span class="n">gds</span><span class="p">,</span>
+<a id="__codelineno-12-10" name="__codelineno-12-10" href="#__codelineno-12-10"></a>    <span class="p">(</span><span class="s1">&#39;D&#39;</span><span class="p">,</span> <span class="s1">&#39;G&#39;</span><span class="p">):</span> <span class="n">gm</span><span class="p">,</span>
+<a id="__codelineno-12-11" name="__codelineno-12-11" href="#__codelineno-12-11"></a>    <span class="p">(</span><span class="s1">&#39;D&#39;</span><span class="p">,</span> <span class="s1">&#39;S&#39;</span><span class="p">):</span> <span class="o">-</span><span class="n">gds</span> <span class="o">-</span> <span class="n">gm</span><span class="p">,</span>
+<a id="__codelineno-12-12" name="__codelineno-12-12" href="#__codelineno-12-12"></a>    <span class="p">(</span><span class="s1">&#39;S&#39;</span><span class="p">,</span> <span class="s1">&#39;D&#39;</span><span class="p">):</span> <span class="o">-</span><span class="n">gds</span><span class="p">,</span>
+<a id="__codelineno-12-13" name="__codelineno-12-13" href="#__codelineno-12-13"></a>    <span class="p">(</span><span class="s1">&#39;S&#39;</span><span class="p">,</span> <span class="s1">&#39;G&#39;</span><span class="p">):</span> <span class="o">-</span><span class="n">gm</span><span class="p">,</span>
+<a id="__codelineno-12-14" name="__codelineno-12-14" href="#__codelineno-12-14"></a>    <span class="p">(</span><span class="s1">&#39;S&#39;</span><span class="p">,</span> <span class="s1">&#39;S&#39;</span><span class="p">):</span> <span class="n">gds</span> <span class="o">+</span> <span class="n">gm</span><span class="p">,</span>
+<a id="__codelineno-12-15" name="__codelineno-12-15" href="#__codelineno-12-15"></a><span class="p">}</span>
+</code></pre></div>
+<h3 id="results">Results<a class="headerlink" href="#results" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Circuit</th>
+<th>Before (autodiff)</th>
+<th>After (analytical)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Inverter</td>
+<td>6 iterations</td>
+<td>5 iterations</td>
+</tr>
+<tr>
+<td>AND gate</td>
+<td>FAILED</td>
+<td>78 iterations</td>
+</tr>
+<tr>
+<td>NOR gate</td>
+<td>~15 iterations</td>
+<td>~10 iterations</td>
+</tr>
+</tbody>
+</table>
+<p>The <code>sparsejac</code> dependency has been removed from the GPU solver code path.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["content.code.copy", "navigation.instant", "navigation.sections", "navigation.top", "toc.follow"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>

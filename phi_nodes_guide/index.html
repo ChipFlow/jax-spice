@@ -1,0 +1,2132 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="GPU-Accelerated Analog Circuit Simulator built on JAX">
+      
+      
+      
+      
+        <link rel="prev" href="../debug_tools/">
+      
+      
+        <link rel="next" href="../verilog_a_system_functions/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.3">
+    
+    
+      
+        <title>PHI Nodes Guide - VAJAX</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#guide-to-phi-nodes-in-openvaf-mir" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="VAJAX" class="md-header__button md-logo" aria-label="VAJAX" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            VAJAX
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              PHI Nodes Guide
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/ChipFlow/vajax" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    ChipFlow/vajax
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="VAJAX" class="md-nav__button md-logo" aria-label="VAJAX" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    VAJAX
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/ChipFlow/vajax" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    ChipFlow/vajax
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    User Guide
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    User Guide
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api_reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cli_reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CLI Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../transient_options/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Transient Options
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../performance_analysis/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Performance Analysis
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../vacask_sim_format/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    VACASK Sim Format
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Developer Guide
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Developer Guide
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../architecture_overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../gpu_solver_architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GPU Solver Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../gpu_solver_jacobian/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GPU Solver Jacobian
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sparse_solver_roadmap/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Sparse Solver Roadmap
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../debug_tools/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Debug Tools
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PHI Nodes Guide
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PHI Nodes Guide
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#table-of-contents" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Table of Contents
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-are-phi-nodes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What Are PHI Nodes?
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="What Are PHI Nodes?">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#the-problem-phi-nodes-solve" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The Problem PHI Nodes Solve
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#why-ssa-form" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Why SSA Form?
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#how-phi-nodes-work" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How PHI Nodes Work
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="How PHI Nodes Work">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#semantics" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Semantics
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#example-loop-counter" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Example: Loop Counter
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#example-conditional-assignment" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Example: Conditional Assignment
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#phi-nodes-in-openvaf-mir" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        PHI Nodes in OpenVAF MIR
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="PHI Nodes in OpenVAF MIR">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#data-structure" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Data Structure
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#supporting-types" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Supporting Types
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#text-representation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Text Representation
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#phi-node-creation-braun-algorithm" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        PHI Node Creation (Braun Algorithm)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#phi-node-optimization" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        PHI Node Optimization
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#converting-phi-nodes-to-jax" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Converting PHI Nodes to JAX
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Converting PHI Nodes to JAX">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#the-equivalence-ssa-functional-programming" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The Equivalence: SSA ≈ Functional Programming
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#if-conversion-phi-to-select" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        If-Conversion: PHI to Select
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-algorithm" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The Algorithm
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#jax-control-flow-primitives" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        JAX Control Flow Primitives
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#nested-phi-nodes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Nested PHI Nodes
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#performance-considerations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Performance Considerations
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#debugging-phi-node-issues" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Debugging PHI Node Issues
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Debugging PHI Node Issues">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#why-phi-nodes-matter-for-openvaf_jax" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Why PHI Nodes Matter for openvaf_jax
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#common-phi-node-bugs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Common PHI Node Bugs
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#debugging-tools" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Debugging Tools
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Debugging Tools">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#mir-analysis-script" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        MIR Analysis Script
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#mirinspector-class" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        MIRInspector Class
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#typical-debugging-workflow" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Typical Debugging Workflow
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#example-zero-current-bug" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Example: Zero Current Bug
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#summary" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Summary
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#references" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        References
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../verilog_a_system_functions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Verilog-A System Functions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../osdi_parameter_architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    OSDI Parameter Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../vacask_osdi_inputs/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    OSDI Inputs
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sim_back_vs_openvaf_jax/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Code Generation Backends
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../ci-status/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CI Status
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#table-of-contents" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Table of Contents
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-are-phi-nodes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What Are PHI Nodes?
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="What Are PHI Nodes?">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#the-problem-phi-nodes-solve" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The Problem PHI Nodes Solve
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#why-ssa-form" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Why SSA Form?
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#how-phi-nodes-work" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How PHI Nodes Work
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="How PHI Nodes Work">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#semantics" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Semantics
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#example-loop-counter" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Example: Loop Counter
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#example-conditional-assignment" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Example: Conditional Assignment
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#phi-nodes-in-openvaf-mir" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        PHI Nodes in OpenVAF MIR
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="PHI Nodes in OpenVAF MIR">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#data-structure" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Data Structure
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#supporting-types" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Supporting Types
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#text-representation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Text Representation
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#phi-node-creation-braun-algorithm" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        PHI Node Creation (Braun Algorithm)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#phi-node-optimization" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        PHI Node Optimization
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#converting-phi-nodes-to-jax" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Converting PHI Nodes to JAX
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Converting PHI Nodes to JAX">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#the-equivalence-ssa-functional-programming" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The Equivalence: SSA ≈ Functional Programming
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#if-conversion-phi-to-select" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        If-Conversion: PHI to Select
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-algorithm" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The Algorithm
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#jax-control-flow-primitives" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        JAX Control Flow Primitives
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#nested-phi-nodes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Nested PHI Nodes
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#performance-considerations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Performance Considerations
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#debugging-phi-node-issues" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Debugging PHI Node Issues
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Debugging PHI Node Issues">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#why-phi-nodes-matter-for-openvaf_jax" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Why PHI Nodes Matter for openvaf_jax
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#common-phi-node-bugs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Common PHI Node Bugs
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#debugging-tools" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Debugging Tools
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Debugging Tools">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#mir-analysis-script" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        MIR Analysis Script
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#mirinspector-class" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        MIRInspector Class
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#typical-debugging-workflow" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Typical Debugging Workflow
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#example-zero-current-bug" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Example: Zero Current Bug
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#summary" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Summary
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#references" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        References
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="guide-to-phi-nodes-in-openvaf-mir">Guide to PHI Nodes in OpenVAF MIR<a class="headerlink" href="#guide-to-phi-nodes-in-openvaf-mir" title="Permanent link">&para;</a></h1>
+<p>This guide explains PHI nodes: what they are, how they work in SSA (Static Single Assignment) form, how they're represented in OpenVAF's MIR, and how they translate to JAX's functional programming model.</p>
+<h2 id="table-of-contents">Table of Contents<a class="headerlink" href="#table-of-contents" title="Permanent link">&para;</a></h2>
+<ol>
+<li><a href="#what-are-phi-nodes">What Are PHI Nodes?</a></li>
+<li><a href="#how-phi-nodes-work">How PHI Nodes Work</a></li>
+<li><a href="#phi-nodes-in-openvaf-mir">PHI Nodes in OpenVAF MIR</a></li>
+<li><a href="#converting-phi-nodes-to-jax">Converting PHI Nodes to JAX</a></li>
+<li><a href="#debugging-phi-node-issues">Debugging PHI Node Issues</a></li>
+</ol>
+<hr />
+<h2 id="what-are-phi-nodes">What Are PHI Nodes?<a class="headerlink" href="#what-are-phi-nodes" title="Permanent link">&para;</a></h2>
+<p>PHI (φ) nodes are a fundamental construct in <strong>Static Single Assignment (SSA)</strong> form, an intermediate representation used by compilers. They solve a key problem: how do you track which value a variable has when control flow merges from multiple paths?</p>
+<h3 id="the-problem-phi-nodes-solve">The Problem PHI Nodes Solve<a class="headerlink" href="#the-problem-phi-nodes-solve" title="Permanent link">&para;</a></h3>
+<p>Consider this Verilog-A snippet:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">TYPE</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="mh">1</span><span class="p">)</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="w">    </span><span class="n">ids</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">ids_nmos</span><span class="p">;</span><span class="w">  </span><span class="c1">// NMOS branch</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="k">else</span>
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="w">    </span><span class="n">ids</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">ids_pmos</span><span class="p">;</span><span class="w">  </span><span class="c1">// PMOS branch</span>
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="c1">// What is `ids` here?</span>
+</code></pre></div>
+<p>After the if-else, <code>ids</code> could be either <code>ids_nmos</code> or <code>ids_pmos</code> depending on which branch executed. In SSA form, every variable can only be assigned <strong>once</strong>, so we can't write:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>ids = ids_nmos    // definition 1
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>ids = ids_pmos    // definition 2 - ERROR! SSA violation
+</code></pre></div>
+<p>PHI nodes resolve this by explicitly representing the merge:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>block_merge:
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>    ids = phi [ids_nmos, block_nmos], [ids_pmos, block_pmos]
+</code></pre></div>
+<p>The PHI node says: "The value of <code>ids</code> depends on which predecessor block we came from."</p>
+<h3 id="why-ssa-form">Why SSA Form?<a class="headerlink" href="#why-ssa-form" title="Permanent link">&para;</a></h3>
+<p>SSA form is used by most high-quality optimizing compilers (LLVM, GCC, OpenVAF) because it makes optimizations easier:</p>
+<ul>
+<li><strong>Dead code elimination</strong>: Unused definitions are obvious</li>
+<li><strong>Constant propagation</strong>: Each value has one definition to trace</li>
+<li><strong>Register allocation</strong>: No need to track "live ranges" of variables</li>
+</ul>
+<hr />
+<h2 id="how-phi-nodes-work">How PHI Nodes Work<a class="headerlink" href="#how-phi-nodes-work" title="Permanent link">&para;</a></h2>
+<h3 id="semantics">Semantics<a class="headerlink" href="#semantics" title="Permanent link">&para;</a></h3>
+<p>A PHI node:
+1. <strong>Is placed at the start of a basic block</strong> (before any other instructions)
+2. <strong>Selects a value based on control flow</strong> — which predecessor we came from
+3. <strong>Executes instantaneously</strong> — conceptually happens "on the edge" between blocks</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>phi [v1, block_a], [v2, block_b], [v3, block_c]
+</code></pre></div>
+<p>Means:
+- If we came from <code>block_a</code>, use <code>v1</code>
+- If we came from <code>block_b</code>, use <code>v2</code>
+- If we came from <code>block_c</code>, use <code>v3</code></p>
+<h3 id="example-loop-counter">Example: Loop Counter<a class="headerlink" href="#example-loop-counter" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>block_entry:
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>    v0 = 0
+<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>    br block_loop
+<a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a>
+<a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a>block_loop:
+<a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a>    v1 = phi [v0, block_entry], [v2, block_loop]  // i = 0 or i+1
+<a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a>    v2 = add v1, 1
+<a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a>    cond = lt v2, 10
+<a id="__codelineno-4-9" name="__codelineno-4-9" href="#__codelineno-4-9"></a>    br_if cond, block_loop, block_exit
+</code></pre></div>
+<p>The PHI node tracks the loop counter: on first iteration it's <code>v0</code> (0), on subsequent iterations it's <code>v2</code> (the incremented value).</p>
+<h3 id="example-conditional-assignment">Example: Conditional Assignment<a class="headerlink" href="#example-conditional-assignment" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="kt">real</span><span class="w"> </span><span class="n">x</span><span class="p">;</span>
+<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">a</span><span class="w"> </span><span class="o">&gt;</span><span class="w"> </span><span class="mh">0</span><span class="p">)</span>
+<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="w">    </span><span class="n">x</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">sqrt</span><span class="p">(</span><span class="n">a</span><span class="p">);</span>
+<a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="k">else</span>
+<a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a><span class="w">    </span><span class="n">x</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mh">0</span><span class="p">;</span>
+<a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a><span class="n">y</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">x</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="mh">2</span><span class="p">;</span>
+</code></pre></div>
+<p>Becomes:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>block_entry:
+<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>    cond = gt a, 0
+<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a>    br_if cond, block_true, block_false
+<a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a>
+<a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a>block_true:
+<a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a>    v1 = sqrt a
+<a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a>    br block_merge
+<a id="__codelineno-6-8" name="__codelineno-6-8" href="#__codelineno-6-8"></a>
+<a id="__codelineno-6-9" name="__codelineno-6-9" href="#__codelineno-6-9"></a>block_false:
+<a id="__codelineno-6-10" name="__codelineno-6-10" href="#__codelineno-6-10"></a>    v2 = 0.0
+<a id="__codelineno-6-11" name="__codelineno-6-11" href="#__codelineno-6-11"></a>    br block_merge
+<a id="__codelineno-6-12" name="__codelineno-6-12" href="#__codelineno-6-12"></a>
+<a id="__codelineno-6-13" name="__codelineno-6-13" href="#__codelineno-6-13"></a>block_merge:
+<a id="__codelineno-6-14" name="__codelineno-6-14" href="#__codelineno-6-14"></a>    v3 = phi [v1, block_true], [v2, block_false]
+<a id="__codelineno-6-15" name="__codelineno-6-15" href="#__codelineno-6-15"></a>    v4 = mul v3, 2.0
+</code></pre></div>
+<hr />
+<h2 id="phi-nodes-in-openvaf-mir">PHI Nodes in OpenVAF MIR<a class="headerlink" href="#phi-nodes-in-openvaf-mir" title="Permanent link">&para;</a></h2>
+<h3 id="data-structure">Data Structure<a class="headerlink" href="#data-structure" title="Permanent link">&para;</a></h3>
+<p>From <code>openvaf/mir/src/instructions.rs</code>:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">PhiNode</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="w">    </span><span class="k">pub</span><span class="w"> </span><span class="n">args</span><span class="p">:</span><span class="w"> </span><span class="nc">ValueList</span><span class="p">,</span><span class="w">   </span><span class="c1">// Pool-allocated list of SSA values</span>
+<a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a><span class="w">    </span><span class="k">pub</span><span class="w"> </span><span class="n">blocks</span><span class="p">:</span><span class="w"> </span><span class="nc">PhiMap</span><span class="p">,</span><span class="w">    </span><span class="c1">// Maps predecessor Block → index into args</span>
+<a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a><span class="p">}</span>
+</code></pre></div>
+<p>Key design choices:
+- <strong>Memory efficient</strong>: Values stored in external pool, not inline
+- <strong>B-forest mapping</strong>: O(log n) lookup for predecessor values
+- <strong>Sorted iteration</strong>: Deterministic block ordering</p>
+<h3 id="supporting-types">Supporting Types<a class="headerlink" href="#supporting-types" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">type</span><span class="w"> </span><span class="nc">PhiForest</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">bforest</span><span class="p">::</span><span class="n">MapForest</span><span class="o">&lt;</span><span class="n">Block</span><span class="p">,</span><span class="w"> </span><span class="kt">u32</span><span class="o">&gt;</span><span class="p">;</span>
+<a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a><span class="k">pub</span><span class="w"> </span><span class="k">type</span><span class="w"> </span><span class="nc">PhiMap</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">bforest</span><span class="p">::</span><span class="n">Map</span><span class="o">&lt;</span><span class="n">Block</span><span class="p">,</span><span class="w"> </span><span class="kt">u32</span><span class="o">&gt;</span><span class="p">;</span>
+</code></pre></div>
+<p>The <code>PhiMap</code> uses a B-forest (balanced tree forest) data structure for efficient predecessor lookups.</p>
+<h3 id="text-representation">Text Representation<a class="headerlink" href="#text-representation" title="Permanent link">&para;</a></h3>
+<p>When you see MIR output (via <code>openvaf-viz</code> or debug prints):</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>v17 = phi [v16, block0], [v18, block1], [v19, block2]
+</code></pre></div>
+<p>This means:
+- <code>v17</code> is the result of the PHI node
+- Coming from <code>block0</code> → use <code>v16</code>
+- Coming from <code>block1</code> → use <code>v18</code>
+- Coming from <code>block2</code> → use <code>v19</code></p>
+<h3 id="phi-node-creation-braun-algorithm">PHI Node Creation (Braun Algorithm)<a class="headerlink" href="#phi-node-creation-braun-algorithm" title="Permanent link">&para;</a></h3>
+<p>OpenVAF uses the Braun et al. (2013) algorithm for efficient SSA construction. PHI nodes are created when a variable is used in a block that has multiple predecessor blocks with different definitions.</p>
+<p>From <code>openvaf/mir_build/src/ssa.rs</code>:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="n">ZeroOneOrMore</span><span class="p">::</span><span class="n">More</span><span class="w"> </span><span class="o">=&gt;</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a><span class="w">    </span><span class="c1">// Predecessors disagree on value - create PHI node</span>
+<a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a><span class="w">    </span><span class="kd">let</span><span class="w"> </span><span class="k">mut</span><span class="w"> </span><span class="n">args</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">ValueList</span><span class="p">::</span><span class="n">new</span><span class="p">();</span>
+<a id="__codelineno-10-4" name="__codelineno-10-4" href="#__codelineno-10-4"></a><span class="w">    </span><span class="kd">let</span><span class="w"> </span><span class="k">mut</span><span class="w"> </span><span class="n">blocks</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">Map</span><span class="p">::</span><span class="n">new</span><span class="p">();</span>
+<a id="__codelineno-10-5" name="__codelineno-10-5" href="#__codelineno-10-5"></a>
+<a id="__codelineno-10-6" name="__codelineno-10-6" href="#__codelineno-10-6"></a><span class="w">    </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="n">pred_block</span><span class="p">,</span><span class="w"> </span><span class="n">pred_val</span><span class="p">)</span><span class="w"> </span><span class="k">in</span><span class="w"> </span><span class="n">predecessors</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-10-7" name="__codelineno-10-7" href="#__codelineno-10-7"></a><span class="w">        </span><span class="kd">let</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">args</span><span class="p">.</span><span class="n">push</span><span class="p">(</span><span class="n">pred_val</span><span class="p">,</span><span class="w"> </span><span class="o">&amp;</span><span class="k">mut</span><span class="w"> </span><span class="n">pool</span><span class="p">);</span>
+<a id="__codelineno-10-8" name="__codelineno-10-8" href="#__codelineno-10-8"></a><span class="w">        </span><span class="n">blocks</span><span class="p">.</span><span class="n">insert</span><span class="p">(</span><span class="n">pred_block</span><span class="p">,</span><span class="w"> </span><span class="n">i</span><span class="p">);</span>
+<a id="__codelineno-10-9" name="__codelineno-10-9" href="#__codelineno-10-9"></a><span class="w">    </span><span class="p">}</span>
+<a id="__codelineno-10-10" name="__codelineno-10-10" href="#__codelineno-10-10"></a>
+<a id="__codelineno-10-11" name="__codelineno-10-11" href="#__codelineno-10-11"></a><span class="w">    </span><span class="c1">// Insert PHI at block entry point</span>
+<a id="__codelineno-10-12" name="__codelineno-10-12" href="#__codelineno-10-12"></a><span class="w">    </span><span class="n">cursor</span><span class="p">.</span><span class="n">at_first_insertion_point</span><span class="p">(</span><span class="n">dest_block</span><span class="p">)</span>
+<a id="__codelineno-10-13" name="__codelineno-10-13" href="#__codelineno-10-13"></a><span class="w">        </span><span class="p">.</span><span class="n">build</span><span class="p">(</span><span class="n">PhiNode</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="n">blocks</span><span class="p">,</span><span class="w"> </span><span class="n">args</span><span class="w"> </span><span class="p">});</span>
+<a id="__codelineno-10-14" name="__codelineno-10-14" href="#__codelineno-10-14"></a><span class="p">}</span>
+</code></pre></div>
+<h3 id="phi-node-optimization">PHI Node Optimization<a class="headerlink" href="#phi-node-optimization" title="Permanent link">&para;</a></h3>
+<p>PHI nodes can be simplified when all inputs are identical:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="c1">// From openvaf/mir_opt/src/simplify.rs</span>
+<a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">simplify_phi</span><span class="p">(</span><span class="o">&amp;</span><span class="k">mut</span><span class="w"> </span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">phi</span><span class="p">:</span><span class="w"> </span><span class="nc">PhiNode</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;</span><span class="n">Value</span><span class="o">&gt;</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a><span class="w">    </span><span class="kd">let</span><span class="w"> </span><span class="k">mut</span><span class="w"> </span><span class="n">iter</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="bp">self</span><span class="p">.</span><span class="n">func</span><span class="p">.</span><span class="n">dfg</span><span class="p">.</span><span class="n">phi_edges</span><span class="p">(</span><span class="o">&amp;</span><span class="n">phi</span><span class="p">);</span>
+<a id="__codelineno-11-4" name="__codelineno-11-4" href="#__codelineno-11-4"></a><span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="kd">let</span><span class="w"> </span><span class="nb">Some</span><span class="p">((</span><span class="n">_</span><span class="p">,</span><span class="w"> </span><span class="n">all_eq_val</span><span class="p">))</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">iter</span><span class="p">.</span><span class="n">next</span><span class="p">()</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-11-5" name="__codelineno-11-5" href="#__codelineno-11-5"></a><span class="w">        </span><span class="c1">// If ALL edges have the same value, eliminate the PHI</span>
+<a id="__codelineno-11-6" name="__codelineno-11-6" href="#__codelineno-11-6"></a><span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="n">iter</span><span class="p">.</span><span class="n">all</span><span class="p">(</span><span class="o">|</span><span class="p">(</span><span class="n">_</span><span class="p">,</span><span class="w"> </span><span class="n">val</span><span class="p">)</span><span class="o">|</span><span class="w"> </span><span class="bp">self</span><span class="p">.</span><span class="n">map_val</span><span class="p">(</span><span class="n">val</span><span class="p">)</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="n">all_eq_val</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-11-7" name="__codelineno-11-7" href="#__codelineno-11-7"></a><span class="w">            </span><span class="k">return</span><span class="w"> </span><span class="nb">Some</span><span class="p">(</span><span class="n">all_eq_val</span><span class="p">);</span><span class="w">  </span><span class="c1">// Replace PHI with single value</span>
+<a id="__codelineno-11-8" name="__codelineno-11-8" href="#__codelineno-11-8"></a><span class="w">        </span><span class="p">}</span>
+<a id="__codelineno-11-9" name="__codelineno-11-9" href="#__codelineno-11-9"></a><span class="w">    </span><span class="p">}</span>
+<a id="__codelineno-11-10" name="__codelineno-11-10" href="#__codelineno-11-10"></a><span class="w">    </span><span class="nb">None</span>
+<a id="__codelineno-11-11" name="__codelineno-11-11" href="#__codelineno-11-11"></a><span class="p">}</span>
+</code></pre></div>
+<hr />
+<h2 id="converting-phi-nodes-to-jax">Converting PHI Nodes to JAX<a class="headerlink" href="#converting-phi-nodes-to-jax" title="Permanent link">&para;</a></h2>
+<h3 id="the-equivalence-ssa-functional-programming">The Equivalence: SSA ≈ Functional Programming<a class="headerlink" href="#the-equivalence-ssa-functional-programming" title="Permanent link">&para;</a></h3>
+<p>There's a well-known correspondence between SSA form and functional programming, established by Appel's seminal paper "SSA is Functional Programming":</p>
+<table>
+<thead>
+<tr>
+<th>SSA Concept</th>
+<th>Functional Equivalent</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Basic block</td>
+<td>Named function</td>
+</tr>
+<tr>
+<td>PHI node</td>
+<td>Function parameter</td>
+</tr>
+<tr>
+<td>Jump to block</td>
+<td>Tail call to function</td>
+</tr>
+<tr>
+<td>PHI edge value</td>
+<td>Argument in tail call</td>
+</tr>
+</tbody>
+</table>
+<p>In functional terms, each basic block becomes a function, and PHI nodes become the parameters to those functions. The call sites determine which values reach the PHI.</p>
+<h3 id="if-conversion-phi-to-select">If-Conversion: PHI to Select<a class="headerlink" href="#if-conversion-phi-to-select" title="Permanent link">&para;</a></h3>
+<p>For JAX specifically, we use <strong>if-conversion</strong> (also called <strong>predication</strong>) to transform control flow with PHI nodes into data-parallel select operations. This is necessary because:</p>
+<ol>
+<li>JAX traces programs into a dataflow graph (jaxpr)</li>
+<li><code>jnp.where</code> evaluates both branches (no lazy short-circuiting)</li>
+<li>GPU execution benefits from branchless code</li>
+</ol>
+<p>The transformation converts:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a>block_merge:
+<a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a>    v3 = phi [v1, block_true], [v2, block_false]
+</code></pre></div>
+<p>Into:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a><span class="n">v3</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">where</span><span class="p">(</span><span class="n">condition</span><span class="p">,</span> <span class="n">v1</span><span class="p">,</span> <span class="n">v2</span><span class="p">)</span>
+</code></pre></div>
+<h3 id="the-algorithm">The Algorithm<a class="headerlink" href="#the-algorithm" title="Permanent link">&para;</a></h3>
+<p>The general if-conversion algorithm for PHI nodes:</p>
+<ol>
+<li><strong>Identify the condition</strong> that determines which predecessor was taken</li>
+<li><strong>Compute both branch values</strong> (even if one won't be used)</li>
+<li><strong>Use select to merge</strong> based on the condition</li>
+</ol>
+<p>For a 2-way PHI (if-else):
+<div class="highlight"><pre><span></span><code><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a><span class="c1"># MIR: v_result = phi [v_true, block_true], [v_false, block_false]</span>
+<a id="__codelineno-14-2" name="__codelineno-14-2" href="#__codelineno-14-2"></a><span class="c1"># JAX: v_result = jnp.where(cond, v_true, v_false)</span>
+</code></pre></div></p>
+<p>For an N-way PHI (switch/case):
+<div class="highlight"><pre><span></span><code><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a><span class="c1"># MIR: v_result = phi [v0, block0], [v1, block1], [v2, block2]</span>
+<a id="__codelineno-15-2" name="__codelineno-15-2" href="#__codelineno-15-2"></a><span class="c1"># JAX: v_result = jnp.select([cond0, cond1, cond2], [v0, v1, v2], default)</span>
+<a id="__codelineno-15-3" name="__codelineno-15-3" href="#__codelineno-15-3"></a><span class="c1"># Or:  v_result = lax.switch(index, [lambda: v0, lambda: v1, lambda: v2])</span>
+</code></pre></div></p>
+<h3 id="jax-control-flow-primitives">JAX Control Flow Primitives<a class="headerlink" href="#jax-control-flow-primitives" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Primitive</th>
+<th>Use Case</th>
+<th>Evaluation</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>jnp.where(cond, t, f)</code></td>
+<td>2-way select</td>
+<td>Both branches evaluated</td>
+</tr>
+<tr>
+<td><code>jnp.select(conds, vals)</code></td>
+<td>N-way select</td>
+<td>All branches evaluated</td>
+</tr>
+<tr>
+<td><code>lax.cond(cond, t_fn, f_fn)</code></td>
+<td>Scalar condition</td>
+<td>Lazy (one branch)</td>
+</tr>
+<tr>
+<td><code>lax.switch(idx, fns)</code></td>
+<td>N-way scalar</td>
+<td>Lazy (one branch)</td>
+</tr>
+</tbody>
+</table>
+<p>For openvaf_jax, we typically use <code>jnp.where</code> because:
+- Device evaluation is batched (conditions are arrays)
+- Both branches contain useful gradient information
+- GPUs prefer branchless code</p>
+<h3 id="nested-phi-nodes">Nested PHI Nodes<a class="headerlink" href="#nested-phi-nodes" title="Permanent link">&para;</a></h3>
+<p>Complex control flow creates nested PHI nodes:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">a</span><span class="w"> </span><span class="o">&gt;</span><span class="w"> </span><span class="mh">0</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-16-2" name="__codelineno-16-2" href="#__codelineno-16-2"></a><span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">b</span><span class="w"> </span><span class="o">&gt;</span><span class="w"> </span><span class="mh">0</span><span class="p">)</span>
+<a id="__codelineno-16-3" name="__codelineno-16-3" href="#__codelineno-16-3"></a><span class="w">        </span><span class="n">x</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mh">1</span><span class="p">;</span>
+<a id="__codelineno-16-4" name="__codelineno-16-4" href="#__codelineno-16-4"></a><span class="w">    </span><span class="k">else</span>
+<a id="__codelineno-16-5" name="__codelineno-16-5" href="#__codelineno-16-5"></a><span class="w">        </span><span class="n">x</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mh">2</span><span class="p">;</span>
+<a id="__codelineno-16-6" name="__codelineno-16-6" href="#__codelineno-16-6"></a><span class="p">}</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-16-7" name="__codelineno-16-7" href="#__codelineno-16-7"></a><span class="w">    </span><span class="n">x</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mh">3</span><span class="p">;</span>
+<a id="__codelineno-16-8" name="__codelineno-16-8" href="#__codelineno-16-8"></a><span class="p">}</span>
+</code></pre></div>
+<p>This creates PHI nodes at two levels, which translate to nested <code>jnp.where</code>:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a><span class="n">x_inner</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">where</span><span class="p">(</span><span class="n">b</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">)</span>
+<a id="__codelineno-17-2" name="__codelineno-17-2" href="#__codelineno-17-2"></a><span class="n">x</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">where</span><span class="p">(</span><span class="n">a</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">,</span> <span class="n">x_inner</span><span class="p">,</span> <span class="mi">3</span><span class="p">)</span>
+</code></pre></div>
+<h3 id="performance-considerations">Performance Considerations<a class="headerlink" href="#performance-considerations" title="Permanent link">&para;</a></h3>
+<p><strong>Eager evaluation</strong>: <code>jnp.where</code> always computes both branches. This is usually fine for numerical code but can be wasteful for:
+- Expensive computations only needed in one branch
+- Branches with different numerical stability requirements</p>
+<p><strong>Solution for expensive branches</strong>: Use <code>lax.cond</code> when:
+- Condition is a scalar (not batched)
+- One branch is significantly more expensive
+- You need lazy evaluation for correctness</p>
+<hr />
+<h2 id="debugging-phi-node-issues">Debugging PHI Node Issues<a class="headerlink" href="#debugging-phi-node-issues" title="Permanent link">&para;</a></h2>
+<h3 id="why-phi-nodes-matter-for-openvaf_jax">Why PHI Nodes Matter for openvaf_jax<a class="headerlink" href="#why-phi-nodes-matter-for-openvaf_jax" title="Permanent link">&para;</a></h3>
+<p>When OpenVAF compiles Verilog-A to JAX Python code, PHI nodes become <code>jnp.where()</code> calls. If the condition is wrong, or if one branch returns 0.0 when it shouldn't, the PHI node propagates that error through the entire computation.</p>
+<h3 id="common-phi-node-bugs">Common PHI Node Bugs<a class="headerlink" href="#common-phi-node-bugs" title="Permanent link">&para;</a></h3>
+<ol>
+<li>
+<p><strong>Zero from wrong branch</strong>: A PHI has <code>[v3, block_unused]</code> where <code>v3 = 0.0</code>. If control flow incorrectly takes this path, output goes to zero.</p>
+</li>
+<li>
+<p><strong>TYPE parameter issues</strong>: NMOS/PMOS selection depends on a PHI that chooses based on <code>TYPE == 1</code>. If TYPE isn't propagated correctly, wrong branch executes.</p>
+</li>
+<li>
+<p><strong>Constant folding artifacts</strong>: Optimizer inlines a constant into one PHI edge but not others, creating asymmetry.</p>
+</li>
+<li>
+<p><strong>Dead branch pollution</strong>: A branch that "shouldn't" execute still contributes values that get selected by <code>jnp.where</code>.</p>
+</li>
+</ol>
+<h3 id="debugging-tools">Debugging Tools<a class="headerlink" href="#debugging-tools" title="Permanent link">&para;</a></h3>
+<h4 id="mir-analysis-script">MIR Analysis Script<a class="headerlink" href="#mir-analysis-script" title="Permanent link">&para;</a></h4>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a><span class="c1"># Find all PHI nodes</span>
+<a id="__codelineno-18-2" name="__codelineno-18-2" href="#__codelineno-18-2"></a>uv<span class="w"> </span>run<span class="w"> </span>scripts/analyze_mir_cfg.py<span class="w"> </span>model.va<span class="w"> </span>--func<span class="w"> </span><span class="nb">eval</span><span class="w"> </span>--find-phis
+<a id="__codelineno-18-3" name="__codelineno-18-3" href="#__codelineno-18-3"></a>
+<a id="__codelineno-18-4" name="__codelineno-18-4" href="#__codelineno-18-4"></a><span class="c1"># Trace what value feeds into a specific PHI</span>
+<a id="__codelineno-18-5" name="__codelineno-18-5" href="#__codelineno-18-5"></a>uv<span class="w"> </span>run<span class="w"> </span>scripts/analyze_mir_cfg.py<span class="w"> </span>model.va<span class="w"> </span>--func<span class="w"> </span><span class="nb">eval</span><span class="w"> </span>--trace-value<span class="w"> </span>v12345
+<a id="__codelineno-18-6" name="__codelineno-18-6" href="#__codelineno-18-6"></a>
+<a id="__codelineno-18-7" name="__codelineno-18-7" href="#__codelineno-18-7"></a><span class="c1"># See which block defines a suspicious value</span>
+<a id="__codelineno-18-8" name="__codelineno-18-8" href="#__codelineno-18-8"></a>uv<span class="w"> </span>run<span class="w"> </span>scripts/analyze_mir_cfg.py<span class="w"> </span>model.va<span class="w"> </span>--func<span class="w"> </span><span class="nb">eval</span><span class="w"> </span>--analyze-block<span class="w"> </span>block4654
+<a id="__codelineno-18-9" name="__codelineno-18-9" href="#__codelineno-18-9"></a>
+<a id="__codelineno-18-10" name="__codelineno-18-10" href="#__codelineno-18-10"></a><span class="c1"># Find branch points (conditionals)</span>
+<a id="__codelineno-18-11" name="__codelineno-18-11" href="#__codelineno-18-11"></a>uv<span class="w"> </span>run<span class="w"> </span>scripts/analyze_mir_cfg.py<span class="w"> </span>model.va<span class="w"> </span>--func<span class="w"> </span><span class="nb">eval</span><span class="w"> </span>--branches
+</code></pre></div>
+<h4 id="mirinspector-class">MIRInspector Class<a class="headerlink" href="#mirinspector-class" title="Permanent link">&para;</a></h4>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-19-1" name="__codelineno-19-1" href="#__codelineno-19-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">vajax.debug</span><span class="w"> </span><span class="kn">import</span> <span class="n">MIRInspector</span>
+<a id="__codelineno-19-2" name="__codelineno-19-2" href="#__codelineno-19-2"></a>
+<a id="__codelineno-19-3" name="__codelineno-19-3" href="#__codelineno-19-3"></a><span class="n">inspector</span> <span class="o">=</span> <span class="n">MIRInspector</span><span class="p">(</span><span class="n">va_path</span><span class="p">)</span>
+<a id="__codelineno-19-4" name="__codelineno-19-4" href="#__codelineno-19-4"></a><span class="n">inspector</span><span class="o">.</span><span class="n">print_phi_summary</span><span class="p">(</span><span class="s1">&#39;eval&#39;</span><span class="p">)</span>  <span class="c1"># Show all PHI nodes</span>
+<a id="__codelineno-19-5" name="__codelineno-19-5" href="#__codelineno-19-5"></a>
+<a id="__codelineno-19-6" name="__codelineno-19-6" href="#__codelineno-19-6"></a><span class="c1"># Find PHIs that have v3 (often 0.0) as an operand</span>
+<a id="__codelineno-19-7" name="__codelineno-19-7" href="#__codelineno-19-7"></a><span class="n">inspector</span><span class="o">.</span><span class="n">find_phi_nodes_with_value</span><span class="p">(</span><span class="s1">&#39;v3&#39;</span><span class="p">)</span>
+</code></pre></div>
+<h3 id="typical-debugging-workflow">Typical Debugging Workflow<a class="headerlink" href="#typical-debugging-workflow" title="Permanent link">&para;</a></h3>
+<ol>
+<li><strong>Identify symptom</strong>: JAX returns wrong current or zeros</li>
+<li><strong>Compare outputs</strong>: Use <code>ModelComparator</code> to find discrepancy</li>
+<li><strong>Check cache</strong>: Look for inf/nan or wrong temperature values</li>
+<li><strong>Inspect PHIs</strong>: Find PHI nodes with suspicious zero operands</li>
+<li><strong>Trace control flow</strong>: Identify which branch condition is wrong</li>
+<li><strong>Fix translation</strong>: Usually a parameter mapping or type issue</li>
+</ol>
+<h3 id="example-zero-current-bug">Example: Zero Current Bug<a class="headerlink" href="#example-zero-current-bug" title="Permanent link">&para;</a></h3>
+<p><strong>Symptom</strong>: OSDI returns 1mA drain current, JAX returns 1e-15A</p>
+<p><strong>Investigation</strong>:
+<div class="highlight"><pre><span></span><code><a id="__codelineno-20-1" name="__codelineno-20-1" href="#__codelineno-20-1"></a><span class="n">inspector</span> <span class="o">=</span> <span class="n">MIRInspector</span><span class="p">(</span><span class="n">va_path</span><span class="p">)</span>
+<a id="__codelineno-20-2" name="__codelineno-20-2" href="#__codelineno-20-2"></a><span class="n">zero_phis</span> <span class="o">=</span> <span class="n">inspector</span><span class="o">.</span><span class="n">find_phi_nodes_with_value</span><span class="p">(</span><span class="s1">&#39;v3&#39;</span><span class="p">)</span>  <span class="c1"># v3 = 0.0</span>
+<a id="__codelineno-20-3" name="__codelineno-20-3" href="#__codelineno-20-3"></a><span class="c1"># Found: v789 = phi [v788, block_nmos], [v3, block_pmos]</span>
+</code></pre></div></p>
+<p><strong>Root cause</strong>: TYPE parameter wasn't passed correctly, so JAX took the PMOS branch (which returns 0 for an NMOS device).</p>
+<p><strong>Fix</strong>: Ensure <code>TYPE</code> is included in the parameter array passed to the compiled function.</p>
+<hr />
+<h2 id="summary">Summary<a class="headerlink" href="#summary" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Concept</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Purpose</strong></td>
+<td>Merge values from different control flow paths in SSA form</td>
+</tr>
+<tr>
+<td><strong>Syntax</strong></td>
+<td><code>v_result = phi [v1, block1], [v2, block2], ...</code></td>
+</tr>
+<tr>
+<td><strong>Semantics</strong></td>
+<td>"Select value based on which predecessor we came from"</td>
+</tr>
+<tr>
+<td><strong>Placement</strong></td>
+<td>Always at the start of a basic block</td>
+</tr>
+<tr>
+<td><strong>In JAX</strong></td>
+<td>Becomes <code>jnp.where(condition, val_true, val_false)</code></td>
+</tr>
+<tr>
+<td><strong>Algorithm</strong></td>
+<td>If-conversion / predication transforms branches to selects</td>
+</tr>
+<tr>
+<td><strong>Common bug</strong></td>
+<td>One PHI edge has 0.0 and wrong branch is taken</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="references">References<a class="headerlink" href="#references" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Appel, A. W. (1998). <a href="https://www.cs.princeton.edu/~appel/papers/ssafun.pdf">SSA is Functional Programming</a>. ACM SIGPLAN Notices.</li>
+<li>Braun, M. et al. (2013). Simple and Efficient Construction of Static Single Assignment Form. CC 2013.</li>
+<li>Chuang, W. et al. (2003). <a href="https://cseweb.ucsd.edu/~wchuang/CGO-03-PHI.pdf">Phi-Predication for Light-Weight If-Conversion</a>. CGO 2003.</li>
+<li>Kelsey, R. A. (1995). <a href="https://wingolog.org/archives/2011/07/12/static-single-assignment-for-functional-programmers">A Correspondence between Continuation Passing Style and Static Single Assignment Form</a>. IR'95.</li>
+<li>JAX Documentation: <a href="https://jax.readthedocs.io/en/latest/notebooks/Common_Gotchas_in_JAX.html#control-flow">Control Flow</a></li>
+</ul>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["content.code.copy", "navigation.instant", "navigation.sections", "navigation.top", "toc.follow"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>

@@ -1,0 +1,2162 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="GPU-Accelerated Analog Circuit Simulator built on JAX">
+      
+      
+      
+      
+        <link rel="prev" href="../verilog_a_system_functions/">
+      
+      
+        <link rel="next" href="../vacask_osdi_inputs/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.3">
+    
+    
+      
+        <title>OSDI Parameter Architecture - VAJAX</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#osdi-parameter-architecture" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="VAJAX" class="md-header__button md-logo" aria-label="VAJAX" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            VAJAX
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              OSDI Parameter Architecture
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/ChipFlow/vajax" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    ChipFlow/vajax
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="VAJAX" class="md-nav__button md-logo" aria-label="VAJAX" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    VAJAX
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/ChipFlow/vajax" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    ChipFlow/vajax
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    User Guide
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    User Guide
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api_reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cli_reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CLI Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../transient_options/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Transient Options
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../performance_analysis/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Performance Analysis
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../vacask_sim_format/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    VACASK Sim Format
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Developer Guide
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Developer Guide
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../architecture_overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../gpu_solver_architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GPU Solver Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../gpu_solver_jacobian/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GPU Solver Jacobian
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sparse_solver_roadmap/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Sparse Solver Roadmap
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../debug_tools/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Debug Tools
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../phi_nodes_guide/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PHI Nodes Guide
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../verilog_a_system_functions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Verilog-A System Functions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    OSDI Parameter Architecture
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    OSDI Parameter Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#1-osdi-parameter-kinds" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. OSDI Parameter Kinds
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="1. OSDI Parameter Kinds">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#model-parameters-para_kind_model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Model Parameters (PARA_KIND_MODEL)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#instance-parameters-para_kind_inst" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Instance Parameters (PARA_KIND_INST)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#output-variables-para_kind_opvar" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Output Variables (PARA_KIND_OPVAR)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-osdi-internal-states-not-hidden_state" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. OSDI Internal States (NOT "hidden_state")
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="2. OSDI Internal States (NOT &#34;hidden_state&#34;)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#how-internal-states-work" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How Internal States Work
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-what-openvaf_py-calls-hidden_state" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. What openvaf_py Calls "hidden_state"
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="3. What openvaf_py Calls &#34;hidden_state&#34;">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#openvaf_pys-hidden_state" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        openvaf_py's hidden_state
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#examples-of-hidden_state-values" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Examples of hidden_state Values
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#why-these-exist" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Why These Exist
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-the-translation-pipeline" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. The Translation Pipeline
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="4. The Translation Pipeline">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#openvaf-compilation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        OpenVAF Compilation
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#openvaf_jax-translation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        openvaf_jax Translation
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#cache-mapping-in-generated-code" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Cache Mapping in Generated Code
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5-vajax-parameter-handling" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. VAJAX Parameter Handling
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="5. VAJAX Parameter Handling">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#the-problem" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The Problem
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#what-runnerpy-does" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What runner.py Does
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#current-issues" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Current Issues
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#6-comparison-vacask-vs-vajax" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6. Comparison: VACASK vs VAJAX
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#7-recommended-architecture" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7. Recommended Architecture
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="7. Recommended Architecture">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#current-problematic" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Current (Problematic)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#proposed-solution" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Proposed Solution
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#8-analysis-does-openvaf-pys-hidden_state-model-make-sense" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        8. Analysis: Does openvaf-py's hidden_state Model Make Sense?
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="8. Analysis: Does openvaf-py&#39;s hidden_state Model Make Sense?">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#the-architectural-issue" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The Architectural Issue
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#what-openvaf-actually-does-in-sim_backsrcinitrs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What OpenVAF Actually Does (in sim_back/src/init.rs)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-hidden-state-flow" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The Hidden State Flow
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#why-openvaf-pys-model-is-problematic" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Why openvaf-py's Model is Problematic
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-correct-solution" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The Correct Solution
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#summary" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Summary
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#9-related-documentation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        9. Related Documentation
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#9-file-references" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        9. File References
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../vacask_osdi_inputs/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    OSDI Inputs
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sim_back_vs_openvaf_jax/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Code Generation Backends
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../ci-status/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CI Status
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#1-osdi-parameter-kinds" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. OSDI Parameter Kinds
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="1. OSDI Parameter Kinds">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#model-parameters-para_kind_model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Model Parameters (PARA_KIND_MODEL)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#instance-parameters-para_kind_inst" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Instance Parameters (PARA_KIND_INST)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#output-variables-para_kind_opvar" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Output Variables (PARA_KIND_OPVAR)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-osdi-internal-states-not-hidden_state" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. OSDI Internal States (NOT "hidden_state")
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="2. OSDI Internal States (NOT &#34;hidden_state&#34;)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#how-internal-states-work" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How Internal States Work
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-what-openvaf_py-calls-hidden_state" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. What openvaf_py Calls "hidden_state"
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="3. What openvaf_py Calls &#34;hidden_state&#34;">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#openvaf_pys-hidden_state" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        openvaf_py's hidden_state
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#examples-of-hidden_state-values" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Examples of hidden_state Values
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#why-these-exist" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Why These Exist
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-the-translation-pipeline" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. The Translation Pipeline
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="4. The Translation Pipeline">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#openvaf-compilation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        OpenVAF Compilation
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#openvaf_jax-translation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        openvaf_jax Translation
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#cache-mapping-in-generated-code" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Cache Mapping in Generated Code
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5-vajax-parameter-handling" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. VAJAX Parameter Handling
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="5. VAJAX Parameter Handling">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#the-problem" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The Problem
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#what-runnerpy-does" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What runner.py Does
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#current-issues" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Current Issues
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#6-comparison-vacask-vs-vajax" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6. Comparison: VACASK vs VAJAX
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#7-recommended-architecture" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7. Recommended Architecture
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="7. Recommended Architecture">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#current-problematic" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Current (Problematic)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#proposed-solution" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Proposed Solution
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#8-analysis-does-openvaf-pys-hidden_state-model-make-sense" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        8. Analysis: Does openvaf-py's hidden_state Model Make Sense?
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="8. Analysis: Does openvaf-py&#39;s hidden_state Model Make Sense?">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#the-architectural-issue" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The Architectural Issue
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#what-openvaf-actually-does-in-sim_backsrcinitrs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What OpenVAF Actually Does (in sim_back/src/init.rs)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-hidden-state-flow" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The Hidden State Flow
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#why-openvaf-pys-model-is-problematic" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Why openvaf-py's Model is Problematic
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-correct-solution" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The Correct Solution
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#summary" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Summary
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#9-related-documentation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        9. Related Documentation
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#9-file-references" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        9. File References
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="osdi-parameter-architecture">OSDI Parameter Architecture<a class="headerlink" href="#osdi-parameter-architecture" title="Permanent link">&para;</a></h1>
+<p>This document describes how OSDI (Open Simulator Device Interface) handles parameters, the distinction between different parameter types, and how this relates to VAJAX's parameter handling through <code>openvaf_jax</code>.</p>
+<h2 id="1-osdi-parameter-kinds">1. OSDI Parameter Kinds<a class="headerlink" href="#1-osdi-parameter-kinds" title="Permanent link">&para;</a></h2>
+<p>OSDI defines three parameter kinds in the descriptor:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="c1">// From OSDI header</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="cp">#define PARA_KIND_MODEL 0   </span><span class="c1">// Model-level parameters (shared across instances)</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="cp">#define PARA_KIND_INST  1   </span><span class="c1">// Instance-level parameters (per-device)</span>
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="cp">#define PARA_KIND_OPVAR 2   </span><span class="c1">// Output variables (computed, read-only)</span>
+</code></pre></div>
+<h3 id="model-parameters-para_kind_model">Model Parameters (<code>PARA_KIND_MODEL</code>)<a class="headerlink" href="#model-parameters-para_kind_model" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Shared across all instances of a model (e.g., all psp103n devices)</li>
+<li>Typically process parameters, physical constants</li>
+<li>Examples: <code>toxe</code>, <code>vth0</code>, <code>k1</code>, <code>k2</code></li>
+<li>Stored in model data structure at <code>descriptor-&gt;model_size</code> bytes</li>
+</ul>
+<h3 id="instance-parameters-para_kind_inst">Instance Parameters (<code>PARA_KIND_INST</code>)<a class="headerlink" href="#instance-parameters-para_kind_inst" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Per-device parameters</li>
+<li>Geometry, placement, multipliers</li>
+<li>Examples: <code>w</code>, <code>l</code>, <code>nf</code>, <code>mult</code>, <code>sa</code>, <code>sb</code></li>
+<li>Stored in instance data structure at <code>descriptor-&gt;instance_size</code> bytes</li>
+</ul>
+<h3 id="output-variables-para_kind_opvar">Output Variables (<code>PARA_KIND_OPVAR</code>)<a class="headerlink" href="#output-variables-para_kind_opvar" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Computed during evaluation</li>
+<li>Read-only to the simulator</li>
+<li>Examples: <code>ids</code>, <code>gm</code>, <code>gds</code>, <code>vth</code></li>
+<li>Extracted after eval for probing/measurement</li>
+</ul>
+<h2 id="2-osdi-internal-states-not-hidden_state">2. OSDI Internal States (NOT "hidden_state")<a class="headerlink" href="#2-osdi-internal-states-not-hidden_state" title="Permanent link">&para;</a></h2>
+<p><strong>Critical distinction:</strong> OSDI has a concept of "internal states" that is separate from parameters. These are used for:</p>
+<ul>
+<li><code>$limit()</code> function state (voltage limiting for convergence)</li>
+<li><code>ddt()</code> integration state</li>
+<li>Other time-dependent constructs</li>
+</ul>
+<h3 id="how-internal-states-work">How Internal States Work<a class="headerlink" href="#how-internal-states-work" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="k">typedef</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">OsdiSimInfo</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="w">    </span><span class="c1">// ...</span>
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="w">    </span><span class="kt">double</span><span class="w"> </span><span class="o">*</span><span class="n">prev_state</span><span class="p">;</span><span class="w">   </span><span class="c1">// Previous internal state array</span>
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="w">    </span><span class="kt">double</span><span class="w"> </span><span class="o">*</span><span class="n">next_state</span><span class="p">;</span><span class="w">   </span><span class="c1">// Next internal state array</span>
+<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="w">    </span><span class="c1">// ...</span>
+<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="p">}</span><span class="w"> </span><span class="n">OsdiSimInfo</span><span class="p">;</span>
+</code></pre></div>
+<p>During evaluation:
+1. Model reads from <code>prev_state</code> (previous timestep/iteration)
+2. Model writes to <code>next_state</code> (current computation)
+3. After convergence, simulator swaps: <code>prev_state = next_state</code></p>
+<p>These are for convergence aids and time integration, NOT for geometry calculations.</p>
+<h2 id="3-what-openvaf_py-calls-hidden_state">3. What openvaf_py Calls "hidden_state"<a class="headerlink" href="#3-what-openvaf_py-calls-hidden_state" title="Permanent link">&para;</a></h2>
+<p>In <code>openvaf_py</code> (our Rust bindings for OpenVAF's MIR interpreter), <code>hidden_state</code> is a parameter kind that refers to something entirely different from OSDI internal states.</p>
+<h3 id="openvaf_pys-hidden_state">openvaf_py's hidden_state<a class="headerlink" href="#openvaf_pys-hidden_state" title="Permanent link">&para;</a></h3>
+<p>These are values computed by the model's <strong>init function</strong> and cached for use in the <strong>eval function</strong>:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="c1">// From openvaf_py/src/lib.rs</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">ParamKind</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="w">    </span><span class="n">Param</span><span class="p">,</span><span class="w">        </span><span class="c1">// Regular parameters</span>
+<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="w">    </span><span class="n">DepBreak</span><span class="p">,</span><span class="w">     </span><span class="c1">// Dependency break points</span>
+<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="w">    </span><span class="n">ParamHidden</span><span class="p">,</span><span class="w">  </span><span class="c1">// Hidden model params (not in OSDI)</span>
+<a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a><span class="w">    </span><span class="n">Voltage</span><span class="p">,</span><span class="w">      </span><span class="c1">// Node voltages</span>
+<a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a><span class="w">    </span><span class="n">Current</span><span class="p">,</span><span class="w">      </span><span class="c1">// Branch currents</span>
+<a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a><span class="w">    </span><span class="n">HiddenState</span><span class="p">,</span><span class="w">  </span><span class="c1">// &lt;-- Values computed by init, cached for eval</span>
+<a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a><span class="w">    </span><span class="n">StateLim</span><span class="p">,</span><span class="w">     </span><span class="c1">// Limit function state</span>
+<a id="__codelineno-2-10" name="__codelineno-2-10" href="#__codelineno-2-10"></a><span class="w">    </span><span class="n">Temperature</span><span class="p">,</span><span class="w">  </span><span class="c1">// Temperature</span>
+<a id="__codelineno-2-11" name="__codelineno-2-11" href="#__codelineno-2-11"></a><span class="p">}</span>
+</code></pre></div>
+<h3 id="examples-of-hidden_state-values">Examples of hidden_state Values<a class="headerlink" href="#examples-of-hidden_state-values" title="Permanent link">&para;</a></h3>
+<p>For PSP103, the init function computes ~462 cached values:</p>
+<table>
+<thead>
+<tr>
+<th>Value</th>
+<th>Computation</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>invNF</code></td>
+<td><code>1.0 / NF</code></td>
+<td>Inverse number of fingers</td>
+</tr>
+<tr>
+<td><code>LE</code>, <code>WE</code></td>
+<td>Effective length/width after binning</td>
+<td>Geometry</td>
+</tr>
+<tr>
+<td><code>iL</code>, <code>iW</code></td>
+<td><code>1.0 / L</code>, <code>1.0 / W</code></td>
+<td>Inverse geometry</td>
+</tr>
+<tr>
+<td><code>iLE</code>, <code>iWE</code></td>
+<td><code>1.0 / LE</code>, <code>1.0 / WE</code></td>
+<td>Inverse effective geometry</td>
+</tr>
+<tr>
+<td><code>inv_phit</code></td>
+<td><code>1.0 / (kT/q)</code></td>
+<td>Inverse thermal voltage</td>
+</tr>
+<tr>
+<td><code>inv_phita</code></td>
+<td>Adjusted thermal voltage inverse</td>
+<td>Temperature-adjusted</td>
+</tr>
+<tr>
+<td><code>chnl_type</code></td>
+<td>1 or -1</td>
+<td>NMOS vs PMOS</td>
+</tr>
+<tr>
+<td><code>lcinv2</code></td>
+<td><code>1.0 / (LC * LC)</code></td>
+<td>Inverse LC squared</td>
+</tr>
+</tbody>
+</table>
+<h3 id="why-these-exist">Why These Exist<a class="headerlink" href="#why-these-exist" title="Permanent link">&para;</a></h3>
+<p>OpenVAF optimizes Verilog-A code by:
+1. Running "init" phase once per parameter change
+2. Caching computed values that don't depend on voltages
+3. Passing cached values to "eval" phase for each iteration</p>
+<p>This avoids recomputing expensive expressions every NR iteration.</p>
+<h2 id="4-the-translation-pipeline">4. The Translation Pipeline<a class="headerlink" href="#4-the-translation-pipeline" title="Permanent link">&para;</a></h2>
+<h3 id="openvaf-compilation">OpenVAF Compilation<a class="headerlink" href="#openvaf-compilation" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>Verilog-A source
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>    ↓
+<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>OpenVAF Compiler
+<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a>    ↓
+<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a>OSDI shared library (.so/.dylib)
+</code></pre></div>
+<p>The OSDI library contains native code with the init/eval split built-in.</p>
+<h3 id="openvaf_jax-translation">openvaf_jax Translation<a class="headerlink" href="#openvaf_jax-translation" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>Verilog-A source
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>    ↓
+<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>OpenVAF Compiler (partial - to MIR)
+<a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a>    ↓
+<a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a>openvaf_py (Rust MIR interpreter)
+<a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a>    ↓
+<a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a>openvaf_jax.py (MIR → JAX translator)
+<a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a>    ↓
+<a id="__codelineno-4-9" name="__codelineno-4-9" href="#__codelineno-4-9"></a>JAX Python functions
+</code></pre></div>
+<p>The JAX translator must replicate the init/eval split:</p>
+<ol>
+<li><strong>Init phase</strong>: Computes cached values from parameters</li>
+<li><strong>Cache mapping</strong>: Passes cached values to eval via variable assignments</li>
+<li><strong>Eval phase</strong>: Uses cached values + voltages to compute currents/Jacobians</li>
+</ol>
+<h3 id="cache-mapping-in-generated-code">Cache Mapping in Generated Code<a class="headerlink" href="#cache-mapping-in-generated-code" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="c1"># Example from generated JAX code</span>
+<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="k">def</span><span class="w"> </span><span class="nf">eval_func</span><span class="p">(</span><span class="n">voltages</span><span class="p">,</span> <span class="n">params</span><span class="p">,</span> <span class="n">cache_values</span><span class="p">):</span>
+<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a>    <span class="c1"># Cache values assigned from init results</span>
+<a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a>    <span class="n">v84982</span> <span class="o">=</span> <span class="n">init_v12340</span>   <span class="c1"># invNF</span>
+<a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a>    <span class="n">v84983</span> <span class="o">=</span> <span class="n">init_v12341</span>   <span class="c1"># LE</span>
+<a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a>    <span class="n">v84984</span> <span class="o">=</span> <span class="n">init_v12342</span>   <span class="c1"># WE</span>
+<a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a>    <span class="c1"># ...</span>
+<a id="__codelineno-5-8" name="__codelineno-5-8" href="#__codelineno-5-8"></a>
+<a id="__codelineno-5-9" name="__codelineno-5-9" href="#__codelineno-5-9"></a>    <span class="c1"># Eval uses these cached values</span>
+<a id="__codelineno-5-10" name="__codelineno-5-10" href="#__codelineno-5-10"></a>    <span class="n">ids</span> <span class="o">=</span> <span class="n">v84982</span> <span class="o">*</span> <span class="n">some_expression</span><span class="p">(</span><span class="n">voltages</span><span class="p">)</span>
+</code></pre></div>
+<h2 id="5-vajax-parameter-handling">5. VAJAX Parameter Handling<a class="headerlink" href="#5-vajax-parameter-handling" title="Permanent link">&para;</a></h2>
+<h3 id="the-problem">The Problem<a class="headerlink" href="#the-problem" title="Permanent link">&para;</a></h3>
+<p>VAJAX's <code>runner.py</code> batches devices for GPU efficiency. The vectorized path must set:</p>
+<ol>
+<li><strong>Regular parameters</strong> (<code>l</code>, <code>w</code>, <code>nf</code>, etc.) - from netlist</li>
+<li><strong>Hidden_state parameters</strong> - computed geometry values</li>
+</ol>
+<h3 id="what-runnerpy-does">What runner.py Does<a class="headerlink" href="#what-runnerpy-does" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="c1"># From runner.py lines 650-745</span>
+<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>
+<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="c1"># Set regular parameters</span>
+<a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="n">l_vals</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">([</span><span class="nb">float</span><span class="p">(</span><span class="n">p</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;l&#39;</span><span class="p">,</span> <span class="mf">1e-6</span><span class="p">))</span> <span class="k">for</span> <span class="n">p</span> <span class="ow">in</span> <span class="n">all_dev_params</span><span class="p">])</span>
+<a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a><span class="n">w_vals</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">([</span><span class="nb">float</span><span class="p">(</span><span class="n">p</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;w&#39;</span><span class="p">,</span> <span class="mf">1e-6</span><span class="p">))</span> <span class="k">for</span> <span class="n">p</span> <span class="ow">in</span> <span class="n">all_dev_params</span><span class="p">])</span>
+<a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a><span class="n">nf_vals</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">maximum</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">([</span><span class="nb">float</span><span class="p">(</span><span class="n">p</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;nf&#39;</span><span class="p">,</span> <span class="mf">1.0</span><span class="p">))</span> <span class="k">for</span> <span class="n">p</span> <span class="ow">in</span> <span class="n">all_dev_params</span><span class="p">]),</span> <span class="mf">1.0</span><span class="p">)</span>
+<a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a>
+<a id="__codelineno-6-8" name="__codelineno-6-8" href="#__codelineno-6-8"></a><span class="c1"># Compute and set hidden_state params</span>
+<a id="__codelineno-6-9" name="__codelineno-6-9" href="#__codelineno-6-9"></a><span class="n">we_vals</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">maximum</span><span class="p">(</span><span class="n">w_vals</span> <span class="o">/</span> <span class="n">nf_vals</span><span class="p">,</span> <span class="mf">1e-9</span><span class="p">)</span>  <span class="c1"># Effective width</span>
+<a id="__codelineno-6-10" name="__codelineno-6-10" href="#__codelineno-6-10"></a><span class="n">le_vals</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">maximum</span><span class="p">(</span><span class="n">l_vals</span><span class="p">,</span> <span class="mf">1e-9</span><span class="p">)</span>            <span class="c1"># Effective length</span>
+<a id="__codelineno-6-11" name="__codelineno-6-11" href="#__codelineno-6-11"></a>
+<a id="__codelineno-6-12" name="__codelineno-6-12" href="#__codelineno-6-12"></a><span class="k">if</span> <span class="s1">&#39;invnf&#39;</span> <span class="ow">in</span> <span class="n">hidden_to_col</span><span class="p">:</span>
+<a id="__codelineno-6-13" name="__codelineno-6-13" href="#__codelineno-6-13"></a>    <span class="n">all_inputs</span><span class="p">[:,</span> <span class="n">hidden_to_col</span><span class="p">[</span><span class="s1">&#39;invnf&#39;</span><span class="p">]]</span> <span class="o">=</span> <span class="mf">1.0</span> <span class="o">/</span> <span class="n">nf_vals</span>
+<a id="__codelineno-6-14" name="__codelineno-6-14" href="#__codelineno-6-14"></a><span class="k">if</span> <span class="s1">&#39;le&#39;</span> <span class="ow">in</span> <span class="n">hidden_to_col</span><span class="p">:</span>
+<a id="__codelineno-6-15" name="__codelineno-6-15" href="#__codelineno-6-15"></a>    <span class="n">all_inputs</span><span class="p">[:,</span> <span class="n">hidden_to_col</span><span class="p">[</span><span class="s1">&#39;le&#39;</span><span class="p">]]</span> <span class="o">=</span> <span class="n">le_vals</span>
+<a id="__codelineno-6-16" name="__codelineno-6-16" href="#__codelineno-6-16"></a><span class="c1"># ... ~40 more hidden_state params</span>
+</code></pre></div>
+<h3 id="current-issues">Current Issues<a class="headerlink" href="#current-issues" title="Permanent link">&para;</a></h3>
+<ol>
+<li><strong>1705 hidden_state params</strong> in PSP103, only ~40 handled</li>
+<li><strong>Many values still 0</strong>, causing division by zero</li>
+<li><strong>NaN propagation</strong> through model calculations</li>
+<li><strong>Should JAX code compute these?</strong> The generated JAX init function should compute them, but the vectorized runner bypasses this</li>
+</ol>
+<h2 id="6-comparison-vacask-vs-vajax">6. Comparison: VACASK vs VAJAX<a class="headerlink" href="#6-comparison-vacask-vs-vajax" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Aspect</th>
+<th>VACASK</th>
+<th>VAJAX</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Init execution</td>
+<td>Native code, once per setup</td>
+<td>Should use generated JAX init</td>
+</tr>
+<tr>
+<td>Cache passing</td>
+<td>Automatic in native code</td>
+<td>Manual via cache_mapping</td>
+</tr>
+<tr>
+<td>Vectorization</td>
+<td>Per-device sequential</td>
+<td>Batched vmap over devices</td>
+</tr>
+<tr>
+<td>Hidden_state</td>
+<td>Computed by init function</td>
+<td>Currently computed in runner.py</td>
+</tr>
+<tr>
+<td>GPU support</td>
+<td>None (CPU only)</td>
+<td>Full JAX GPU acceleration</td>
+</tr>
+</tbody>
+</table>
+<h2 id="7-recommended-architecture">7. Recommended Architecture<a class="headerlink" href="#7-recommended-architecture" title="Permanent link">&para;</a></h2>
+<h3 id="current-problematic">Current (Problematic)<a class="headerlink" href="#current-problematic" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>runner.py manually sets ~40 hidden_state params
+<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>    ↓
+<a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a>Generated eval function expects all 1705 values
+<a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a>    ↓
+<a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a>Missing values = 0 → Division by zero → NaN
+</code></pre></div>
+<h3 id="proposed-solution">Proposed Solution<a class="headerlink" href="#proposed-solution" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>runner.py sets only regular params (l, w, nf, etc.)
+<a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a>    ↓
+<a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a>Generated init function computes all hidden_state
+<a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a>    ↓
+<a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a>Cache passed to eval function
+<a id="__codelineno-8-6" name="__codelineno-8-6" href="#__codelineno-8-6"></a>    ↓
+<a id="__codelineno-8-7" name="__codelineno-8-7" href="#__codelineno-8-7"></a>No manual geometry computation needed
+</code></pre></div>
+<p>This requires:
+1. <code>openvaf_jax.py</code> to generate a proper init function
+2. <code>runner.py</code> to call init before eval
+3. Batched init execution via vmap</p>
+<h2 id="8-analysis-does-openvaf-pys-hidden_state-model-make-sense">8. Analysis: Does openvaf-py's hidden_state Model Make Sense?<a class="headerlink" href="#8-analysis-does-openvaf-pys-hidden_state-model-make-sense" title="Permanent link">&para;</a></h2>
+<h3 id="the-architectural-issue">The Architectural Issue<a class="headerlink" href="#the-architectural-issue" title="Permanent link">&para;</a></h3>
+<p>openvaf-py exposes <code>hidden_state</code> as a parameter kind, but this is architecturally confused:</p>
+<ol>
+<li><strong>Eval function's hidden_state params are UNUSED</strong></li>
+<li><code>insert_var_init</code> (in <code>sim_back/src/state.rs</code>) replaces all HiddenState references with their computed values</li>
+<li>After this pass, HiddenState params have 0 operand references in the eval function</li>
+<li>
+<p>They exist in the param list but aren't actually read by any instruction</p>
+</li>
+<li>
+<p><strong>Init function's hidden_state params ARE used</strong></p>
+</li>
+<li>These represent variable initialization expressions</li>
+<li>
+<p>The init function computes them and they become cache values</p>
+</li>
+<li>
+<p><strong>The cache_mapping is the correct mechanism</strong></p>
+</li>
+<li><code>compiled.init.cached_vals</code> maps init outputs → eval inputs</li>
+<li>This is what should be used to pass values from init to eval</li>
+</ol>
+<h3 id="what-openvaf-actually-does-in-sim_backsrcinitrs">What OpenVAF Actually Does (in sim_back/src/init.rs)<a class="headerlink" href="#what-openvaf-actually-does-in-sim_backsrcinitrs" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="c1">// From Initialization::new()</span>
+<a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a><span class="k">while</span><span class="w"> </span><span class="kd">let</span><span class="w"> </span><span class="nb">Some</span><span class="p">(</span><span class="n">bb</span><span class="p">)</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">blocks</span><span class="p">.</span><span class="n">next</span><span class="p">(</span><span class="o">&amp;</span><span class="n">builder</span><span class="p">.</span><span class="n">func</span><span class="p">.</span><span class="n">layout</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a><span class="w">    </span><span class="c1">// Copy instructions that are NOT op dependent to instance setup MIR</span>
+<a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a><span class="w">    </span><span class="c1">// and zap them in module MIR.</span>
+<a id="__codelineno-9-5" name="__codelineno-9-5" href="#__codelineno-9-5"></a><span class="w">    </span><span class="n">builder</span><span class="p">.</span><span class="n">split_block</span><span class="p">(</span><span class="n">bb</span><span class="p">);</span>
+<a id="__codelineno-9-6" name="__codelineno-9-6" href="#__codelineno-9-6"></a><span class="p">}</span>
+</code></pre></div>
+<p>The init/eval split:
+1. Instructions NOT operating-point dependent → moved to init function
+2. Instructions operating-point dependent → kept in eval function
+3. Values computed in init that eval needs → become cache slots</p>
+<h3 id="the-hidden-state-flow">The Hidden State Flow<a class="headerlink" href="#the-hidden-state-flow" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a>Verilog-A variable &#39;real LE;&#39;
+<a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a>    ↓
+<a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a>ParamKind::HiddenState(LE) created in MIR
+<a id="__codelineno-10-4" name="__codelineno-10-4" href="#__codelineno-10-4"></a>    ↓
+<a id="__codelineno-10-5" name="__codelineno-10-5" href="#__codelineno-10-5"></a>insert_var_init() replaces HiddenState with actual computation
+<a id="__codelineno-10-6" name="__codelineno-10-6" href="#__codelineno-10-6"></a>    ↓
+<a id="__codelineno-10-7" name="__codelineno-10-7" href="#__codelineno-10-7"></a>Initialization::new() moves computation to init function
+<a id="__codelineno-10-8" name="__codelineno-10-8" href="#__codelineno-10-8"></a>    ↓
+<a id="__codelineno-10-9" name="__codelineno-10-9" href="#__codelineno-10-9"></a>Value becomes a cache slot in cached_vals
+<a id="__codelineno-10-10" name="__codelineno-10-10" href="#__codelineno-10-10"></a>    ↓
+<a id="__codelineno-10-11" name="__codelineno-10-11" href="#__codelineno-10-11"></a>cache_mapping connects init output → eval input param
+</code></pre></div>
+<p>After this flow, <strong>HiddenState is no longer needed</strong> - it's been replaced by the cache system.</p>
+<h3 id="why-openvaf-pys-model-is-problematic">Why openvaf-py's Model is Problematic<a class="headerlink" href="#why-openvaf-pys-model-is-problematic" title="Permanent link">&para;</a></h3>
+<ol>
+<li>
+<p><strong>Misleading API</strong>: Exposing hidden_state in eval params suggests they're inputs, but they're unused</p>
+</li>
+<li>
+<p><strong>Fragile workarounds</strong>: openvaf_jax.py uses value-number matching (<code>_build_hidden_state_assignments</code>) to work around the architecture:
+   <div class="highlight"><pre><span></span><code><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="c1"># If eval uses vN for a hidden_state param and init computed init_vN,</span>
+<a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a><span class="c1"># add assignment vN = init_vN</span>
+</code></pre></div>
+   This relies on OpenVAF using same value numbers, which isn't guaranteed.</p>
+</li>
+<li>
+<p><strong>Manual computation in runner.py</strong>: Because the workarounds fail for batched execution, runner.py manually computes ~40 hidden_state values, missing 1600+.</p>
+</li>
+</ol>
+<h3 id="the-correct-solution">The Correct Solution<a class="headerlink" href="#the-correct-solution" title="Permanent link">&para;</a></h3>
+<p><strong>Short term</strong>: runner.py should call the init function (via vmap) for each device, using the output via cache_mapping.</p>
+<p><strong>Long term</strong>: openvaf-py should:
+1. Not expose hidden_state as eval params (or mark them as "internal/unused")
+2. Provide a clear API: <code>init(params) → cache</code>, <code>eval(voltages, cache) → residuals</code>
+3. Make both functions easily vmappable for batched GPU execution</p>
+<h3 id="summary">Summary<a class="headerlink" href="#summary" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Aspect</th>
+<th>Current</th>
+<th>Correct</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>hidden_state in eval</td>
+<td>Exposed as params</td>
+<td>Should be internal</td>
+</tr>
+<tr>
+<td>Init function</td>
+<td>Generated but not used in batched mode</td>
+<td>Should be called via vmap</td>
+</tr>
+<tr>
+<td>Cache values</td>
+<td>Workaround via value-number matching</td>
+<td>Proper cache_mapping API</td>
+</tr>
+<tr>
+<td>Runner computation</td>
+<td>Manual ~40 params</td>
+<td>None needed</td>
+</tr>
+</tbody>
+</table>
+<h2 id="9-related-documentation">9. Related Documentation<a class="headerlink" href="#9-related-documentation" title="Permanent link">&para;</a></h2>
+<ul>
+<li><a href="../vacask_osdi_inputs/">VACASK OSDI Inputs</a> - How VACASK interfaces with OSDI</li>
+<li><a href="../architecture_overview/">Architecture Overview</a> - Overall VAJAX architecture</li>
+<li><a href="../vendor/OpenVAF/CLAUDE.md">OpenVAF CLAUDE.md</a> - OpenVAF compiler architecture</li>
+</ul>
+<h2 id="9-file-references">9. File References<a class="headerlink" href="#9-file-references" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Purpose</th>
+<th>File</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>OSDI header definitions</td>
+<td><code>vendor/OpenVAF/openvaf/osdi/header/osdi.h</code></td>
+</tr>
+<tr>
+<td>Rust MIR interpreter</td>
+<td><code>openvaf_jax/openvaf_py/src/lib.rs</code></td>
+</tr>
+<tr>
+<td>JAX code translator</td>
+<td><code>openvaf_jax/__init__.py</code></td>
+</tr>
+<tr>
+<td>Benchmark runner</td>
+<td><code>vajax/benchmarks/runner.py</code></td>
+</tr>
+<tr>
+<td>VACASK OSDI interface</td>
+<td><code>vendor/VACASK/lib/osdiinstance.cpp</code></td>
+</tr>
+</tbody>
+</table>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["content.code.copy", "navigation.instant", "navigation.sections", "navigation.top", "toc.follow"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>

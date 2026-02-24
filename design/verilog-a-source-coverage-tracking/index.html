@@ -1,0 +1,2609 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="GPU-Accelerated Analog Circuit Simulator built on JAX">
+      
+      
+      
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.3">
+    
+    
+      
+        <title>Verilog-A Source Coverage Tracking - System Design Document - VAJAX</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#verilog-a-source-coverage-tracking-system-design-document" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="VAJAX" class="md-header__button md-logo" aria-label="VAJAX" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            VAJAX
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Verilog-A Source Coverage Tracking - System Design Document
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/ChipFlow/vajax" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    ChipFlow/vajax
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="VAJAX" class="md-nav__button md-logo" aria-label="VAJAX" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    VAJAX
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/ChipFlow/vajax" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    ChipFlow/vajax
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    User Guide
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    User Guide
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api_reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../cli_reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CLI Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../transient_options/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Transient Options
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../performance_analysis/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Performance Analysis
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../vacask_sim_format/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    VACASK Sim Format
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Developer Guide
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Developer Guide
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architecture_overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../gpu_solver_architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GPU Solver Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../gpu_solver_jacobian/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GPU Solver Jacobian
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../sparse_solver_roadmap/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Sparse Solver Roadmap
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../debug_tools/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Debug Tools
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../phi_nodes_guide/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PHI Nodes Guide
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../verilog_a_system_functions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Verilog-A System Functions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../osdi_parameter_architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    OSDI Parameter Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../vacask_osdi_inputs/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    OSDI Inputs
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../sim_back_vs_openvaf_jax/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Code Generation Backends
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../ci-status/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CI Status
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#1-executive-summary" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Executive Summary
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-requirements" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Requirements
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="2. Requirements">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#21-functional-requirements" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.1 Functional Requirements
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#22-non-functional-requirements" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.2 Non-Functional Requirements
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-system-context" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. System Context
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="3. System Context">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#31-current-pipeline-no-coverage" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.1 Current Pipeline (No Coverage)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#32-target-pipeline-with-coverage" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.2 Target Pipeline (With Coverage)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-high-level-architecture" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. High-Level Architecture
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="4. High-Level Architecture">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#41-component-overview" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.1 Component Overview
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5-component-design" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. Component Design
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="5. Component Design">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#51-layer-1-openvaf-compiler-modifications" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.1 Layer 1: OpenVAF Compiler Modifications
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#52-layer-2-openvaf-py-bindings" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.2 Layer 2: openvaf-py Bindings
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#53-layer-3-openvaf-jax-source-map" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.3 Layer 3: openvaf-jax Source Map
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#54-layer-4-runtime-coverage-tracking" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.4 Layer 4: Runtime Coverage Tracking
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#55-layer-5-cobertura-output" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.5 Layer 5: Cobertura Output
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#6-data-flow" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6. Data Flow
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="6. Data Flow">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#61-compilation-flow-source-map-generation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.1 Compilation Flow (Source Map Generation)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#62-runtime-flow-coverage-collection" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.2 Runtime Flow (Coverage Collection)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#7-implementation-phases" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7. Implementation Phases
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="7. Implementation Phases">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#phase-1-foundation-4-6-weeks" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 1: Foundation (4-6 weeks)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#phase-2-source-mapping-3-4-weeks" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 2: Source Mapping (3-4 weeks)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#phase-3-runtime-tracking-4-5-weeks" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 3: Runtime Tracking (4-5 weeks)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#phase-4-reporting-ci-2-3-weeks" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 4: Reporting &amp; CI (2-3 weeks)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#8-api-design" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        8. API Design
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="8. API Design">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#81-user-facing-api" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        8.1 User-Facing API
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#82-cli-interface" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        8.2 CLI Interface
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#83-ci-integration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        8.3 CI Integration
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#9-trade-offs-alternatives" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        9. Trade-offs &amp; Alternatives
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="9. Trade-offs &amp; Alternatives">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#91-source-mapping-approach" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        9.1 Source Mapping Approach
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#92-runtime-tracking-approach" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        9.2 Runtime Tracking Approach
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#93-output-format" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        9.3 Output Format
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#10-risks-mitigations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        10. Risks &amp; Mitigations
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#11-success-metrics" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        11. Success Metrics
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#12-appendices" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        12. Appendices
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="12. Appendices">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#a-openvaf-source-span-infrastructure-investigation-notes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        A. OpenVAF Source Span Infrastructure (Investigation Notes)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="A. OpenVAF Source Span Infrastructure (Investigation Notes)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#a1-current-architecture" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        A.1 Current Architecture
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#a2-how-sourceloc-connects-to-source" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        A.2 How SourceLoc Connects to Source
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#a3-what-verilogae-currently-exposes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        A.3 What verilogae Currently Exposes
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#a4-required-changes-for-source-coverage" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        A.4 Required Changes for Source Coverage
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#a5-simplified-implementation-path" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        A.5 Simplified Implementation Path
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#a6-key-files-to-modify" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        A.6 Key Files to Modify
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#b-glossary" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        B. Glossary
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#c-references" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        C. References
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#c-file-structure" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        C. File Structure
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="verilog-a-source-coverage-tracking-system-design-document">Verilog-A Source Coverage Tracking - System Design Document<a class="headerlink" href="#verilog-a-source-coverage-tracking-system-design-document" title="Permanent link">&para;</a></h1>
+<p><strong>Author:</strong> VAJAX Team
+<strong>Date:</strong> 2025-12-29
+<strong>Status:</strong> Draft
+<strong>Version:</strong> 1.0</p>
+<hr />
+<h2 id="1-executive-summary">1. Executive Summary<a class="headerlink" href="#1-executive-summary" title="Permanent link">&para;</a></h2>
+<p><strong>System Purpose:</strong> Track which lines of Verilog-A source code are exercised during VAJAX circuit simulations, enabling coverage-driven verification and CI integration.</p>
+<p><strong>Scale:</strong>
+- VA Models: ~50 standard models (resistor, capacitor, diode, PSP103, BSIM, etc.)
+- Lines per Model: 100 - 10,000+ lines
+- Simulations: 1000s of test runs in CI</p>
+<p><strong>Key Challenges:</strong>
+1. Source location information must survive the OpenVAF → Python → JAX transformation pipeline
+2. JAX's JIT compilation and XLA optimizations obscure the mapping between operations and source
+3. Runtime tracing must not significantly impact simulation performance
+4. Coverage data must be aggregated across multiple simulation runs</p>
+<hr />
+<h2 id="2-requirements">2. Requirements<a class="headerlink" href="#2-requirements" title="Permanent link">&para;</a></h2>
+<h3 id="21-functional-requirements">2.1 Functional Requirements<a class="headerlink" href="#21-functional-requirements" title="Permanent link">&para;</a></h3>
+<ol>
+<li><strong>Source Mapping</strong></li>
+<li>FR-1: Map each generated JAX expression to its originating Verilog-A source line</li>
+<li>FR-2: Preserve source file, line number, and column information</li>
+<li>
+<p>FR-3: Handle multi-line expressions and macro expansions</p>
+</li>
+<li>
+<p><strong>Execution Tracking</strong></p>
+</li>
+<li>FR-4: Track which source lines are executed during simulation</li>
+<li>FR-5: Count execution frequency per source line</li>
+<li>
+<p>FR-6: Track branch coverage (if/else, case statements)</p>
+</li>
+<li>
+<p><strong>Output &amp; Integration</strong></p>
+</li>
+<li>FR-7: Generate Cobertura-compatible XML coverage reports</li>
+<li>FR-8: Support incremental coverage merging across runs</li>
+<li>FR-9: Integrate with GitHub Actions coverage visualization</li>
+</ol>
+<h3 id="22-non-functional-requirements">2.2 Non-Functional Requirements<a class="headerlink" href="#22-non-functional-requirements" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Category</th>
+<th>Requirement</th>
+<th>Target</th>
+<th>Priority</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Performance</td>
+<td>Overhead with coverage disabled</td>
+<td>0%</td>
+<td>Critical</td>
+</tr>
+<tr>
+<td>Performance</td>
+<td>Overhead with coverage enabled</td>
+<td>&lt; 20%</td>
+<td>High</td>
+</tr>
+<tr>
+<td>Accuracy</td>
+<td>Source line attribution</td>
+<td>100% for direct mappings</td>
+<td>High</td>
+</tr>
+<tr>
+<td>Compatibility</td>
+<td>Cobertura DTD compliance</td>
+<td>Full</td>
+<td>High</td>
+</tr>
+<tr>
+<td>Usability</td>
+<td>Enable/disable at runtime</td>
+<td>Single flag</td>
+<td>Medium</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="3-system-context">3. System Context<a class="headerlink" href="#3-system-context" title="Permanent link">&para;</a></h2>
+<h3 id="31-current-pipeline-no-coverage">3.1 Current Pipeline (No Coverage)<a class="headerlink" href="#31-current-pipeline-no-coverage" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>flowchart LR
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>    subgraph &quot;Compile Time&quot;
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>        VA[📄 Verilog-A&lt;br/&gt;.va files] --&gt; OC[⚙️ OpenVAF&lt;br/&gt;Compiler]
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>        OC --&gt; IR[🔧 OpenVAF IR&lt;br/&gt;+ Metadata]
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>        IR --&gt; PY[🐍 openvaf-py&lt;br/&gt;Module]
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>    end
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>
+<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>    subgraph &quot;Translation Time&quot;
+<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>        PY --&gt; JAX[📊 openvaf-jax&lt;br/&gt;Translator]
+<a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>        JAX --&gt; FN[λ JAX Functions&lt;br/&gt;eval, init]
+<a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a>    end
+<a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a>
+<a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a>    subgraph &quot;Runtime&quot;
+<a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a>        FN --&gt; JIT[⚡ JAX JIT&lt;br/&gt;Compilation]
+<a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a>        JIT --&gt; XLA[🚀 XLA/GPU&lt;br/&gt;Execution]
+<a id="__codelineno-0-16" name="__codelineno-0-16" href="#__codelineno-0-16"></a>    end
+<a id="__codelineno-0-17" name="__codelineno-0-17" href="#__codelineno-0-17"></a>
+<a id="__codelineno-0-18" name="__codelineno-0-18" href="#__codelineno-0-18"></a>    classDef compile fill:#90EE90,stroke:#333,stroke-width:2px,color:darkgreen
+<a id="__codelineno-0-19" name="__codelineno-0-19" href="#__codelineno-0-19"></a>    classDef translate fill:#87CEEB,stroke:#333,stroke-width:2px,color:darkblue
+<a id="__codelineno-0-20" name="__codelineno-0-20" href="#__codelineno-0-20"></a>    classDef runtime fill:#FFB6C1,stroke:#333,stroke-width:2px,color:darkred
+<a id="__codelineno-0-21" name="__codelineno-0-21" href="#__codelineno-0-21"></a>
+<a id="__codelineno-0-22" name="__codelineno-0-22" href="#__codelineno-0-22"></a>    class VA,OC,IR,PY compile
+<a id="__codelineno-0-23" name="__codelineno-0-23" href="#__codelineno-0-23"></a>    class JAX,FN translate
+<a id="__codelineno-0-24" name="__codelineno-0-24" href="#__codelineno-0-24"></a>    class JIT,XLA runtime
+</code></pre></div>
+<h3 id="32-target-pipeline-with-coverage">3.2 Target Pipeline (With Coverage)<a class="headerlink" href="#32-target-pipeline-with-coverage" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>flowchart LR
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>    subgraph &quot;Compile Time&quot;
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>        VA[📄 Verilog-A&lt;br/&gt;.va files] --&gt; OC[⚙️ OpenVAF&lt;br/&gt;Compiler]
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>        OC --&gt; IR[🔧 OpenVAF IR&lt;br/&gt;+ Source Spans]
+<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>        IR --&gt; PY[🐍 openvaf-py&lt;br/&gt;Module + SourceMap]
+<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a>    end
+<a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a>
+<a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a>    subgraph &quot;Translation Time&quot;
+<a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a>        PY --&gt; JAX[📊 openvaf-jax&lt;br/&gt;Translator]
+<a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a>        JAX --&gt; FN[λ JAX Functions&lt;br/&gt;+ Coverage Hooks]
+<a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a>        JAX --&gt; SM[🗺️ Source Map&lt;br/&gt;JAX Op → VA Line]
+<a id="__codelineno-1-12" name="__codelineno-1-12" href="#__codelineno-1-12"></a>    end
+<a id="__codelineno-1-13" name="__codelineno-1-13" href="#__codelineno-1-13"></a>
+<a id="__codelineno-1-14" name="__codelineno-1-14" href="#__codelineno-1-14"></a>    subgraph &quot;Runtime&quot;
+<a id="__codelineno-1-15" name="__codelineno-1-15" href="#__codelineno-1-15"></a>        FN --&gt; JIT[⚡ JAX JIT&lt;br/&gt;Compilation]
+<a id="__codelineno-1-16" name="__codelineno-1-16" href="#__codelineno-1-16"></a>        JIT --&gt; XLA[🚀 XLA/GPU&lt;br/&gt;Execution]
+<a id="__codelineno-1-17" name="__codelineno-1-17" href="#__codelineno-1-17"></a>        XLA --&gt; PROF[📈 Profiler&lt;br/&gt;Op Counters]
+<a id="__codelineno-1-18" name="__codelineno-1-18" href="#__codelineno-1-18"></a>        PROF --&gt; SM
+<a id="__codelineno-1-19" name="__codelineno-1-19" href="#__codelineno-1-19"></a>        SM --&gt; COV[📋 Coverage&lt;br/&gt;Aggregator]
+<a id="__codelineno-1-20" name="__codelineno-1-20" href="#__codelineno-1-20"></a>    end
+<a id="__codelineno-1-21" name="__codelineno-1-21" href="#__codelineno-1-21"></a>
+<a id="__codelineno-1-22" name="__codelineno-1-22" href="#__codelineno-1-22"></a>    subgraph &quot;Output&quot;
+<a id="__codelineno-1-23" name="__codelineno-1-23" href="#__codelineno-1-23"></a>        COV --&gt; XML[📄 Cobertura&lt;br/&gt;XML]
+<a id="__codelineno-1-24" name="__codelineno-1-24" href="#__codelineno-1-24"></a>        COV --&gt; HTML[🌐 HTML&lt;br/&gt;Report]
+<a id="__codelineno-1-25" name="__codelineno-1-25" href="#__codelineno-1-25"></a>    end
+<a id="__codelineno-1-26" name="__codelineno-1-26" href="#__codelineno-1-26"></a>
+<a id="__codelineno-1-27" name="__codelineno-1-27" href="#__codelineno-1-27"></a>    classDef compile fill:#90EE90,stroke:#333,stroke-width:2px,color:darkgreen
+<a id="__codelineno-1-28" name="__codelineno-1-28" href="#__codelineno-1-28"></a>    classDef translate fill:#87CEEB,stroke:#333,stroke-width:2px,color:darkblue
+<a id="__codelineno-1-29" name="__codelineno-1-29" href="#__codelineno-1-29"></a>    classDef runtime fill:#FFB6C1,stroke:#333,stroke-width:2px,color:darkred
+<a id="__codelineno-1-30" name="__codelineno-1-30" href="#__codelineno-1-30"></a>    classDef output fill:#E6E6FA,stroke:#333,stroke-width:2px,color:purple
+<a id="__codelineno-1-31" name="__codelineno-1-31" href="#__codelineno-1-31"></a>
+<a id="__codelineno-1-32" name="__codelineno-1-32" href="#__codelineno-1-32"></a>    class VA,OC,IR,PY compile
+<a id="__codelineno-1-33" name="__codelineno-1-33" href="#__codelineno-1-33"></a>    class JAX,FN,SM translate
+<a id="__codelineno-1-34" name="__codelineno-1-34" href="#__codelineno-1-34"></a>    class JIT,XLA,PROF,COV runtime
+<a id="__codelineno-1-35" name="__codelineno-1-35" href="#__codelineno-1-35"></a>    class XML,HTML output
+</code></pre></div>
+<hr />
+<h2 id="4-high-level-architecture">4. High-Level Architecture<a class="headerlink" href="#4-high-level-architecture" title="Permanent link">&para;</a></h2>
+<h3 id="41-component-overview">4.1 Component Overview<a class="headerlink" href="#41-component-overview" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>graph TB
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>    subgraph &quot;Layer 1: OpenVAF Compiler&quot;
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>        PARSE[Parser&lt;br/&gt;AST + Spans]
+<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>        HIR[HIR Lowering&lt;br/&gt;Preserve Spans]
+<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a>        MIR[MIR Generation&lt;br/&gt;Instruction Spans]
+<a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a>        EXPORT[Span Export API]
+<a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a>
+<a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a>        PARSE --&gt; HIR --&gt; MIR --&gt; EXPORT
+<a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a>    end
+<a id="__codelineno-2-10" name="__codelineno-2-10" href="#__codelineno-2-10"></a>
+<a id="__codelineno-2-11" name="__codelineno-2-11" href="#__codelineno-2-11"></a>    subgraph &quot;Layer 2: openvaf-py Bindings&quot;
+<a id="__codelineno-2-12" name="__codelineno-2-12" href="#__codelineno-2-12"></a>        PYMOD[Python Module&lt;br/&gt;param_names, nodes]
+<a id="__codelineno-2-13" name="__codelineno-2-13" href="#__codelineno-2-13"></a>        SPANS[SpanInfo Class&lt;br/&gt;file, line, col]
+<a id="__codelineno-2-14" name="__codelineno-2-14" href="#__codelineno-2-14"></a>        MAPPING[Instruction→Span Map]
+<a id="__codelineno-2-15" name="__codelineno-2-15" href="#__codelineno-2-15"></a>
+<a id="__codelineno-2-16" name="__codelineno-2-16" href="#__codelineno-2-16"></a>        EXPORT --&gt; PYMOD
+<a id="__codelineno-2-17" name="__codelineno-2-17" href="#__codelineno-2-17"></a>        EXPORT --&gt; SPANS
+<a id="__codelineno-2-18" name="__codelineno-2-18" href="#__codelineno-2-18"></a>        PYMOD --- SPANS
+<a id="__codelineno-2-19" name="__codelineno-2-19" href="#__codelineno-2-19"></a>        SPANS --&gt; MAPPING
+<a id="__codelineno-2-20" name="__codelineno-2-20" href="#__codelineno-2-20"></a>    end
+<a id="__codelineno-2-21" name="__codelineno-2-21" href="#__codelineno-2-21"></a>
+<a id="__codelineno-2-22" name="__codelineno-2-22" href="#__codelineno-2-22"></a>    subgraph &quot;Layer 3: openvaf-jax Translator&quot;
+<a id="__codelineno-2-23" name="__codelineno-2-23" href="#__codelineno-2-23"></a>        TRANS[JAX Translator&lt;br/&gt;Generate Python]
+<a id="__codelineno-2-24" name="__codelineno-2-24" href="#__codelineno-2-24"></a>        SRCMAP[SourceMap Builder&lt;br/&gt;JAX expr → VA line]
+<a id="__codelineno-2-25" name="__codelineno-2-25" href="#__codelineno-2-25"></a>        HOOKS[Coverage Hooks&lt;br/&gt;Instrumentation]
+<a id="__codelineno-2-26" name="__codelineno-2-26" href="#__codelineno-2-26"></a>
+<a id="__codelineno-2-27" name="__codelineno-2-27" href="#__codelineno-2-27"></a>        MAPPING --&gt; TRANS
+<a id="__codelineno-2-28" name="__codelineno-2-28" href="#__codelineno-2-28"></a>        TRANS --&gt; SRCMAP
+<a id="__codelineno-2-29" name="__codelineno-2-29" href="#__codelineno-2-29"></a>        TRANS --&gt; HOOKS
+<a id="__codelineno-2-30" name="__codelineno-2-30" href="#__codelineno-2-30"></a>    end
+<a id="__codelineno-2-31" name="__codelineno-2-31" href="#__codelineno-2-31"></a>
+<a id="__codelineno-2-32" name="__codelineno-2-32" href="#__codelineno-2-32"></a>    subgraph &quot;Layer 4: Runtime Tracking&quot;
+<a id="__codelineno-2-33" name="__codelineno-2-33" href="#__codelineno-2-33"></a>        COUNTER[Op Counter&lt;br/&gt;Execution counts]
+<a id="__codelineno-2-34" name="__codelineno-2-34" href="#__codelineno-2-34"></a>        BRANCH[Branch Tracker&lt;br/&gt;if/else coverage]
+<a id="__codelineno-2-35" name="__codelineno-2-35" href="#__codelineno-2-35"></a>        PROF[JAX Profiler&lt;br/&gt;HLO Execution]
+<a id="__codelineno-2-36" name="__codelineno-2-36" href="#__codelineno-2-36"></a>
+<a id="__codelineno-2-37" name="__codelineno-2-37" href="#__codelineno-2-37"></a>        HOOKS --&gt; COUNTER
+<a id="__codelineno-2-38" name="__codelineno-2-38" href="#__codelineno-2-38"></a>        HOOKS --&gt; BRANCH
+<a id="__codelineno-2-39" name="__codelineno-2-39" href="#__codelineno-2-39"></a>        SRCMAP --&gt; PROF
+<a id="__codelineno-2-40" name="__codelineno-2-40" href="#__codelineno-2-40"></a>    end
+<a id="__codelineno-2-41" name="__codelineno-2-41" href="#__codelineno-2-41"></a>
+<a id="__codelineno-2-42" name="__codelineno-2-42" href="#__codelineno-2-42"></a>    subgraph &quot;Layer 5: Reporting&quot;
+<a id="__codelineno-2-43" name="__codelineno-2-43" href="#__codelineno-2-43"></a>        AGG[Coverage Aggregator&lt;br/&gt;Merge runs]
+<a id="__codelineno-2-44" name="__codelineno-2-44" href="#__codelineno-2-44"></a>        COBERTURA[Cobertura XML&lt;br/&gt;Generator]
+<a id="__codelineno-2-45" name="__codelineno-2-45" href="#__codelineno-2-45"></a>        REPORT[HTML Report&lt;br/&gt;Generator]
+<a id="__codelineno-2-46" name="__codelineno-2-46" href="#__codelineno-2-46"></a>
+<a id="__codelineno-2-47" name="__codelineno-2-47" href="#__codelineno-2-47"></a>        COUNTER --&gt; AGG
+<a id="__codelineno-2-48" name="__codelineno-2-48" href="#__codelineno-2-48"></a>        BRANCH --&gt; AGG
+<a id="__codelineno-2-49" name="__codelineno-2-49" href="#__codelineno-2-49"></a>        PROF --&gt; AGG
+<a id="__codelineno-2-50" name="__codelineno-2-50" href="#__codelineno-2-50"></a>        AGG --&gt; COBERTURA
+<a id="__codelineno-2-51" name="__codelineno-2-51" href="#__codelineno-2-51"></a>        AGG --&gt; REPORT
+<a id="__codelineno-2-52" name="__codelineno-2-52" href="#__codelineno-2-52"></a>    end
+<a id="__codelineno-2-53" name="__codelineno-2-53" href="#__codelineno-2-53"></a>
+<a id="__codelineno-2-54" name="__codelineno-2-54" href="#__codelineno-2-54"></a>    classDef l1 fill:#FFE4B5,stroke:#333,stroke-width:2px,color:black
+<a id="__codelineno-2-55" name="__codelineno-2-55" href="#__codelineno-2-55"></a>    classDef l2 fill:#98FB98,stroke:#333,stroke-width:2px,color:black
+<a id="__codelineno-2-56" name="__codelineno-2-56" href="#__codelineno-2-56"></a>    classDef l3 fill:#87CEEB,stroke:#333,stroke-width:2px,color:black
+<a id="__codelineno-2-57" name="__codelineno-2-57" href="#__codelineno-2-57"></a>    classDef l4 fill:#DDA0DD,stroke:#333,stroke-width:2px,color:black
+<a id="__codelineno-2-58" name="__codelineno-2-58" href="#__codelineno-2-58"></a>    classDef l5 fill:#F0E68C,stroke:#333,stroke-width:2px,color:black
+<a id="__codelineno-2-59" name="__codelineno-2-59" href="#__codelineno-2-59"></a>
+<a id="__codelineno-2-60" name="__codelineno-2-60" href="#__codelineno-2-60"></a>    class PARSE,HIR,MIR,EXPORT l1
+<a id="__codelineno-2-61" name="__codelineno-2-61" href="#__codelineno-2-61"></a>    class PYMOD,SPANS,MAPPING l2
+<a id="__codelineno-2-62" name="__codelineno-2-62" href="#__codelineno-2-62"></a>    class TRANS,SRCMAP,HOOKS l3
+<a id="__codelineno-2-63" name="__codelineno-2-63" href="#__codelineno-2-63"></a>    class COUNTER,BRANCH,PROF l4
+<a id="__codelineno-2-64" name="__codelineno-2-64" href="#__codelineno-2-64"></a>    class AGG,COBERTURA,REPORT l5
+</code></pre></div>
+<hr />
+<h2 id="5-component-design">5. Component Design<a class="headerlink" href="#5-component-design" title="Permanent link">&para;</a></h2>
+<h3 id="51-layer-1-openvaf-compiler-modifications">5.1 Layer 1: OpenVAF Compiler Modifications<a class="headerlink" href="#51-layer-1-openvaf-compiler-modifications" title="Permanent link">&para;</a></h3>
+<p><strong>Current State:</strong> OpenVAF has internal span information for error reporting but doesn't expose it through the compilation output.</p>
+<p><strong>Required Changes:</strong></p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="c1">// New: SourceSpan struct for export</span>
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="cp">#[derive(Debug, Clone, Serialize)]</span>
+<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">SourceSpan</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="w">    </span><span class="k">pub</span><span class="w"> </span><span class="n">file_id</span><span class="p">:</span><span class="w"> </span><span class="kt">u32</span><span class="p">,</span>
+<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a><span class="w">    </span><span class="k">pub</span><span class="w"> </span><span class="n">start_line</span><span class="p">:</span><span class="w"> </span><span class="kt">u32</span><span class="p">,</span>
+<a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a><span class="w">    </span><span class="k">pub</span><span class="w"> </span><span class="n">start_col</span><span class="p">:</span><span class="w"> </span><span class="kt">u32</span><span class="p">,</span>
+<a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a><span class="w">    </span><span class="k">pub</span><span class="w"> </span><span class="n">end_line</span><span class="p">:</span><span class="w"> </span><span class="kt">u32</span><span class="p">,</span>
+<a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a><span class="w">    </span><span class="k">pub</span><span class="w"> </span><span class="n">end_col</span><span class="p">:</span><span class="w"> </span><span class="kt">u32</span><span class="p">,</span>
+<a id="__codelineno-3-9" name="__codelineno-3-9" href="#__codelineno-3-9"></a><span class="p">}</span>
+<a id="__codelineno-3-10" name="__codelineno-3-10" href="#__codelineno-3-10"></a>
+<a id="__codelineno-3-11" name="__codelineno-3-11" href="#__codelineno-3-11"></a><span class="c1">// New: Instruction metadata with span</span>
+<a id="__codelineno-3-12" name="__codelineno-3-12" href="#__codelineno-3-12"></a><span class="cp">#[derive(Debug, Clone, Serialize)]</span>
+<a id="__codelineno-3-13" name="__codelineno-3-13" href="#__codelineno-3-13"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">InstructionMeta</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-3-14" name="__codelineno-3-14" href="#__codelineno-3-14"></a><span class="w">    </span><span class="k">pub</span><span class="w"> </span><span class="n">span</span><span class="p">:</span><span class="w"> </span><span class="nc">SourceSpan</span><span class="p">,</span>
+<a id="__codelineno-3-15" name="__codelineno-3-15" href="#__codelineno-3-15"></a><span class="w">    </span><span class="k">pub</span><span class="w"> </span><span class="n">kind</span><span class="p">:</span><span class="w"> </span><span class="nc">InstructionKind</span><span class="p">,</span><span class="w">  </span><span class="c1">// assignment, branch, call, etc.</span>
+<a id="__codelineno-3-16" name="__codelineno-3-16" href="#__codelineno-3-16"></a><span class="w">    </span><span class="k">pub</span><span class="w"> </span><span class="n">variable</span><span class="p">:</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;</span><span class="nb">String</span><span class="o">&gt;</span><span class="p">,</span>
+<a id="__codelineno-3-17" name="__codelineno-3-17" href="#__codelineno-3-17"></a><span class="p">}</span>
+<a id="__codelineno-3-18" name="__codelineno-3-18" href="#__codelineno-3-18"></a>
+<a id="__codelineno-3-19" name="__codelineno-3-19" href="#__codelineno-3-19"></a><span class="c1">// New: Module metadata export</span>
+<a id="__codelineno-3-20" name="__codelineno-3-20" href="#__codelineno-3-20"></a><span class="k">impl</span><span class="w"> </span><span class="n">CompiledModule</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-3-21" name="__codelineno-3-21" href="#__codelineno-3-21"></a><span class="w">    </span><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">export_source_map</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">SourceMap</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-3-22" name="__codelineno-3-22" href="#__codelineno-3-22"></a><span class="w">        </span><span class="c1">// Export mapping: instruction_id -&gt; SourceSpan</span>
+<a id="__codelineno-3-23" name="__codelineno-3-23" href="#__codelineno-3-23"></a><span class="w">    </span><span class="p">}</span>
+<a id="__codelineno-3-24" name="__codelineno-3-24" href="#__codelineno-3-24"></a>
+<a id="__codelineno-3-25" name="__codelineno-3-25" href="#__codelineno-3-25"></a><span class="w">    </span><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">export_file_table</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Vec</span><span class="o">&lt;</span><span class="n">PathBuf</span><span class="o">&gt;</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-3-26" name="__codelineno-3-26" href="#__codelineno-3-26"></a><span class="w">        </span><span class="c1">// Export file_id -&gt; file path mapping</span>
+<a id="__codelineno-3-27" name="__codelineno-3-27" href="#__codelineno-3-27"></a><span class="w">    </span><span class="p">}</span>
+<a id="__codelineno-3-28" name="__codelineno-3-28" href="#__codelineno-3-28"></a><span class="p">}</span>
+</code></pre></div>
+<p><strong>Scope of Changes:</strong>
+- <code>osdi/src/compilation.rs</code> - Add span preservation during MIR generation
+- <code>osdi/src/metadata.rs</code> - New module for source map export
+- <code>melange/src/lib.rs</code> - Expose through FFI</p>
+<h3 id="52-layer-2-openvaf-py-bindings">5.2 Layer 2: openvaf-py Bindings<a class="headerlink" href="#52-layer-2-openvaf-py-bindings" title="Permanent link">&para;</a></h3>
+<p><strong>New Python API:</strong></p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="nd">@dataclass</span>
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="k">class</span><span class="w"> </span><span class="nc">SourceSpan</span><span class="p">:</span>
+<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Source location in Verilog-A file.&quot;&quot;&quot;</span>
+<a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a>    <span class="n">file</span><span class="p">:</span> <span class="nb">str</span>
+<a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a>    <span class="n">start_line</span><span class="p">:</span> <span class="nb">int</span>
+<a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a>    <span class="n">start_col</span><span class="p">:</span> <span class="nb">int</span>
+<a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a>    <span class="n">end_line</span><span class="p">:</span> <span class="nb">int</span>
+<a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a>    <span class="n">end_col</span><span class="p">:</span> <span class="nb">int</span>
+<a id="__codelineno-4-9" name="__codelineno-4-9" href="#__codelineno-4-9"></a>
+<a id="__codelineno-4-10" name="__codelineno-4-10" href="#__codelineno-4-10"></a>    <span class="k">def</span><span class="w"> </span><span class="fm">__str__</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<a id="__codelineno-4-11" name="__codelineno-4-11" href="#__codelineno-4-11"></a>        <span class="k">return</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">file</span><span class="si">}</span><span class="s2">:</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">start_line</span><span class="si">}</span><span class="s2">:</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">start_col</span><span class="si">}</span><span class="s2">&quot;</span>
+<a id="__codelineno-4-12" name="__codelineno-4-12" href="#__codelineno-4-12"></a>
+<a id="__codelineno-4-13" name="__codelineno-4-13" href="#__codelineno-4-13"></a><span class="nd">@dataclass</span>
+<a id="__codelineno-4-14" name="__codelineno-4-14" href="#__codelineno-4-14"></a><span class="k">class</span><span class="w"> </span><span class="nc">InstructionInfo</span><span class="p">:</span>
+<a id="__codelineno-4-15" name="__codelineno-4-15" href="#__codelineno-4-15"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Metadata for a single compiled instruction.&quot;&quot;&quot;</span>
+<a id="__codelineno-4-16" name="__codelineno-4-16" href="#__codelineno-4-16"></a>    <span class="nb">id</span><span class="p">:</span> <span class="nb">int</span>
+<a id="__codelineno-4-17" name="__codelineno-4-17" href="#__codelineno-4-17"></a>    <span class="n">span</span><span class="p">:</span> <span class="n">SourceSpan</span>
+<a id="__codelineno-4-18" name="__codelineno-4-18" href="#__codelineno-4-18"></a>    <span class="n">kind</span><span class="p">:</span> <span class="nb">str</span>  <span class="c1"># &#39;assign&#39;, &#39;branch&#39;, &#39;contrib&#39;, &#39;call&#39;</span>
+<a id="__codelineno-4-19" name="__codelineno-4-19" href="#__codelineno-4-19"></a>    <span class="n">variable</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span>
+<a id="__codelineno-4-20" name="__codelineno-4-20" href="#__codelineno-4-20"></a>
+<a id="__codelineno-4-21" name="__codelineno-4-21" href="#__codelineno-4-21"></a><span class="k">class</span><span class="w"> </span><span class="nc">CompiledModule</span><span class="p">:</span>
+<a id="__codelineno-4-22" name="__codelineno-4-22" href="#__codelineno-4-22"></a>    <span class="c1"># Existing properties</span>
+<a id="__codelineno-4-23" name="__codelineno-4-23" href="#__codelineno-4-23"></a>    <span class="n">param_names</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span>
+<a id="__codelineno-4-24" name="__codelineno-4-24" href="#__codelineno-4-24"></a>    <span class="n">param_kinds</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span>
+<a id="__codelineno-4-25" name="__codelineno-4-25" href="#__codelineno-4-25"></a>    <span class="n">nodes</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span>
+<a id="__codelineno-4-26" name="__codelineno-4-26" href="#__codelineno-4-26"></a>
+<a id="__codelineno-4-27" name="__codelineno-4-27" href="#__codelineno-4-27"></a>    <span class="c1"># New: Source mapping</span>
+<a id="__codelineno-4-28" name="__codelineno-4-28" href="#__codelineno-4-28"></a>    <span class="n">source_files</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span>
+<a id="__codelineno-4-29" name="__codelineno-4-29" href="#__codelineno-4-29"></a>    <span class="n">instructions</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="n">InstructionInfo</span><span class="p">]</span>
+<a id="__codelineno-4-30" name="__codelineno-4-30" href="#__codelineno-4-30"></a>
+<a id="__codelineno-4-31" name="__codelineno-4-31" href="#__codelineno-4-31"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">get_instructions_for_line</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">file</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">line</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">List</span><span class="p">[</span><span class="n">InstructionInfo</span><span class="p">]:</span>
+<a id="__codelineno-4-32" name="__codelineno-4-32" href="#__codelineno-4-32"></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Get all instructions originating from a source line.&quot;&quot;&quot;</span>
+<a id="__codelineno-4-33" name="__codelineno-4-33" href="#__codelineno-4-33"></a>
+<a id="__codelineno-4-34" name="__codelineno-4-34" href="#__codelineno-4-34"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">get_span_for_instruction</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">inst_id</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Optional</span><span class="p">[</span><span class="n">SourceSpan</span><span class="p">]:</span>
+<a id="__codelineno-4-35" name="__codelineno-4-35" href="#__codelineno-4-35"></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Get source location for an instruction.&quot;&quot;&quot;</span>
+</code></pre></div>
+<h3 id="53-layer-3-openvaf-jax-source-map">5.3 Layer 3: openvaf-jax Source Map<a class="headerlink" href="#53-layer-3-openvaf-jax-source-map" title="Permanent link">&para;</a></h3>
+<p><strong>Source Map Format:</strong></p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="nd">@dataclass</span>
+<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="k">class</span><span class="w"> </span><span class="nc">JAXSourceMap</span><span class="p">:</span>
+<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Maps JAX expressions to Verilog-A source lines.&quot;&quot;&quot;</span>
+<a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a>
+<a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a>    <span class="c1"># file_id -&gt; file path</span>
+<a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a>    <span class="n">files</span><span class="p">:</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="nb">str</span><span class="p">]</span>
+<a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a>
+<a id="__codelineno-5-8" name="__codelineno-5-8" href="#__codelineno-5-8"></a>    <span class="c1"># Maps JAX variable name to source span</span>
+<a id="__codelineno-5-9" name="__codelineno-5-9" href="#__codelineno-5-9"></a>    <span class="c1"># e.g., &quot;contrib_0&quot; -&gt; SourceSpan(psp103.va, 1234, 1, 1234, 45)</span>
+<a id="__codelineno-5-10" name="__codelineno-5-10" href="#__codelineno-5-10"></a>    <span class="n">variable_spans</span><span class="p">:</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">SourceSpan</span><span class="p">]</span>
+<a id="__codelineno-5-11" name="__codelineno-5-11" href="#__codelineno-5-11"></a>
+<a id="__codelineno-5-12" name="__codelineno-5-12" href="#__codelineno-5-12"></a>    <span class="c1"># Maps array index to source span (for vectorized ops)</span>
+<a id="__codelineno-5-13" name="__codelineno-5-13" href="#__codelineno-5-13"></a>    <span class="c1"># e.g., (&quot;residual&quot;, 5) -&gt; SourceSpan(...)</span>
+<a id="__codelineno-5-14" name="__codelineno-5-14" href="#__codelineno-5-14"></a>    <span class="n">array_spans</span><span class="p">:</span> <span class="n">Dict</span><span class="p">[</span><span class="n">Tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">int</span><span class="p">],</span> <span class="n">SourceSpan</span><span class="p">]</span>
+<a id="__codelineno-5-15" name="__codelineno-5-15" href="#__codelineno-5-15"></a>
+<a id="__codelineno-5-16" name="__codelineno-5-16" href="#__codelineno-5-16"></a>    <span class="c1"># Branch tracking: branch_id -&gt; (condition_span, true_span, false_span)</span>
+<a id="__codelineno-5-17" name="__codelineno-5-17" href="#__codelineno-5-17"></a>    <span class="n">branches</span><span class="p">:</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="n">Tuple</span><span class="p">[</span><span class="n">SourceSpan</span><span class="p">,</span> <span class="n">SourceSpan</span><span class="p">,</span> <span class="n">Optional</span><span class="p">[</span><span class="n">SourceSpan</span><span class="p">]]]</span>
+<a id="__codelineno-5-18" name="__codelineno-5-18" href="#__codelineno-5-18"></a>
+<a id="__codelineno-5-19" name="__codelineno-5-19" href="#__codelineno-5-19"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">to_json</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<a id="__codelineno-5-20" name="__codelineno-5-20" href="#__codelineno-5-20"></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Serialize for caching.&quot;&quot;&quot;</span>
+<a id="__codelineno-5-21" name="__codelineno-5-21" href="#__codelineno-5-21"></a>
+<a id="__codelineno-5-22" name="__codelineno-5-22" href="#__codelineno-5-22"></a>    <span class="nd">@classmethod</span>
+<a id="__codelineno-5-23" name="__codelineno-5-23" href="#__codelineno-5-23"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">from_json</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">data</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="s2">&quot;JAXSourceMap&quot;</span><span class="p">:</span>
+<a id="__codelineno-5-24" name="__codelineno-5-24" href="#__codelineno-5-24"></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Deserialize from cache.&quot;&quot;&quot;</span>
+</code></pre></div>
+<p><strong>Translation with Source Tracking:</strong></p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="k">class</span><span class="w"> </span><span class="nc">OpenVAFToJAX</span><span class="p">:</span>
+<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">translate_with_coverage</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Tuple</span><span class="p">[</span><span class="n">Callable</span><span class="p">,</span> <span class="n">JAXSourceMap</span><span class="p">]:</span>
+<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Generate JAX function with source mapping.&quot;&quot;&quot;</span>
+<a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a>
+<a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a>        <span class="n">source_map</span> <span class="o">=</span> <span class="n">JAXSourceMap</span><span class="p">()</span>
+<a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a>
+<a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a>        <span class="k">for</span> <span class="n">inst</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">module</span><span class="o">.</span><span class="n">instructions</span><span class="p">:</span>
+<a id="__codelineno-6-8" name="__codelineno-6-8" href="#__codelineno-6-8"></a>            <span class="c1"># Generate JAX code</span>
+<a id="__codelineno-6-9" name="__codelineno-6-9" href="#__codelineno-6-9"></a>            <span class="n">jax_var</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_translate_instruction</span><span class="p">(</span><span class="n">inst</span><span class="p">)</span>
+<a id="__codelineno-6-10" name="__codelineno-6-10" href="#__codelineno-6-10"></a>
+<a id="__codelineno-6-11" name="__codelineno-6-11" href="#__codelineno-6-11"></a>            <span class="c1"># Record mapping</span>
+<a id="__codelineno-6-12" name="__codelineno-6-12" href="#__codelineno-6-12"></a>            <span class="n">source_map</span><span class="o">.</span><span class="n">variable_spans</span><span class="p">[</span><span class="n">jax_var</span><span class="p">]</span> <span class="o">=</span> <span class="n">inst</span><span class="o">.</span><span class="n">span</span>
+<a id="__codelineno-6-13" name="__codelineno-6-13" href="#__codelineno-6-13"></a>
+<a id="__codelineno-6-14" name="__codelineno-6-14" href="#__codelineno-6-14"></a>            <span class="k">if</span> <span class="n">inst</span><span class="o">.</span><span class="n">kind</span> <span class="o">==</span> <span class="s1">&#39;branch&#39;</span><span class="p">:</span>
+<a id="__codelineno-6-15" name="__codelineno-6-15" href="#__codelineno-6-15"></a>                <span class="n">source_map</span><span class="o">.</span><span class="n">branches</span><span class="p">[</span><span class="n">inst</span><span class="o">.</span><span class="n">id</span><span class="p">]</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_extract_branch_spans</span><span class="p">(</span><span class="n">inst</span><span class="p">)</span>
+<a id="__codelineno-6-16" name="__codelineno-6-16" href="#__codelineno-6-16"></a>
+<a id="__codelineno-6-17" name="__codelineno-6-17" href="#__codelineno-6-17"></a>        <span class="k">return</span> <span class="n">jax_fn</span><span class="p">,</span> <span class="n">source_map</span>
+</code></pre></div>
+<h3 id="54-layer-4-runtime-coverage-tracking">5.4 Layer 4: Runtime Coverage Tracking<a class="headerlink" href="#54-layer-4-runtime-coverage-tracking" title="Permanent link">&para;</a></h3>
+<p><strong>Coverage Modes:</strong></p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>flowchart TD
+<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>    START([Simulation Start]) --&gt; MODE{Coverage Mode?}
+<a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a>
+<a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a>    MODE --&gt;|disabled| FAST[⚡ Fast Path&lt;br/&gt;No instrumentation]
+<a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a>    MODE --&gt;|line| LINE[📍 Line Coverage&lt;br/&gt;Track executed lines]
+<a id="__codelineno-7-6" name="__codelineno-7-6" href="#__codelineno-7-6"></a>    MODE --&gt;|branch| BRANCH[🔀 Branch Coverage&lt;br/&gt;Track all paths]
+<a id="__codelineno-7-7" name="__codelineno-7-7" href="#__codelineno-7-7"></a>    MODE --&gt;|profile| PROFILE[📊 Profile Mode&lt;br/&gt;JAX profiler + mapping]
+<a id="__codelineno-7-8" name="__codelineno-7-8" href="#__codelineno-7-8"></a>
+<a id="__codelineno-7-9" name="__codelineno-7-9" href="#__codelineno-7-9"></a>    FAST --&gt; RUN[Run Simulation]
+<a id="__codelineno-7-10" name="__codelineno-7-10" href="#__codelineno-7-10"></a>    LINE --&gt; INST[Instrument Counters] --&gt; RUN
+<a id="__codelineno-7-11" name="__codelineno-7-11" href="#__codelineno-7-11"></a>    BRANCH --&gt; INST
+<a id="__codelineno-7-12" name="__codelineno-7-12" href="#__codelineno-7-12"></a>    PROFILE --&gt; JAXPROF[Enable JAX Profiler] --&gt; RUN
+<a id="__codelineno-7-13" name="__codelineno-7-13" href="#__codelineno-7-13"></a>
+<a id="__codelineno-7-14" name="__codelineno-7-14" href="#__codelineno-7-14"></a>    RUN --&gt; COLLECT{Coverage Mode?}
+<a id="__codelineno-7-15" name="__codelineno-7-15" href="#__codelineno-7-15"></a>
+<a id="__codelineno-7-16" name="__codelineno-7-16" href="#__codelineno-7-16"></a>    COLLECT --&gt;|disabled| DONE([Done])
+<a id="__codelineno-7-17" name="__codelineno-7-17" href="#__codelineno-7-17"></a>    COLLECT --&gt;|line/branch| MERGE[Merge Counters] --&gt; REPORT[Generate Report]
+<a id="__codelineno-7-18" name="__codelineno-7-18" href="#__codelineno-7-18"></a>    COLLECT --&gt;|profile| PARSE[Parse Trace] --&gt; MAP[Map to Source] --&gt; REPORT
+<a id="__codelineno-7-19" name="__codelineno-7-19" href="#__codelineno-7-19"></a>
+<a id="__codelineno-7-20" name="__codelineno-7-20" href="#__codelineno-7-20"></a>    REPORT --&gt; DONE
+<a id="__codelineno-7-21" name="__codelineno-7-21" href="#__codelineno-7-21"></a>
+<a id="__codelineno-7-22" name="__codelineno-7-22" href="#__codelineno-7-22"></a>    classDef fast fill:#90EE90,stroke:#333,color:darkgreen
+<a id="__codelineno-7-23" name="__codelineno-7-23" href="#__codelineno-7-23"></a>    classDef inst fill:#FFD700,stroke:#333,color:black
+<a id="__codelineno-7-24" name="__codelineno-7-24" href="#__codelineno-7-24"></a>    classDef prof fill:#87CEEB,stroke:#333,color:darkblue
+<a id="__codelineno-7-25" name="__codelineno-7-25" href="#__codelineno-7-25"></a>
+<a id="__codelineno-7-26" name="__codelineno-7-26" href="#__codelineno-7-26"></a>    class FAST fast
+<a id="__codelineno-7-27" name="__codelineno-7-27" href="#__codelineno-7-27"></a>    class LINE,BRANCH,INST inst
+<a id="__codelineno-7-28" name="__codelineno-7-28" href="#__codelineno-7-28"></a>    class PROFILE,JAXPROF,PARSE,MAP prof
+</code></pre></div>
+<p><strong>Approach A: Counter-Based (Recommended for Line Coverage)</strong></p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="k">class</span><span class="w"> </span><span class="nc">LineCoverageTracker</span><span class="p">:</span>
+<a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Track line execution via counters.&quot;&quot;&quot;</span>
+<a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a>
+<a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a>    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">source_map</span><span class="p">:</span> <span class="n">JAXSourceMap</span><span class="p">):</span>
+<a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a>        <span class="bp">self</span><span class="o">.</span><span class="n">source_map</span> <span class="o">=</span> <span class="n">source_map</span>
+<a id="__codelineno-8-6" name="__codelineno-8-6" href="#__codelineno-8-6"></a>        <span class="c1"># Counter per source line: (file_id, line) -&gt; count</span>
+<a id="__codelineno-8-7" name="__codelineno-8-7" href="#__codelineno-8-7"></a>        <span class="bp">self</span><span class="o">.</span><span class="n">line_counts</span><span class="p">:</span> <span class="n">Dict</span><span class="p">[</span><span class="n">Tuple</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="nb">int</span><span class="p">],</span> <span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="n">defaultdict</span><span class="p">(</span><span class="nb">int</span><span class="p">)</span>
+<a id="__codelineno-8-8" name="__codelineno-8-8" href="#__codelineno-8-8"></a>
+<a id="__codelineno-8-9" name="__codelineno-8-9" href="#__codelineno-8-9"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">instrument</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">jax_fn</span><span class="p">:</span> <span class="n">Callable</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Callable</span><span class="p">:</span>
+<a id="__codelineno-8-10" name="__codelineno-8-10" href="#__codelineno-8-10"></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Wrap JAX function with coverage counters.&quot;&quot;&quot;</span>
+<a id="__codelineno-8-11" name="__codelineno-8-11" href="#__codelineno-8-11"></a>
+<a id="__codelineno-8-12" name="__codelineno-8-12" href="#__codelineno-8-12"></a>        <span class="k">def</span><span class="w"> </span><span class="nf">instrumented</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
+<a id="__codelineno-8-13" name="__codelineno-8-13" href="#__codelineno-8-13"></a>            <span class="c1"># Pre-execution: Mark lines as about to execute</span>
+<a id="__codelineno-8-14" name="__codelineno-8-14" href="#__codelineno-8-14"></a>            <span class="c1"># This uses JAX&#39;s callback mechanism</span>
+<a id="__codelineno-8-15" name="__codelineno-8-15" href="#__codelineno-8-15"></a>            <span class="n">result</span> <span class="o">=</span> <span class="n">jax_fn</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
+<a id="__codelineno-8-16" name="__codelineno-8-16" href="#__codelineno-8-16"></a>
+<a id="__codelineno-8-17" name="__codelineno-8-17" href="#__codelineno-8-17"></a>            <span class="c1"># Post-execution: Increment counters</span>
+<a id="__codelineno-8-18" name="__codelineno-8-18" href="#__codelineno-8-18"></a>            <span class="k">for</span> <span class="n">var</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_executed_vars</span><span class="p">:</span>
+<a id="__codelineno-8-19" name="__codelineno-8-19" href="#__codelineno-8-19"></a>                <span class="k">if</span> <span class="n">var</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">source_map</span><span class="o">.</span><span class="n">variable_spans</span><span class="p">:</span>
+<a id="__codelineno-8-20" name="__codelineno-8-20" href="#__codelineno-8-20"></a>                    <span class="n">span</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">source_map</span><span class="o">.</span><span class="n">variable_spans</span><span class="p">[</span><span class="n">var</span><span class="p">]</span>
+<a id="__codelineno-8-21" name="__codelineno-8-21" href="#__codelineno-8-21"></a>                    <span class="bp">self</span><span class="o">.</span><span class="n">line_counts</span><span class="p">[(</span><span class="n">span</span><span class="o">.</span><span class="n">file_id</span><span class="p">,</span> <span class="n">span</span><span class="o">.</span><span class="n">start_line</span><span class="p">)]</span> <span class="o">+=</span> <span class="mi">1</span>
+<a id="__codelineno-8-22" name="__codelineno-8-22" href="#__codelineno-8-22"></a>
+<a id="__codelineno-8-23" name="__codelineno-8-23" href="#__codelineno-8-23"></a>            <span class="k">return</span> <span class="n">result</span>
+<a id="__codelineno-8-24" name="__codelineno-8-24" href="#__codelineno-8-24"></a>
+<a id="__codelineno-8-25" name="__codelineno-8-25" href="#__codelineno-8-25"></a>        <span class="k">return</span> <span class="n">instrumented</span>
+</code></pre></div>
+<p><strong>Approach B: JAX Profiler-Based (For Detailed Analysis)</strong></p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="k">class</span><span class="w"> </span><span class="nc">ProfileCoverageTracker</span><span class="p">:</span>
+<a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Track coverage via JAX profiler traces.&quot;&quot;&quot;</span>
+<a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a>
+<a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a>    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">source_map</span><span class="p">:</span> <span class="n">JAXSourceMap</span><span class="p">):</span>
+<a id="__codelineno-9-5" name="__codelineno-9-5" href="#__codelineno-9-5"></a>        <span class="bp">self</span><span class="o">.</span><span class="n">source_map</span> <span class="o">=</span> <span class="n">source_map</span>
+<a id="__codelineno-9-6" name="__codelineno-9-6" href="#__codelineno-9-6"></a>
+<a id="__codelineno-9-7" name="__codelineno-9-7" href="#__codelineno-9-7"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">run_with_profiling</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">jax_fn</span><span class="p">:</span> <span class="n">Callable</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Tuple</span><span class="p">[</span><span class="n">Any</span><span class="p">,</span> <span class="n">CoverageData</span><span class="p">]:</span>
+<a id="__codelineno-9-8" name="__codelineno-9-8" href="#__codelineno-9-8"></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Run function with JAX profiler and extract coverage.&quot;&quot;&quot;</span>
+<a id="__codelineno-9-9" name="__codelineno-9-9" href="#__codelineno-9-9"></a>
+<a id="__codelineno-9-10" name="__codelineno-9-10" href="#__codelineno-9-10"></a>        <span class="k">with</span> <span class="n">jax</span><span class="o">.</span><span class="n">profiler</span><span class="o">.</span><span class="n">trace</span><span class="p">(</span><span class="s2">&quot;/tmp/coverage_trace&quot;</span><span class="p">):</span>
+<a id="__codelineno-9-11" name="__codelineno-9-11" href="#__codelineno-9-11"></a>            <span class="n">result</span> <span class="o">=</span> <span class="n">jax_fn</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">)</span>
+<a id="__codelineno-9-12" name="__codelineno-9-12" href="#__codelineno-9-12"></a>
+<a id="__codelineno-9-13" name="__codelineno-9-13" href="#__codelineno-9-13"></a>        <span class="c1"># Parse the profiler trace</span>
+<a id="__codelineno-9-14" name="__codelineno-9-14" href="#__codelineno-9-14"></a>        <span class="n">trace_data</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_parse_trace</span><span class="p">(</span><span class="s2">&quot;/tmp/coverage_trace&quot;</span><span class="p">)</span>
+<a id="__codelineno-9-15" name="__codelineno-9-15" href="#__codelineno-9-15"></a>
+<a id="__codelineno-9-16" name="__codelineno-9-16" href="#__codelineno-9-16"></a>        <span class="c1"># Map HLO operations back to source lines</span>
+<a id="__codelineno-9-17" name="__codelineno-9-17" href="#__codelineno-9-17"></a>        <span class="n">coverage</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_map_trace_to_source</span><span class="p">(</span><span class="n">trace_data</span><span class="p">)</span>
+<a id="__codelineno-9-18" name="__codelineno-9-18" href="#__codelineno-9-18"></a>
+<a id="__codelineno-9-19" name="__codelineno-9-19" href="#__codelineno-9-19"></a>        <span class="k">return</span> <span class="n">result</span><span class="p">,</span> <span class="n">coverage</span>
+<a id="__codelineno-9-20" name="__codelineno-9-20" href="#__codelineno-9-20"></a>
+<a id="__codelineno-9-21" name="__codelineno-9-21" href="#__codelineno-9-21"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">_map_trace_to_source</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">trace</span><span class="p">:</span> <span class="n">TraceData</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">CoverageData</span><span class="p">:</span>
+<a id="__codelineno-9-22" name="__codelineno-9-22" href="#__codelineno-9-22"></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Map profiler trace entries to source lines.&quot;&quot;&quot;</span>
+<a id="__codelineno-9-23" name="__codelineno-9-23" href="#__codelineno-9-23"></a>        <span class="n">coverage</span> <span class="o">=</span> <span class="n">CoverageData</span><span class="p">()</span>
+<a id="__codelineno-9-24" name="__codelineno-9-24" href="#__codelineno-9-24"></a>
+<a id="__codelineno-9-25" name="__codelineno-9-25" href="#__codelineno-9-25"></a>        <span class="k">for</span> <span class="n">op</span> <span class="ow">in</span> <span class="n">trace</span><span class="o">.</span><span class="n">operations</span><span class="p">:</span>
+<a id="__codelineno-9-26" name="__codelineno-9-26" href="#__codelineno-9-26"></a>            <span class="c1"># JAX preserves some metadata in HLO op names</span>
+<a id="__codelineno-9-27" name="__codelineno-9-27" href="#__codelineno-9-27"></a>            <span class="k">if</span> <span class="n">span</span> <span class="o">:=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_find_span_for_op</span><span class="p">(</span><span class="n">op</span><span class="p">):</span>
+<a id="__codelineno-9-28" name="__codelineno-9-28" href="#__codelineno-9-28"></a>                <span class="n">coverage</span><span class="o">.</span><span class="n">mark_executed</span><span class="p">(</span><span class="n">span</span><span class="p">,</span> <span class="n">op</span><span class="o">.</span><span class="n">execution_count</span><span class="p">)</span>
+<a id="__codelineno-9-29" name="__codelineno-9-29" href="#__codelineno-9-29"></a>
+<a id="__codelineno-9-30" name="__codelineno-9-30" href="#__codelineno-9-30"></a>        <span class="k">return</span> <span class="n">coverage</span>
+</code></pre></div>
+<h3 id="55-layer-5-cobertura-output">5.5 Layer 5: Cobertura Output<a class="headerlink" href="#55-layer-5-cobertura-output" title="Permanent link">&para;</a></h3>
+<p><strong>Cobertura XML Structure:</strong></p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="cp">&lt;?xml version=&quot;1.0&quot; ?&gt;</span>
+<a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a><span class="cp">&lt;!DOCTYPE coverage SYSTEM &quot;http://cobertura.sourceforge.net/xml/coverage-04.dtd&quot;&gt;</span>
+<a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a><span class="nt">&lt;coverage</span><span class="w"> </span><span class="na">line-rate=</span><span class="s">&quot;0.85&quot;</span><span class="w"> </span><span class="na">branch-rate=</span><span class="s">&quot;0.72&quot;</span>
+<a id="__codelineno-10-4" name="__codelineno-10-4" href="#__codelineno-10-4"></a><span class="w">          </span><span class="na">lines-covered=</span><span class="s">&quot;850&quot;</span><span class="w"> </span><span class="na">lines-valid=</span><span class="s">&quot;1000&quot;</span>
+<a id="__codelineno-10-5" name="__codelineno-10-5" href="#__codelineno-10-5"></a><span class="w">          </span><span class="na">branches-covered=</span><span class="s">&quot;36&quot;</span><span class="w"> </span><span class="na">branches-valid=</span><span class="s">&quot;50&quot;</span>
+<a id="__codelineno-10-6" name="__codelineno-10-6" href="#__codelineno-10-6"></a><span class="w">          </span><span class="na">version=</span><span class="s">&quot;1.0&quot;</span><span class="w"> </span><span class="na">timestamp=</span><span class="s">&quot;1703876400&quot;</span><span class="nt">&gt;</span>
+<a id="__codelineno-10-7" name="__codelineno-10-7" href="#__codelineno-10-7"></a><span class="w">    </span><span class="nt">&lt;sources&gt;</span>
+<a id="__codelineno-10-8" name="__codelineno-10-8" href="#__codelineno-10-8"></a><span class="w">        </span><span class="nt">&lt;source&gt;</span>/path/to/vendor/VACASK/devices<span class="nt">&lt;/source&gt;</span>
+<a id="__codelineno-10-9" name="__codelineno-10-9" href="#__codelineno-10-9"></a><span class="w">    </span><span class="nt">&lt;/sources&gt;</span>
+<a id="__codelineno-10-10" name="__codelineno-10-10" href="#__codelineno-10-10"></a><span class="w">    </span><span class="nt">&lt;packages&gt;</span>
+<a id="__codelineno-10-11" name="__codelineno-10-11" href="#__codelineno-10-11"></a><span class="w">        </span><span class="nt">&lt;package</span><span class="w"> </span><span class="na">name=</span><span class="s">&quot;psp103&quot;</span><span class="w"> </span><span class="na">line-rate=</span><span class="s">&quot;0.90&quot;</span><span class="w"> </span><span class="na">branch-rate=</span><span class="s">&quot;0.80&quot;</span><span class="nt">&gt;</span>
+<a id="__codelineno-10-12" name="__codelineno-10-12" href="#__codelineno-10-12"></a><span class="w">            </span><span class="nt">&lt;classes&gt;</span>
+<a id="__codelineno-10-13" name="__codelineno-10-13" href="#__codelineno-10-13"></a><span class="w">                </span><span class="nt">&lt;class</span><span class="w"> </span><span class="na">name=</span><span class="s">&quot;psp103va&quot;</span><span class="w"> </span><span class="na">filename=</span><span class="s">&quot;psp103.va&quot;</span>
+<a id="__codelineno-10-14" name="__codelineno-10-14" href="#__codelineno-10-14"></a><span class="w">                       </span><span class="na">line-rate=</span><span class="s">&quot;0.90&quot;</span><span class="w"> </span><span class="na">branch-rate=</span><span class="s">&quot;0.80&quot;</span><span class="nt">&gt;</span>
+<a id="__codelineno-10-15" name="__codelineno-10-15" href="#__codelineno-10-15"></a><span class="w">                    </span><span class="nt">&lt;methods/&gt;</span>
+<a id="__codelineno-10-16" name="__codelineno-10-16" href="#__codelineno-10-16"></a><span class="w">                    </span><span class="nt">&lt;lines&gt;</span>
+<a id="__codelineno-10-17" name="__codelineno-10-17" href="#__codelineno-10-17"></a><span class="w">                        </span><span class="nt">&lt;line</span><span class="w"> </span><span class="na">number=</span><span class="s">&quot;100&quot;</span><span class="w"> </span><span class="na">hits=</span><span class="s">&quot;1000&quot;</span><span class="nt">/&gt;</span>
+<a id="__codelineno-10-18" name="__codelineno-10-18" href="#__codelineno-10-18"></a><span class="w">                        </span><span class="nt">&lt;line</span><span class="w"> </span><span class="na">number=</span><span class="s">&quot;101&quot;</span><span class="w"> </span><span class="na">hits=</span><span class="s">&quot;1000&quot;</span><span class="nt">/&gt;</span>
+<a id="__codelineno-10-19" name="__codelineno-10-19" href="#__codelineno-10-19"></a><span class="w">                        </span><span class="nt">&lt;line</span><span class="w"> </span><span class="na">number=</span><span class="s">&quot;102&quot;</span><span class="w"> </span><span class="na">hits=</span><span class="s">&quot;0&quot;</span><span class="nt">/&gt;</span><span class="w">  </span><span class="cm">&lt;!-- Not covered --&gt;</span>
+<a id="__codelineno-10-20" name="__codelineno-10-20" href="#__codelineno-10-20"></a><span class="w">                        </span><span class="nt">&lt;line</span><span class="w"> </span><span class="na">number=</span><span class="s">&quot;150&quot;</span><span class="w"> </span><span class="na">hits=</span><span class="s">&quot;500&quot;</span><span class="w"> </span><span class="na">branch=</span><span class="s">&quot;true&quot;</span>
+<a id="__codelineno-10-21" name="__codelineno-10-21" href="#__codelineno-10-21"></a><span class="w">                              </span><span class="na">condition-coverage=</span><span class="s">&quot;50% (1/2)&quot;</span><span class="nt">&gt;</span>
+<a id="__codelineno-10-22" name="__codelineno-10-22" href="#__codelineno-10-22"></a><span class="w">                            </span><span class="nt">&lt;conditions&gt;</span>
+<a id="__codelineno-10-23" name="__codelineno-10-23" href="#__codelineno-10-23"></a><span class="w">                                </span><span class="nt">&lt;condition</span><span class="w"> </span><span class="na">number=</span><span class="s">&quot;0&quot;</span><span class="w"> </span><span class="na">type=</span><span class="s">&quot;jump&quot;</span><span class="w"> </span><span class="na">coverage=</span><span class="s">&quot;50%&quot;</span><span class="nt">/&gt;</span>
+<a id="__codelineno-10-24" name="__codelineno-10-24" href="#__codelineno-10-24"></a><span class="w">                            </span><span class="nt">&lt;/conditions&gt;</span>
+<a id="__codelineno-10-25" name="__codelineno-10-25" href="#__codelineno-10-25"></a><span class="w">                        </span><span class="nt">&lt;/line&gt;</span>
+<a id="__codelineno-10-26" name="__codelineno-10-26" href="#__codelineno-10-26"></a><span class="w">                    </span><span class="nt">&lt;/lines&gt;</span>
+<a id="__codelineno-10-27" name="__codelineno-10-27" href="#__codelineno-10-27"></a><span class="w">                </span><span class="nt">&lt;/class&gt;</span>
+<a id="__codelineno-10-28" name="__codelineno-10-28" href="#__codelineno-10-28"></a><span class="w">            </span><span class="nt">&lt;/classes&gt;</span>
+<a id="__codelineno-10-29" name="__codelineno-10-29" href="#__codelineno-10-29"></a><span class="w">        </span><span class="nt">&lt;/package&gt;</span>
+<a id="__codelineno-10-30" name="__codelineno-10-30" href="#__codelineno-10-30"></a><span class="w">    </span><span class="nt">&lt;/packages&gt;</span>
+<a id="__codelineno-10-31" name="__codelineno-10-31" href="#__codelineno-10-31"></a><span class="nt">&lt;/coverage&gt;</span>
+</code></pre></div>
+<p><strong>Python Generator:</strong></p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="k">class</span><span class="w"> </span><span class="nc">CoberturaGenerator</span><span class="p">:</span>
+<a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Generate Cobertura XML from coverage data.&quot;&quot;&quot;</span>
+<a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a>
+<a id="__codelineno-11-4" name="__codelineno-11-4" href="#__codelineno-11-4"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">generate</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">coverage</span><span class="p">:</span> <span class="n">CoverageData</span><span class="p">,</span> <span class="n">output_path</span><span class="p">:</span> <span class="n">Path</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<a id="__codelineno-11-5" name="__codelineno-11-5" href="#__codelineno-11-5"></a>        <span class="n">root</span> <span class="o">=</span> <span class="n">ET</span><span class="o">.</span><span class="n">Element</span><span class="p">(</span><span class="s2">&quot;coverage&quot;</span><span class="p">)</span>
+<a id="__codelineno-11-6" name="__codelineno-11-6" href="#__codelineno-11-6"></a>        <span class="n">root</span><span class="o">.</span><span class="n">set</span><span class="p">(</span><span class="s2">&quot;line-rate&quot;</span><span class="p">,</span> <span class="nb">str</span><span class="p">(</span><span class="n">coverage</span><span class="o">.</span><span class="n">line_rate</span><span class="p">))</span>
+<a id="__codelineno-11-7" name="__codelineno-11-7" href="#__codelineno-11-7"></a>        <span class="n">root</span><span class="o">.</span><span class="n">set</span><span class="p">(</span><span class="s2">&quot;branch-rate&quot;</span><span class="p">,</span> <span class="nb">str</span><span class="p">(</span><span class="n">coverage</span><span class="o">.</span><span class="n">branch_rate</span><span class="p">))</span>
+<a id="__codelineno-11-8" name="__codelineno-11-8" href="#__codelineno-11-8"></a>        <span class="n">root</span><span class="o">.</span><span class="n">set</span><span class="p">(</span><span class="s2">&quot;lines-covered&quot;</span><span class="p">,</span> <span class="nb">str</span><span class="p">(</span><span class="n">coverage</span><span class="o">.</span><span class="n">lines_covered</span><span class="p">))</span>
+<a id="__codelineno-11-9" name="__codelineno-11-9" href="#__codelineno-11-9"></a>        <span class="n">root</span><span class="o">.</span><span class="n">set</span><span class="p">(</span><span class="s2">&quot;lines-valid&quot;</span><span class="p">,</span> <span class="nb">str</span><span class="p">(</span><span class="n">coverage</span><span class="o">.</span><span class="n">lines_valid</span><span class="p">))</span>
+<a id="__codelineno-11-10" name="__codelineno-11-10" href="#__codelineno-11-10"></a>        <span class="n">root</span><span class="o">.</span><span class="n">set</span><span class="p">(</span><span class="s2">&quot;branches-covered&quot;</span><span class="p">,</span> <span class="nb">str</span><span class="p">(</span><span class="n">coverage</span><span class="o">.</span><span class="n">branches_covered</span><span class="p">))</span>
+<a id="__codelineno-11-11" name="__codelineno-11-11" href="#__codelineno-11-11"></a>        <span class="n">root</span><span class="o">.</span><span class="n">set</span><span class="p">(</span><span class="s2">&quot;branches-valid&quot;</span><span class="p">,</span> <span class="nb">str</span><span class="p">(</span><span class="n">coverage</span><span class="o">.</span><span class="n">branches_valid</span><span class="p">))</span>
+<a id="__codelineno-11-12" name="__codelineno-11-12" href="#__codelineno-11-12"></a>        <span class="n">root</span><span class="o">.</span><span class="n">set</span><span class="p">(</span><span class="s2">&quot;version&quot;</span><span class="p">,</span> <span class="s2">&quot;1.0&quot;</span><span class="p">)</span>
+<a id="__codelineno-11-13" name="__codelineno-11-13" href="#__codelineno-11-13"></a>        <span class="n">root</span><span class="o">.</span><span class="n">set</span><span class="p">(</span><span class="s2">&quot;timestamp&quot;</span><span class="p">,</span> <span class="nb">str</span><span class="p">(</span><span class="nb">int</span><span class="p">(</span><span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">())))</span>
+<a id="__codelineno-11-14" name="__codelineno-11-14" href="#__codelineno-11-14"></a>
+<a id="__codelineno-11-15" name="__codelineno-11-15" href="#__codelineno-11-15"></a>        <span class="c1"># Add sources</span>
+<a id="__codelineno-11-16" name="__codelineno-11-16" href="#__codelineno-11-16"></a>        <span class="n">sources</span> <span class="o">=</span> <span class="n">ET</span><span class="o">.</span><span class="n">SubElement</span><span class="p">(</span><span class="n">root</span><span class="p">,</span> <span class="s2">&quot;sources&quot;</span><span class="p">)</span>
+<a id="__codelineno-11-17" name="__codelineno-11-17" href="#__codelineno-11-17"></a>        <span class="k">for</span> <span class="n">source_dir</span> <span class="ow">in</span> <span class="n">coverage</span><span class="o">.</span><span class="n">source_dirs</span><span class="p">:</span>
+<a id="__codelineno-11-18" name="__codelineno-11-18" href="#__codelineno-11-18"></a>            <span class="n">ET</span><span class="o">.</span><span class="n">SubElement</span><span class="p">(</span><span class="n">sources</span><span class="p">,</span> <span class="s2">&quot;source&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">text</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">source_dir</span><span class="p">)</span>
+<a id="__codelineno-11-19" name="__codelineno-11-19" href="#__codelineno-11-19"></a>
+<a id="__codelineno-11-20" name="__codelineno-11-20" href="#__codelineno-11-20"></a>        <span class="c1"># Add packages (group by model)</span>
+<a id="__codelineno-11-21" name="__codelineno-11-21" href="#__codelineno-11-21"></a>        <span class="n">packages</span> <span class="o">=</span> <span class="n">ET</span><span class="o">.</span><span class="n">SubElement</span><span class="p">(</span><span class="n">root</span><span class="p">,</span> <span class="s2">&quot;packages&quot;</span><span class="p">)</span>
+<a id="__codelineno-11-22" name="__codelineno-11-22" href="#__codelineno-11-22"></a>        <span class="k">for</span> <span class="n">model_name</span><span class="p">,</span> <span class="n">model_coverage</span> <span class="ow">in</span> <span class="n">coverage</span><span class="o">.</span><span class="n">by_model</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+<a id="__codelineno-11-23" name="__codelineno-11-23" href="#__codelineno-11-23"></a>            <span class="bp">self</span><span class="o">.</span><span class="n">_add_package</span><span class="p">(</span><span class="n">packages</span><span class="p">,</span> <span class="n">model_name</span><span class="p">,</span> <span class="n">model_coverage</span><span class="p">)</span>
+<a id="__codelineno-11-24" name="__codelineno-11-24" href="#__codelineno-11-24"></a>
+<a id="__codelineno-11-25" name="__codelineno-11-25" href="#__codelineno-11-25"></a>        <span class="c1"># Write XML</span>
+<a id="__codelineno-11-26" name="__codelineno-11-26" href="#__codelineno-11-26"></a>        <span class="n">tree</span> <span class="o">=</span> <span class="n">ET</span><span class="o">.</span><span class="n">ElementTree</span><span class="p">(</span><span class="n">root</span><span class="p">)</span>
+<a id="__codelineno-11-27" name="__codelineno-11-27" href="#__codelineno-11-27"></a>        <span class="n">tree</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="n">output_path</span><span class="p">,</span> <span class="n">encoding</span><span class="o">=</span><span class="s2">&quot;utf-8&quot;</span><span class="p">,</span> <span class="n">xml_declaration</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+</code></pre></div>
+<hr />
+<h2 id="6-data-flow">6. Data Flow<a class="headerlink" href="#6-data-flow" title="Permanent link">&para;</a></h2>
+<h3 id="61-compilation-flow-source-map-generation">6.1 Compilation Flow (Source Map Generation)<a class="headerlink" href="#61-compilation-flow-source-map-generation" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a>sequenceDiagram
+<a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a>    participant VA as Verilog-A File
+<a id="__codelineno-12-3" name="__codelineno-12-3" href="#__codelineno-12-3"></a>    participant OC as OpenVAF Compiler
+<a id="__codelineno-12-4" name="__codelineno-12-4" href="#__codelineno-12-4"></a>    participant PY as openvaf-py
+<a id="__codelineno-12-5" name="__codelineno-12-5" href="#__codelineno-12-5"></a>    participant JAX as openvaf-jax
+<a id="__codelineno-12-6" name="__codelineno-12-6" href="#__codelineno-12-6"></a>    participant CACHE as Source Map Cache
+<a id="__codelineno-12-7" name="__codelineno-12-7" href="#__codelineno-12-7"></a>
+<a id="__codelineno-12-8" name="__codelineno-12-8" href="#__codelineno-12-8"></a>    VA-&gt;&gt;OC: Parse psp103.va
+<a id="__codelineno-12-9" name="__codelineno-12-9" href="#__codelineno-12-9"></a>    OC-&gt;&gt;OC: Generate AST with spans
+<a id="__codelineno-12-10" name="__codelineno-12-10" href="#__codelineno-12-10"></a>    OC-&gt;&gt;OC: Lower to HIR (preserve spans)
+<a id="__codelineno-12-11" name="__codelineno-12-11" href="#__codelineno-12-11"></a>    OC-&gt;&gt;OC: Generate MIR (instruction spans)
+<a id="__codelineno-12-12" name="__codelineno-12-12" href="#__codelineno-12-12"></a>    OC-&gt;&gt;PY: Export CompiledModule + SpanMap
+<a id="__codelineno-12-13" name="__codelineno-12-13" href="#__codelineno-12-13"></a>    PY-&gt;&gt;PY: Build Python InstructionInfo list
+<a id="__codelineno-12-14" name="__codelineno-12-14" href="#__codelineno-12-14"></a>    PY-&gt;&gt;JAX: Pass module + instruction metadata
+<a id="__codelineno-12-15" name="__codelineno-12-15" href="#__codelineno-12-15"></a>    JAX-&gt;&gt;JAX: Translate to JAX functions
+<a id="__codelineno-12-16" name="__codelineno-12-16" href="#__codelineno-12-16"></a>    JAX-&gt;&gt;JAX: Build JAXSourceMap
+<a id="__codelineno-12-17" name="__codelineno-12-17" href="#__codelineno-12-17"></a>    JAX-&gt;&gt;CACHE: Cache source map (by model hash)
+<a id="__codelineno-12-18" name="__codelineno-12-18" href="#__codelineno-12-18"></a>    JAX--&gt;&gt;PY: Return (jax_fn, source_map)
+</code></pre></div>
+<h3 id="62-runtime-flow-coverage-collection">6.2 Runtime Flow (Coverage Collection)<a class="headerlink" href="#62-runtime-flow-coverage-collection" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a>sequenceDiagram
+<a id="__codelineno-13-2" name="__codelineno-13-2" href="#__codelineno-13-2"></a>    participant SIM as Simulator
+<a id="__codelineno-13-3" name="__codelineno-13-3" href="#__codelineno-13-3"></a>    participant COV as Coverage Tracker
+<a id="__codelineno-13-4" name="__codelineno-13-4" href="#__codelineno-13-4"></a>    participant JAX as JAX Runtime
+<a id="__codelineno-13-5" name="__codelineno-13-5" href="#__codelineno-13-5"></a>    participant MAP as Source Map
+<a id="__codelineno-13-6" name="__codelineno-13-6" href="#__codelineno-13-6"></a>    participant AGG as Aggregator
+<a id="__codelineno-13-7" name="__codelineno-13-7" href="#__codelineno-13-7"></a>
+<a id="__codelineno-13-8" name="__codelineno-13-8" href="#__codelineno-13-8"></a>    SIM-&gt;&gt;COV: Enable coverage mode
+<a id="__codelineno-13-9" name="__codelineno-13-9" href="#__codelineno-13-9"></a>    COV-&gt;&gt;MAP: Load source map
+<a id="__codelineno-13-10" name="__codelineno-13-10" href="#__codelineno-13-10"></a>    COV-&gt;&gt;JAX: Instrument functions
+<a id="__codelineno-13-11" name="__codelineno-13-11" href="#__codelineno-13-11"></a>
+<a id="__codelineno-13-12" name="__codelineno-13-12" href="#__codelineno-13-12"></a>    loop Each Timestep
+<a id="__codelineno-13-13" name="__codelineno-13-13" href="#__codelineno-13-13"></a>        SIM-&gt;&gt;JAX: Run simulation step
+<a id="__codelineno-13-14" name="__codelineno-13-14" href="#__codelineno-13-14"></a>        JAX-&gt;&gt;JAX: Execute instrumented code
+<a id="__codelineno-13-15" name="__codelineno-13-15" href="#__codelineno-13-15"></a>        JAX-&gt;&gt;COV: Report executed operations
+<a id="__codelineno-13-16" name="__codelineno-13-16" href="#__codelineno-13-16"></a>        COV-&gt;&gt;COV: Update line counters
+<a id="__codelineno-13-17" name="__codelineno-13-17" href="#__codelineno-13-17"></a>    end
+<a id="__codelineno-13-18" name="__codelineno-13-18" href="#__codelineno-13-18"></a>
+<a id="__codelineno-13-19" name="__codelineno-13-19" href="#__codelineno-13-19"></a>    SIM-&gt;&gt;COV: End simulation
+<a id="__codelineno-13-20" name="__codelineno-13-20" href="#__codelineno-13-20"></a>    COV-&gt;&gt;AGG: Submit run coverage
+<a id="__codelineno-13-21" name="__codelineno-13-21" href="#__codelineno-13-21"></a>    AGG-&gt;&gt;AGG: Merge with previous runs
+<a id="__codelineno-13-22" name="__codelineno-13-22" href="#__codelineno-13-22"></a>    AGG--&gt;&gt;SIM: Return merged coverage
+</code></pre></div>
+<hr />
+<h2 id="7-implementation-phases">7. Implementation Phases<a class="headerlink" href="#7-implementation-phases" title="Permanent link">&para;</a></h2>
+<h3 id="phase-1-foundation-4-6-weeks">Phase 1: Foundation (4-6 weeks)<a class="headerlink" href="#phase-1-foundation-4-6-weeks" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a>gantt
+<a id="__codelineno-14-2" name="__codelineno-14-2" href="#__codelineno-14-2"></a>    title Phase 1: Foundation
+<a id="__codelineno-14-3" name="__codelineno-14-3" href="#__codelineno-14-3"></a>    dateFormat  YYYY-MM-DD
+<a id="__codelineno-14-4" name="__codelineno-14-4" href="#__codelineno-14-4"></a>    section OpenVAF
+<a id="__codelineno-14-5" name="__codelineno-14-5" href="#__codelineno-14-5"></a>    Add span export API           :p1a, 2025-01-06, 2w
+<a id="__codelineno-14-6" name="__codelineno-14-6" href="#__codelineno-14-6"></a>    Update melange FFI            :p1b, after p1a, 1w
+<a id="__codelineno-14-7" name="__codelineno-14-7" href="#__codelineno-14-7"></a>    section openvaf-py
+<a id="__codelineno-14-8" name="__codelineno-14-8" href="#__codelineno-14-8"></a>    Add SpanInfo bindings         :p1c, after p1b, 1w
+<a id="__codelineno-14-9" name="__codelineno-14-9" href="#__codelineno-14-9"></a>    Expose instruction metadata   :p1d, after p1c, 1w
+<a id="__codelineno-14-10" name="__codelineno-14-10" href="#__codelineno-14-10"></a>    section Testing
+<a id="__codelineno-14-11" name="__codelineno-14-11" href="#__codelineno-14-11"></a>    Unit tests for span export    :p1e, after p1d, 1w
+</code></pre></div>
+<p><strong>Deliverables:</strong>
+- OpenVAF exports source spans through new API
+- openvaf-py exposes <code>SourceSpan</code> and <code>InstructionInfo</code> classes
+- Basic tests verifying span preservation</p>
+<h3 id="phase-2-source-mapping-3-4-weeks">Phase 2: Source Mapping (3-4 weeks)<a class="headerlink" href="#phase-2-source-mapping-3-4-weeks" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a>gantt
+<a id="__codelineno-15-2" name="__codelineno-15-2" href="#__codelineno-15-2"></a>    title Phase 2: Source Mapping
+<a id="__codelineno-15-3" name="__codelineno-15-3" href="#__codelineno-15-3"></a>    dateFormat  YYYY-MM-DD
+<a id="__codelineno-15-4" name="__codelineno-15-4" href="#__codelineno-15-4"></a>    section openvaf-jax
+<a id="__codelineno-15-5" name="__codelineno-15-5" href="#__codelineno-15-5"></a>    JAXSourceMap implementation   :p2a, 2025-02-17, 2w
+<a id="__codelineno-15-6" name="__codelineno-15-6" href="#__codelineno-15-6"></a>    Translator integration        :p2b, after p2a, 1w
+<a id="__codelineno-15-7" name="__codelineno-15-7" href="#__codelineno-15-7"></a>    Source map caching           :p2c, after p2b, 1w
+</code></pre></div>
+<p><strong>Deliverables:</strong>
+- <code>JAXSourceMap</code> class mapping JAX expressions to VA lines
+- Automatic source map generation during translation
+- Caching layer to avoid regeneration</p>
+<h3 id="phase-3-runtime-tracking-4-5-weeks">Phase 3: Runtime Tracking (4-5 weeks)<a class="headerlink" href="#phase-3-runtime-tracking-4-5-weeks" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a>gantt
+<a id="__codelineno-16-2" name="__codelineno-16-2" href="#__codelineno-16-2"></a>    title Phase 3: Runtime Tracking
+<a id="__codelineno-16-3" name="__codelineno-16-3" href="#__codelineno-16-3"></a>    dateFormat  YYYY-MM-DD
+<a id="__codelineno-16-4" name="__codelineno-16-4" href="#__codelineno-16-4"></a>    section Counter-Based
+<a id="__codelineno-16-5" name="__codelineno-16-5" href="#__codelineno-16-5"></a>    Line counter implementation   :p3a, 2025-03-17, 2w
+<a id="__codelineno-16-6" name="__codelineno-16-6" href="#__codelineno-16-6"></a>    Branch counter implementation :p3b, after p3a, 1w
+<a id="__codelineno-16-7" name="__codelineno-16-7" href="#__codelineno-16-7"></a>    section Profiler-Based
+<a id="__codelineno-16-8" name="__codelineno-16-8" href="#__codelineno-16-8"></a>    JAX profiler integration      :p3c, after p3b, 2w
+<a id="__codelineno-16-9" name="__codelineno-16-9" href="#__codelineno-16-9"></a>    Trace-to-source mapping      :p3d, after p3c, 1w
+</code></pre></div>
+<p><strong>Deliverables:</strong>
+- Counter-based line/branch coverage
+- JAX profiler integration for detailed analysis
+- Runtime overhead &lt; 20%</p>
+<h3 id="phase-4-reporting-ci-2-3-weeks">Phase 4: Reporting &amp; CI (2-3 weeks)<a class="headerlink" href="#phase-4-reporting-ci-2-3-weeks" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a>gantt
+<a id="__codelineno-17-2" name="__codelineno-17-2" href="#__codelineno-17-2"></a>    title Phase 4: Reporting &amp; CI
+<a id="__codelineno-17-3" name="__codelineno-17-3" href="#__codelineno-17-3"></a>    dateFormat  YYYY-MM-DD
+<a id="__codelineno-17-4" name="__codelineno-17-4" href="#__codelineno-17-4"></a>    section Reporting
+<a id="__codelineno-17-5" name="__codelineno-17-5" href="#__codelineno-17-5"></a>    Cobertura XML generator       :p4a, 2025-05-05, 1w
+<a id="__codelineno-17-6" name="__codelineno-17-6" href="#__codelineno-17-6"></a>    HTML report generator         :p4b, after p4a, 1w
+<a id="__codelineno-17-7" name="__codelineno-17-7" href="#__codelineno-17-7"></a>    section CI Integration
+<a id="__codelineno-17-8" name="__codelineno-17-8" href="#__codelineno-17-8"></a>    GitHub Actions workflow       :p4c, after p4b, 1w
+<a id="__codelineno-17-9" name="__codelineno-17-9" href="#__codelineno-17-9"></a>    Coverage badge generation     :p4d, after p4c, 3d
+</code></pre></div>
+<p><strong>Deliverables:</strong>
+- Cobertura-compatible XML output
+- HTML coverage reports with source highlighting
+- GitHub Actions integration with coverage visualization</p>
+<hr />
+<h2 id="8-api-design">8. API Design<a class="headerlink" href="#8-api-design" title="Permanent link">&para;</a></h2>
+<h3 id="81-user-facing-api">8.1 User-Facing API<a class="headerlink" href="#81-user-facing-api" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">vajax.coverage</span><span class="w"> </span><span class="kn">import</span> <span class="n">CoverageTracker</span><span class="p">,</span> <span class="n">CoverageMode</span>
+<a id="__codelineno-18-2" name="__codelineno-18-2" href="#__codelineno-18-2"></a>
+<a id="__codelineno-18-3" name="__codelineno-18-3" href="#__codelineno-18-3"></a><span class="c1"># Enable coverage during simulation</span>
+<a id="__codelineno-18-4" name="__codelineno-18-4" href="#__codelineno-18-4"></a><span class="n">tracker</span> <span class="o">=</span> <span class="n">CoverageTracker</span><span class="p">(</span><span class="n">mode</span><span class="o">=</span><span class="n">CoverageMode</span><span class="o">.</span><span class="n">LINE_AND_BRANCH</span><span class="p">)</span>
+<a id="__codelineno-18-5" name="__codelineno-18-5" href="#__codelineno-18-5"></a>
+<a id="__codelineno-18-6" name="__codelineno-18-6" href="#__codelineno-18-6"></a><span class="n">engine</span> <span class="o">=</span> <span class="n">CircuitEngine</span><span class="p">(</span><span class="s2">&quot;circuit.sim&quot;</span><span class="p">)</span>
+<a id="__codelineno-18-7" name="__codelineno-18-7" href="#__codelineno-18-7"></a><span class="n">engine</span><span class="o">.</span><span class="n">parse</span><span class="p">()</span>
+<a id="__codelineno-18-8" name="__codelineno-18-8" href="#__codelineno-18-8"></a>
+<a id="__codelineno-18-9" name="__codelineno-18-9" href="#__codelineno-18-9"></a><span class="c1"># Run with coverage</span>
+<a id="__codelineno-18-10" name="__codelineno-18-10" href="#__codelineno-18-10"></a><span class="k">with</span> <span class="n">tracker</span><span class="o">.</span><span class="n">track</span><span class="p">(</span><span class="n">engine</span><span class="p">):</span>
+<a id="__codelineno-18-11" name="__codelineno-18-11" href="#__codelineno-18-11"></a>    <span class="n">result</span> <span class="o">=</span> <span class="n">engine</span><span class="o">.</span><span class="n">run_transient</span><span class="p">(</span><span class="n">t_stop</span><span class="o">=</span><span class="mf">1e-6</span><span class="p">,</span> <span class="n">dt</span><span class="o">=</span><span class="mf">1e-9</span><span class="p">)</span>
+<a id="__codelineno-18-12" name="__codelineno-18-12" href="#__codelineno-18-12"></a>
+<a id="__codelineno-18-13" name="__codelineno-18-13" href="#__codelineno-18-13"></a><span class="c1"># Get coverage data</span>
+<a id="__codelineno-18-14" name="__codelineno-18-14" href="#__codelineno-18-14"></a><span class="n">coverage</span> <span class="o">=</span> <span class="n">tracker</span><span class="o">.</span><span class="n">get_coverage</span><span class="p">()</span>
+<a id="__codelineno-18-15" name="__codelineno-18-15" href="#__codelineno-18-15"></a>
+<a id="__codelineno-18-16" name="__codelineno-18-16" href="#__codelineno-18-16"></a><span class="c1"># Generate reports</span>
+<a id="__codelineno-18-17" name="__codelineno-18-17" href="#__codelineno-18-17"></a><span class="n">coverage</span><span class="o">.</span><span class="n">to_cobertura</span><span class="p">(</span><span class="s2">&quot;coverage.xml&quot;</span><span class="p">)</span>
+<a id="__codelineno-18-18" name="__codelineno-18-18" href="#__codelineno-18-18"></a><span class="n">coverage</span><span class="o">.</span><span class="n">to_html</span><span class="p">(</span><span class="s2">&quot;coverage_report/&quot;</span><span class="p">)</span>
+<a id="__codelineno-18-19" name="__codelineno-18-19" href="#__codelineno-18-19"></a>
+<a id="__codelineno-18-20" name="__codelineno-18-20" href="#__codelineno-18-20"></a><span class="c1"># Print summary</span>
+<a id="__codelineno-18-21" name="__codelineno-18-21" href="#__codelineno-18-21"></a><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Line coverage: </span><span class="si">{</span><span class="n">coverage</span><span class="o">.</span><span class="n">line_rate</span><span class="si">:</span><span class="s2">.1%</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+<a id="__codelineno-18-22" name="__codelineno-18-22" href="#__codelineno-18-22"></a><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Branch coverage: </span><span class="si">{</span><span class="n">coverage</span><span class="o">.</span><span class="n">branch_rate</span><span class="si">:</span><span class="s2">.1%</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+<a id="__codelineno-18-23" name="__codelineno-18-23" href="#__codelineno-18-23"></a>
+<a id="__codelineno-18-24" name="__codelineno-18-24" href="#__codelineno-18-24"></a><span class="c1"># Show uncovered lines</span>
+<a id="__codelineno-18-25" name="__codelineno-18-25" href="#__codelineno-18-25"></a><span class="k">for</span> <span class="n">file</span><span class="p">,</span> <span class="n">lines</span> <span class="ow">in</span> <span class="n">coverage</span><span class="o">.</span><span class="n">uncovered_lines</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+<a id="__codelineno-18-26" name="__codelineno-18-26" href="#__codelineno-18-26"></a>    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">file</span><span class="si">}</span><span class="s2">: lines </span><span class="si">{</span><span class="n">lines</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+</code></pre></div>
+<h3 id="82-cli-interface">8.2 CLI Interface<a class="headerlink" href="#82-cli-interface" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-19-1" name="__codelineno-19-1" href="#__codelineno-19-1"></a><span class="c1"># Run tests with coverage</span>
+<a id="__codelineno-19-2" name="__codelineno-19-2" href="#__codelineno-19-2"></a><span class="nv">VAJAX_COVERAGE</span><span class="o">=</span><span class="m">1</span><span class="w"> </span>uv<span class="w"> </span>run<span class="w"> </span>pytest<span class="w"> </span>tests/
+<a id="__codelineno-19-3" name="__codelineno-19-3" href="#__codelineno-19-3"></a>
+<a id="__codelineno-19-4" name="__codelineno-19-4" href="#__codelineno-19-4"></a><span class="c1"># Generate coverage report</span>
+<a id="__codelineno-19-5" name="__codelineno-19-5" href="#__codelineno-19-5"></a>uv<span class="w"> </span>run<span class="w"> </span>python<span class="w"> </span>-m<span class="w"> </span>vajax.coverage<span class="w"> </span>report<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-19-6" name="__codelineno-19-6" href="#__codelineno-19-6"></a><span class="w">    </span>--input<span class="w"> </span>coverage.json<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-19-7" name="__codelineno-19-7" href="#__codelineno-19-7"></a><span class="w">    </span>--output<span class="w"> </span>coverage.xml<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-19-8" name="__codelineno-19-8" href="#__codelineno-19-8"></a><span class="w">    </span>--format<span class="w"> </span>cobertura
+<a id="__codelineno-19-9" name="__codelineno-19-9" href="#__codelineno-19-9"></a>
+<a id="__codelineno-19-10" name="__codelineno-19-10" href="#__codelineno-19-10"></a><span class="c1"># Merge multiple coverage files</span>
+<a id="__codelineno-19-11" name="__codelineno-19-11" href="#__codelineno-19-11"></a>uv<span class="w"> </span>run<span class="w"> </span>python<span class="w"> </span>-m<span class="w"> </span>vajax.coverage<span class="w"> </span>merge<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-19-12" name="__codelineno-19-12" href="#__codelineno-19-12"></a><span class="w">    </span>coverage1.json<span class="w"> </span>coverage2.json<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-19-13" name="__codelineno-19-13" href="#__codelineno-19-13"></a><span class="w">    </span>--output<span class="w"> </span>merged.json
+<a id="__codelineno-19-14" name="__codelineno-19-14" href="#__codelineno-19-14"></a>
+<a id="__codelineno-19-15" name="__codelineno-19-15" href="#__codelineno-19-15"></a><span class="c1"># Show coverage summary</span>
+<a id="__codelineno-19-16" name="__codelineno-19-16" href="#__codelineno-19-16"></a>uv<span class="w"> </span>run<span class="w"> </span>python<span class="w"> </span>-m<span class="w"> </span>vajax.coverage<span class="w"> </span>summary<span class="w"> </span>coverage.json
+</code></pre></div>
+<h3 id="83-ci-integration">8.3 CI Integration<a class="headerlink" href="#83-ci-integration" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-20-1" name="__codelineno-20-1" href="#__codelineno-20-1"></a><span class="c1"># .github/workflows/coverage.yml</span>
+<a id="__codelineno-20-2" name="__codelineno-20-2" href="#__codelineno-20-2"></a><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Coverage</span>
+<a id="__codelineno-20-3" name="__codelineno-20-3" href="#__codelineno-20-3"></a>
+<a id="__codelineno-20-4" name="__codelineno-20-4" href="#__codelineno-20-4"></a><span class="nt">on</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">push</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">pull_request</span><span class="p p-Indicator">]</span>
+<a id="__codelineno-20-5" name="__codelineno-20-5" href="#__codelineno-20-5"></a>
+<a id="__codelineno-20-6" name="__codelineno-20-6" href="#__codelineno-20-6"></a><span class="nt">jobs</span><span class="p">:</span>
+<a id="__codelineno-20-7" name="__codelineno-20-7" href="#__codelineno-20-7"></a><span class="w">  </span><span class="nt">coverage</span><span class="p">:</span>
+<a id="__codelineno-20-8" name="__codelineno-20-8" href="#__codelineno-20-8"></a><span class="w">    </span><span class="nt">runs-on</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ubuntu-latest</span>
+<a id="__codelineno-20-9" name="__codelineno-20-9" href="#__codelineno-20-9"></a><span class="w">    </span><span class="nt">steps</span><span class="p">:</span>
+<a id="__codelineno-20-10" name="__codelineno-20-10" href="#__codelineno-20-10"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">uses</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">actions/checkout@v4</span>
+<a id="__codelineno-20-11" name="__codelineno-20-11" href="#__codelineno-20-11"></a>
+<a id="__codelineno-20-12" name="__codelineno-20-12" href="#__codelineno-20-12"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Run tests with coverage</span>
+<a id="__codelineno-20-13" name="__codelineno-20-13" href="#__codelineno-20-13"></a><span class="w">        </span><span class="nt">run</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">|</span>
+<a id="__codelineno-20-14" name="__codelineno-20-14" href="#__codelineno-20-14"></a><span class="w">          </span><span class="no">VAJAX_COVERAGE=1 uv run pytest tests/ \</span>
+<a id="__codelineno-20-15" name="__codelineno-20-15" href="#__codelineno-20-15"></a><span class="w">            </span><span class="no">--cov-report=xml:coverage.xml</span>
+<a id="__codelineno-20-16" name="__codelineno-20-16" href="#__codelineno-20-16"></a>
+<a id="__codelineno-20-17" name="__codelineno-20-17" href="#__codelineno-20-17"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Upload coverage to Codecov</span>
+<a id="__codelineno-20-18" name="__codelineno-20-18" href="#__codelineno-20-18"></a><span class="w">        </span><span class="nt">uses</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">codecov/codecov-action@v4</span>
+<a id="__codelineno-20-19" name="__codelineno-20-19" href="#__codelineno-20-19"></a><span class="w">        </span><span class="nt">with</span><span class="p">:</span>
+<a id="__codelineno-20-20" name="__codelineno-20-20" href="#__codelineno-20-20"></a><span class="w">          </span><span class="nt">files</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">coverage.xml</span>
+<a id="__codelineno-20-21" name="__codelineno-20-21" href="#__codelineno-20-21"></a><span class="w">          </span><span class="nt">flags</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">verilog-a</span>
+<a id="__codelineno-20-22" name="__codelineno-20-22" href="#__codelineno-20-22"></a>
+<a id="__codelineno-20-23" name="__codelineno-20-23" href="#__codelineno-20-23"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Coverage comment on PR</span>
+<a id="__codelineno-20-24" name="__codelineno-20-24" href="#__codelineno-20-24"></a><span class="w">        </span><span class="nt">uses</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">py-cov-action/python-coverage-comment-action@v3</span>
+<a id="__codelineno-20-25" name="__codelineno-20-25" href="#__codelineno-20-25"></a><span class="w">        </span><span class="nt">with</span><span class="p">:</span>
+<a id="__codelineno-20-26" name="__codelineno-20-26" href="#__codelineno-20-26"></a><span class="w">          </span><span class="nt">COVERAGE_DATA_BRANCH</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">coverage-data</span>
+</code></pre></div>
+<hr />
+<h2 id="9-trade-offs-alternatives">9. Trade-offs &amp; Alternatives<a class="headerlink" href="#9-trade-offs-alternatives" title="Permanent link">&para;</a></h2>
+<h3 id="91-source-mapping-approach">9.1 Source Mapping Approach<a class="headerlink" href="#91-source-mapping-approach" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Approach</th>
+<th>Pros</th>
+<th>Cons</th>
+<th>Recommendation</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Compile-time spans</strong></td>
+<td>Accurate, no runtime cost</td>
+<td>Requires OpenVAF changes</td>
+<td>✅ Recommended</td>
+</tr>
+<tr>
+<td><strong>Debug info (DWARF)</strong></td>
+<td>Standard format</td>
+<td>Complex integration</td>
+<td>❌ Over-engineered</td>
+</tr>
+<tr>
+<td><strong>Heuristic mapping</strong></td>
+<td>No compiler changes</td>
+<td>Inaccurate for complex code</td>
+<td>❌ Unreliable</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Decision:</strong> Compile-time span export. It's the most accurate and aligns with how coverage tools work for other languages.</p>
+<h3 id="92-runtime-tracking-approach">9.2 Runtime Tracking Approach<a class="headerlink" href="#92-runtime-tracking-approach" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Approach</th>
+<th>Overhead</th>
+<th>Accuracy</th>
+<th>Use Case</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Counter instrumentation</strong></td>
+<td>5-15%</td>
+<td>Line-level</td>
+<td>CI, regular testing</td>
+</tr>
+<tr>
+<td><strong>JAX profiler</strong></td>
+<td>20-50%</td>
+<td>Op-level</td>
+<td>Detailed analysis</td>
+</tr>
+<tr>
+<td><strong>Sampling</strong></td>
+<td>1-5%</td>
+<td>Statistical</td>
+<td>Production monitoring</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Decision:</strong> Support both counter and profiler modes. Counter for CI (low overhead), profiler for debugging (detailed analysis).</p>
+<h3 id="93-output-format">9.3 Output Format<a class="headerlink" href="#93-output-format" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Format</th>
+<th>CI Support</th>
+<th>Human Readable</th>
+<th>Ecosystem</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Cobertura XML</strong></td>
+<td>✅ Excellent</td>
+<td>❌ Poor</td>
+<td>GitHub, GitLab, Codecov</td>
+</tr>
+<tr>
+<td><strong>LCOV</strong></td>
+<td>✅ Good</td>
+<td>❌ Poor</td>
+<td>gcov ecosystem</td>
+</tr>
+<tr>
+<td><strong>JSON</strong></td>
+<td>⚠️ Custom</td>
+<td>✅ Good</td>
+<td>Internal tools</td>
+</tr>
+<tr>
+<td><strong>HTML</strong></td>
+<td>N/A</td>
+<td>✅ Excellent</td>
+<td>Manual review</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Decision:</strong> Primary: Cobertura XML (CI integration). Secondary: HTML for human review. Internal: JSON for merging/caching.</p>
+<hr />
+<h2 id="10-risks-mitigations">10. Risks &amp; Mitigations<a class="headerlink" href="#10-risks-mitigations" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Risk</th>
+<th>Impact</th>
+<th>Probability</th>
+<th>Mitigation</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>OpenVAF changes rejected upstream</td>
+<td>High</td>
+<td>Medium</td>
+<td>Fork or maintain patch set</td>
+</tr>
+<tr>
+<td>JAX JIT obscures mappings</td>
+<td>Medium</td>
+<td>High</td>
+<td>Use stable variable names, preserve metadata</td>
+</tr>
+<tr>
+<td>Performance overhead too high</td>
+<td>High</td>
+<td>Low</td>
+<td>Make coverage optional, optimize counters</td>
+</tr>
+<tr>
+<td>Cobertura format limitations</td>
+<td>Low</td>
+<td>Medium</td>
+<td>Extend with custom attributes</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="11-success-metrics">11. Success Metrics<a class="headerlink" href="#11-success-metrics" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Metric</th>
+<th>Target</th>
+<th>Measurement</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Source line attribution accuracy</td>
+<td>&gt; 95%</td>
+<td>Manual audit of 100 random lines</td>
+</tr>
+<tr>
+<td>Runtime overhead (counter mode)</td>
+<td>&lt; 15%</td>
+<td>Benchmark comparison</td>
+</tr>
+<tr>
+<td>CI integration</td>
+<td>GitHub + GitLab</td>
+<td>Working coverage visualization</td>
+</tr>
+<tr>
+<td>Model coverage</td>
+<td>All VACASK models</td>
+<td>All .va files have coverage</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="12-appendices">12. Appendices<a class="headerlink" href="#12-appendices" title="Permanent link">&para;</a></h2>
+<h3 id="a-openvaf-source-span-infrastructure-investigation-notes">A. OpenVAF Source Span Infrastructure (Investigation Notes)<a class="headerlink" href="#a-openvaf-source-span-infrastructure-investigation-notes" title="Permanent link">&para;</a></h3>
+<p>This section documents the existing source span infrastructure in OpenVAF based on codebase investigation (December 2025).</p>
+<h4 id="a1-current-architecture">A.1 Current Architecture<a class="headerlink" href="#a1-current-architecture" title="Permanent link">&para;</a></h4>
+<p>OpenVAF already tracks source locations through the compilation pipeline:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-21-1" name="__codelineno-21-1" href="#__codelineno-21-1"></a>Verilog-A → Parser → AST (with Spans) → HIR → MIR (with SourceLocs) → LLVM → .osdi
+<a id="__codelineno-21-2" name="__codelineno-21-2" href="#__codelineno-21-2"></a>                      ↓                  ↓           ↓
+<a id="__codelineno-21-3" name="__codelineno-21-3" href="#__codelineno-21-3"></a>                   TextRange          ExprId      SourceLoc(i32)
+<a id="__codelineno-21-4" name="__codelineno-21-4" href="#__codelineno-21-4"></a>                   FileSpan       BodySourceMap   (opaque HIR ref)
+</code></pre></div>
+<p><strong>Key Types:</strong></p>
+<ol>
+<li><strong><code>SourceLoc</code></strong> (<code>openvaf/mir/src/lib.rs:222</code>)</li>
+<li>Opaque 32-bit integer attached to each MIR instruction</li>
+<li>Default value (<code>!0</code> = -1) means "no source location"</li>
+<li>
+<p>Stored in <code>Function.srclocs: TiVec&lt;Inst, SourceLoc&gt;</code></p>
+</li>
+<li>
+<p><strong><code>BodySourceMap</code></strong> (<code>openvaf/hir_def/src/body.rs:32-43</code>)</p>
+</li>
+<li>Maps HIR expressions back to AST pointers</li>
+<li><code>expr_map_back: ArenaMap&lt;Expr, Option&lt;AstPtr&lt;ast::Expr&gt;&gt;&gt;</code> - reverse mapping</li>
+<li>
+<p><code>stmt_map_back: ArenaMap&lt;Stmt, Option&lt;AstPtr&lt;ast::Stmt&gt;&gt;&gt;</code> - statement mapping</p>
+</li>
+<li>
+<p><strong><code>FileSpan</code></strong> (<code>openvaf/preprocessor/src/sourcemap.rs</code>)</p>
+</li>
+<li>Contains <code>FileId</code> + <code>TextRange</code> for actual source location</li>
+<li>
+<p>Handles macro expansions via <code>CtxSpan</code></p>
+</li>
+<li>
+<p><strong><code>SourceMap</code></strong> (preprocessor level)</p>
+</li>
+<li>Tracks file table and macro expansion contexts</li>
+<li><code>lookup_expansion()</code> resolves spans through macro stack</li>
+</ol>
+<h4 id="a2-how-sourceloc-connects-to-source">A.2 How SourceLoc Connects to Source<a class="headerlink" href="#a2-how-sourceloc-connects-to-source" title="Permanent link">&para;</a></h4>
+<p>The mapping chain is:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-22-1" name="__codelineno-22-1" href="#__codelineno-22-1"></a><span class="c1"># MIR instruction has SourceLoc(i32)</span>
+<a id="__codelineno-22-2" name="__codelineno-22-2" href="#__codelineno-22-2"></a><span class="n">inst_srcloc</span><span class="p">:</span> <span class="n">SourceLoc</span> <span class="o">=</span> <span class="n">function</span><span class="o">.</span><span class="n">srclocs</span><span class="p">[</span><span class="n">inst_id</span><span class="p">]</span>
+<a id="__codelineno-22-3" name="__codelineno-22-3" href="#__codelineno-22-3"></a>
+<a id="__codelineno-22-4" name="__codelineno-22-4" href="#__codelineno-22-4"></a><span class="c1"># SourceLoc stores ExprId + 1 (see hir_lower)</span>
+<a id="__codelineno-22-5" name="__codelineno-22-5" href="#__codelineno-22-5"></a><span class="c1"># SourceLoc(bits) where bits = u32::from(expr_id) + 1</span>
+<a id="__codelineno-22-6" name="__codelineno-22-6" href="#__codelineno-22-6"></a><span class="n">expr_id</span><span class="p">:</span> <span class="n">ExprId</span> <span class="o">=</span> <span class="n">ExprId</span><span class="p">::</span><span class="n">from</span><span class="p">(</span><span class="n">inst_srcloc</span><span class="o">.</span><span class="n">bits</span><span class="p">()</span> <span class="o">-</span> <span class="mi">1</span><span class="p">)</span>
+<a id="__codelineno-22-7" name="__codelineno-22-7" href="#__codelineno-22-7"></a>
+<a id="__codelineno-22-8" name="__codelineno-22-8" href="#__codelineno-22-8"></a><span class="c1"># BodySourceMap maps ExprId → AstPtr</span>
+<a id="__codelineno-22-9" name="__codelineno-22-9" href="#__codelineno-22-9"></a><span class="n">ast_ptr</span><span class="p">:</span> <span class="n">Option</span><span class="o">&lt;</span><span class="n">AstPtr</span><span class="o">&lt;</span><span class="n">Expr</span><span class="o">&gt;&gt;</span> <span class="o">=</span> <span class="n">body_source_map</span><span class="o">.</span><span class="n">expr_map_back</span><span class="p">[</span><span class="n">expr_id</span><span class="p">]</span>
+<a id="__codelineno-22-10" name="__codelineno-22-10" href="#__codelineno-22-10"></a>
+<a id="__codelineno-22-11" name="__codelineno-22-11" href="#__codelineno-22-11"></a><span class="c1"># AstPtr can be resolved to syntax node, which has TextRange</span>
+<a id="__codelineno-22-12" name="__codelineno-22-12" href="#__codelineno-22-12"></a><span class="c1"># TextRange + FileId = FileSpan → actual line/column</span>
+</code></pre></div>
+<p><strong>Key insight from <code>hir_lower/src/lib.rs</code>:</strong>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-23-1" name="__codelineno-23-1" href="#__codelineno-23-1"></a><span class="c1">// SourceLoc is set as: SourceLoc::new(u32::from(expr) as i32 + 1)</span>
+<a id="__codelineno-23-2" name="__codelineno-23-2" href="#__codelineno-23-2"></a><span class="c1">// This stores the HIR ExprId in the MIR instruction&#39;s source location</span>
+</code></pre></div></p>
+<h4 id="a3-what-verilogae-currently-exposes">A.3 What verilogae Currently Exposes<a class="headerlink" href="#a3-what-verilogae-currently-exposes" title="Permanent link">&para;</a></h4>
+<p>Looking at <code>verilogae/verilogae_py/src/model.rs</code> and <code>verilogae_ffi/src/ffi/generated.rs</code>:</p>
+<p><strong>Currently Exposed:</strong>
+- <code>verilogae_real_params()</code> - parameter names
+- <code>verilogae_real_param_descriptions()</code> - param descriptions
+- <code>verilogae_nodes()</code> - port names
+- <code>verilogae_functions()</code> - function names
+- <code>verilogae_opvars()</code> - operating point variables
+- <code>verilogae_module_name()</code> - module name</p>
+<p><strong>NOT Currently Exposed:</strong>
+- Source spans for parameters
+- Source spans for instructions
+- The <code>BodySourceMap</code> or any span information
+- File table (FileId → path mapping)</p>
+<h4 id="a4-required-changes-for-source-coverage">A.4 Required Changes for Source Coverage<a class="headerlink" href="#a4-required-changes-for-source-coverage" title="Permanent link">&para;</a></h4>
+<p><strong>Layer 1: OpenVAF Core Changes</strong></p>
+<ol>
+<li><strong>Export BodySourceMap</strong> - Currently internal to HIR lowering</li>
+<li>Add query: <code>fn instruction_source_map(db, module) -&gt; InstructionSourceMap</code></li>
+<li>
+<p>Returns mapping: <code>instruction_id → (file_id, line, col)</code></p>
+</li>
+<li>
+<p><strong>Export File Table</strong> - Map FileId to file path</p>
+</li>
+<li>
+<p>Add query: <code>fn file_table(db, root_file) -&gt; Vec&lt;(FileId, PathBuf)&gt;</code></p>
+</li>
+<li>
+<p><strong>New API in <code>verilogae/verilogae/src/api.rs</code></strong>:
+   <div class="highlight"><pre><span></span><code><a id="__codelineno-24-1" name="__codelineno-24-1" href="#__codelineno-24-1"></a><span class="n">expose_ptrs</span><span class="o">!</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-24-2" name="__codelineno-24-2" href="#__codelineno-24-2"></a><span class="w">    </span><span class="k">const</span><span class="w"> </span><span class="n">verilogae_source_spans</span><span class="p">:</span><span class="w"> </span><span class="nc">SourceSpanEntry</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">&quot;source.spans&quot;</span><span class="p">;</span>
+<a id="__codelineno-24-3" name="__codelineno-24-3" href="#__codelineno-24-3"></a><span class="w">    </span><span class="k">const</span><span class="w"> </span><span class="n">verilogae_source_files</span><span class="p">:</span><span class="w"> </span><span class="o">*</span><span class="k">const</span><span class="w"> </span><span class="n">c_char</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">&quot;source.files&quot;</span><span class="p">;</span>
+<a id="__codelineno-24-4" name="__codelineno-24-4" href="#__codelineno-24-4"></a><span class="p">}</span>
+<a id="__codelineno-24-5" name="__codelineno-24-5" href="#__codelineno-24-5"></a><span class="n">expose_consts</span><span class="o">!</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-24-6" name="__codelineno-24-6" href="#__codelineno-24-6"></a><span class="w">    </span><span class="n">verilogae_source_span_cnt</span><span class="p">:</span><span class="w"> </span><span class="kt">usize</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">&quot;source.spans.cnt&quot;</span><span class="p">;</span>
+<a id="__codelineno-24-7" name="__codelineno-24-7" href="#__codelineno-24-7"></a><span class="w">    </span><span class="n">verilogae_source_file_cnt</span><span class="p">:</span><span class="w"> </span><span class="kt">usize</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">&quot;source.files.cnt&quot;</span><span class="p">;</span>
+<a id="__codelineno-24-8" name="__codelineno-24-8" href="#__codelineno-24-8"></a><span class="p">}</span>
+</code></pre></div></p>
+</li>
+</ol>
+<p><strong>Layer 2: openvaf-py Changes</strong></p>
+<ol>
+<li>
+<p><strong>Add <code>SourceSpan</code> type</strong> in new <code>spans.py</code>:
+   <div class="highlight"><pre><span></span><code><a id="__codelineno-25-1" name="__codelineno-25-1" href="#__codelineno-25-1"></a><span class="nd">@dataclass</span>
+<a id="__codelineno-25-2" name="__codelineno-25-2" href="#__codelineno-25-2"></a><span class="k">class</span><span class="w"> </span><span class="nc">SourceSpan</span><span class="p">:</span>
+<a id="__codelineno-25-3" name="__codelineno-25-3" href="#__codelineno-25-3"></a>    <span class="n">file_id</span><span class="p">:</span> <span class="nb">int</span>
+<a id="__codelineno-25-4" name="__codelineno-25-4" href="#__codelineno-25-4"></a>    <span class="n">start_line</span><span class="p">:</span> <span class="nb">int</span>
+<a id="__codelineno-25-5" name="__codelineno-25-5" href="#__codelineno-25-5"></a>    <span class="n">start_col</span><span class="p">:</span> <span class="nb">int</span>
+<a id="__codelineno-25-6" name="__codelineno-25-6" href="#__codelineno-25-6"></a>    <span class="n">end_line</span><span class="p">:</span> <span class="nb">int</span>
+<a id="__codelineno-25-7" name="__codelineno-25-7" href="#__codelineno-25-7"></a>    <span class="n">end_col</span><span class="p">:</span> <span class="nb">int</span>
+</code></pre></div></p>
+</li>
+<li>
+<p><strong>Extend <code>VaeModel</code></strong> to include:</p>
+</li>
+<li><code>source_files: List[str]</code> - file table</li>
+<li><code>source_spans: Dict[int, SourceSpan]</code> - instruction → span mapping</li>
+</ol>
+<p><strong>Layer 3: verilogae Backend Changes</strong></p>
+<ol>
+<li><strong>In <code>back.rs</code></strong> - Export source spans as global arrays</li>
+<li>Similar pattern to how <code>export_param_info()</code> exports parameter metadata</li>
+<li>
+<p>Add <code>export_source_map()</code> function</p>
+</li>
+<li>
+<p><strong>In <code>compiler_db.rs</code></strong> - Collect source spans during compilation</p>
+</li>
+<li>Query the <code>BodySourceMap</code> for each instruction</li>
+<li>Resolve to line/column via preprocessor <code>SourceMap</code></li>
+</ol>
+<h4 id="a5-simplified-implementation-path">A.5 Simplified Implementation Path<a class="headerlink" href="#a5-simplified-implementation-path" title="Permanent link">&para;</a></h4>
+<p>Given the complexity, a phased approach:</p>
+<p><strong>Phase 1A (Minimal Viable):</strong>
+- Export parameter source locations only (not all instructions)
+- Parameters have clear source in the AST
+- Sufficient for "what parameters are used" coverage</p>
+<p><strong>Phase 1B (Full Instruction Coverage):</strong>
+- Export all MIR instruction source locations
+- Requires walking <code>function.srclocs</code> during code generation
+- More complex but enables line-level coverage</p>
+<h4 id="a6-key-files-to-modify">A.6 Key Files to Modify<a class="headerlink" href="#a6-key-files-to-modify" title="Permanent link">&para;</a></h4>
+<table>
+<thead>
+<tr>
+<th>File</th>
+<th>Purpose</th>
+<th>Changes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>openvaf/osdi/src/compilation.rs</code></td>
+<td>OSDI compilation</td>
+<td>Add span collection during MIR→LLVM</td>
+</tr>
+<tr>
+<td><code>openvaf/osdi/src/metadata.rs</code></td>
+<td>(new)</td>
+<td>Source span export structures</td>
+</tr>
+<tr>
+<td><code>verilogae/verilogae/src/back.rs</code></td>
+<td>Code generation</td>
+<td>Export source maps as globals</td>
+</tr>
+<tr>
+<td><code>verilogae/verilogae/src/api.rs</code></td>
+<td>C API</td>
+<td>Add span access functions</td>
+</tr>
+<tr>
+<td><code>verilogae/verilogae_ffi/src/ffi.rs</code></td>
+<td>FFI types</td>
+<td>Add SourceSpan structures</td>
+</tr>
+<tr>
+<td><code>verilogae/verilogae_py/src/model.rs</code></td>
+<td>Python bindings</td>
+<td>Expose spans to Python</td>
+</tr>
+</tbody>
+</table>
+<h3 id="b-glossary">B. Glossary<a class="headerlink" href="#b-glossary" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Term</th>
+<th>Definition</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Span</td>
+<td>Source location (file, line, column range)</td>
+</tr>
+<tr>
+<td>HIR</td>
+<td>High-level Intermediate Representation (OpenVAF)</td>
+</tr>
+<tr>
+<td>MIR</td>
+<td>Mid-level Intermediate Representation (OpenVAF)</td>
+</tr>
+<tr>
+<td>HLO</td>
+<td>High-Level Operations (XLA)</td>
+</tr>
+<tr>
+<td>Cobertura</td>
+<td>XML coverage format, originally for Java</td>
+</tr>
+<tr>
+<td>SourceLoc</td>
+<td>Opaque i32 in MIR storing HIR ExprId reference</td>
+</tr>
+<tr>
+<td>BodySourceMap</td>
+<td>HIR mapping from ExprId/StmtId back to AST pointers</td>
+</tr>
+<tr>
+<td>FileSpan</td>
+<td>File ID + text range for source locations</td>
+</tr>
+<tr>
+<td>CtxSpan</td>
+<td>Context-aware span handling macro expansions</td>
+</tr>
+</tbody>
+</table>
+<h3 id="c-references">C. References<a class="headerlink" href="#c-references" title="Permanent link">&para;</a></h3>
+<ol>
+<li><a href="https://openvaf.semimod.de/">OpenVAF Compiler</a></li>
+<li><a href="https://jax.readthedocs.io/en/latest/profiling.html">JAX Profiler Documentation</a></li>
+<li><a href="https://github.com/gcovr/gcovr/blob/main/tests/cobertura.coverage-04.dtd">Cobertura DTD</a></li>
+<li><a href="https://docs.github.com/en/actions/automating-builds-and-tests/building-and-testing-python#using-a-code-coverage-tool">GitHub Coverage Visualization</a></li>
+</ol>
+<h3 id="c-file-structure">C. File Structure<a class="headerlink" href="#c-file-structure" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-26-1" name="__codelineno-26-1" href="#__codelineno-26-1"></a>vajax/
+<a id="__codelineno-26-2" name="__codelineno-26-2" href="#__codelineno-26-2"></a>├── coverage/
+<a id="__codelineno-26-3" name="__codelineno-26-3" href="#__codelineno-26-3"></a>│   ├── __init__.py
+<a id="__codelineno-26-4" name="__codelineno-26-4" href="#__codelineno-26-4"></a>│   ├── tracker.py          # CoverageTracker, CoverageMode
+<a id="__codelineno-26-5" name="__codelineno-26-5" href="#__codelineno-26-5"></a>│   ├── source_map.py       # JAXSourceMap
+<a id="__codelineno-26-6" name="__codelineno-26-6" href="#__codelineno-26-6"></a>│   ├── counters.py         # Counter-based tracking
+<a id="__codelineno-26-7" name="__codelineno-26-7" href="#__codelineno-26-7"></a>│   ├── profiler.py         # JAX profiler integration
+<a id="__codelineno-26-8" name="__codelineno-26-8" href="#__codelineno-26-8"></a>│   ├── aggregator.py       # Multi-run merging
+<a id="__codelineno-26-9" name="__codelineno-26-9" href="#__codelineno-26-9"></a>│   ├── cobertura.py        # XML generation
+<a id="__codelineno-26-10" name="__codelineno-26-10" href="#__codelineno-26-10"></a>│   └── html_report.py      # HTML generation
+<a id="__codelineno-26-11" name="__codelineno-26-11" href="#__codelineno-26-11"></a>
+<a id="__codelineno-26-12" name="__codelineno-26-12" href="#__codelineno-26-12"></a>openvaf-py/
+<a id="__codelineno-26-13" name="__codelineno-26-13" href="#__codelineno-26-13"></a>├── src/
+<a id="__codelineno-26-14" name="__codelineno-26-14" href="#__codelineno-26-14"></a>│   └── lib.rs              # Add span export FFI
+<a id="__codelineno-26-15" name="__codelineno-26-15" href="#__codelineno-26-15"></a>└── python/
+<a id="__codelineno-26-16" name="__codelineno-26-16" href="#__codelineno-26-16"></a>    └── openvaf_py/
+<a id="__codelineno-26-17" name="__codelineno-26-17" href="#__codelineno-26-17"></a>        ├── spans.py        # SourceSpan, InstructionInfo
+<a id="__codelineno-26-18" name="__codelineno-26-18" href="#__codelineno-26-18"></a>        └── module.py       # Extended CompiledModule
+<a id="__codelineno-26-19" name="__codelineno-26-19" href="#__codelineno-26-19"></a>
+<a id="__codelineno-26-20" name="__codelineno-26-20" href="#__codelineno-26-20"></a>openvaf-jax/
+<a id="__codelineno-26-21" name="__codelineno-26-21" href="#__codelineno-26-21"></a>└── openvaf_jax/
+<a id="__codelineno-26-22" name="__codelineno-26-22" href="#__codelineno-26-22"></a>    ├── translator.py       # Add source map generation
+<a id="__codelineno-26-23" name="__codelineno-26-23" href="#__codelineno-26-23"></a>    └── source_map.py       # JAXSourceMap implementation
+</code></pre></div>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["content.code.copy", "navigation.instant", "navigation.sections", "navigation.top", "toc.follow"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>
