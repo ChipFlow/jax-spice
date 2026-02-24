@@ -26,7 +26,11 @@ jobs:
         run: uv python install 3.11
 
       - name: Install dependencies
-        run: uv sync --extra docs --extra test --no-build-package openvaf-py --no-build-package osdi-py --no-build-package umfpack-jax
+        run: |
+          uv sync --extra docs --extra test \
+            --no-install-package openvaf-py \
+            --no-install-package osdi-py \
+            --no-install-package umfpack-jax
 
       - name: Build docs
         run: uv run mkdocs build --site-dir ./site
