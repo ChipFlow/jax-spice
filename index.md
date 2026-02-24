@@ -1,21 +1,21 @@
 # JAX-SPICE CI Summary
 
-_Last updated: 2026-02-23 23:35 UTC_
+_Last updated: 2026-02-24 00:00 UTC_
 
-_Commit: [3c580822](https://github.com/ChipFlow/jax-spice/commit/3c580822b3e103e7023b784b6895ec2aeab28cb3)_
+_Commit: [fc4ca691](https://github.com/ChipFlow/jax-spice/commit/fc4ca6912c9eef447ca9008c4834d58f06f7e873)_
 
 ## Test Coverage
 
 | Suite | Passed | Failed | Errors | Skipped | Total | Time |
 |-------|--------|--------|--------|---------|-------|------|
-| benchmark-dense | 5 | 0 | 0 | 1 | 6 | 515.2s | PASS |
-| benchmark-sparse | 6 | 0 | 0 | 1 | 7 | 625.7s | PASS |
-| benchmarks | 5 | 0 | 0 | 0 | 5 | 736.0s | PASS |
-| ngspice | 0 | 0 | 0 | 71 | 71 | 248.8s | PASS |
-| openvaf-py | 320 | 0 | 0 | 92 | 412 | 1032.1s | PASS |
-| unit | 72 | 0 | 0 | 5 | 77 | 20.5s | PASS |
-| xyce | 36 | 0 | 0 | 1893 | 1929 | 240.1s | PASS |
-| **Total** | **444** | **0** | **0** | **2063** | **2507** | 3418.4s |
+| benchmark-dense | 5 | 0 | 0 | 1 | 6 | 539.8s | PASS |
+| benchmark-sparse | 6 | 0 | 0 | 1 | 7 | 562.9s | PASS |
+| benchmarks | 5 | 0 | 0 | 0 | 5 | 748.4s | PASS |
+| ngspice | 0 | 0 | 0 | 71 | 71 | 250.3s | PASS |
+| openvaf-py | 320 | 0 | 0 | 92 | 412 | 1052.6s | PASS |
+| unit | 72 | 0 | 0 | 5 | 77 | 20.9s | PASS |
+| xyce | 36 | 0 | 0 | 1893 | 1929 | 258.1s | PASS |
+| **Total** | **444** | **0** | **0** | **2063** | **2507** | 3433.0s |
 
 
 ## Performance
