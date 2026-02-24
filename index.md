@@ -1,6 +1,6 @@
 # JAX-SPICE CI Summary
 
-_Last updated: 2026-02-24 00:05 UTC_
+_Last updated: 2026-02-24 00:13 UTC_
 
 _Commit: [fc4ca691](https://github.com/ChipFlow/jax-spice/commit/fc4ca6912c9eef447ca9008c4834d58f06f7e873)_
 
@@ -34,12 +34,12 @@ _Commit: [fc4ca691](https://github.com/ChipFlow/jax-spice/commit/fc4ca6912c9eef4
 
 | Benchmark | Steps | JAX-SPICE (ms/step) | VACASK (ms/step) | Ratio | Startup |
 |-----------|-------|---------------------|------------------|-------|---------|
-| mul | 500,000 | 0.4444 | N/A | N/A | 11.2s |
-| c6288 | 1,000 | 19.7680 | 56.7875 | 0.35x | 223.2s |
-| ring | 19,999 | 1.4883 | 0.0453 | 32.88x | 188.8s |
-| rc | 1,000,000 | 0.2377 | 0.0009 | 254.18x | 3.1s |
-| graetz | 1,000,000 | 0.3046 | 0.0019 | 161.15x | 7.9s |
-| tb_dp | 299 | 5.1086 | N/A | N/A | 5.6s |
+| mul | 500,000 | 0.4450 | N/A | N/A | 11.2s |
+| c6288 | 1,000 | 20.0180 | 56.7875 | 0.35x | 222.1s |
+| ring | 19,999 | 1.4897 | 0.0453 | 32.91x | 189.9s |
+| rc | 1,000,000 | 0.2395 | 0.0009 | 256.04x | 3.1s |
+| graetz | 1,000,000 | 0.3042 | 0.0019 | 160.96x | 7.9s |
+| tb_dp | 299 | 4.9916 | N/A | N/A | 5.5s |
 
 
 ---
