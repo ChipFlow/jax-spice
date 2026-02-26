@@ -55,8 +55,8 @@ class BenchmarkInfo:
     @property
     def is_large(self) -> bool:
         """Check if benchmark is large (should use sparse solver)."""
-        # c6288 has ~86k nodes, needs sparse solver
-        return self.name == "c6288"
+        # c6288 has ~25k nodes, mul64 has ~400k+ nodes
+        return self.name in ("c6288", "mul64")
 
 
 def parse_si_value(s: str) -> float:
@@ -210,6 +210,9 @@ def _parse_benchmark(sim_path: Path, name: str) -> BenchmarkInfo:
             info.max_steps = 20
             info.xfail = True
             info.xfail_reason = "Node count mismatch - need node collapse"
+        elif name == "mul64":
+            # Very large circuit (~266k MOSFETs), limit steps for CI
+            info.max_steps = 5
         elif name == "tb_dp":
             # Large SRAM, should use sparse solver
             info.max_steps = 10

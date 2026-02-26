@@ -51,7 +51,7 @@ def get_vacask_benchmarks(names: Optional[List[str]] = None) -> List[Tuple[str, 
     project_root = script_dir.parent
     base = project_root / "vendor" / "VACASK" / "benchmark"
 
-    all_benchmarks = ["rc", "graetz", "mul", "ring", "c6288"]
+    all_benchmarks = ["rc", "graetz", "mul", "ring", "c6288", "mul64"]
 
     if names:
         all_benchmarks = [n for n in names if n in all_benchmarks]

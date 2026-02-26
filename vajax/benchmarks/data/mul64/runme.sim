@@ -1,0 +1,187 @@
+// 64x64 array multiplier benchmark
+
+load "psp103v4.osdi"
+load "spice/resistor.osdi"
+
+include "models.inc"
+include "multiplier.inc"
+model v vsource
+model r sp_resistor
+
+parameters vdd=1.2
+
+subckt drv(out)
+  parameters v0=0 v1=1
+  parameters rs=1 delay=0.1n rise=0.1n
+  vdrv (int 0) v type="pulse" val0=v0*vdd val1=v1*vdd delay=delay rise=rise
+  rdrv (int out) r r=rs
+ends
+
+vdd (vdd 0) v dc=vdd
+vss (vss 0) v dc=0
+
+subckt mul64_test()
+  u1 (
+    a0 a1 a2 a3 a4 a5 a6 a7 a8 a9 a10 a11 a12 a13 a14 a15 a16 a17 a18 a19 a20 a21 a22 a23 a24 a25 a26 a27 a28 a29 a30 a31 a32 a33 a34 a35 a36 a37 a38 a39 a40 a41 a42 a43 a44 a45 a46 a47 a48 a49 a50 a51 a52 a53 a54 a55 a56 a57 a58 a59 a60 a61 a62 a63
+    b0 b1 b2 b3 b4 b5 b6 b7 b8 b9 b10 b11 b12 b13 b14 b15 b16 b17 b18 b19 b20 b21 b22 b23 b24 b25 b26 b27 b28 b29 b30 b31 b32 b33 b34 b35 b36 b37 b38 b39 b40 b41 b42 b43 b44 b45 b46 b47 b48 b49 b50 b51 b52 b53 b54 b55 b56 b57 b58 b59 b60 b61 b62 b63
+    p0 p1 p2 p3 p4 p5 p6 p7 p8 p9 p10 p11 p12 p13 p14 p15 p16 p17 p18 p19 p20 p21 p22 p23 p24 p25 p26 p27 p28 p29 p30 p31 p32 p33 p34 p35 p36 p37 p38 p39 p40 p41 p42 p43 p44 p45 p46 p47 p48 p49 p50 p51 p52 p53 p54 p55 p56 p57 p58 p59 p60 p61 p62 p63 p64 p65 p66 p67 p68 p69 p70 p71 p72 p73 p74 p75 p76 p77 p78 p79 p80 p81 p82 p83 p84 p85 p86 p87 p88 p89 p90 p91 p92 p93 p94 p95 p96 p97 p98 p99 p100 p101 p102 p103 p104 p105 p106 p107 p108 p109 p110 p111 p112 p113 p114 p115 p116 p117 p118 p119 p120 p121 p122 p123 p124 p125 p126
+  ) multiplier_64x64
+
+  da0  (a0)  drv v0=0 v1=1
+  da1  (a1)  drv v0=0 v1=1
+  da2  (a2)  drv v0=0 v1=1
+  da3  (a3)  drv v0=0 v1=1
+  da4  (a4)  drv v0=0 v1=1
+  da5  (a5)  drv v0=0 v1=1
+  da6  (a6)  drv v0=0 v1=1
+  da7  (a7)  drv v0=0 v1=1
+  da8  (a8)  drv v0=0 v1=1
+  da9  (a9)  drv v0=0 v1=1
+  da10 (a10) drv v0=0 v1=1
+  da11 (a11) drv v0=0 v1=1
+  da12 (a12) drv v0=0 v1=1
+  da13 (a13) drv v0=0 v1=1
+  da14 (a14) drv v0=0 v1=1
+  da15 (a15) drv v0=0 v1=1
+  da16 (a16) drv v0=0 v1=1
+  da17 (a17) drv v0=0 v1=1
+  da18 (a18) drv v0=0 v1=1
+  da19 (a19) drv v0=0 v1=1
+  da20 (a20) drv v0=0 v1=1
+  da21 (a21) drv v0=0 v1=1
+  da22 (a22) drv v0=0 v1=1
+  da23 (a23) drv v0=0 v1=1
+  da24 (a24) drv v0=0 v1=1
+  da25 (a25) drv v0=0 v1=1
+  da26 (a26) drv v0=0 v1=1
+  da27 (a27) drv v0=0 v1=1
+  da28 (a28) drv v0=0 v1=1
+  da29 (a29) drv v0=0 v1=1
+  da30 (a30) drv v0=0 v1=1
+  da31 (a31) drv v0=0 v1=1
+  da32 (a32) drv v0=0 v1=1
+  da33 (a33) drv v0=0 v1=1
+  da34 (a34) drv v0=0 v1=1
+  da35 (a35) drv v0=0 v1=1
+  da36 (a36) drv v0=0 v1=1
+  da37 (a37) drv v0=0 v1=1
+  da38 (a38) drv v0=0 v1=1
+  da39 (a39) drv v0=0 v1=1
+  da40 (a40) drv v0=0 v1=1
+  da41 (a41) drv v0=0 v1=1
+  da42 (a42) drv v0=0 v1=1
+  da43 (a43) drv v0=0 v1=1
+  da44 (a44) drv v0=0 v1=1
+  da45 (a45) drv v0=0 v1=1
+  da46 (a46) drv v0=0 v1=1
+  da47 (a47) drv v0=0 v1=1
+  da48 (a48) drv v0=0 v1=1
+  da49 (a49) drv v0=0 v1=1
+  da50 (a50) drv v0=0 v1=1
+  da51 (a51) drv v0=0 v1=1
+  da52 (a52) drv v0=0 v1=1
+  da53 (a53) drv v0=0 v1=1
+  da54 (a54) drv v0=0 v1=1
+  da55 (a55) drv v0=0 v1=1
+  da56 (a56) drv v0=0 v1=1
+  da57 (a57) drv v0=0 v1=1
+  da58 (a58) drv v0=0 v1=1
+  da59 (a59) drv v0=0 v1=1
+  da60 (a60) drv v0=0 v1=1
+  da61 (a61) drv v0=0 v1=1
+  da62 (a62) drv v0=0 v1=1
+  da63 (a63) drv v0=0 v1=1
+
+  db0  (b0)  drv v0=0 v1=1
+  db1  (b1)  drv v0=0 v1=1
+  db2  (b2)  drv v0=0 v1=1
+  db3  (b3)  drv v0=0 v1=1
+  db4  (b4)  drv v0=0 v1=1
+  db5  (b5)  drv v0=0 v1=1
+  db6  (b6)  drv v0=0 v1=1
+  db7  (b7)  drv v0=0 v1=1
+  db8  (b8)  drv v0=0 v1=1
+  db9  (b9)  drv v0=0 v1=1
+  db10 (b10) drv v0=0 v1=1
+  db11 (b11) drv v0=0 v1=1
+  db12 (b12) drv v0=0 v1=1
+  db13 (b13) drv v0=0 v1=1
+  db14 (b14) drv v0=0 v1=1
+  db15 (b15) drv v0=0 v1=1
+  db16 (b16) drv v0=0 v1=1
+  db17 (b17) drv v0=0 v1=1
+  db18 (b18) drv v0=0 v1=1
+  db19 (b19) drv v0=0 v1=1
+  db20 (b20) drv v0=0 v1=1
+  db21 (b21) drv v0=0 v1=1
+  db22 (b22) drv v0=0 v1=1
+  db23 (b23) drv v0=0 v1=1
+  db24 (b24) drv v0=0 v1=1
+  db25 (b25) drv v0=0 v1=1
+  db26 (b26) drv v0=0 v1=1
+  db27 (b27) drv v0=0 v1=1
+  db28 (b28) drv v0=0 v1=1
+  db29 (b29) drv v0=0 v1=1
+  db30 (b30) drv v0=0 v1=1
+  db31 (b31) drv v0=0 v1=1
+  db32 (b32) drv v0=0 v1=1
+  db33 (b33) drv v0=0 v1=1
+  db34 (b34) drv v0=0 v1=1
+  db35 (b35) drv v0=0 v1=1
+  db36 (b36) drv v0=0 v1=1
+  db37 (b37) drv v0=0 v1=1
+  db38 (b38) drv v0=0 v1=1
+  db39 (b39) drv v0=0 v1=1
+  db40 (b40) drv v0=0 v1=1
+  db41 (b41) drv v0=0 v1=1
+  db42 (b42) drv v0=0 v1=1
+  db43 (b43) drv v0=0 v1=1
+  db44 (b44) drv v0=0 v1=1
+  db45 (b45) drv v0=0 v1=1
+  db46 (b46) drv v0=0 v1=1
+  db47 (b47) drv v0=0 v1=1
+  db48 (b48) drv v0=0 v1=1
+  db49 (b49) drv v0=0 v1=1
+  db50 (b50) drv v0=0 v1=1
+  db51 (b51) drv v0=0 v1=1
+  db52 (b52) drv v0=0 v1=1
+  db53 (b53) drv v0=0 v1=1
+  db54 (b54) drv v0=0 v1=1
+  db55 (b55) drv v0=0 v1=1
+  db56 (b56) drv v0=0 v1=1
+  db57 (b57) drv v0=0 v1=1
+  db58 (b58) drv v0=0 v1=1
+  db59 (b59) drv v0=0 v1=1
+  db60 (b60) drv v0=0 v1=1
+  db61 (b61) drv v0=0 v1=1
+  db62 (b62) drv v0=0 v1=1
+  db63 (b63) drv v0=0 v1=1
+
+  // All 64 bits high: 0xffffffffffffffff x 0xffffffffffffffff
+ends
+
+control
+  options nr_convtol=1 nr_bypasstol=1 nr_bypass=0 nr_contbypass=1
+  options tran_lteratio=1.5
+
+  save v(p0) v(p1) v(p2) v(p3) v(p4) v(p5) v(p6) v(p7) v(p8) v(p9)
+  save v(p10) v(p11) v(p12) v(p13) v(p14) v(p15) v(p16) v(p17) v(p18) v(p19)
+  save v(p20) v(p21) v(p22) v(p23) v(p24) v(p25) v(p26) v(p27) v(p28) v(p29)
+  save v(p30) v(p31) v(p32) v(p33) v(p34) v(p35) v(p36) v(p37) v(p38) v(p39)
+  save v(p40) v(p41) v(p42) v(p43) v(p44) v(p45) v(p46) v(p47) v(p48) v(p49)
+  save v(p50) v(p51) v(p52) v(p53) v(p54) v(p55) v(p56) v(p57) v(p58) v(p59)
+  save v(p60) v(p61) v(p62) v(p63) v(p64) v(p65) v(p66) v(p67) v(p68) v(p69)
+  save v(p70) v(p71) v(p72) v(p73) v(p74) v(p75) v(p76) v(p77) v(p78) v(p79)
+  save v(p80) v(p81) v(p82) v(p83) v(p84) v(p85) v(p86) v(p87) v(p88) v(p89)
+  save v(p90) v(p91) v(p92) v(p93) v(p94) v(p95) v(p96) v(p97) v(p98) v(p99)
+  save v(p100) v(p101) v(p102) v(p103) v(p104) v(p105) v(p106) v(p107) v(p108) v(p109)
+  save v(p110) v(p111) v(p112) v(p113) v(p114) v(p115) v(p116) v(p117) v(p118) v(p119)
+  save v(p120) v(p121) v(p122) v(p123) v(p124) v(p125) v(p126)
+  save v(a0) v(a63) v(b0) v(b63)
+
+  elaborate circuit("mul64_test")
+
+  analysis tranmul tran stop=2n step=2p icmode="uic"
+
+  print stats
+endc

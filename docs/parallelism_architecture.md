@@ -313,3 +313,17 @@ VAJAX vs 0.002ms VACASK) show higher ratios.
 On GPU, the vmap'd device evaluation and cuDSS sparse solve provide additional
 speedup for large circuits, as the 10,048 parallel PSP103 evaluations map
 directly to GPU threads.
+
+### Scale Comparison: Benchmarks
+
+| Metric | c6288 (16x16) | mul64 (64x64) | Ratio |
+|--------|---------------|---------------|-------|
+| Architecture | Wallace-tree | Array multiplier | — |
+| Partial product ANDs | 256 | 4,096 | 16x |
+| Total MOSFETs | ~10,048 | ~266,408 | ~27x |
+| Estimated unknowns | ~25,219 | ~400K+ | ~16x |
+| Adder cells | ~2,160 | ~3,969 | ~2x |
+
+The `mul64` benchmark serves as a GPU stress test — at ~266K MOSFETs and ~400K+
+unknowns, it exercises the sparse solver and vmap'd device evaluation at a scale
+where GPU parallelism is essential.

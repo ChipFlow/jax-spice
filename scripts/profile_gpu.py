@@ -548,15 +548,21 @@ def main():
             sys.stderr.flush()
 
             # Determine which solvers to run
-            # c6288 has ~86k total nodes (5k external + 81k internal from PSP103)
-            # Dense matrix would be 86k x 86k x 8 bytes = ~56GB - skip dense
-            run_dense = not args.sparse_only and name != "c6288"
+            # Large circuits: skip dense (matrix would be huge)
+            # c6288: ~25k unknowns, dense = ~5GB
+            # mul64: ~400k+ unknowns, dense = ~1.2TB
+            is_large = name in ("c6288", "mul64")
+            run_dense = not args.sparse_only and not is_large
             run_sparse = not args.dense_only
 
             if name == "c6288":
-                logger.info("    Note: ~86k total nodes (5k external + 81k internal)")
+                logger.info("    Note: ~25k total unknowns (5k external + 20k internal)")
                 if not args.sparse_only:
-                    logger.info("    Skipping dense (would need ~56GB memory)")
+                    logger.info("    Skipping dense (too large)")
+            elif name == "mul64":
+                logger.info("    Note: ~400k+ unknowns (133k external + internal)")
+                if not args.sparse_only:
+                    logger.info("    Skipping dense (too large)")
 
             # Run dense (in subprocess)
             if run_dense:

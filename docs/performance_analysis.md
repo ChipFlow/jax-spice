@@ -18,15 +18,24 @@ VACASK numbers on CPU use live execution; GPU comparisons use reference values.
 | mul       |     8 |  500k |         0.041 |            0.004 | 10.9x |
 | ring      |    47 |   20k |         0.511 |            0.109 |  4.7x |
 | c6288     | ~5000 |    1k |        88.060 |           76.390 |  1.2x |
+| mul64     | ~133k |    — |           — |              — |   — |
+
+> **mul64** (64x64 array multiplier): ~266k MOSFETs, ~400k+ unknowns. Too large
+> for CPU benchmarking; designed as a GPU stress test. CPU numbers pending.
 
 ### GPU: VAJAX Acceleration
 
 | Benchmark | Nodes | GPU (ms/step) | CPU (ms/step) | GPU Speedup | vs VACASK CPU |
 |-----------|------:|--------------:|--------------:|------------:|--------------:|
+| mul64     | ~133k |           — |           — |         — |           — |
 | c6288     | ~5000 |         19.81 |         88.06 |        4.4x | 0.35x (faster)|
 | ring      |    47 |          1.49 |          0.51 |        0.3x | 33x (slower)  |
 | graetz    |     6 |          0.30 |          0.02 |       0.07x | 161x (slower) |
 | rc        |     4 |          0.24 |          0.01 |       0.05x | 257x (slower) |
+
+> **mul64** GPU numbers pending — this benchmark is designed to stress-test GPU
+> sparse solver performance at ~400k+ unknowns, where GPU parallelism should
+> provide the largest speedup over CPU.
 
 GPU results for circuits below ~500 nodes reflect GPU kernel overhead on tiny
 workloads, not simulation inefficiency. The auto-threshold (`gpu_threshold=500`)
@@ -52,11 +61,12 @@ per-step overhead** in the JAX path that VACASK doesn't have:
 ```
 Overhead ratio vs circuit size:
 
-    mul (8 nodes)     ████████████████████████████████  10.9x
-    rc (4 nodes)      ████████████████████             6.6x
-    graetz (6 nodes)  ████████████████                 5.4x
-    ring (47 nodes)   ██████████████                   4.7x
-    c6288 (5k nodes)  ████                             1.2x
+    mul (8 nodes)      ████████████████████████████████  10.9x
+    rc (4 nodes)       ████████████████████             6.6x
+    graetz (6 nodes)   ████████████████                 5.4x
+    ring (47 nodes)    ██████████████                   4.7x
+    c6288 (5k nodes)   ████                             1.2x
+    mul64 (133k nodes) █                                TBD (GPU-only)
 ```
 
 ### Overhead Breakdown
@@ -157,6 +167,13 @@ formulas for common step ratios.
 GPU acceleration becomes beneficial when the per-step compute time exceeds
 the kernel launch and memory overhead (~100-500 us per step). This happens
 around 500+ nodes.
+
+### mul64 (133k nodes): GPU Stress Test
+
+- ~266k PSP103 MOSFET evaluations per NR iteration
+- Sparse Jacobian: ~400k+ unknowns
+- Dense solve impossible (~1.2TB memory); sparse solver required
+- This is the primary benchmark for GPU sparse solver optimization
 
 ### c6288 (5000 nodes): GPU Advantage
 
