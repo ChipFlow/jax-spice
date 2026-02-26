@@ -11,6 +11,10 @@
       
       
       
+        <link rel="prev" href="../architecture_overview/">
+      
+      
+        <link rel="next" href="../gpu_solver_architecture/">
       
       
         
@@ -21,7 +25,7 @@
     
     
       
-        <title>PSP102 Debug Plan - VAJAX</title>
+        <title>Parallelism Architecture - VAJAX</title>
       
     
     
@@ -72,7 +76,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#psp102-debug-plan" class="md-skip">
+        <a href="#parallelism-architecture-c6288-case-study" class="md-skip">
           Skip to content
         </a>
       
@@ -108,7 +112,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              PSP102 Debug Plan
+              Parallelism Architecture
             
           </span>
         </div>
@@ -533,8 +537,10 @@
       
   
   
+    
   
   
+  
     
     
     
@@ -545,11 +551,11 @@
       
     
     
-    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" checked>
         
           
           <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
@@ -570,7 +576,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="true">
           <label class="md-nav__title" for="__nav_3">
             <span class="md-nav__icon md-icon"></span>
             
@@ -613,10 +619,37 @@
                 
   
   
+    
   
   
-    <li class="md-nav__item">
-      <a href="../parallelism_architecture/" class="md-nav__link">
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Parallelism Architecture
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
         
   
   
@@ -632,6 +665,125 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#circuit-overview" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Circuit Overview
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#end-to-end-pipeline" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        End-to-End Pipeline
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#newton-raphson-iteration-detail" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Newton-Raphson Iteration Detail
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#where-parallelism-happens" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Where Parallelism Happens
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#parameter-splitting-shared-vs-per-device" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Parameter Splitting: Shared vs Per-Device
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#coo-stamping-and-assembly" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        COO Stamping and Assembly
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#sparse-solver-path" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Sparse Solver Path
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#transient-time-stepping-loop" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Transient Time-Stepping Loop
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#performance-profile" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Performance Profile
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
     </li>
   
 
@@ -950,60 +1102,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#current-status" class="md-nav__link">
+  <a href="#circuit-overview" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Current Status
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Current Status">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#quantified-problem" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Quantified Problem
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#what-works" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        What Works
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#what-doesnt-work" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        What Doesn't Work
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#root-cause-hypothesis" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Root Cause Hypothesis
+        Circuit Overview
       
     </span>
   </a>
@@ -1011,71 +1113,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#debugging-strategy" class="md-nav__link">
+  <a href="#end-to-end-pipeline" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Debugging Strategy
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Debugging Strategy">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#phase-1-trace-type-parameter-flow" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Phase 1: Trace TYPE Parameter Flow
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#phase-2-identify-divergence-point" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Phase 2: Identify Divergence Point
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#phase-3-mir-analysis" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Phase 3: MIR Analysis
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#phase-4-compare-with-working-models" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Phase 4: Compare with Working Models
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#tools-available" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Tools Available
+        End-to-End Pipeline
       
     </span>
   </a>
@@ -1083,10 +1124,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#next-steps" class="md-nav__link">
+  <a href="#newton-raphson-iteration-detail" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Next Steps
+        Newton-Raphson Iteration Detail
       
     </span>
   </a>
@@ -1094,10 +1135,65 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#test-improvement" class="md-nav__link">
+  <a href="#where-parallelism-happens" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Test Improvement
+        Where Parallelism Happens
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#parameter-splitting-shared-vs-per-device" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Parameter Splitting: Shared vs Per-Device
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#coo-stamping-and-assembly" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        COO Stamping and Assembly
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#sparse-solver-path" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Sparse Solver Path
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#transient-time-stepping-loop" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Transient Time-Stepping Loop
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#performance-profile" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Performance Profile
       
     </span>
   </a>
@@ -1124,134 +1220,306 @@
   
 
 
-<h1 id="psp102-debug-plan">PSP102 Debug Plan<a class="headerlink" href="#psp102-debug-plan" title="Permanent link">&para;</a></h1>
-<h2 id="current-status">Current Status<a class="headerlink" href="#current-status" title="Permanent link">&para;</a></h2>
-<p>PSP102 model comparison tests show <strong>false positives</strong> - tests pass due to absolute tolerance masking a 5 order of magnitude error.</p>
-<h3 id="quantified-problem">Quantified Problem<a class="headerlink" href="#quantified-problem" title="Permanent link">&para;</a></h3>
+<h1 id="parallelism-architecture-c6288-case-study">Parallelism Architecture: c6288 Case Study<a class="headerlink" href="#parallelism-architecture-c6288-case-study" title="Permanent link">&para;</a></h1>
+<p>This document traces how VAJAX exploits parallelism at every stage of circuit
+simulation, using the c6288 16x16 combinational multiplier as a concrete example.</p>
+<h2 id="circuit-overview">Circuit Overview<a class="headerlink" href="#circuit-overview" title="Permanent link">&para;</a></h2>
+<p>The c6288 circuit is a 16-bit Wallace-tree multiplier:</p>
+<ul>
+<li><strong>256 AND gates</strong> (6 MOSFETs each: 3 PMOS + 3 NMOS)</li>
+<li><strong>2,128 NOR gates</strong> (4 MOSFETs each: 2 PMOS + 2 NMOS)</li>
+<li><strong>10,048 PSP103 MOSFETs</strong> total (single model, TYPE parameter distinguishes NMOS/PMOS)</li>
+<li><strong>32 resistors</strong> (in input drivers)</li>
+<li><strong>34 voltage sources</strong> (32 driver + VDD + VSS)</li>
+<li><strong>~5,089 external circuit nodes</strong></li>
+</ul>
+<p>After node collapse (PSP103 has 8 internal nodes, 6 collapse), the system has:
+- 5,089 external nodes + 20,096 internal nodes (2 per MOSFET) + 34 vsource branch currents
+- <strong>~25,219 unknowns</strong> in the augmented MNA system</p>
+<h2 id="end-to-end-pipeline">End-to-End Pipeline<a class="headerlink" href="#end-to-end-pipeline" title="Permanent link">&para;</a></h2>
+<p>The entire simulation -- all timesteps, all Newton-Raphson iterations, all device
+evaluations -- compiles into a <strong>single XLA program</strong> via <code>jax.jit</code>. After the
+one-time JIT warmup, zero Python interpreter overhead remains.</p>
+<pre class="mermaid"><code>flowchart TB
+    subgraph once ["One-time setup (Python)"]
+        direction TB
+        A[Parse .sim netlist] --&gt; B[Compile PSP103.va via OpenVAF]
+        B --&gt; C[Group 10,048 MOSFETs by model type]
+        C --&gt; D["Split params: shared vs per-device"]
+        D --&gt; E[Pre-compute COO stamp indices]
+        E --&gt; F[Trial eval → discover sparsity pattern]
+        F --&gt; G[Pre-compute COO→CSR permutation]
+    end
+
+    subgraph jit ["JIT-compiled XLA program (GPU/CPU)"]
+        direction TB
+        H["Transient loop (lax.while_loop)"]
+        H --&gt; I[Compute integration coefficients]
+        I --&gt; J[Evaluate source waveforms]
+        J --&gt; K[Predict voltages from history]
+        K --&gt; L["NR loop (lax.while_loop)"]
+        L --&gt; M{Converged?}
+        M --&gt;|No| L
+        M --&gt;|Yes| N[LTE estimation]
+        N --&gt; O{Accept step?}
+        O --&gt;|No, halve dt| H
+        O --&gt;|Yes| P[Store solution, advance time]
+        P --&gt; H
+    end
+
+    once --&gt; jit</code></pre>
+<h2 id="newton-raphson-iteration-detail">Newton-Raphson Iteration Detail<a class="headerlink" href="#newton-raphson-iteration-detail" title="Permanent link">&para;</a></h2>
+<p>Each NR iteration is the performance-critical inner loop. Here is what happens
+inside <code>build_system_mna</code> + <code>linear_solve</code>:</p>
+<pre class="mermaid"><code>flowchart TB
+    subgraph nr ["Single NR Iteration"]
+        direction TB
+
+        subgraph extract ["1. Voltage Extraction (vectorized gather)"]
+            V["V: solution vector (25,219)"]
+            VE["V[node1] - V[node2]&lt;br/&gt;10,048 × 13 terminal voltages"]
+            V --&gt; VE
+        end
+
+        subgraph eval ["2. Batched Device Evaluation (jax.vmap)"]
+            direction TB
+            E1["PSP103 batch: vmap over 10,048 devices&lt;br/&gt;shared_params (broadcast) + device_params (10,048 × ~20)"]
+            E2["Resistor batch: vmap over 32 devices"]
+            E1 --&gt; R1["10,048 × residuals + 10,048 × Jacobian entries"]
+            E2 --&gt; R2["32 × residuals + 32 × Jacobian entries"]
+        end
+
+        subgraph stamp ["3. COO Stamping (pre-computed index arrays)"]
+            direction TB
+            S1["Map local → global indices via stamp_indices"]
+            S2["mask_coo_vector: zero out ground-node entries"]
+            S1 --&gt; S2
+        end
+
+        subgraph asm ["4. Matrix Assembly (segment_sum)"]
+            direction TB
+            A1["~320K COO triplets (row, col, val)"]
+            A2["segment_sum scatter-add → BCOO sparse matrix"]
+            A1 --&gt; A2
+        end
+
+        subgraph solve ["5. Sparse Linear Solve"]
+            direction TB
+            L1["COO→CSR via pre-computed permutation + segment_sum"]
+            L2["Enforce NOI constraints (zero rows/cols, unit diagonal)"]
+            L3["UMFPACK (CPU) or cuDSS (GPU) sparse LU solve"]
+            L1 --&gt; L2 --&gt; L3
+            L3 --&gt; D1["δV: Newton update (25,219)"]
+        end
+
+        extract --&gt; eval --&gt; stamp --&gt; asm --&gt; solve
+    end</code></pre>
+<h2 id="where-parallelism-happens">Where Parallelism Happens<a class="headerlink" href="#where-parallelism-happens" title="Permanent link">&para;</a></h2>
+<p>Each stage has a distinct parallelism mechanism:</p>
+<pre class="mermaid"><code>flowchart LR
+    subgraph stages ["Pipeline Stages"]
+        direction TB
+        S1["Voltage&lt;br/&gt;Extraction"]
+        S2["Device&lt;br/&gt;Evaluation"]
+        S3["COO&lt;br/&gt;Stamping"]
+        S4["Matrix&lt;br/&gt;Assembly"]
+        S5["Linear&lt;br/&gt;Solve"]
+    end
+
+    subgraph parallel ["Parallelism Mechanism"]
+        direction TB
+        P1["Vectorized gather&lt;br/&gt;V[indices] - V[indices]"]
+        P2["jax.vmap&lt;br/&gt;10,048 parallel threads"]
+        P3["Vectorized index&lt;br/&gt;mapping + masking"]
+        P4["jax.ops.segment_sum&lt;br/&gt;parallel scatter-add"]
+        P5["Sparse LU factorization&lt;br/&gt;(cuDSS on GPU)"]
+    end
+
+    subgraph scale ["Scale for c6288"]
+        direction TB
+        D1["10,048 × 13 lookups"]
+        D2["10,048 PSP103 evals&lt;br/&gt;+ 32 resistor evals"]
+        D3["~320K COO entries"]
+        D4["320K → ~200K unique&lt;br/&gt;in 25K × 25K matrix"]
+        D5["25,219 × 25,219&lt;br/&gt;sparse system"]
+    end
+
+    S1 --- P1 --- D1
+    S2 --- P2 --- D2
+    S3 --- P3 --- D3
+    S4 --- P4 --- D4
+    S5 --- P5 --- D5</code></pre>
+<h2 id="parameter-splitting-shared-vs-per-device">Parameter Splitting: Shared vs Per-Device<a class="headerlink" href="#parameter-splitting-shared-vs-per-device" title="Permanent link">&para;</a></h2>
+<p>The key optimization for batched evaluation is separating parameters that are
+constant across all 10,048 MOSFETs from those that vary per device.</p>
+<pre class="mermaid"><code>graph LR
+    subgraph shared ["Shared (broadcast, 1D)"]
+        SP["~800 model params&lt;br/&gt;(TOX, VFB0, NSUBO, ...)"]
+        SC["~400 cache values&lt;br/&gt;(computed by init)"]
+        SIM["simparams&lt;br/&gt;(analysis_type, gmin)"]
+    end
+
+    subgraph varying ["Per-device (batched, 2D)"]
+        VP["device_params&lt;br/&gt;10,048 × ~20&lt;br/&gt;(voltages + W, L, TYPE)"]
+        VC["device_cache&lt;br/&gt;10,048 × ~60&lt;br/&gt;(init results that vary)"]
+        LS["limit_state&lt;br/&gt;10,048 × n_lim"]
+    end
+
+    subgraph vmap_call ["jax.vmap(eval_fn, in_axes=(None, 0, None, 0, None, 0))"]
+        EVAL["PSP103 compact&lt;br/&gt;model equations"]
+    end
+
+    shared --&gt; vmap_call
+    varying --&gt; vmap_call
+    vmap_call --&gt; OUT["10,048 × residuals&lt;br/&gt;10,048 × Jacobian entries"]</code></pre>
+<p>The <code>in_axes=(None, 0, None, 0, None, 0)</code> specification tells JAX:
+- <code>None</code>: broadcast this input to all 10,048 invocations (shared params, shared cache, simparams)
+- <code>0</code>: slice along the first dimension, one row per device (device params, device cache, limit state)</p>
+<p>This means the ~800 shared model parameters are loaded once into registers/cache,
+while only the ~20 varying parameters differ per thread.</p>
+<h2 id="coo-stamping-and-assembly">COO Stamping and Assembly<a class="headerlink" href="#coo-stamping-and-assembly" title="Permanent link">&para;</a></h2>
+<p>Each device produces local residuals and Jacobian entries indexed by local
+node numbers (0..12 for PSP103). These must be mapped to global circuit indices.</p>
+<pre class="mermaid"><code>flowchart TB
+    subgraph local ["Per-device local output"]
+        direction LR
+        LR["residual[0..5]&lt;br/&gt;(6 node contributions)"]
+        LJ["jacobian[0..31]&lt;br/&gt;(up to 32 dI/dV entries)"]
+    end
+
+    subgraph mapping ["Stamp index mapping"]
+        direction LR
+        RI["res_indices: (10,048 × 6)&lt;br/&gt;local node → global row"]
+        JR["jac_row_indices: (10,048 × 32)"]
+        JC["jac_col_indices: (10,048 × 32)"]
+    end
+
+    subgraph global ["Global COO arrays"]
+        direction LR
+        GR["f_resist: ~60K valid entries&lt;br/&gt;→ segment_sum → f[25,219]"]
+        GJ["J entries: ~320K triplets&lt;br/&gt;→ segment_sum → J[25,219 × 25,219]"]
+    end
+
+    local --&gt; mapping --&gt; global</code></pre>
+<p>Ground-node entries are mapped to index -1 and masked to zero, so they don't
+pollute the system.</p>
+<h2 id="sparse-solver-path">Sparse Solver Path<a class="headerlink" href="#sparse-solver-path" title="Permanent link">&para;</a></h2>
+<p>The c6288 system is too large for dense linear algebra (25K × 25K × 8 bytes = ~5GB).
+The sparse path avoids materializing the full matrix:</p>
+<pre class="mermaid"><code>flowchart TB
+    subgraph coo ["BCOO from assembly"]
+        C1["~320K COO triplets&lt;br/&gt;(row, col, val)"]
+    end
+
+    subgraph convert ["COO → CSR (pre-computed)"]
+        C2["sort by (row, col) via permutation"]
+        C3["segment_sum to merge duplicates"]
+        C4["CSR: ~200K stored elements"]
+    end
+
+    subgraph noi ["NOI Constraint Enforcement"]
+        N1["Zero out NOI rows/cols in CSR data"]
+        N2["Set NOI diagonal to 1.0"]
+        N3["Zero NOI entries in RHS"]
+    end
+
+    subgraph solve ["Backend-specific solve"]
+        direction LR
+        GPU["GPU: cuDSS/Spineax&lt;br/&gt;Cached symbolic factorization&lt;br/&gt;Only numerical refactor per NR iter"]
+        CPU["CPU: UMFPACK via FFI&lt;br/&gt;Direct sparse LU"]
+    end
+
+    coo --&gt; convert --&gt; noi --&gt; solve</code></pre>
+<p>The COO→CSR conversion is itself parallel: the permutation and segment_sum are
+pre-computed during setup, so at runtime it's just a gather + scatter-add.</p>
+<h2 id="transient-time-stepping-loop">Transient Time-Stepping Loop<a class="headerlink" href="#transient-time-stepping-loop" title="Permanent link">&para;</a></h2>
+<p>The outer loop is also JIT-compiled via <code>lax.while_loop</code>:</p>
+<pre class="mermaid"><code>stateDiagram-v2
+    [*] --&gt; ComputeCoeffs: t &lt; t_stop
+
+    ComputeCoeffs: Compute integration coefficients
+    ComputeCoeffs --&gt; EvalSources: c0, c1 from BDF/Trap
+
+    EvalSources: Evaluate source waveforms
+    EvalSources --&gt; Predict: vsource_vals at t+dt
+
+    Predict: Extrapolate V from history
+    Predict --&gt; NRSolve: V_pred as initial guess
+
+    NRSolve: Newton-Raphson solve
+    NRSolve --&gt; CheckNR
+
+    CheckNR: NR converged?
+    CheckNR --&gt; LTE: Yes
+    CheckNR --&gt; Reject: No (halve dt)
+
+    LTE: Estimate local truncation error
+    LTE --&gt; CheckLTE
+
+    CheckLTE: LTE acceptable?
+    CheckLTE --&gt; Accept: Yes
+    CheckLTE --&gt; Reject: No (reduce dt)
+
+    Reject: Reduce timestep
+    Reject --&gt; ComputeCoeffs
+
+    Accept: Store solution
+    Accept --&gt; AdvanceTime
+
+    AdvanceTime: Update history, advance t
+    AdvanceTime --&gt; ComputeCoeffs: t &lt; t_stop
+    AdvanceTime --&gt; [*]: t &gt;= t_stop</code></pre>
+<h2 id="performance-profile">Performance Profile<a class="headerlink" href="#performance-profile" title="Permanent link">&para;</a></h2>
+<p>For c6288 on CPU (CI benchmark results):</p>
 <table>
 <thead>
 <tr>
 <th>Metric</th>
-<th>OSDI</th>
-<th>JAX</th>
-<th>Issue</th>
+<th>Value</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td>Ids (drain current)</td>
-<td>4.79e-11 A</td>
-<td>5e-16 A</td>
-<td>~100,000x too small</td>
+<td>Timesteps</td>
+<td>~1,000</td>
 </tr>
 <tr>
-<td>Jacobian max</td>
-<td>4.76e+11</td>
-<td>1.0</td>
-<td>Almost all zeros</td>
+<td>NR iterations/step</td>
+<td>5-20</td>
 </tr>
 <tr>
-<td>Non-zero Jacobian entries</td>
-<td>11</td>
-<td>1</td>
-<td>Missing entries</td>
+<td>Device evals/NR iter</td>
+<td>10,048 PSP103 + 32 resistors</td>
+</tr>
+<tr>
+<td>Per-step time (VAJAX)</td>
+<td>90 ms</td>
+</tr>
+<tr>
+<td>Per-step time (VACASK)</td>
+<td>80 ms</td>
+</tr>
+<tr>
+<td>Total wall time (VAJAX)</td>
+<td>65.7s (includes JIT)</td>
+</tr>
+<tr>
+<td>Total wall time (VACASK)</td>
+<td>80.2s</td>
+</tr>
+<tr>
+<td>Speedup (total)</td>
+<td><strong>1.22x faster</strong> (JIT amortized)</td>
 </tr>
 </tbody>
 </table>
-<p>The test uses <code>max_diff &lt; 1e-6</code> absolute tolerance. Since <code>4.79e-11 &lt; 1e-6</code>, the test passes despite JAX returning essentially zero current.</p>
-<h3 id="what-works">What Works<a class="headerlink" href="#what-works" title="Permanent link">&para;</a></h3>
-<ul>
-<li><strong>Cache computation (init)</strong>: 364 values, 242 non-zero, no inf/nan</li>
-<li><strong>Voltage mapping</strong>: Correct node names (D, G, S, B, NOI, NOI2, GP, BP, BI, BS, BD)</li>
-<li><strong>Parameter setting</strong>: TYPE=1, W=1e-6, L=1e-7 passed correctly to init</li>
-</ul>
-<h3 id="what-doesnt-work">What Doesn't Work<a class="headerlink" href="#what-doesnt-work" title="Permanent link">&para;</a></h3>
-<ul>
-<li><strong>Eval function</strong>: Returns near-zero residuals and Jacobian</li>
-<li><strong>NMOS/PMOS branching</strong>: PSP102 uses TYPE parameter for device polarity</li>
-<li><strong>PHI node resolution</strong>: 313 blocks with PHIs in eval function</li>
-</ul>
-<h2 id="root-cause-hypothesis">Root Cause Hypothesis<a class="headerlink" href="#root-cause-hypothesis" title="Permanent link">&para;</a></h2>
-<p>PSP102 has complex NMOS/PMOS conditional branching controlled by the TYPE parameter. The JAX translator likely has issues with:</p>
-<ol>
-<li><strong>PHI node resolution</strong> in the NMOS/PMOS branch selection</li>
-<li><strong>TYPE parameter flow</strong> from init cache to eval computation</li>
-<li><strong>Control flow merging</strong> where NMOS and PMOS paths rejoin</li>
-</ol>
-<p>Since the current is ~1e-15 (numerical noise level), the entire current computation is likely being skipped or zeroed out due to incorrect branch selection.</p>
-<h2 id="debugging-strategy">Debugging Strategy<a class="headerlink" href="#debugging-strategy" title="Permanent link">&para;</a></h2>
-<h3 id="phase-1-trace-type-parameter-flow">Phase 1: Trace TYPE Parameter Flow<a class="headerlink" href="#phase-1-trace-type-parameter-flow" title="Permanent link">&para;</a></h3>
-<ol>
-<li>Find where TYPE is stored in the cache</li>
-<li>Verify TYPE value propagates correctly to eval</li>
-<li>Check if TYPE-dependent branches are executing</li>
-</ol>
-<h3 id="phase-2-identify-divergence-point">Phase 2: Identify Divergence Point<a class="headerlink" href="#phase-2-identify-divergence-point" title="Permanent link">&para;</a></h3>
-<p>Compare OSDI vs JAX at intermediate computation points:</p>
-<ol>
-<li><strong>Input arrays</strong>: Verify voltages and cache values match</li>
-<li><strong>Early computations</strong>: Find first value that diverges</li>
-<li><strong>PHI resolutions</strong>: Check if PHI nodes select correct predecessor</li>
-</ol>
-<h3 id="phase-3-mir-analysis">Phase 3: MIR Analysis<a class="headerlink" href="#phase-3-mir-analysis" title="Permanent link">&para;</a></h3>
-<p>Use the debug tools we developed:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="c1"># Find PHI nodes in PSP102 eval</span>
-<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>uv<span class="w"> </span>run<span class="w"> </span>scripts/analyze_mir_cfg.py<span class="w"> </span>vendor/OpenVAF/integration_tests/PSP102/psp102.va<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="w">    </span>--func<span class="w"> </span><span class="nb">eval</span><span class="w"> </span>--find-phis
-<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>
-<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="c1"># Trace control flow to specific blocks</span>
-<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>uv<span class="w"> </span>run<span class="w"> </span>scripts/analyze_mir_cfg.py<span class="w"> </span>vendor/OpenVAF/integration_tests/PSP102/psp102.va<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="w">    </span>--func<span class="w"> </span><span class="nb">eval</span><span class="w"> </span>--branches
-</code></pre></div>
-<h3 id="phase-4-compare-with-working-models">Phase 4: Compare with Working Models<a class="headerlink" href="#phase-4-compare-with-working-models" title="Permanent link">&para;</a></h3>
-<p>EKV and MVSG work correctly. Compare their:
-- PHI node count and complexity
-- TYPE parameter handling (EKV also has TYPE for NMOS/PMOS)
-- Control flow structure</p>
-<h2 id="tools-available">Tools Available<a class="headerlink" href="#tools-available" title="Permanent link">&para;</a></h2>
-<table>
-<thead>
-<tr>
-<th>Tool</th>
-<th>Purpose</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>scripts/analyze_mir_cfg.py</code></td>
-<td>CFG analysis, PHI node finding, path tracing</td>
-</tr>
-<tr>
-<td><code>vajax/debug/mir_tracer.py</code></td>
-<td>Value flow tracing through MIR</td>
-</tr>
-<tr>
-<td><code>vajax/debug/param_analyzer.py</code></td>
-<td>Parameter kind analysis</td>
-</tr>
-<tr>
-<td><code>vajax/debug/jacobian.py</code></td>
-<td>Format-aware Jacobian comparison</td>
-</tr>
-</tbody>
-</table>
-<h2 id="next-steps">Next Steps<a class="headerlink" href="#next-steps" title="Permanent link">&para;</a></h2>
-<ol>
-<li>[ ] Generate detailed MIR dump for PSP102 eval function</li>
-<li>[ ] Find TYPE-dependent branch points in the CFG</li>
-<li>[ ] Trace which path JAX takes vs which path it should take</li>
-<li>[ ] Compare with EKV (working) to identify pattern differences</li>
-<li>[ ] Fix PHI resolution or branch selection issue</li>
-<li>[ ] Update test tolerances to catch this class of error</li>
-</ol>
-<h2 id="test-improvement">Test Improvement<a class="headerlink" href="#test-improvement" title="Permanent link">&para;</a></h2>
-<p>After fixing PSP102, update tests to use relative tolerance:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="c1"># Current (masks errors):</span>
-<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="k">assert</span> <span class="n">max_diff</span> <span class="o">&lt;</span> <span class="mf">1e-6</span>
-<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>
-<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="c1"># Better (catches magnitude errors):</span>
-<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="k">assert</span> <span class="n">np</span><span class="o">.</span><span class="n">allclose</span><span class="p">(</span><span class="n">osdi_ids</span><span class="p">,</span> <span class="n">jax_ids</span><span class="p">,</span> <span class="n">rtol</span><span class="o">=</span><span class="mf">1e-4</span><span class="p">,</span> <span class="n">atol</span><span class="o">=</span><span class="mf">1e-20</span><span class="p">)</span>
-</code></pre></div>
+<p>The per-step overhead (~10ms) comes from adaptive timestep machinery, <code>jnp.where</code>
+branching, and COO assembly. This overhead is fixed regardless of circuit size,
+which is why c6288 (~90ms/step) is competitive while small circuits (rc: 0.014ms
+VAJAX vs 0.002ms VACASK) show higher ratios.</p>
+<p>On GPU, the vmap'd device evaluation and cuDSS sparse solve provide additional
+speedup for large circuits, as the 10,048 parallel PSP103 evaluations map
+directly to GPU threads.</p>
 
 
 

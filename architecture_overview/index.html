@@ -14,7 +14,7 @@
         <link rel="prev" href="../vacask_sim_format/">
       
       
-        <link rel="next" href="../gpu_solver_architecture/">
+        <link rel="next" href="../parallelism_architecture/">
       
       
         
@@ -329,6 +329,62 @@
 
           </label>
           <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../getting_started/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../supported_devices/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Supported Devices
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
             
               
                 
@@ -973,6 +1029,34 @@
   
 </nav>
       
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../parallelism_architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Parallelism Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
     </li>
   
 
@@ -1996,6 +2080,8 @@ Subsequent calls: ~1-20 ms</p>
 <a id="__codelineno-13-8" name="__codelineno-13-8" href="#__codelineno-13-8"></a><span class="n">currents</span> <span class="o">=</span> <span class="n">jax</span><span class="o">.</span><span class="n">vmap</span><span class="p">(</span><span class="n">device_fn</span><span class="p">)(</span><span class="n">V</span><span class="p">[</span><span class="n">node_indices</span><span class="p">],</span> <span class="n">batched_params</span><span class="p">)</span>
 </code></pre></div>
 <p>Speedup: 10-100x depending on device count</p>
+<p>For a detailed walkthrough of how all these mechanisms compose for a real circuit,
+see <a href="../parallelism_architecture/">Parallelism Architecture: c6288 Case Study</a>.</p>
 <h3 id="batched-parameter-arrays">Batched Parameter Arrays<a class="headerlink" href="#batched-parameter-arrays" title="Permanent link">&para;</a></h3>
 <p>Pre-computing parameter arrays eliminates Python loops:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a><span class="c1"># During build_device_groups()</span>
