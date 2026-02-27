@@ -25,3 +25,19 @@ build-backend = "scikit_build_core.build"
 [tool.scikit-build]
 cmake.build-type = "Release"
 build.verbose = true
+
+[tool.cibuildwheel]
+build = ["cp311-*", "cp312-*"]
+skip = ["*-musllinux_*", "*-win32", "*_i686"]
+
+# FetchContent in CMakeLists.txt downloads + builds SuiteSparse v7.8.3 from source.
+# Only system BLAS is needed (openblas on Linux, Accelerate on macOS).
+
+[tool.cibuildwheel.linux]
+before-all = [
+    # OpenBLAS provides the BLAS dependency for SuiteSparse
+    "yum install -y openblas-devel || apt-get install -y libopenblas-dev",
+]
+
+[tool.cibuildwheel.macos]
+# macOS uses Accelerate framework (always available) - no extra deps needed
