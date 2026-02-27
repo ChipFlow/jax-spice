@@ -12,7 +12,7 @@ Example:
 
 import math
 import re
-from typing import Dict
+from typing import Dict, List, Tuple
 
 from simpleeval import EvalWithCompoundTypes, InvalidExpression
 
@@ -47,6 +47,15 @@ SI_SUFFIXES = [
     ("a", 1e-18),
 ]
 
+# Pre-compiled SI suffix regex patterns (avoids re-compilation on every call)
+_COMPILED_SI_PATTERNS: List[Tuple[re.Pattern, str]] = []
+for _suffix, _mult in SI_SUFFIXES:
+    _pattern = re.compile(
+        rf"(\d+\.?\d*|\.\d+)({_suffix})(?![a-zA-Z0-9])",
+        re.IGNORECASE,
+    )
+    _COMPILED_SI_PATTERNS.append((_pattern, rf"\g<1>*{_mult}"))
+
 # Safe math functions available in expressions
 SAFE_FUNCTIONS = {
     "sin": math.sin,
@@ -71,6 +80,10 @@ SAFE_FUNCTIONS = {
     "ceil": math.ceil,
 }
 
+# Module-level caches for hot-path performance
+_SPICE_NUMBER_CACHE: Dict[str, Tuple[float, bool]] = {}
+_EVAL_CACHE: Dict[Tuple[str, frozenset], float] = {}
+
 
 def parse_spice_number(s: str) -> tuple[float, bool]:
     """Parse a SPICE number with optional SI suffix.
@@ -81,25 +94,37 @@ def parse_spice_number(s: str) -> tuple[float, bool]:
     Returns:
         Tuple of (value, success). If parsing fails, returns (0.0, False).
     """
-    s = s.strip().lower()
-    if not s:
-        return 0.0, False
+    cached = _SPICE_NUMBER_CACHE.get(s)
+    if cached is not None:
+        return cached
+
+    s_norm = s.strip().lower()
+    if not s_norm:
+        result = (0.0, False)
+        _SPICE_NUMBER_CACHE[s] = result
+        return result
 
     # Try direct float parse first
     try:
-        return float(s), True
+        result = (float(s_norm), True)
+        _SPICE_NUMBER_CACHE[s] = result
+        return result
     except ValueError:
         pass
 
     # Try with SI suffix
     for suffix, mult in SI_SUFFIXES:
-        if s.endswith(suffix):
+        if s_norm.endswith(suffix):
             try:
-                return float(s[: -len(suffix)]) * mult, True
+                result = (float(s_norm[: -len(suffix)]) * mult, True)
+                _SPICE_NUMBER_CACHE[s] = result
+                return result
             except ValueError:
                 pass
 
-    return 0.0, False
+    result = (0.0, False)
+    _SPICE_NUMBER_CACHE[s] = result
+    return result
 
 
 def _substitute_params(expr: str, params: Dict[str, float]) -> str:
@@ -108,6 +133,8 @@ def _substitute_params(expr: str, params: Dict[str, float]) -> str:
     Substitutes longer names first to avoid partial replacements
     (e.g., 'wmin' before 'w').
     """
+    if not params:
+        return expr
     result = expr
     for name, value in sorted(params.items(), key=lambda x: -len(x[0])):
         # Use word boundaries to avoid partial matches
@@ -120,14 +147,10 @@ def _expand_si_suffixes(expr: str) -> str:
     """Expand SI suffixes in an expression to their numeric values.
 
     Converts "1u" to "1e-6", "100n" to "100e-9", etc.
+    Uses pre-compiled regex patterns for performance.
     """
-    # Pattern: number followed by SI suffix (not followed by more alphanumeric)
-    # e.g., "1u", "100n", "1.5meg"
-    for suffix, mult in SI_SUFFIXES:
-        # Match: optional sign, digits/decimal, suffix, not followed by alphanumeric
-        pattern = rf"(\d+\.?\d*|\.\d+)({suffix})(?![a-zA-Z0-9])"
-        replacement = rf"\1*{mult}"
-        expr = re.sub(pattern, replacement, expr, flags=re.IGNORECASE)
+    for pattern, replacement in _COMPILED_SI_PATTERNS:
+        expr = pattern.sub(replacement, expr)
     return expr
 
 
@@ -173,6 +196,15 @@ def safe_eval_expr(expr: str, params: Dict[str, float], default: float = 0.0) ->
     if success:
         return val
 
+    # Cache lookup: (expr, params) -> result
+    # Use frozenset for small param dicts; skip for large ones (expensive to hash)
+    cache_key = None
+    if len(params) < 20:
+        cache_key = (expr, frozenset(params.items()))
+        cached = _EVAL_CACHE.get(cache_key)
+        if cached is not None:
+            return cached
+
     try:
         # Substitute parameters
         eval_expr = _substitute_params(expr, params)
@@ -182,7 +214,12 @@ def safe_eval_expr(expr: str, params: Dict[str, float], default: float = 0.0) ->
 
         # Evaluate safely
         result = _evaluator.eval(eval_expr)
-        return float(result)
+        result = float(result)
+
+        if cache_key is not None:
+            _EVAL_CACHE[cache_key] = result
+
+        return result
 
     except (InvalidExpression, ValueError, TypeError, KeyError, SyntaxError):
         return default

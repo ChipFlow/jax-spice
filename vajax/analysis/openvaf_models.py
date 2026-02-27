@@ -502,15 +502,22 @@ def compute_early_collapse_decisions(
             continue
 
         # Group devices by unique parameter combinations
+        # Pre-lowercase param names once per model type (not per device).
+        # For PSP103 with 908 init params × 266k devices, this avoids
+        # 241M str.lower() calls (43s → ~3s in profiling).
+        init_param_names_lower = [p.lower() for p in init_param_names]
+        init_param_defaults_lower = {
+            k.lower(): v for k, v in init_param_defaults.items()
+        }
+
         def get_param_key(dev: Dict) -> Tuple:
             device_params = dev.get("params", {})
             values = []
-            for pname in init_param_names:
-                pname_lower = pname.lower()
+            for pname_lower in init_param_names_lower:
                 if pname_lower in device_params:
                     values.append(float(device_params[pname_lower]))
-                elif pname_lower in init_param_defaults:
-                    values.append(float(init_param_defaults[pname_lower]))
+                elif pname_lower in init_param_defaults_lower:
+                    values.append(float(init_param_defaults_lower[pname_lower]))
                 else:
                     values.append(0.0)
             return tuple(values)

@@ -85,6 +85,9 @@ jobs:
           - name: benchmark-sparse
             tests: "tests/test_vacask_benchmarks.py -k 'sparse'"
             timeout: 45
+          - name: benchmark-mul64
+            tests: "tests/test_vacask_benchmarks.py -k 'Mul64'"
+            timeout: 30
     name: test-vajax (${{ matrix.test-group.name }})
     steps:
       - name: Checkout with submodules
