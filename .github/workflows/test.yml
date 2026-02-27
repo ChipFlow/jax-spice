@@ -80,10 +80,10 @@ jobs:
             tests: "tests/test_vacask_suite.py tests/test_vacask_jax.py tests/test_ac_analysis.py tests/test_hb_analysis.py tests/test_noise_analysis.py tests/test_xfer_analysis.py"
             timeout: 30
           - name: benchmark-dense
-            tests: "tests/test_vacask_benchmarks.py -k 'dense'"
+            tests: "tests/test_vacask_benchmarks.py -k 'dense and not Mul64'"
             timeout: 45
           - name: benchmark-sparse
-            tests: "tests/test_vacask_benchmarks.py -k 'sparse'"
+            tests: "tests/test_vacask_benchmarks.py -k 'sparse and not Mul64'"
             timeout: 45
           - name: benchmark-mul64
             tests: "tests/test_vacask_benchmarks.py -k 'Mul64'"
