@@ -43,26 +43,20 @@ When optimizing simulation performance:
 
 ### Sparse Solver Strategy
 
-The simulator supports two solver modes:
+The simulator supports three solver backends (selected in `solver_factories.py`):
 
-1. **Dense solver** (default): Uses `jax.scipy.linalg.solve()` for small-medium circuits
-2. **Sparse solver**: Uses BCOO/BCSR + `spsolve` for large circuits (>1000 nodes)
+1. **Dense** (default for <1000 nodes): `jax.scipy.linalg.solve()`
+2. **Spineax/cuDSS** (GPU sparse): Float32 factorization with iterative refinement
+   - Factorizes J in float32 (halves VRAM), computes residual in float64 via SpMV,
+     solves correction in float32, returns near-float64 accuracy
+   - Cached symbolic factorization — only numerical refactorization per NR step
+3. **UMFPACK FFI** (CPU sparse): Direct solver via nanobind FFI for large CPU circuits
 
-For large circuits, use sparse mode with `use_sparse=True`:
+For large circuits, use sparse mode with `use_sparse=True`. The backend is auto-selected
+based on available hardware (cuDSS on CUDA GPUs, UMFPACK on CPU).
 
-```python
-from jax.experimental.sparse import BCOO, BCSR
-from jax.experimental.sparse.linalg import spsolve
-
-# Build Jacobian as BCOO, convert to BCSR for solving
-J_bcoo = BCOO((j_data, jnp.stack([j_rows, j_cols], axis=1)), shape=(n, n))
-J_bcsr = BCSR.from_bcoo(J_bcoo)
-
-# Solve J @ delta = -f using sparse direct solver
-delta = spsolve(J_bcsr.data, J_bcsr.indices, J_bcsr.indptr, -f, (n, n))
-```
-
-Note: c6288 benchmark (~86k nodes) requires sparse mode as dense would need ~56GB memory.
+Note: c6288 (~86k transistors, ~5k nodes) and mul64 (~267k transistors, ~666k unknowns)
+require sparse mode as dense would need impractical memory.
 
 ## Test Commands
 
@@ -108,11 +102,15 @@ vajax.configure_precision()                  # Auto-detect again
 
 ```
 vajax/analysis/
-├── solver.py          # Newton-Raphson with lax.while_loop
-├── dc.py              # DC operating point analysis
-├── transient.py       # Transient analysis (vectorized GPU path)
-├── mna.py             # MNA system representation
-└── sparse.py          # JAX sparse utilities (BCOO)
+├── solver_factories.py    # NR solver backends (Dense, Spineax/cuDSS, UMFPACK)
+├── transient/
+│   └── full_mna.py        # Adaptive time-stepping with lax.while_loop
+├── mna_builder.py         # MNA system builder (COO/CSR stamping)
+├── dc_operating_point.py  # DC operating point analysis
+├── solver.py              # Simple dense NR solver (DC)
+├── mna.py                 # MNA system representation
+├── gpu_backend.py         # GPU routing (>500 nodes threshold)
+└── sparse.py              # JAX sparse utilities (BCOO)
 
 vajax/devices/
 ├── verilog_a.py     # OpenVAF Verilog-A device wrapper
@@ -138,20 +136,16 @@ All devices are routed through OpenVAF except voltage/current sources:
 ## Solver Architecture
 
 **Production transient hot path** (the code that actually runs simulations):
-- `vajax/analysis/solver_factories.py` - Three NR solver backends:
+- `vajax/analysis/solver_factories.py` - NR solver with pluggable linear solve backends:
   - **Dense**: `jax.scipy.linalg.solve` (small circuits <1000 nodes)
-  - **Spineax/cuDSS**: GPU sparse solver with cached symbolic factorization (CUDA)
+  - **Spineax/cuDSS**: GPU sparse, float32 factorization + iterative refinement (CUDA)
   - **UMFPACK FFI**: CPU sparse solver via nanobind FFI (large circuits)
+  - Common NR logic extracted into `_make_nr_solver_common()`
 - `vajax/analysis/transient/full_mna.py` - Adaptive time-stepping with `lax.while_loop`
 
 **DC/utility solvers**:
 - `vajax/analysis/solver.py` - Simple dense NR solver for DC operating point
 - `vajax/analysis/sparse.py` - JAX BCOO/BCSR sparse utilities (legacy, not used in hot path)
-
-**Known architectural issue**: Each solver factory in `solver_factories.py` reimplements
-the full NR iteration (~400 lines each). Common NR logic should be extracted so adding
-a new linear solver backend is ~50 lines, not a copy-paste of 400.
-See GitHub issue #37 for GPU optimization opportunities.
 
 NumPy/SciPy are used appropriately for:
 - File I/O (`rawfile.py`, `prn_reader.py`)

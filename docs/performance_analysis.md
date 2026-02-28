@@ -13,30 +13,36 @@ VACASK numbers on CPU use live execution; GPU comparisons use reference values.
 
 | Benchmark | Nodes | Steps | JAX (ms/step) | VACASK (ms/step) | Ratio |
 |-----------|------:|------:|--------------:|-----------------:|------:|
-| rc        |     4 |    1M |         0.012 |            0.002 |  6.6x |
-| graetz    |     6 |    1M |         0.020 |            0.004 |  5.4x |
-| mul       |     8 |  500k |         0.041 |            0.004 | 10.9x |
-| ring      |    47 |   20k |         0.511 |            0.109 |  4.7x |
-| c6288     | ~5000 |    1k |        88.060 |           76.390 |  1.2x |
-| mul64     | ~133k |    — |           — |              — |   — |
+| rc        |     4 |    1M |         0.023 |            0.002 | 12.2x |
+| graetz    |     6 |    1M |         0.033 |            0.004 |  8.6x |
+| mul       |     8 |  500k |         0.040 |            0.004 | 10.4x |
+| ring      |    47 |   20k |         0.516 |            0.108 |  4.8x |
+| c6288     | ~5000 |   20  |       163.684 |          288.800 |  0.57x|
+| mul64     | ~133k |   15  |      8324.949 |          timeout |   —   |
 
+> **c6288**: VAJAX is **1.8x faster** than VACASK using UMFPACK sparse solver on CPU.
+> The crossover where VAJAX exceeds VACASK performance occurs around ~5000 nodes.
+>
 > **mul64** (64x64 array multiplier): ~266k MOSFETs, ~666k unknowns (133k nodes +
-> 533k internal). Requires >16GB GPU VRAM for cuDSS sparse factorization — the
-> Tesla T4 (16GB) runs out of memory during symbolic analysis. Needs A100 or larger.
+> 533k internal). VACASK times out on CI (>5 min per step). VAJAX completes at
+> ~8.3s/step using UMFPACK sparse solver. On GPU with float32 cuDSS factorization
+> and iterative refinement, mul64 runs at ~648 ms/step on Tesla T4 (16GB) —
+> a **12.8x GPU speedup**.
 
 ### GPU: VAJAX Acceleration
 
 | Benchmark | Nodes | GPU (ms/step) | CPU (ms/step) | GPU Speedup | vs VACASK CPU |
 |-----------|------:|--------------:|--------------:|------------:|--------------:|
-| mul64     | ~133k |           — |           — |         — |           — |
-| c6288     | ~5000 |         19.81 |         88.06 |        4.4x | 0.35x (faster)|
-| ring      |    47 |          1.49 |          0.51 |        0.3x | 33x (slower)  |
-| graetz    |     6 |          0.30 |          0.02 |       0.07x | 161x (slower) |
-| rc        |     4 |          0.24 |          0.01 |       0.05x | 257x (slower) |
+| mul64     | ~133k |        648.00 |      8324.95  |       12.8x |  N/A (timeout)|
+| c6288     | ~5000 |         19.81 |       163.68  |        8.3x | 0.07x (faster)|
+| ring      |    47 |          1.49 |          0.52 |        0.3x | 14x (slower)  |
+| graetz    |     6 |          0.30 |          0.03 |       0.1x  | 75x (slower)  |
+| rc        |     4 |          0.24 |          0.02 |       0.08x | 120x (slower) |
 
-> **mul64** requires >16GB GPU VRAM — cuDSS symbolic factorization of the 666k x 666k
-> sparse Jacobian (3.3M non-zeros) exceeds Tesla T4 (16GB) memory. Needs A100 (40/80GB)
-> or similar. This benchmark is excluded from T4-based CI runs.
+> **mul64** uses float32 cuDSS factorization with iterative refinement, reducing
+> VRAM usage from >16GB (f64 OOM) to ~10GB on Tesla T4 (16GB). The f32 factorization
+> provides near-f64 accuracy via a single refinement step: solve in f32, compute
+> residual r=f+J@x in f64 (SpMV only), solve correction in f32, return x+d.
 
 GPU results for circuits below ~500 nodes reflect GPU kernel overhead on tiny
 workloads, not simulation inefficiency. The auto-threshold (`gpu_threshold=500`)
@@ -60,14 +66,14 @@ The overhead ratio decreases as circuit size increases, confirming a **fixed
 per-step overhead** in the JAX path that VACASK doesn't have:
 
 ```
-Overhead ratio vs circuit size:
+Overhead ratio vs circuit size (CPU):
 
-    mul (8 nodes)      ████████████████████████████████  10.9x
-    rc (4 nodes)       ████████████████████             6.6x
-    graetz (6 nodes)   ████████████████                 5.4x
-    ring (47 nodes)    ██████████████                   4.7x
-    c6288 (5k nodes)   ████                             1.2x
-    mul64 (133k nodes) █                                TBD (GPU-only)
+    rc (4 nodes)       ████████████████████████████████████  12.2x
+    mul (8 nodes)      ██████████████████████████████████    10.4x
+    graetz (6 nodes)   ██████████████████████████            8.6x
+    ring (47 nodes)    ███████████████                       4.8x
+    c6288 (5k nodes)   ██                                    0.57x (VAJAX faster)
+    mul64 (133k nodes) █                                     N/A (VACASK timeout)
 ```
 
 ### Overhead Breakdown
@@ -100,14 +106,16 @@ where:
   T_compute(n) ~ T_compute_vacask(n) for large n (same algorithm)
 ```
 
-This explains the convergence to 1.2x at ~5000 nodes:
+For large circuits (c6288, mul64), VAJAX's UMFPACK sparse solver is actually
+**faster** than VACASK — the fixed overhead is negligible and the solver
+implementation is competitive:
 
 | Circuit | T_fixed | T_compute | Overhead % | Overall Ratio |
 |---------|--------:|----------:|-----------:|--------------:|
-| rc      |   10 us |      2 us |        83% |          6.6x |
-| graetz  |   10 us |      4 us |        71% |          5.4x |
-| ring    |   10 us |    100 us |         9% |          4.7x |
-| c6288   |   10 us | 76,000 us |      0.01% |          1.2x |
+| rc      |   10 us |      2 us |        83% |         12.2x |
+| graetz  |   10 us |      4 us |        71% |          8.6x |
+| ring    |   10 us |    100 us |         9% |          4.8x |
+| c6288   |   10 us |163,000 us |     <0.01% |         0.57x |
 
 ---
 
@@ -175,16 +183,17 @@ around 500+ nodes.
 - Sparse Jacobian: 666,409 unknowns (133k nodes + 533k internal + 130 currents)
 - 3,259,918 CSR entries (from 30.5M COO triplets)
 - Dense solve impossible (~3.3TB memory); sparse solver required
-- Requires >16GB GPU VRAM for cuDSS symbolic factorization
-- Tesla T4 (16GB): OOM during `cudssExecute analysis`
-- Target: A100 40GB+ or similar
+- **Float32 factorization**: cuDSS factorizes J in f32 (halves VRAM), iterative
+  refinement recovers near-f64 accuracy. Reduces peak VRAM from >16GB to ~10GB.
+- Tesla T4 (16GB): **648 ms/step** — 12.8x faster than CPU (8325 ms/step)
+- CPU uses UMFPACK sparse solver at ~8.3s/step; VACASK times out (>5 min/step)
 
 ### c6288 (5000 nodes): GPU Advantage
 
-- Jacobian: 5000x5000 matrix operations
-- Dense solve: O(n^3) = O(125 billion) operations per NR iteration
-- GPU parallelism: thousands of concurrent threads
-- Result: 4.4x speedup over CPU, **2.9x faster than VACASK**
+- Jacobian: ~5000x5000 sparse matrix (~86k transistors, ~5k nodes)
+- Uses cuDSS sparse solver on GPU, UMFPACK on CPU
+- GPU: 19.81 ms/step, CPU: 163.68 ms/step — **8.3x GPU speedup**
+- vs VACASK CPU (288.8 ms/step): **14.6x faster on GPU**
 
 ### rc (4 nodes): GPU Disadvantage
 
