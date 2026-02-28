@@ -1468,56 +1468,60 @@ VACASK numbers on CPU use live execution; GPU comparisons use reference values.<
 <td>rc</td>
 <td style="text-align: right;">4</td>
 <td style="text-align: right;">1M</td>
-<td style="text-align: right;">0.012</td>
+<td style="text-align: right;">0.023</td>
 <td style="text-align: right;">0.002</td>
-<td style="text-align: right;">6.6x</td>
+<td style="text-align: right;">12.2x</td>
 </tr>
 <tr>
 <td>graetz</td>
 <td style="text-align: right;">6</td>
 <td style="text-align: right;">1M</td>
-<td style="text-align: right;">0.020</td>
+<td style="text-align: right;">0.033</td>
 <td style="text-align: right;">0.004</td>
-<td style="text-align: right;">5.4x</td>
+<td style="text-align: right;">8.6x</td>
 </tr>
 <tr>
 <td>mul</td>
 <td style="text-align: right;">8</td>
 <td style="text-align: right;">500k</td>
-<td style="text-align: right;">0.041</td>
+<td style="text-align: right;">0.040</td>
 <td style="text-align: right;">0.004</td>
-<td style="text-align: right;">10.9x</td>
+<td style="text-align: right;">10.4x</td>
 </tr>
 <tr>
 <td>ring</td>
 <td style="text-align: right;">47</td>
 <td style="text-align: right;">20k</td>
-<td style="text-align: right;">0.511</td>
-<td style="text-align: right;">0.109</td>
-<td style="text-align: right;">4.7x</td>
+<td style="text-align: right;">0.516</td>
+<td style="text-align: right;">0.108</td>
+<td style="text-align: right;">4.8x</td>
 </tr>
 <tr>
 <td>c6288</td>
 <td style="text-align: right;">~5000</td>
-<td style="text-align: right;">1k</td>
-<td style="text-align: right;">88.060</td>
-<td style="text-align: right;">76.390</td>
-<td style="text-align: right;">1.2x</td>
+<td style="text-align: right;">20</td>
+<td style="text-align: right;">163.684</td>
+<td style="text-align: right;">288.800</td>
+<td style="text-align: right;">0.57x</td>
 </tr>
 <tr>
 <td>mul64</td>
 <td style="text-align: right;">~133k</td>
-<td style="text-align: right;">—</td>
-<td style="text-align: right;">—</td>
-<td style="text-align: right;">—</td>
+<td style="text-align: right;">15</td>
+<td style="text-align: right;">8324.949</td>
+<td style="text-align: right;">timeout</td>
 <td style="text-align: right;">—</td>
 </tr>
 </tbody>
 </table>
 <blockquote>
+<p><strong>c6288</strong>: VAJAX is <strong>1.8x faster</strong> than VACASK using UMFPACK sparse solver on CPU.
+The crossover where VAJAX exceeds VACASK performance occurs around ~5000 nodes.</p>
 <p><strong>mul64</strong> (64x64 array multiplier): ~266k MOSFETs, ~666k unknowns (133k nodes +
-533k internal). Requires &gt;16GB GPU VRAM for cuDSS sparse factorization — the
-Tesla T4 (16GB) runs out of memory during symbolic analysis. Needs A100 or larger.</p>
+533k internal). VACASK times out on CI (&gt;5 min per step). VAJAX completes at
+~8.3s/step using UMFPACK sparse solver. On GPU with float32 cuDSS factorization
+and iterative refinement, mul64 runs at ~648 ms/step on Tesla T4 (16GB) —
+a <strong>12.8x GPU speedup</strong>.</p>
 </blockquote>
 <h3 id="gpu-vajax-acceleration">GPU: VAJAX Acceleration<a class="headerlink" href="#gpu-vajax-acceleration" title="Permanent link">&para;</a></h3>
 <table>
@@ -1535,49 +1539,50 @@ Tesla T4 (16GB) runs out of memory during symbolic analysis. Needs A100 or large
 <tr>
 <td>mul64</td>
 <td style="text-align: right;">~133k</td>
-<td style="text-align: right;">—</td>
-<td style="text-align: right;">—</td>
-<td style="text-align: right;">—</td>
-<td style="text-align: right;">—</td>
+<td style="text-align: right;">648.00</td>
+<td style="text-align: right;">8324.95</td>
+<td style="text-align: right;">12.8x</td>
+<td style="text-align: right;">N/A (timeout)</td>
 </tr>
 <tr>
 <td>c6288</td>
 <td style="text-align: right;">~5000</td>
 <td style="text-align: right;">19.81</td>
-<td style="text-align: right;">88.06</td>
-<td style="text-align: right;">4.4x</td>
-<td style="text-align: right;">0.35x (faster)</td>
+<td style="text-align: right;">163.68</td>
+<td style="text-align: right;">8.3x</td>
+<td style="text-align: right;">0.07x (faster)</td>
 </tr>
 <tr>
 <td>ring</td>
 <td style="text-align: right;">47</td>
 <td style="text-align: right;">1.49</td>
-<td style="text-align: right;">0.51</td>
+<td style="text-align: right;">0.52</td>
 <td style="text-align: right;">0.3x</td>
-<td style="text-align: right;">33x (slower)</td>
+<td style="text-align: right;">14x (slower)</td>
 </tr>
 <tr>
 <td>graetz</td>
 <td style="text-align: right;">6</td>
 <td style="text-align: right;">0.30</td>
-<td style="text-align: right;">0.02</td>
-<td style="text-align: right;">0.07x</td>
-<td style="text-align: right;">161x (slower)</td>
+<td style="text-align: right;">0.03</td>
+<td style="text-align: right;">0.1x</td>
+<td style="text-align: right;">75x (slower)</td>
 </tr>
 <tr>
 <td>rc</td>
 <td style="text-align: right;">4</td>
 <td style="text-align: right;">0.24</td>
-<td style="text-align: right;">0.01</td>
-<td style="text-align: right;">0.05x</td>
-<td style="text-align: right;">257x (slower)</td>
+<td style="text-align: right;">0.02</td>
+<td style="text-align: right;">0.08x</td>
+<td style="text-align: right;">120x (slower)</td>
 </tr>
 </tbody>
 </table>
 <blockquote>
-<p><strong>mul64</strong> requires &gt;16GB GPU VRAM — cuDSS symbolic factorization of the 666k x 666k
-sparse Jacobian (3.3M non-zeros) exceeds Tesla T4 (16GB) memory. Needs A100 (40/80GB)
-or similar. This benchmark is excluded from T4-based CI runs.</p>
+<p><strong>mul64</strong> uses float32 cuDSS factorization with iterative refinement, reducing
+VRAM usage from &gt;16GB (f64 OOM) to ~10GB on Tesla T4 (16GB). The f32 factorization
+provides near-f64 accuracy via a single refinement step: solve in f32, compute
+residual r=f+J@x in f64 (SpMV only), solve correction in f32, return x+d.</p>
 </blockquote>
 <p>GPU results for circuits below ~500 nodes reflect GPU kernel overhead on tiny
 workloads, not simulation inefficiency. The auto-threshold (<code>gpu_threshold=500</code>)
@@ -1624,14 +1629,14 @@ circuits for tracking purposes.</p>
 <h2 id="per-step-overhead-analysis">Per-Step Overhead Analysis<a class="headerlink" href="#per-step-overhead-analysis" title="Permanent link">&para;</a></h2>
 <p>The overhead ratio decreases as circuit size increases, confirming a <strong>fixed
 per-step overhead</strong> in the JAX path that VACASK doesn't have:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>Overhead ratio vs circuit size:
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>Overhead ratio vs circuit size (CPU):
 <a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>
-<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>    mul (8 nodes)      ████████████████████████████████  10.9x
-<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>    rc (4 nodes)       ████████████████████             6.6x
-<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>    graetz (6 nodes)   ████████████████                 5.4x
-<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>    ring (47 nodes)    ██████████████                   4.7x
-<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>    c6288 (5k nodes)   ████                             1.2x
-<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>    mul64 (133k nodes) █                                TBD (GPU-only)
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>    rc (4 nodes)       ████████████████████████████████████  12.2x
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>    mul (8 nodes)      ██████████████████████████████████    10.4x
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>    graetz (6 nodes)   ██████████████████████████            8.6x
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>    ring (47 nodes)    ███████████████                       4.8x
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>    c6288 (5k nodes)   ██                                    0.57x (VAJAX faster)
+<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>    mul64 (133k nodes) █                                     N/A (VACASK timeout)
 </code></pre></div>
 <h3 id="overhead-breakdown">Overhead Breakdown<a class="headerlink" href="#overhead-breakdown" title="Permanent link">&para;</a></h3>
 <p>Each timestep in <code>full_mna.py</code> body_fn executes ~11 major operations beyond the
@@ -1711,7 +1716,9 @@ core Newton-Raphson solve:</p>
 <a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>  T_fixed ~ 10-15 us (JAX overhead, independent of circuit size)
 <a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a>  T_compute(n) ~ T_compute_vacask(n) for large n (same algorithm)
 </code></pre></div>
-<p>This explains the convergence to 1.2x at ~5000 nodes:</p>
+<p>For large circuits (c6288, mul64), VAJAX's UMFPACK sparse solver is actually
+<strong>faster</strong> than VACASK — the fixed overhead is negligible and the solver
+implementation is competitive:</p>
 <table>
 <thead>
 <tr>
@@ -1728,28 +1735,28 @@ core Newton-Raphson solve:</p>
 <td style="text-align: right;">10 us</td>
 <td style="text-align: right;">2 us</td>
 <td style="text-align: right;">83%</td>
-<td style="text-align: right;">6.6x</td>
+<td style="text-align: right;">12.2x</td>
 </tr>
 <tr>
 <td>graetz</td>
 <td style="text-align: right;">10 us</td>
 <td style="text-align: right;">4 us</td>
 <td style="text-align: right;">71%</td>
-<td style="text-align: right;">5.4x</td>
+<td style="text-align: right;">8.6x</td>
 </tr>
 <tr>
 <td>ring</td>
 <td style="text-align: right;">10 us</td>
 <td style="text-align: right;">100 us</td>
 <td style="text-align: right;">9%</td>
-<td style="text-align: right;">4.7x</td>
+<td style="text-align: right;">4.8x</td>
 </tr>
 <tr>
 <td>c6288</td>
 <td style="text-align: right;">10 us</td>
-<td style="text-align: right;">76,000 us</td>
-<td style="text-align: right;">0.01%</td>
-<td style="text-align: right;">1.2x</td>
+<td style="text-align: right;">163,000 us</td>
+<td style="text-align: right;">&lt;0.01%</td>
+<td style="text-align: right;">0.57x</td>
 </tr>
 </tbody>
 </table>
@@ -1797,16 +1804,17 @@ around 500+ nodes.</p>
 <li>Sparse Jacobian: 666,409 unknowns (133k nodes + 533k internal + 130 currents)</li>
 <li>3,259,918 CSR entries (from 30.5M COO triplets)</li>
 <li>Dense solve impossible (~3.3TB memory); sparse solver required</li>
-<li>Requires &gt;16GB GPU VRAM for cuDSS symbolic factorization</li>
-<li>Tesla T4 (16GB): OOM during <code>cudssExecute analysis</code></li>
-<li>Target: A100 40GB+ or similar</li>
+<li><strong>Float32 factorization</strong>: cuDSS factorizes J in f32 (halves VRAM), iterative
+  refinement recovers near-f64 accuracy. Reduces peak VRAM from &gt;16GB to ~10GB.</li>
+<li>Tesla T4 (16GB): <strong>648 ms/step</strong> — 12.8x faster than CPU (8325 ms/step)</li>
+<li>CPU uses UMFPACK sparse solver at ~8.3s/step; VACASK times out (&gt;5 min/step)</li>
 </ul>
 <h3 id="c6288-5000-nodes-gpu-advantage">c6288 (5000 nodes): GPU Advantage<a class="headerlink" href="#c6288-5000-nodes-gpu-advantage" title="Permanent link">&para;</a></h3>
 <ul>
-<li>Jacobian: 5000x5000 matrix operations</li>
-<li>Dense solve: O(n^3) = O(125 billion) operations per NR iteration</li>
-<li>GPU parallelism: thousands of concurrent threads</li>
-<li>Result: 4.4x speedup over CPU, <strong>2.9x faster than VACASK</strong></li>
+<li>Jacobian: ~5000x5000 sparse matrix (~86k transistors, ~5k nodes)</li>
+<li>Uses cuDSS sparse solver on GPU, UMFPACK on CPU</li>
+<li>GPU: 19.81 ms/step, CPU: 163.68 ms/step — <strong>8.3x GPU speedup</strong></li>
+<li>vs VACASK CPU (288.8 ms/step): <strong>14.6x faster on GPU</strong></li>
 </ul>
 <h3 id="rc-4-nodes-gpu-disadvantage">rc (4 nodes): GPU Disadvantage<a class="headerlink" href="#rc-4-nodes-gpu-disadvantage" title="Permanent link">&para;</a></h3>
 <ul>
