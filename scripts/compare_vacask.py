@@ -174,6 +174,8 @@ VACASK_REFERENCE_TIMES = {
     "rc": 0.94 / 1005006 * 1000,  # 0.000935 ms/step
     # graetz: 1.89s / 1000003 steps = 1.89µs/step
     "graetz": 1.89 / 1000003 * 1000,  # 0.00189 ms/step
+    # mul: 0.97s / 500056 steps = 1.94µs/step
+    "mul": 0.97 / 500056 * 1000,  # 0.00194 ms/step
     # ring: 1.18s / 26066 steps = 45.3µs/step
     "ring": 1.18 / 26066 * 1000,  # 0.0453 ms/step
     # c6288: 57.98s / 1021 steps = 56.8ms/step
@@ -603,7 +605,8 @@ def main():
         # Run VACASK or use reference times
         vacask_ms = None
         vacask_wall = None
-        vacask_source = None  # 'run' or 'reference'
+        vacask_source = None  # 'run', 'reference', or None
+        vacask_note = None  # Reason VACASK result is unavailable
         if vacask_bin:
             print("  VACASK...", end=" ", flush=True)
             vacask_result = run_vacask(config, num_steps)
@@ -615,6 +618,7 @@ def main():
                 ratio = jax_ms / vacask_ms
                 print(f"  Ratio: {ratio:.2f}x {'slower' if ratio > 1 else 'faster'}")
             else:
+                vacask_note = "crashed"
                 print("failed")
         elif name in VACASK_REFERENCE_TIMES:
             # Use published reference times when VACASK binary isn't available
@@ -624,6 +628,9 @@ def main():
             print(f"  VACASK (reference): {vacask_ms:.3f} ms/step (AMD Threadripper 7970)")
             ratio = jax_ms / vacask_ms
             print(f"  Ratio: {ratio:.2f}x {'slower' if ratio > 1 else 'faster'}")
+        else:
+            vacask_note = "no benchmark"
+            print("  VACASK: not in VACASK benchmark suite")
 
         results.append(
             {
@@ -635,6 +642,7 @@ def main():
                 "vacask_ms": vacask_ms,
                 "vacask_wall": vacask_wall,
                 "vacask_source": vacask_source,
+                "vacask_note": vacask_note,
             }
         )
 
@@ -663,8 +671,8 @@ def main():
     print("Summary (per-step timing)")
     print("=" * 70)
     print()
-    print("| Benchmark | Steps | VAJAX (ms) | VACASK (ms) | Ratio |")
-    print("|-----------|-------|----------------|-------------|-------|")
+    print("| Benchmark | Steps | VAJAX (ms) | VACASK (ms)   | Ratio |")
+    print("|-----------|-------|----------------|---------------|-------|")
     for r in results:
         if r["vacask_ms"]:
             # Add asterisk for reference times
@@ -673,10 +681,11 @@ def main():
             ratio = r["jax_ms"] / r["vacask_ms"]
             ratio_str = f"{ratio:.2f}x"
         else:
-            vacask_str = "N/A"
-            ratio_str = "N/A"
+            note = r.get("vacask_note", "N/A")
+            vacask_str = note
+            ratio_str = ""
         print(
-            f"| {r['name']:9} | {r['steps']:5} | {r['jax_ms']:14.3f} | {vacask_str:11} | {ratio_str:5} |"
+            f"| {r['name']:9} | {r['steps']:5} | {r['jax_ms']:14.3f} | {vacask_str:13} | {ratio_str:5} |"
         )
 
     print()
@@ -684,8 +693,8 @@ def main():
     print("Summary (total wall time)")
     print("=" * 70)
     print()
-    print("| Benchmark | Steps | VAJAX (ms) | VACASK (ms) | Ratio |")
-    print("|-----------|-------|----------------|-------------|-------|")
+    print("| Benchmark | Steps | VAJAX (ms) | VACASK (ms)   | Ratio |")
+    print("|-----------|-------|----------------|---------------|-------|")
     for r in results:
         # Convert wall time from seconds to milliseconds for better precision
         jax_wall_ms = r["jax_wall"] * 1000
@@ -696,10 +705,11 @@ def main():
             ratio = r["jax_wall"] / r["vacask_wall"]
             ratio_str = f"{ratio:.2f}x"
         else:
-            vacask_str = "N/A"
-            ratio_str = "N/A"
+            note = r.get("vacask_note", "N/A")
+            vacask_str = note
+            ratio_str = ""
         print(
-            f"| {r['name']:9} | {r['steps']:5} | {jax_wall_ms:14.1f} | {vacask_str:11} | {ratio_str:5} |"
+            f"| {r['name']:9} | {r['steps']:5} | {jax_wall_ms:14.1f} | {vacask_str:13} | {ratio_str:5} |"
         )
 
     if has_reference:
@@ -732,8 +742,9 @@ def main():
             speedup_str = f"{r['jax_ms'] / r['vacask_ms']:.1f}x slower"
             breakeven_str = "N/A (slower)"
         else:
-            speedup_str = "N/A"
-            breakeven_str = "N/A"
+            note = r.get("vacask_note", "N/A")
+            speedup_str = note
+            breakeven_str = ""
         print(f"| {r['name']:9} | {startup_s:11.1f} | {speedup_str:16} | {breakeven_str:15} |")
 
     print()
@@ -751,6 +762,7 @@ def main():
                     "vacask_ms_per_step": round(r["vacask_ms"], 6) if r["vacask_ms"] else None,
                     "ratio": round(ratio, 2) if ratio else None,
                     "vacask_source": r.get("vacask_source"),
+                    "vacask_note": r.get("vacask_note"),
                     "startup_s": round(r.get("startup_time", 0), 1),
                     "backend": str(jax.default_backend()),
                 }
