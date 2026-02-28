@@ -127,9 +127,9 @@ jobs:
           JAX_LOG_COMPILES: "1"
         run: |
           set +e
-          # Exclude mul64: requires >16GB VRAM (666k unknowns), T4 has 16GB
+          # mul64 triggers cuDSS→UMFPACK CPU fallback (needs >16GB VRAM)
           uv run python scripts/compare_vacask.py \
-            --benchmark rc,graetz,mul,ring,c6288 \
+            --benchmark rc,graetz,mul,ring,c6288,mul64 \
             --use-scan \
             --force-gpu \
             --analyze \
