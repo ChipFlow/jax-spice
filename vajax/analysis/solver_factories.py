@@ -864,22 +864,25 @@ def _make_sparse_solve_fns(
         """No-op for sparse — NOI is enforced in linear_solve."""
         return J_or_data, f
 
+    def _apply_noi_and_solve(csr_data, f):
+        """Apply NOI constraints to CSR data and solve."""
+        f_solve = f
+        if noi_row_mask is not None:
+            csr_data = csr_data.at[noi_row_mask].set(0.0)
+            csr_data = csr_data.at[noi_col_mask].set(0.0)
+            csr_data = csr_data.at[noi_diag_indices].set(1.0)
+            f_solve = f.at[noi_res_indices_arr].set(0.0)
+        return solve_fn(csr_data, f_solve)
+
     if use_csr_direct:
 
         def linear_solve(csr_data, f):
             """CSR data received directly. Enforce NOI constraints, then solve."""
-            f_solve = f
-            if noi_row_mask is not None:
-                csr_data = csr_data.at[noi_row_mask].set(0.0)
-                csr_data = csr_data.at[noi_col_mask].set(0.0)
-                csr_data = csr_data.at[noi_diag_indices].set(1.0)
-                f_solve = f.at[noi_res_indices_arr].set(0.0)
-
-            return solve_fn(csr_data, f_solve)
+            return _apply_noi_and_solve(csr_data, f)
 
     else:
 
-        def linear_solve(J_bcoo, f):
+        def linear_solve(J_bcoo, f):  # type: ignore[misc]
             """Convert BCOO to CSR, enforce NOI constraints, then solve."""
             if use_precomputed:
                 coo_vals = J_bcoo.data
@@ -890,13 +893,6 @@ def _make_sparse_solve_fns(
                 J_bcsr = BCSR.from_bcoo(J_bcoo_dedup)
                 csr_data = J_bcsr.data
 
-            f_solve = f
-            if noi_row_mask is not None:
-                csr_data = csr_data.at[noi_row_mask].set(0.0)
-                csr_data = csr_data.at[noi_col_mask].set(0.0)
-                csr_data = csr_data.at[noi_diag_indices].set(1.0)
-                f_solve = f.at[noi_res_indices_arr].set(0.0)
-
-            return solve_fn(csr_data, f_solve)
+            return _apply_noi_and_solve(csr_data, f)
 
     return enforce_noi, linear_solve

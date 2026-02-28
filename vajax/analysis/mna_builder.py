@@ -407,6 +407,7 @@ def make_mna_build_system_fn(
 
     # Pre-compute CSR stamp arrays captured in closure (factory time, not trace time)
     if use_csr_direct:
+        assert csr_stamp_info is not None  # narrowing for pyright
         _csr_nse = csr_stamp_info["nse"]
         _csr_model_pos = {
             mt: jnp.array(csr_stamp_info["model_csr_pos"][mt])
