@@ -185,6 +185,140 @@ VACASK_REFERENCE_TIMES = {
 
 from vajax.utils import find_vacask_binary
 
+# VA source locations for OSDI compilation
+# Maps OSDI filename patterns to VA source paths (relative to project root)
+VA_SOURCES = {
+    "psp103_ihp": "vendor/VACASK/devices/psp103v4/psp103_nqs.va",
+    "psp103v4": "vendor/VACASK/devices/psp103v4/psp103.va",
+    "spice/resistor": "vendor/VACASK/devices/spice/resistor.va",
+    "spice/capacitor": "vendor/VACASK/devices/spice/capacitor.va",
+    "spice/inductor": "vendor/VACASK/devices/spice/inductor.va",
+    "spice/diode": "vendor/VACASK/devices/spice/diode.va",
+    "resistor": "vendor/VACASK/devices/resistor.va",
+    "capacitor": "vendor/VACASK/devices/capacitor.va",
+    "diode": "vendor/VACASK/devices/diode.va",
+}
+
+# Project root (where vendor/ lives)
+PROJECT_ROOT = Path(__file__).parent.parent
+
+
+def _find_openvaf_r() -> Optional[Path]:
+    """Find the openvaf-r compiler binary."""
+    # Check OPENVAF_DIR env var first (set in CI)
+    openvaf_dir = os.environ.get("OPENVAF_DIR")
+    if openvaf_dir:
+        binary = Path(openvaf_dir) / "openvaf-r"
+        if binary.exists():
+            return binary
+
+    # Check common build locations
+    for candidate in [
+        PROJECT_ROOT / "vendor" / "OpenVAF" / "target" / "release" / "openvaf-r",
+    ]:
+        if candidate.exists():
+            return candidate
+
+    # Check PATH
+    import shutil
+
+    path_bin = shutil.which("openvaf-r")
+    if path_bin:
+        return Path(path_bin)
+
+    return None
+
+
+def ensure_osdi_files(config: BenchmarkInfo) -> bool:
+    """Compile any missing OSDI files needed by a benchmark's sim file.
+
+    Parses the sim file for load directives, checks if each OSDI file exists,
+    and compiles missing ones using openvaf-r.
+
+    Returns True if all OSDI files are available, False if compilation failed.
+    """
+    sim_dir = config.sim_path.parent
+
+    # Parse load directives from sim file
+    with open(config.sim_path) as f:
+        sim_content = f.read()
+
+    osdi_files = re.findall(r'load\s*"([^"]+\.osdi)"', sim_content)
+    if not osdi_files:
+        return True  # No OSDI files needed
+
+    # VACASK also searches its module directory (<binary>/../lib/vacask/mod)
+    vacask_bin = find_vacask_binary()
+    vacask_mod_dir = None
+    if vacask_bin:
+        vacask_mod_dir = Path(vacask_bin).parent.parent / "lib" / "vacask" / "mod"
+
+    # Check which files are missing from both the sim dir and VACASK mod dir
+    missing = []
+    for osdi_file in osdi_files:
+        osdi_path = sim_dir / osdi_file
+        if osdi_path.exists():
+            continue
+        if vacask_mod_dir and (vacask_mod_dir / osdi_file).exists():
+            continue
+        missing.append(osdi_file)
+
+    if not missing:
+        return True  # All OSDI files present
+
+    # Find openvaf-r compiler
+    openvaf_r = _find_openvaf_r()
+    if openvaf_r is None:
+        print(f"    Warning: openvaf-r not found, cannot compile: {missing}")
+        return False
+
+    devices_dir = PROJECT_ROOT / "vendor" / "VACASK" / "devices"
+
+    for osdi_file in missing:
+        # Map OSDI filename to VA source
+        # Normalize path (strip leading ./)
+        osdi_stem = Path(osdi_file).with_suffix("").as_posix()
+        if osdi_stem not in VA_SOURCES:
+            print(f"    Warning: no VA source mapping for {osdi_file}")
+            return False
+
+        va_source = PROJECT_ROOT / VA_SOURCES[osdi_stem]
+        if not va_source.exists():
+            print(f"    Warning: VA source not found: {va_source}")
+            return False
+
+        osdi_path = sim_dir / osdi_file
+        # Create parent directory if needed (e.g., spice/)
+        osdi_path.parent.mkdir(parents=True, exist_ok=True)
+
+        print(f"    Compiling {va_source.name} -> {osdi_file}...", end=" ", flush=True)
+        try:
+            result = subprocess.run(
+                [
+                    str(openvaf_r),
+                    "--allow",
+                    "variant_const_simparam",
+                    f"-I{devices_dir}",
+                    str(va_source),
+                    "-o",
+                    str(osdi_path),
+                ],
+                capture_output=True,
+                text=True,
+                timeout=120,
+            )
+            if result.returncode != 0:
+                print(f"failed (rc={result.returncode})")
+                if result.stderr:
+                    print(f"    {result.stderr[:200]}")
+                return False
+            print("done")
+        except Exception as e:
+            print(f"error: {e}")
+            return False
+
+    return True
+
 
 def run_vacask(config: BenchmarkInfo, num_steps: int) -> Optional[Tuple[float, float]]:
     """Run VACASK and return (time_per_step_ms, wall_time_s).
@@ -608,18 +742,23 @@ def main():
         vacask_source = None  # 'run', 'reference', or None
         vacask_note = None  # Reason VACASK result is unavailable
         if vacask_bin:
-            print("  VACASK...", end=" ", flush=True)
-            vacask_result = run_vacask(config, num_steps)
-            if vacask_result is not None:
-                vacask_ms, vacask_wall = vacask_result
-                vacask_source = "run"
-                print("done")
-                print(f"  VACASK: {vacask_ms:.3f} ms/step ({vacask_wall:.3f}s total)")
-                ratio = jax_ms / vacask_ms
-                print(f"  Ratio: {ratio:.2f}x {'slower' if ratio > 1 else 'faster'}")
+            # Compile any missing OSDI files before running VACASK
+            if not ensure_osdi_files(config):
+                vacask_note = "OSDI compile failed"
+                print("  VACASK: skipped (OSDI compilation failed)")
             else:
-                vacask_note = "crashed"
-                print("failed")
+                print("  VACASK...", end=" ", flush=True)
+                vacask_result = run_vacask(config, num_steps)
+                if vacask_result is not None:
+                    vacask_ms, vacask_wall = vacask_result
+                    vacask_source = "run"
+                    print("done")
+                    print(f"  VACASK: {vacask_ms:.3f} ms/step ({vacask_wall:.3f}s total)")
+                    ratio = jax_ms / vacask_ms
+                    print(f"  Ratio: {ratio:.2f}x {'slower' if ratio > 1 else 'faster'}")
+                else:
+                    vacask_note = "crashed"
+                    print("failed")
         elif name in VACASK_REFERENCE_TIMES:
             # Use published reference times when VACASK binary isn't available
             vacask_ms = VACASK_REFERENCE_TIMES[name]
