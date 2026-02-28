@@ -553,6 +553,7 @@ def make_spineax_full_mna_solver(
     options: Optional["SimulationOptions"] = None,
     max_step: float = 1e30,
     use_csr_direct: bool = False,
+    factorize_f32: bool = False,
 ) -> Callable:
     """Create a JIT-compiled sparse NR solver using Spineax/cuDSS for full MNA.
 
@@ -574,6 +575,8 @@ def make_spineax_full_mna_solver(
         csr_segment_ids: Pre-computed segment IDs
         options: SimulationOptions for NR damping and other solver parameters
         max_step: Maximum voltage change per NR iteration
+        factorize_f32: Factorize in float32 to halve GPU VRAM usage, with
+            one iterative refinement step in float64 to recover accuracy.
 
     Returns:
         JIT-compiled Spineax solver function for full MNA
@@ -607,18 +610,61 @@ def make_spineax_full_mna_solver(
         mview_id=0,
     )
 
+    if factorize_f32:
+
+        def _solve_f32_refined(csr_data, f_solve):
+            """Solve in float32 with one iterative refinement step.
+
+            Halves GPU VRAM for factorization. The refinement step computes
+            the residual r = f + J @ x in float64, then solves J @ d = -r
+            in float32 to get a correction. Final accuracy is close to float64.
+            """
+            from jax.experimental.sparse import BCSR
+
+            csr_f32 = csr_data.astype(jnp.float32)
+            f_f32 = f_solve.astype(jnp.float32)
+
+            # Initial solve in float32
+            x_f32 = spineax_solver(-f_f32, csr_f32)[0]
+
+            # Iterative refinement: residual in float64
+            x_f64 = x_f32.astype(jnp.float64)
+            J_bcsr = BCSR(
+                (csr_data, bcsr_indices, bcsr_indptr),
+                shape=(n_unknowns, n_unknowns),
+            )
+            r = f_solve + J_bcsr @ x_f64
+
+            # Correction solve in float32
+            r_f32 = r.astype(jnp.float32)
+            d_f32 = spineax_solver(-r_f32, csr_f32)[0]
+
+            return x_f64 + d_f32.astype(jnp.float64)
+
+        solve_fn = _solve_f32_refined
+    else:
+
+        def _solve_f64(csr_data, f_solve):
+            return spineax_solver(-f_solve, csr_data)[0]
+
+        solve_fn = _solve_f64
+
     enforce_noi, linear_solve = _make_sparse_solve_fns(
         masks,
         nse,
         use_precomputed,
         coo_sort_perm,
         csr_segment_ids,
-        solve_fn=lambda csr_data, f_solve: spineax_solver(-f_solve, csr_data)[0],
+        solve_fn=solve_fn,
         n_unknowns=n_unknowns,
         use_csr_direct=use_csr_direct,
     )
 
-    logger.info(f"Creating Spineax full MNA NR solver: V({n_nodes}) + I({n_vsources})")
+    precision_str = "f32+refinement" if factorize_f32 else "f64"
+    logger.info(
+        f"Creating Spineax full MNA NR solver: V({n_nodes}) + I({n_vsources}), "
+        f"precision={precision_str}"
+    )
     return _make_nr_solver_common(
         build_system_jit=build_system_jit,
         n_nodes=n_nodes,
