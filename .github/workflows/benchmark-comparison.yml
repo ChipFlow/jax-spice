@@ -251,6 +251,12 @@ jobs:
             TOTAL=$(grep -c "Finished XLA compilation" /tmp/benchmark-comparison.log 2>/dev/null || echo 0)
             echo "Total XLA compilations: $TOTAL"
 
+            # Each benchmark in the job legitimately compiles simulation functions
+            # with different shapes, so we expect up to N_BENCHMARKS compilations
+            # per function. Only warn if a function compiles MORE than that.
+            N_BENCHMARKS=$(echo "${{ matrix.benchmarks }}" | tr ',' '\n' | wc -l | tr -d ' ')
+            echo "Benchmarks in this job: $N_BENCHMARKS"
+
             # Filter to simulation-critical functions (exclude JAX primitives like add, multiply, etc.)
             # JAX primitives recompile with different shapes during setup — this is expected.
             # We only care about our own simulation functions recompiling unexpectedly.
@@ -261,17 +267,20 @@ jobs:
             if [ -n "$SIMULATION_FNS" ]; then
               UNIQUE_SIM=$(echo "$SIMULATION_FNS" | sort -u | wc -l | tr -d ' ')
               TOTAL_SIM=$(echo "$SIMULATION_FNS" | wc -l | tr -d ' ')
-              RECOMPILES=$((TOTAL_SIM - UNIQUE_SIM))
 
-              echo "Simulation function compilations: $TOTAL_SIM (unique: $UNIQUE_SIM)"
+              echo "Simulation function compilations: $TOTAL_SIM (unique: $UNIQUE_SIM, expected per fn: <=$N_BENCHMARKS)"
 
-              if [ "$RECOMPILES" -gt 0 ]; then
-                echo "::warning::Detected $RECOMPILES simulation function recompilation(s)"
-                echo "Recompiled simulation functions:"
-                echo "$SIMULATION_FNS" | sort | uniq -c | sort -rn | \
-                  awk '$1 > 1 {print "  " $1 "x: " $2}'
+              # Find functions that compiled more times than the number of benchmarks
+              UNEXPECTED=$(echo "$SIMULATION_FNS" | sort | uniq -c | sort -rn | \
+                awk -v max="$N_BENCHMARKS" '$1 > max {print "  " $1 "x: " $2 " (expected <=" max ")"}')
+
+              if [ -n "$UNEXPECTED" ]; then
+                UNEXPECTED_COUNT=$(echo "$UNEXPECTED" | wc -l | tr -d ' ')
+                echo "::warning::Detected $UNEXPECTED_COUNT simulation function(s) with unexpected recompilations"
+                echo "Functions exceeding expected compilation count:"
+                echo "$UNEXPECTED"
               else
-                echo "No simulation function recompilations detected"
+                echo "No unexpected recompilations (all within $N_BENCHMARKS benchmark limit)"
               fi
             else
               echo "No simulation function compilations found in log"
