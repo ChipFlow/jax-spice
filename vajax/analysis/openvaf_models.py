@@ -506,9 +506,7 @@ def compute_early_collapse_decisions(
         # For PSP103 with 908 init params × 266k devices, this avoids
         # 241M str.lower() calls (43s → ~3s in profiling).
         init_param_names_lower = [p.lower() for p in init_param_names]
-        init_param_defaults_lower = {
-            k.lower(): v for k, v in init_param_defaults.items()
-        }
+        init_param_defaults_lower = {k.lower(): v for k, v in init_param_defaults.items()}
 
         def get_param_key(dev: Dict) -> Tuple:
             device_params = dev.get("params", {})

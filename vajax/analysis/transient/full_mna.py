@@ -422,8 +422,20 @@ class FullMNAStrategy(TransientStrategy):
             Q_trial = jnp.zeros(setup.n_unknowns, dtype=jnp.float64)
 
             J_bcoo_trial, _, _, _, _, _ = build_system_coo(
-                X_trial, vsource_trial, isource_trial, Q_trial,
-                0.0, device_arrays, 1e-12, 0.0, 0.0, 0.0, None, 0.0, None, None,
+                X_trial,
+                vsource_trial,
+                isource_trial,
+                Q_trial,
+                0.0,
+                device_arrays,
+                1e-12,
+                0.0,
+                0.0,
+                0.0,
+                None,
+                0.0,
+                None,
+                None,
             )
 
             # Extract COO indices and compute CSR structure
@@ -473,7 +485,7 @@ class FullMNAStrategy(TransientStrategy):
                     bad_idx = np.where(bad)[0][0]
                     all_interior = np.where(interior_mask)[0]
                     pos = all_interior[bad_idx]
-                    row = np.searchsorted(csr_indptr, pos, side='right') - 1
+                    row = np.searchsorted(csr_indptr, pos, side="right") - 1
                     raise ValueError(
                         f"CSR col indices not strictly sorted in row {row}: "
                         f"indices[{pos}]={csr_indices[pos]} "
@@ -497,15 +509,15 @@ class FullMNAStrategy(TransientStrategy):
 
             vsource_positions = None
             if n_vsources > 0:
-                vs_node_p = np.array(
-                    setup.source_device_data["vsource"]["node_p"], dtype=np.int32
-                )
-                vs_node_n = np.array(
-                    setup.source_device_data["vsource"]["node_n"], dtype=np.int32
-                )
+                vs_node_p = np.array(setup.source_device_data["vsource"]["node_p"], dtype=np.int32)
+                vs_node_n = np.array(setup.source_device_data["vsource"]["node_n"], dtype=np.int32)
                 vsource_positions = compute_csr_vsource_positions(
-                    vs_node_p, vs_node_n, setup.n_unknowns, n_vsources,
-                    unique_linear, n_augmented,
+                    vs_node_p,
+                    vs_node_n,
+                    setup.n_unknowns,
+                    n_vsources,
+                    unique_linear,
+                    n_augmented,
                 )
 
             csr_stamp_info = {
@@ -522,14 +534,12 @@ class FullMNAStrategy(TransientStrategy):
                 # Default batch_size = 32768 on GPU for large circuits
                 # device count = cache array shape[0] (5th element of static_inputs_cache tuple)
                 total_devices = sum(
-                    setup.static_inputs_cache[mt][4].shape[0]
-                    for mt in setup.static_inputs_cache
+                    setup.static_inputs_cache[mt][4].shape[0] for mt in setup.static_inputs_cache
                 )
                 if total_devices > 32768:
                     batch_size = 32768
                     logger.info(
-                        f"GPU batched eval: {total_devices} devices "
-                        f"in batches of {batch_size}"
+                        f"GPU batched eval: {total_devices} devices in batches of {batch_size}"
                     )
 
             # Step 4: Re-create build_system with CSR direct stamping
@@ -584,9 +594,7 @@ class FullMNAStrategy(TransientStrategy):
                 except (RuntimeError, Exception) as e:
                     # cuDSS may OOM during symbolic factorization for very large circuits
                     if is_umfpack_ffi_available():
-                        logger.warning(
-                            f"cuDSS failed ({e}), falling back to UMFPACK FFI on CPU"
-                        )
+                        logger.warning(f"cuDSS failed ({e}), falling back to UMFPACK FFI on CPU")
                         nr_solve = make_umfpack_ffi_full_mna_solver(
                             build_system_jit,
                             n_nodes,
@@ -1390,7 +1398,9 @@ class FullMNAStrategy(TransientStrategy):
                 val = source_values.get(vsource_names[0], vsource_dc_list[0])
                 vsource_vals = jnp.array([val], dtype=dtype)
             else:
-                vals = [source_values.get(name, dc) for name, dc in zip(vsource_names, vsource_dc_list)]
+                vals = [
+                    source_values.get(name, dc) for name, dc in zip(vsource_names, vsource_dc_list)
+                ]
                 vsource_vals = jnp.stack(vals)
 
             # Build isource array using jnp.stack (JIT-compatible)
@@ -1400,7 +1410,9 @@ class FullMNAStrategy(TransientStrategy):
                 val = source_values.get(isource_names[0], isource_dc_list[0])
                 isource_vals = jnp.array([val], dtype=dtype)
             else:
-                vals = [source_values.get(name, dc) for name, dc in zip(isource_names, isource_dc_list)]
+                vals = [
+                    source_values.get(name, dc) for name, dc in zip(isource_names, isource_dc_list)
+                ]
                 isource_vals = jnp.stack(vals)
 
             return vsource_vals, isource_vals

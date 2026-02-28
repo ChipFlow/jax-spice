@@ -117,15 +117,11 @@ class TestResistorEval:
         translator = openvaf_jax.OpenVAFToJAX(modules[0])
 
         # R=1k
-        init_fn, init_meta = translator.translate_init(
-            params={"R": 1000.0}, temperature=300.0
-        )
+        init_fn, init_meta = translator.translate_init(params={"R": 1000.0}, temperature=300.0)
         init_inputs = jnp.array(init_meta["init_inputs"])
         cache, _ = init_fn(init_inputs)
 
-        eval_fn, eval_meta = translator.translate_eval(
-            params={"R": 1000.0}, temperature=300.0
-        )
+        eval_fn, eval_meta = translator.translate_eval(params={"R": 1000.0}, temperature=300.0)
 
         shared_inputs = jnp.array(eval_meta["shared_inputs"])
         # 1V across resistor terminals

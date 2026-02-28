@@ -417,9 +417,7 @@ def make_mna_build_system_fn(
         _csr_vs_pos = None
         if csr_stamp_info.get("vsource_positions") is not None:
             vsp = csr_stamp_info["vsource_positions"]
-            _csr_vs_pos = {
-                k: jnp.array(v) for k, v in vsp.items()
-            }
+            _csr_vs_pos = {k: jnp.array(v) for k, v in vsp.items()}
 
         # Pre-compute padded arrays for batched evaluation
         _batch_info: Dict[str, Dict[str, Any]] = {}
@@ -447,16 +445,12 @@ def make_mna_build_system_fn(
 
                 # Pad CSR stamp positions (-1 for invalid → masked out)
                 csr_pos = _csr_model_pos[model_type]
-                csr_pos_padded = jnp.full(
-                    (padded_size, csr_pos.shape[1]), -1, dtype=jnp.int32
-                )
+                csr_pos_padded = jnp.full((padded_size, csr_pos.shape[1]), -1, dtype=jnp.int32)
                 csr_pos_padded = csr_pos_padded.at[:n_dev].set(csr_pos)
 
                 # Pad res_indices (-1 for invalid → masked out)
                 res_idx = stamp_indices["res_indices"]
-                res_idx_padded = jnp.full(
-                    (padded_size, res_idx.shape[1]), -1, dtype=jnp.int32
-                )
+                res_idx_padded = jnp.full((padded_size, res_idx.shape[1]), -1, dtype=jnp.int32)
                 res_idx_padded = res_idx_padded.at[:n_dev].set(res_idx)
 
                 _batch_info[model_type] = {
@@ -473,8 +467,7 @@ def make_mna_build_system_fn(
                 logger.info(
                     "CSR direct + batching: "
                     + ", ".join(
-                        f"{mt}={_batch_info[mt]['n_batches']}×{batch_size}"
-                        for mt in _batch_info
+                        f"{mt}={_batch_info[mt]['n_batches']}×{batch_size}" for mt in _batch_info
                     )
                 )
 
@@ -562,23 +555,62 @@ def make_mna_build_system_fn(
 
         if use_csr_direct:
             return _build_system_csr_direct(
-                V, I_branch, vsource_vals, isource_vals, Q_prev, integ_c0,
-                device_arrays_arg, gmin_arg, gshunt, integ_c1, integ_d1,
-                dQdt_prev, integ_c2, Q_prev2, limit_state_in, nr_iteration,
+                V,
+                I_branch,
+                vsource_vals,
+                isource_vals,
+                Q_prev,
+                integ_c0,
+                device_arrays_arg,
+                gmin_arg,
+                gshunt,
+                integ_c1,
+                integ_d1,
+                dQdt_prev,
+                integ_c2,
+                Q_prev2,
+                limit_state_in,
+                nr_iteration,
                 limit_state_out,
             )
         else:
             return _build_system_coo(
-                V, I_branch, vsource_vals, isource_vals, Q_prev, integ_c0,
-                device_arrays_arg, gmin_arg, gshunt, integ_c1, integ_d1,
-                dQdt_prev, integ_c2, Q_prev2, limit_state_in, nr_iteration,
+                V,
+                I_branch,
+                vsource_vals,
+                isource_vals,
+                Q_prev,
+                integ_c0,
+                device_arrays_arg,
+                gmin_arg,
+                gshunt,
+                integ_c1,
+                integ_d1,
+                dQdt_prev,
+                integ_c2,
+                Q_prev2,
+                limit_state_in,
+                nr_iteration,
                 limit_state_out,
             )
 
     def _build_system_coo(
-        V, I_branch, vsource_vals, isource_vals, Q_prev, integ_c0,
-        device_arrays_arg, gmin_arg, gshunt, integ_c1, integ_d1,
-        dQdt_prev, integ_c2, Q_prev2, limit_state_in, nr_iteration,
+        V,
+        I_branch,
+        vsource_vals,
+        isource_vals,
+        Q_prev,
+        integ_c0,
+        device_arrays_arg,
+        gmin_arg,
+        gshunt,
+        integ_c1,
+        integ_d1,
+        dQdt_prev,
+        integ_c2,
+        Q_prev2,
+        limit_state_in,
+        nr_iteration,
         limit_state_out,
     ):
         """COO assembly path (original implementation)."""
@@ -624,11 +656,22 @@ def make_mna_build_system_fn(
             n_dev = split_info["n_devices"]
 
             (
-                batch_res_resist, batch_res_react, batch_jac_resist, batch_jac_react,
-                batch_lim_rhs_resist, batch_lim_rhs_react, _, _, batch_limit_state_out,
+                batch_res_resist,
+                batch_res_react,
+                batch_jac_resist,
+                batch_jac_react,
+                batch_lim_rhs_resist,
+                batch_lim_rhs_react,
+                _,
+                _,
+                batch_limit_state_out,
             ) = split_info["vmapped_split_eval"](
-                split_info["shared_params"], device_params_updated,
-                split_info["shared_cache"], cache, simparams, model_limit_state_in,
+                split_info["shared_params"],
+                device_params_updated,
+                split_info["shared_cache"],
+                cache,
+                simparams,
+                model_limit_state_in,
             )
 
             use_device_limiting = split_info.get("use_device_limiting", False)
@@ -647,9 +690,7 @@ def make_mna_build_system_fn(
             j_resist_parts.append(
                 mask_coo_matrix(jac_row_idx, jac_col_idx, batch_jac_resist.ravel())
             )
-            j_react_parts.append(
-                mask_coo_matrix(jac_row_idx, jac_col_idx, batch_jac_react.ravel())
-            )
+            j_react_parts.append(mask_coo_matrix(jac_row_idx, jac_col_idx, batch_jac_react.ravel()))
             lim_rhs_resist_parts.append(mask_coo_vector(res_idx, batch_lim_rhs_resist.ravel()))
             lim_rhs_react_parts.append(mask_coo_vector(res_idx, batch_lim_rhs_react.ravel()))
 
@@ -662,9 +703,21 @@ def make_mna_build_system_fn(
 
         # Build residual and Jacobian
         f_resist, Q, I_vsource_kcl, f_augmented = _build_residual(
-            V, I_branch, f_resist, Q, lim_rhs_resist, lim_rhs_react,
-            vsource_vals, Q_prev, integ_c0, gshunt, integ_c1, integ_d1,
-            dQdt_prev, integ_c2, Q_prev2,
+            V,
+            I_branch,
+            f_resist,
+            Q,
+            lim_rhs_resist,
+            lim_rhs_react,
+            vsource_vals,
+            Q_prev,
+            integ_c0,
+            gshunt,
+            integ_c1,
+            integ_d1,
+            dQdt_prev,
+            integ_c2,
+            Q_prev2,
         )
 
         all_j_rows, all_j_cols, all_j_vals = assemble_jacobian_coo(
@@ -680,21 +733,45 @@ def make_mna_build_system_fn(
 
         if use_dense:
             J = assemble_dense_jacobian(
-                all_j_rows, all_j_cols, all_j_vals,
-                n_augmented, n_unknowns, n_vsources, min_diag_reg, gshunt,
+                all_j_rows,
+                all_j_cols,
+                all_j_vals,
+                n_augmented,
+                n_unknowns,
+                n_vsources,
+                min_diag_reg,
+                gshunt,
             )
         else:
             J = assemble_sparse_jacobian(
-                all_j_rows, all_j_cols, all_j_vals,
-                n_augmented, n_unknowns, min_diag_reg, gshunt,
+                all_j_rows,
+                all_j_cols,
+                all_j_vals,
+                n_augmented,
+                n_unknowns,
+                min_diag_reg,
+                gshunt,
             )
 
         return J, f_augmented, Q, I_vsource_kcl, limit_state_out, max_res_contrib
 
     def _build_system_csr_direct(
-        V, I_branch, vsource_vals, isource_vals, Q_prev, integ_c0,
-        device_arrays_arg, gmin_arg, gshunt, integ_c1, integ_d1,
-        dQdt_prev, integ_c2, Q_prev2, limit_state_in, nr_iteration,
+        V,
+        I_branch,
+        vsource_vals,
+        isource_vals,
+        Q_prev,
+        integ_c0,
+        device_arrays_arg,
+        gmin_arg,
+        gshunt,
+        integ_c1,
+        integ_d1,
+        dQdt_prev,
+        integ_c2,
+        Q_prev2,
+        limit_state_in,
+        nr_iteration,
         limit_state_out,
     ):
         """CSR direct stamping path. Stamps device Jacobian entries directly
@@ -735,10 +812,7 @@ def make_mna_build_system_fn(
             res_idx = stamp_indices["res_indices"]
 
             # Check if this model should use batched evaluation
-            use_batched = (
-                batch_size is not None
-                and model_type in _batch_info
-            )
+            use_batched = batch_size is not None and model_type in _batch_info
 
             if use_batched:
                 # Batched eval via lax.scan
@@ -752,15 +826,11 @@ def make_mna_build_system_fn(
 
                 # Pad cache array
                 dc = cache  # (n_dev, cache_dim)
-                cache_padded = jnp.zeros(
-                    (bi["padded_size"], dc.shape[1]), dtype=dc.dtype
-                )
+                cache_padded = jnp.zeros((bi["padded_size"], dc.shape[1]), dtype=dc.dtype)
                 cache_padded = cache_padded.at[:n_dev].set(dc)
 
                 # Pad limit_state_in
-                limit_padded = jnp.zeros(
-                    (bi["padded_size"], n_lim), dtype=dtype
-                )
+                limit_padded = jnp.zeros((bi["padded_size"], n_lim), dtype=dtype)
                 limit_padded = limit_padded.at[:n_dev].set(model_limit_state_in)
 
                 shared_params = split_info["shared_params"]
@@ -796,8 +866,15 @@ def make_mna_build_system_fn(
 
                     # Evaluate batch
                     (
-                        b_rr, b_rc, b_jr, b_jc,
-                        b_lrr, b_lrc, _, _, b_lim_out,
+                        b_rr,
+                        b_rc,
+                        b_jr,
+                        b_jc,
+                        b_lrr,
+                        b_lrc,
+                        _,
+                        _,
+                        b_lim_out,
                     ) = vmapped_fn(shared_params, b_dp, shared_cache, b_cache, simparams, b_limit)
 
                     # Stamp Jacobian into CSR
@@ -828,9 +905,9 @@ def make_mna_build_system_fn(
                     offset, _, n_lim_off = limit_state_offsets[model_type]
                     # Reshape and trim to n_dev
                     all_lim_flat = all_lim.reshape(-1, n_lim)[:n_dev]
-                    limit_state_out = limit_state_out.at[
-                        offset : offset + n_dev * n_lim_off
-                    ].set(all_lim_flat.ravel())
+                    limit_state_out = limit_state_out.at[offset : offset + n_dev * n_lim_off].set(
+                        all_lim_flat.ravel()
+                    )
 
             else:
                 # Non-batched: evaluate all devices at once, stamp directly
@@ -847,18 +924,29 @@ def make_mna_build_system_fn(
                     device_params_updated = device_params_updated.at[:, -1].set(gmin_arg)
 
                 (
-                    res_r, res_c, jac_r, jac_c,
-                    lim_r, lim_c, _, _, batch_limit_state_out,
+                    res_r,
+                    res_c,
+                    jac_r,
+                    jac_c,
+                    lim_r,
+                    lim_c,
+                    _,
+                    _,
+                    batch_limit_state_out,
                 ) = split_info["vmapped_split_eval"](
-                    split_info["shared_params"], device_params_updated,
-                    split_info["shared_cache"], cache, simparams, model_limit_state_in,
+                    split_info["shared_params"],
+                    device_params_updated,
+                    split_info["shared_cache"],
+                    cache,
+                    simparams,
+                    model_limit_state_in,
                 )
 
                 if use_device_limiting and model_type in limit_state_offsets:
                     offset, _, n_lim_off = limit_state_offsets[model_type]
-                    limit_state_out = limit_state_out.at[
-                        offset : offset + n_dev * n_lim_off
-                    ].set(batch_limit_state_out.ravel())
+                    limit_state_out = limit_state_out.at[offset : offset + n_dev * n_lim_off].set(
+                        batch_limit_state_out.ravel()
+                    )
 
                 # Stamp Jacobian into CSR
                 combined_jac = jac_r + integ_c0 * jac_c
@@ -901,17 +989,41 @@ def make_mna_build_system_fn(
 
         # Build residual (same as COO path)
         f_resist, Q, I_vsource_kcl, f_augmented = _build_residual(
-            V, I_branch, f_resist, Q, lim_rhs_resist, lim_rhs_react,
-            vsource_vals, Q_prev, integ_c0, gshunt, integ_c1, integ_d1,
-            dQdt_prev, integ_c2, Q_prev2,
+            V,
+            I_branch,
+            f_resist,
+            Q,
+            lim_rhs_resist,
+            lim_rhs_react,
+            vsource_vals,
+            Q_prev,
+            integ_c0,
+            gshunt,
+            integ_c1,
+            integ_d1,
+            dQdt_prev,
+            integ_c2,
+            Q_prev2,
         )
 
         return csr_data, f_augmented, Q, I_vsource_kcl, limit_state_out, max_res_contrib
 
     def _build_residual(
-        V, I_branch, f_resist, Q, lim_rhs_resist, lim_rhs_react,
-        vsource_vals, Q_prev, integ_c0, gshunt, integ_c1, integ_d1,
-        dQdt_prev, integ_c2, Q_prev2,
+        V,
+        I_branch,
+        f_resist,
+        Q,
+        lim_rhs_resist,
+        lim_rhs_react,
+        vsource_vals,
+        Q_prev,
+        integ_c0,
+        gshunt,
+        integ_c1,
+        integ_d1,
+        dQdt_prev,
+        integ_c2,
+        Q_prev2,
     ):
         """Build residual vector from assembled contributions.
 
@@ -942,9 +1054,19 @@ def make_mna_build_system_fn(
 
         effective_shunt = min_diag_reg + gshunt
         f_node = combine_transient_residual(
-            f_resist, Q, jnp.zeros_like(f_resist), lim_rhs_react,
-            Q_prev, integ_c0, integ_c1, integ_d1, _dQdt_prev, integ_c2, _Q_prev2,
-            effective_shunt, V[1:],
+            f_resist,
+            Q,
+            jnp.zeros_like(f_resist),
+            lim_rhs_react,
+            Q_prev,
+            integ_c0,
+            integ_c1,
+            integ_d1,
+            _dQdt_prev,
+            integ_c2,
+            _Q_prev2,
+            effective_shunt,
+            V[1:],
         )
 
         f_branch = build_vsource_equations(V, vsource_vals, vsource_node_p, vsource_node_n)
