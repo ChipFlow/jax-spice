@@ -14,3 +14,14 @@ classifiers = [
 
 [tool.maturin]
 features = ["pyo3/extension-module"]
+
+[tool.cibuildwheel]
+build = ["cp311-*", "cp312-*"]
+skip = ["*-musllinux_*", "*-win32", "*_i686"]
+
+[tool.cibuildwheel.linux]
+before-all = "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y"
+environment = { PATH = "$HOME/.cargo/bin:$PATH" }
+
+[tool.cibuildwheel.macos]
+# Rust is pre-installed on GitHub macOS runners

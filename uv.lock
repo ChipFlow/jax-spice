@@ -2273,7 +2273,6 @@ wheels = [
 
 [[package]]
 name = "vajax"
-version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "jax" },
@@ -2356,7 +2355,7 @@ requires-dist = [
     { name = "umfpack-jax", editable = "vajax/sparse" },
     { name = "umfpack-jax", marker = "extra == 'umfpack-ffi'", editable = "vajax/sparse" },
 ]
-provides-extras = ["cuda12", "umfpack", "umfpack-ffi", "sax", "docs", "test", "dev"]
+provides-extras = ["cuda12", "dev", "docs", "sax", "test", "umfpack", "umfpack-ffi"]
 
 [package.metadata.requires-dev]
 dev = [{ name = "radon", specifier = ">=6.0.1" }]

@@ -11,6 +11,18 @@ requires-python = ">=3.10"
 [tool.maturin]
 features = ["pyo3/extension-module"]
 
+[tool.cibuildwheel]
+# pyo3 0.19.2 doesn't support Python 3.13
+build = ["cp311-*", "cp312-*"]
+skip = ["*-musllinux_*", "*-win32", "*_i686"]
+
+[tool.cibuildwheel.linux]
+before-all = "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y"
+environment = { PATH = "$HOME/.cargo/bin:$PATH" }
+
+[tool.cibuildwheel.macos]
+# Rust is pre-installed on GitHub macOS runners
+
 [tool.uv]
 cache-keys = [
     { file = "pyproject.toml" },
