@@ -29,14 +29,17 @@ build.verbose = true
 [tool.cibuildwheel]
 build = ["cp311-*", "cp312-*"]
 skip = ["*-musllinux_*", "*-win32", "*_i686"]
+# Use manylinux_2_28 (AlmaLinux 8) — scipy has pre-built wheels for this platform
+manylinux-x86_64-image = "manylinux_2_28"
+manylinux-aarch64-image = "manylinux_2_28"
 
 # FetchContent in CMakeLists.txt downloads + builds SuiteSparse v7.8.3 from source.
 # Only system BLAS is needed (openblas on Linux, Accelerate on macOS).
 
 [tool.cibuildwheel.linux]
 before-all = [
-    # EPEL required for openblas-devel on manylinux2014 (CentOS 7)
-    "yum install -y epel-release && yum install -y openblas-devel || apt-get install -y libopenblas-dev",
+    # OpenBLAS for SuiteSparse build (dnf on AlmaLinux 8 / manylinux_2_28)
+    "dnf install -y openblas-devel || yum install -y openblas-devel",
 ]
 
 [tool.cibuildwheel.macos]
