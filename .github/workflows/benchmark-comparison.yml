@@ -6,6 +6,8 @@ on:
   pull_request:
     branches: [main]
   workflow_dispatch:
+  schedule:
+    - cron: '0 6 * * *'  # Daily at 6am UTC
 
 env:
   CARGO_TERM_COLOR: always
