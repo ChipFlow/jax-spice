@@ -2,6 +2,7 @@ name: Release
 
 on:
   push:
+    branches: [main]
     tags:
       - "v*"
 
@@ -13,9 +14,10 @@ env:
 
 jobs:
   # =========================================================================
-  # Step 0: Wait for CI workflows to pass on this commit
+  # Step 0: Wait for CI workflows to pass (tag releases only)
   # =========================================================================
   check-ci:
+    if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     steps:
       - name: Wait for CI checks to pass
@@ -54,10 +56,13 @@ jobs:
           echo "All CI checks passed!"
 
   # =========================================================================
-  # Step 1: Patch version strings across all packages from the git tag
+  # Step 1: Patch version strings across all packages
+  #   - Tag push: uses release version from tag (e.g. 0.1.2)
+  #   - Main push: uses rc version from git describe (e.g. 0.1.2rc5)
   # =========================================================================
   set-version:
     needs: check-ci
+    if: ${{ !cancelled() && (needs.check-ci.result == 'success' || needs.check-ci.result == 'skipped') }}
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.version.outputs.version }}
@@ -70,12 +75,26 @@ jobs:
       - uses: astral-sh/setup-uv@v4
       - run: uv python install 3.12
 
-      - name: Extract version from tag
+      - name: Determine version
         id: version
-        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+            echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+            echo "Using tag version: $VERSION"
+          else
+            VERSION=$(uv run --no-project python scripts/set_release_version.py --dry-run 2>&1 | grep "^Setting version:" | sed 's/Setting version: //')
+            echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+            echo "Using dev version: $VERSION"
+          fi
 
       - name: Patch version strings
-        run: uv run --no-project python scripts/set_release_version.py "$GITHUB_REF_NAME"
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            uv run --no-project python scripts/set_release_version.py "$GITHUB_REF_NAME"
+          else
+            uv run --no-project python scripts/set_release_version.py
+          fi
 
       - name: Upload patched source
         uses: actions/upload-artifact@v4
@@ -277,7 +296,7 @@ jobs:
           "
 
   # =========================================================================
-  # Step 3: Publish to TestPyPI (per-package for independent OIDC tokens)
+  # Step 3: Publish to TestPyPI (every push to main + tag releases)
   # =========================================================================
   publish-testpypi-vajax:
     needs: [build-vajax, test-wheel-install]
@@ -347,9 +366,10 @@ jobs:
           verbose: true
 
   # =========================================================================
-  # Step 4: Publish to PyPI (per-package for independent OIDC tokens)
+  # Step 4: Publish to PyPI (tag releases only)
   # =========================================================================
   publish-pypi-vajax:
+    if: startsWith(github.ref, 'refs/tags/v')
     needs: [publish-testpypi-vajax]
     runs-on: ubuntu-latest
     environment: pypi
@@ -363,6 +383,7 @@ jobs:
       - uses: pypa/gh-action-pypi-publish@release/v1
 
   publish-pypi-osdi-py:
+    if: startsWith(github.ref, 'refs/tags/v')
     needs: [publish-testpypi-osdi-py]
     runs-on: ubuntu-latest
     environment: pypi
@@ -377,6 +398,7 @@ jobs:
       - uses: pypa/gh-action-pypi-publish@release/v1
 
   publish-pypi-openvaf-py:
+    if: startsWith(github.ref, 'refs/tags/v')
     needs: [publish-testpypi-openvaf-py]
     runs-on: ubuntu-latest
     environment: pypi
@@ -391,6 +413,7 @@ jobs:
       - uses: pypa/gh-action-pypi-publish@release/v1
 
   publish-pypi-umfpack-jax:
+    if: startsWith(github.ref, 'refs/tags/v')
     needs: [publish-testpypi-umfpack-jax]
     runs-on: ubuntu-latest
     environment: pypi
@@ -405,9 +428,10 @@ jobs:
       - uses: pypa/gh-action-pypi-publish@release/v1
 
   # =========================================================================
-  # Step 5: Create GitHub Release
+  # Step 5: Create GitHub Release (tag releases only)
   # =========================================================================
   github-release:
+    if: startsWith(github.ref, 'refs/tags/v')
     needs: [publish-pypi-vajax, publish-pypi-osdi-py, publish-pypi-openvaf-py, publish-pypi-umfpack-jax]
     runs-on: ubuntu-latest
     permissions:
@@ -432,9 +456,10 @@ jobs:
             dist/*
 
   # =========================================================================
-  # Step 6: Build and deploy docs to GitHub Pages
+  # Step 6: Build and deploy docs to GitHub Pages (tag releases only)
   # =========================================================================
   deploy-docs:
+    if: startsWith(github.ref, 'refs/tags/v')
     needs: [publish-pypi-vajax, publish-pypi-osdi-py, publish-pypi-openvaf-py, publish-pypi-umfpack-jax]
     runs-on: ubuntu-latest
     permissions:
@@ -459,9 +484,10 @@ jobs:
           publish_branch: gh-pages
 
   # =========================================================================
-  # Step 7: Update Homebrew tap
+  # Step 7: Update Homebrew tap (tag releases only)
   # =========================================================================
   update-homebrew:
+    if: startsWith(github.ref, 'refs/tags/v')
     needs: [publish-pypi-vajax, publish-pypi-osdi-py, publish-pypi-openvaf-py, publish-pypi-umfpack-jax, set-version]
     runs-on: ubuntu-latest
     steps:

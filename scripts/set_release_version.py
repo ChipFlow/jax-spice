@@ -78,7 +78,11 @@ def get_version_from_tag(tag: str) -> str:
 
 
 def get_version_from_git() -> str:
-    """Get version from git describe."""
+    """Get version from git describe.
+
+    If HEAD is exactly on a tag, returns the release version (e.g. '0.1.2').
+    If HEAD is past a tag, returns a PEP 440 dev version (e.g. '0.1.2.dev5').
+    """
     result = subprocess.run(
         ["git", "describe", "--tags", "--match", "v*"],
         capture_output=True,
@@ -87,7 +91,15 @@ def get_version_from_git() -> str:
     )
     if result.returncode != 0:
         raise RuntimeError(f"git describe failed: {result.stderr.strip()}")
-    return get_version_from_tag(result.stdout.strip().split("-")[0])
+    desc = result.stdout.strip()
+    # git describe format: v0.1.2 (on tag) or v0.1.2-5-gabcdef (past tag)
+    parts = desc.split("-")
+    base = get_version_from_tag(parts[0])
+    if len(parts) >= 3:
+        # Past tag: generate release candidate version for TestPyPI
+        commit_count = parts[1]
+        return f"{base}rc{commit_count}"
+    return base
 
 
 def patch_file(path: Path, patterns: list[tuple[str, str]], version: str) -> bool:
@@ -112,12 +124,19 @@ def patch_file(path: Path, patterns: list[tuple[str, str]], version: str) -> boo
 
 
 def main() -> int:
-    if len(sys.argv) > 1:
-        version = get_version_from_tag(sys.argv[1])
+    dry_run = "--dry-run" in sys.argv
+    args = [a for a in sys.argv[1:] if a != "--dry-run"]
+
+    if args:
+        version = get_version_from_tag(args[0])
     else:
         version = get_version_from_git()
 
     print(f"Setting version: {version}")
+
+    if dry_run:
+        return 0
+
     print()
 
     changed = 0
