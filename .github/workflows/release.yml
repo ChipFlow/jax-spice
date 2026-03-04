@@ -194,6 +194,10 @@ jobs:
           CIBW_BEFORE_BUILD_LINUX: "pip install sccache"
           CIBW_ENVIRONMENT_LINUX: "RUSTC_WRAPPER=sccache SCCACHE_DIR=/sccache"
 
+      - name: Fix sccache permissions (Linux)
+        if: runner.os == 'Linux'
+        run: sudo chown -R "$(id -u):$(id -g)" /tmp/sccache
+
       - uses: actions/upload-artifact@v4
         with:
           name: wheels-osdi-py-${{ matrix.os }}-${{ matrix.arch }}
@@ -258,6 +262,10 @@ jobs:
           CIBW_BEFORE_BUILD_LINUX: "pip install sccache"
           CIBW_ENVIRONMENT_LINUX: "RUSTC_WRAPPER=sccache SCCACHE_DIR=/sccache"
 
+      - name: Fix sccache permissions (Linux)
+        if: runner.os == 'Linux'
+        run: sudo chown -R "$(id -u):$(id -g)" /tmp/sccache
+
       - uses: actions/upload-artifact@v4
         with:
           name: wheels-openvaf-py-${{ matrix.os }}-${{ matrix.arch }}
@@ -316,6 +324,10 @@ jobs:
           CIBW_CONTAINER_ENGINE: "docker; create_args: --volume /tmp/sccache:/sccache"
           CIBW_BEFORE_BUILD_LINUX: "pip install sccache"
           CIBW_ENVIRONMENT_LINUX: "CMAKE_C_COMPILER_LAUNCHER=sccache CMAKE_CXX_COMPILER_LAUNCHER=sccache SCCACHE_DIR=/sccache"
+
+      - name: Fix sccache permissions (Linux)
+        if: runner.os == 'Linux'
+        run: sudo chown -R "$(id -u):$(id -g)" /tmp/sccache
 
       - uses: actions/upload-artifact@v4
         with:
