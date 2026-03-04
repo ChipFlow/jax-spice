@@ -178,6 +178,7 @@ jobs:
           path: /tmp/sccache
           key: sccache-osdi-py-${{ matrix.os }}-${{ matrix.arch }}-${{ hashFiles('openvaf_jax/osdi_py/Cargo.lock') }}
           restore-keys: sccache-osdi-py-${{ matrix.os }}-${{ matrix.arch }}-
+          save-always: true
 
       - name: Build wheels
         uses: pypa/cibuildwheel@v2.22
@@ -241,6 +242,7 @@ jobs:
           path: /tmp/sccache
           key: sccache-openvaf-py-${{ matrix.os }}-${{ matrix.arch }}-${{ hashFiles('openvaf_jax/openvaf_py/Cargo.lock') }}
           restore-keys: sccache-openvaf-py-${{ matrix.os }}-${{ matrix.arch }}-
+          save-always: true
 
       - name: Build wheels
         uses: pypa/cibuildwheel@v2.22
@@ -299,6 +301,7 @@ jobs:
           path: /tmp/sccache
           key: sccache-umfpack-jax-${{ matrix.os }}-${{ matrix.arch }}-${{ hashFiles('vajax/sparse/CMakeLists.txt') }}
           restore-keys: sccache-umfpack-jax-${{ matrix.os }}-${{ matrix.arch }}-
+          save-always: true
 
       - name: Build wheels
         uses: pypa/cibuildwheel@v2.22
