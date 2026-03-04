@@ -81,7 +81,13 @@ def installed_venv(tmp_path_factory):
 
     # Create fresh venv
     result = subprocess.run(
-        ["uv", "venv", str(venv_dir), "--python", f"python{sys.version_info.major}.{sys.version_info.minor}"],
+        [
+            "uv",
+            "venv",
+            str(venv_dir),
+            "--python",
+            f"python{sys.version_info.major}.{sys.version_info.minor}",
+        ],
         capture_output=True,
         text=True,
         timeout=30,
@@ -95,11 +101,16 @@ def installed_venv(tmp_path_factory):
     # Use --find-links to pick up local wheels for workspace deps
     result = subprocess.run(
         [
-            "uv", "pip", "install",
-            "--python", str(python),
-            "--find-links", str(wheel_dir),
+            "uv",
+            "pip",
+            "install",
+            "--python",
+            str(python),
+            "--find-links",
+            str(wheel_dir),
             "--no-deps",
-        ] + sorted(wheel_dir.glob("*.whl")),
+        ]
+        + sorted(wheel_dir.glob("*.whl")),
         capture_output=True,
         text=True,
         timeout=120,
@@ -110,9 +121,13 @@ def installed_venv(tmp_path_factory):
     # that we already installed from local wheels
     result = subprocess.run(
         [
-            "uv", "pip", "install",
-            "--python", str(python),
-            "--find-links", str(wheel_dir),
+            "uv",
+            "pip",
+            "install",
+            "--python",
+            str(python),
+            "--find-links",
+            str(wheel_dir),
             "vajax",
         ],
         capture_output=True,
@@ -144,7 +159,9 @@ class TestWheelInstall:
                 results[name] = full.exists()
             # Print results as JSON
             print(json.dumps(results))
-        """).replace("{expected_json}", __import__("json").dumps(EXPECTED_BUNDLED_MODELS).replace("'", "\\'"))
+        """).replace(
+            "{expected_json}", __import__("json").dumps(EXPECTED_BUNDLED_MODELS).replace("'", "\\'")
+        )
 
         result = subprocess.run(
             [str(python), "-c", script],
@@ -156,6 +173,7 @@ class TestWheelInstall:
         assert result.returncode == 0, f"Script failed:\n{result.stderr}"
 
         import json
+
         model_status = json.loads(result.stdout.strip())
         missing = [name for name, exists in model_status.items() if not exists]
         assert not missing, f"Missing bundled models: {missing}"
@@ -201,15 +219,14 @@ class TestWheelInstall:
         assert result.returncode == 0, f"Script failed:\n{result.stderr}"
 
         import json
+
         compile_results = json.loads(result.stdout.strip())
 
         if "skip" in compile_results:
             pytest.skip(compile_results["skip"])
 
         failed = {
-            name: info["error"]
-            for name, info in compile_results.items()
-            if not info.get("ok")
+            name: info["error"] for name, info in compile_results.items() if not info.get("ok")
         }
         assert not failed, f"Models failed to compile: {failed}"
 
@@ -238,10 +255,7 @@ class TestWheelInstall:
         assert result.returncode == 0, f"Script failed:\n{result.stderr}"
 
         import json
+
         path_results = json.loads(result.stdout.strip())
-        missing = {
-            name: info["path"]
-            for name, info in path_results.items()
-            if not info["exists"]
-        }
+        missing = {name: info["path"] for name, info in path_results.items() if not info["exists"]}
         assert not missing, f"MODEL_PATHS entries with missing files: {missing}"
