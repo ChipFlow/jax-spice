@@ -1141,6 +1141,17 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#gpu-benchmarks" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        GPU Benchmarks
+      
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -1214,6 +1225,17 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#gpu-benchmarks" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        GPU Benchmarks
+      
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -1240,7 +1262,7 @@
 
 
 <h1 id="vajax-ci-summary">VAJAX CI Summary<a class="headerlink" href="#vajax-ci-summary" title="Permanent link">&para;</a></h1>
-<p><em>Last updated: 2026-03-04 23:30 UTC</em></p>
+<p><em>Last updated: 2026-03-04 23:36 UTC</em></p>
 <p><em>Commit: <a href="https://github.com/ChipFlow/vajax/commit/211bc89fa5e5e47820fa6fc606cfd15f67d43007">211bc89f</a></em></p>
 <h2 id="test-coverage">Test Coverage<a class="headerlink" href="#test-coverage" title="Permanent link">&para;</a></h2>
 <table>
@@ -1377,7 +1399,53 @@
 </tr>
 </tbody>
 </table>
-<p><em>No gpu benchmarks benchmark data available.</em></p>
+<h3 id="gpu-benchmarks">GPU Benchmarks<a class="headerlink" href="#gpu-benchmarks" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Benchmark</th>
+<th>Steps</th>
+<th>VAJAX (ms/step)</th>
+<th>VACASK (ms/step)</th>
+<th>Ratio</th>
+<th>Startup</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>rc</td>
+<td>1,000,000</td>
+<td>0.2383</td>
+<td>0.0009</td>
+<td>254.80x</td>
+<td>3.9s</td>
+</tr>
+<tr>
+<td>graetz</td>
+<td>1,000,000</td>
+<td>0.3024</td>
+<td>0.0019</td>
+<td>159.99x</td>
+<td>8.8s</td>
+</tr>
+<tr>
+<td>mul</td>
+<td>500,000</td>
+<td>0.4433</td>
+<td>0.0019</td>
+<td>228.55x</td>
+<td>6.7s</td>
+</tr>
+<tr>
+<td>ring</td>
+<td>19,999</td>
+<td>1.4608</td>
+<td>0.0453</td>
+<td>32.27x</td>
+<td>174.0s</td>
+</tr>
+</tbody>
+</table>
 <hr />
 <p><a href="https://github.com/ChipFlow/vajax/actions">View workflows</a> | 
 <a href="https://github.com/ChipFlow/vajax">Repository</a></p>
