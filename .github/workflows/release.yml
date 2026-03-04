@@ -13,9 +13,51 @@ env:
 
 jobs:
   # =========================================================================
+  # Step 0: Wait for CI workflows to pass on this commit
+  # =========================================================================
+  check-ci:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Wait for CI checks to pass
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          SHA="${{ github.sha }}"
+          echo "Waiting for CI checks on $SHA ..."
+          REQUIRED_WORKFLOWS=("Lint" "Tests")
+          for workflow in "${REQUIRED_WORKFLOWS[@]}"; do
+            echo "Checking: $workflow"
+            for i in $(seq 1 60); do
+              # Find the latest run for this workflow on this SHA
+              RUN=$(gh api "repos/${{ github.repository }}/actions/runs?head_sha=$SHA&event=push" \
+                --jq ".workflow_runs[] | select(.name == \"$workflow\") | {status, conclusion}" \
+                | head -1)
+              STATUS=$(echo "$RUN" | jq -r '.status // empty')
+              CONCLUSION=$(echo "$RUN" | jq -r '.conclusion // empty')
+              if [ "$STATUS" = "completed" ]; then
+                if [ "$CONCLUSION" = "success" ]; then
+                  echo "  $workflow: passed"
+                  break
+                else
+                  echo "  $workflow: failed ($CONCLUSION)"
+                  exit 1
+                fi
+              fi
+              echo "  $workflow: $STATUS (attempt $i/60, waiting 30s...)"
+              sleep 30
+            done
+            if [ "$STATUS" != "completed" ]; then
+              echo "  $workflow: timed out waiting"
+              exit 1
+            fi
+          done
+          echo "All CI checks passed!"
+
+  # =========================================================================
   # Step 1: Patch version strings across all packages from the git tag
   # =========================================================================
   set-version:
+    needs: check-ci
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.version.outputs.version }}
