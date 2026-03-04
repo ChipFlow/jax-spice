@@ -29,9 +29,9 @@ cuda12 = [
     # JAX 0.9+ uses jax-cuda12-plugin for CUDA support
     "jax-cuda12-plugin>=0.9.0; sys_platform != 'darwin'",
     # Spineax: cuDSS sparse solver with cached symbolic factorization
-    # Published as spineax-vajax to avoid name clash with upstream
+    # Published as spineax-vajax on PyPI; git source used during development
     # Note: Only works on Linux with CUDA
-    "spineax-vajax[cuda12]",
+    "spineax @ git+https://github.com/robtaylor/spineax.git",
 ]
 # UMFPACK solver for CPU sparse solving (requires libsuitesparse-dev + swig)
 # Falls back to klujax if not available
