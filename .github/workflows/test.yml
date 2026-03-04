@@ -9,7 +9,7 @@ on:
 env:
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: 0
-  SCCACHE_GHA_ENABLED: "true"
+  SCCACHE_GHA_ENABLED: "false"
   RUSTC_WRAPPER: "sccache"
   # XLA compilation cache - keyed by OS and architecture to avoid mismatches
   JAX_COMPILATION_CACHE_DIR: /tmp/jax-xla-cache
