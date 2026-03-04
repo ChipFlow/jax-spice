@@ -190,8 +190,7 @@ jobs:
           output-dir: dist
         env:
           CIBW_ENVIRONMENT_MACOS: "RUSTC_WRAPPER=sccache"
-          CIBW_CONTAINER_ENGINE: "docker; create_args: --volume /tmp/sccache:/sccache"
-          CIBW_BEFORE_BUILD_LINUX: "pip install sccache"
+          CIBW_CONTAINER_ENGINE: "docker; create_args: --volume ${{ env.SCCACHE_PATH }}:/usr/local/bin/sccache:ro --volume /tmp/sccache:/sccache"
           CIBW_ENVIRONMENT_LINUX: "RUSTC_WRAPPER=sccache SCCACHE_DIR=/sccache"
 
       - name: Fix sccache permissions (Linux)
@@ -258,8 +257,7 @@ jobs:
           output-dir: dist
         env:
           CIBW_ENVIRONMENT_MACOS: "RUSTC_WRAPPER=sccache"
-          CIBW_CONTAINER_ENGINE: "docker; create_args: --volume /tmp/sccache:/sccache"
-          CIBW_BEFORE_BUILD_LINUX: "pip install sccache"
+          CIBW_CONTAINER_ENGINE: "docker; create_args: --volume ${{ env.SCCACHE_PATH }}:/usr/local/bin/sccache:ro --volume /tmp/sccache:/sccache"
           CIBW_ENVIRONMENT_LINUX: "RUSTC_WRAPPER=sccache SCCACHE_DIR=/sccache"
 
       - name: Fix sccache permissions (Linux)
@@ -321,8 +319,7 @@ jobs:
           output-dir: dist
         env:
           CIBW_ENVIRONMENT_MACOS: "CMAKE_C_COMPILER_LAUNCHER=sccache CMAKE_CXX_COMPILER_LAUNCHER=sccache"
-          CIBW_CONTAINER_ENGINE: "docker; create_args: --volume /tmp/sccache:/sccache"
-          CIBW_BEFORE_BUILD_LINUX: "pip install sccache"
+          CIBW_CONTAINER_ENGINE: "docker; create_args: --volume ${{ env.SCCACHE_PATH }}:/usr/local/bin/sccache:ro --volume /tmp/sccache:/sccache"
           CIBW_ENVIRONMENT_LINUX: "CMAKE_C_COMPILER_LAUNCHER=sccache CMAKE_CXX_COMPILER_LAUNCHER=sccache SCCACHE_DIR=/sccache"
 
       - name: Fix sccache permissions (Linux)
