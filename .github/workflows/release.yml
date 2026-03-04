@@ -379,6 +379,7 @@ jobs:
         with:
           repository-url: https://test.pypi.org/legacy/
           verbose: true
+          skip-existing: true
 
   publish-testpypi-osdi-py:
     needs: [build-osdi-py, test-wheel-install]
@@ -396,6 +397,7 @@ jobs:
         with:
           repository-url: https://test.pypi.org/legacy/
           verbose: true
+          skip-existing: true
 
   publish-testpypi-openvaf-py:
     needs: [build-openvaf-py, test-wheel-install]
@@ -413,6 +415,7 @@ jobs:
         with:
           repository-url: https://test.pypi.org/legacy/
           verbose: true
+          skip-existing: true
 
   publish-testpypi-umfpack-jax:
     needs: [build-umfpack-jax, test-wheel-install]
@@ -430,6 +433,7 @@ jobs:
         with:
           repository-url: https://test.pypi.org/legacy/
           verbose: true
+          skip-existing: true
 
   # =========================================================================
   # Step 4: Publish to PyPI (tag releases only)
