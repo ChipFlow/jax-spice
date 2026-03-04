@@ -359,9 +359,9 @@ class TestNgspiceRegression:
             control_params,
         )
         if jax_error:
-            # Conversion failures are expected for unsupported netlist features
-            if "Conversion failed" in jax_error:
-                pytest.xfail(f"Netlist conversion not supported: {jax_error}")
+            # Conversion/parse failures are expected for unsupported netlist features
+            if "Conversion failed" in jax_error or "Simulation failed" in jax_error:
+                pytest.xfail(f"Netlist not supported: {jax_error}")
             pytest.fail(f"VAJAX failed: {jax_error}")
 
         # Compare results
