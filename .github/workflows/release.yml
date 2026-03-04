@@ -184,10 +184,67 @@ jobs:
           path: dist/*.whl
 
   # =========================================================================
+  # Step 2.5: Test wheel installation before publishing
+  # =========================================================================
+  test-wheel-install:
+    needs: [build-vajax, build-openvaf-py, build-osdi-py, build-umfpack-jax]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: astral-sh/setup-uv@v4
+      - run: uv python install 3.12
+
+      - name: Download all wheels
+        uses: actions/download-artifact@v4
+        with:
+          pattern: wheels-*
+          path: wheels
+          merge-multiple: true
+
+      - name: Install wheels in fresh venv
+        run: |
+          uv venv /tmp/test-venv --python 3.12
+          # Install all built wheels (no deps first to verify packaging)
+          uv pip install --python /tmp/test-venv/bin/python \
+            --find-links wheels/ --no-deps wheels/*.whl
+          # Then resolve remaining deps
+          uv pip install --python /tmp/test-venv/bin/python \
+            --find-links wheels/ vajax
+
+      - name: Verify imports and bundled models
+        env:
+          JAX_PLATFORMS: cpu
+        run: |
+          /tmp/test-venv/bin/python -c "
+          import vajax
+          print(f'vajax {vajax.__version__} imported OK')
+
+          from vajax.devices import MODEL_PATHS
+          print(f'MODEL_PATHS has {len(MODEL_PATHS)} entries')
+
+          from pathlib import Path
+          import vajax.devices
+          models_dir = Path(vajax.devices.__file__).parent / 'models'
+          missing = []
+          for name, (base_key, rel_path) in MODEL_PATHS.items():
+              if base_key == 'bundled':
+                  if not (models_dir / rel_path).exists():
+                      missing.append(name)
+          assert not missing, f'Missing bundled models: {missing}'
+          print(f'All bundled models present')
+
+          import openvaf_py
+          print(f'openvaf_py imported OK')
+          "
+
+  # =========================================================================
   # Step 3: Publish to TestPyPI (per-package for independent OIDC tokens)
   # =========================================================================
   publish-testpypi-vajax:
-    needs: build-vajax
+    needs: [build-vajax, test-wheel-install]
     runs-on: ubuntu-latest
     environment: testpypi
     permissions:
@@ -203,7 +260,7 @@ jobs:
           verbose: true
 
   publish-testpypi-osdi-py:
-    needs: build-osdi-py
+    needs: [build-osdi-py, test-wheel-install]
     runs-on: ubuntu-latest
     environment: testpypi
     permissions:
@@ -220,7 +277,7 @@ jobs:
           verbose: true
 
   publish-testpypi-openvaf-py:
-    needs: build-openvaf-py
+    needs: [build-openvaf-py, test-wheel-install]
     runs-on: ubuntu-latest
     environment: testpypi
     permissions:
@@ -237,7 +294,7 @@ jobs:
           verbose: true
 
   publish-testpypi-umfpack-jax:
-    needs: build-umfpack-jax
+    needs: [build-umfpack-jax, test-wheel-install]
     runs-on: ubuntu-latest
     environment: testpypi
     permissions:
