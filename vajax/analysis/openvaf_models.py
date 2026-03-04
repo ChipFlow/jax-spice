@@ -83,6 +83,15 @@ MODEL_PATHS = {
     "inductor": ("bundled", "inductor.va"),
     "diode": ("vacask", "diode.va"),
     "sp_diode": ("vacask", "spice/sn/diode.va"),
+    # ECL-2.0 licensed models (bundled)
+    "ekv": ("bundled", "ekv/ekv.va"),
+    "ekv_longchannel": ("bundled", "ekv_longchannel/ekv_longchannel.va"),
+    "bsimbulk": ("bundled", "bsimbulk/bsimbulk.va"),
+    "bsimcmg": ("bundled", "bsimcmg/bsimcmg.va"),
+    "bsimimg": ("bundled", "bsimimg/bsimimg.va"),
+    "hisim2": ("bundled", "hisim2/hisim2.va"),
+    "asmhemt": ("bundled", "asmhemt/asmhemt.va"),
+    "mvsg_cmc": ("bundled", "mvsg_cmc/mvsg_cmc.va"),
 }
 
 

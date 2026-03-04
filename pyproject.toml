@@ -89,12 +89,12 @@ allow-direct-references = true
 [tool.hatch.build.targets.wheel]
 packages = ["vajax", "openvaf_jax"]
 exclude = ["openvaf_jax/openvaf_py/target", "openvaf_jax/osdi_py/target"]
-artifacts = ["vajax/devices/models/*.va"]
+artifacts = ["vajax/devices/models/**"]
 
 [tool.hatch.build.targets.sdist]
 include = [
     "vajax/**/*.py",
-    "vajax/devices/models/*.va",
+    "vajax/devices/models/**",
     "vajax/benchmarks/data/*",
     "openvaf_jax/**/*.py",
 ]
