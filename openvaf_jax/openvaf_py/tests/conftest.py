@@ -48,31 +48,29 @@ def _get_rss_mb() -> float:
 
 
 @pytest.fixture(autouse=True)
-def _report_memory_after_test(request):
-    """Log RSS after each test for memory profiling.
+def _clear_jax_caches_after_test(request):
+    """Clear JAX caches and report RSS after each test.
 
-    Writes to stderr so output appears even with xdist capture.
-    """
-    yield
-    rss = _get_rss_mb()
-    worker = getattr(request.config, "workerinput", {}).get("workerid", "main")
-    sys.stderr.write(f"  [{worker}] RSS={rss:.0f}MB {request.node.nodeid}\n")
-    sys.stderr.flush()
+    XLA JIT compilation of large models (BSIM4, BSIM6) uses 4+ GB on Linux.
+    Without per-test cleanup, memory accumulates within test_all_models.py
+    (which evaluates every model sequentially) and xdist workers hit OOM.
 
-
-@pytest.fixture(autouse=True, scope="module")
-def _clear_jax_caches_between_modules():
-    """Clear JAX compilation caches after each test module.
-
-    xdist workers are long-lived processes that accumulate XLA compilation
-    artifacts across test modules. Large models (BSIM4, PSP103, HiSIMHV)
-    each use 1-2 GB peak RSS; without cleanup, 4 workers can exhaust 32 GB.
+    Each test compiles a different model, so there's no JIT cache to preserve.
     """
     import gc
 
-    yield  # run the module's tests
+    yield
+    rss_before = _get_rss_mb()
     jax.clear_caches()
     gc.collect()
+    rss_after = _get_rss_mb()
+    worker = getattr(request.config, "workerinput", {}).get("workerid", "main")
+    freed = rss_before - rss_after
+    freed_str = f" (freed {freed:.0f}MB)" if freed > 10 else ""
+    sys.stderr.write(
+        f"  [{worker}] RSS={rss_after:.0f}MB{freed_str} {request.node.nodeid}\n"
+    )
+    sys.stderr.flush()
 
 
 # Path to OpenVAF integration tests (in vendor submodule at project root)
