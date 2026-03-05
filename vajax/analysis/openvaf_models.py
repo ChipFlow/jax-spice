@@ -368,14 +368,41 @@ def compile_openvaf_models(
         if model_type in compiled_models:
             continue
 
-        # Check module-level cache
+        # Check module-level cache (with source hash validation)
         if model_type in COMPILED_MODEL_CACHE:
             cached = COMPILED_MODEL_CACHE[model_type]
-            log(
-                f"  {model_type}: reusing cached ({len(cached['param_names'])} params, {len(cached['nodes'])} nodes)"
-            )
-            compiled_models[model_type] = cached
-            continue
+            cache_valid = True
+
+            # Validate that the VA source hasn't changed since compilation
+            cached_hash = cached.get("va_hash")
+            if cached_hash is not None:
+                model_info = model_paths.get(model_type)
+                if model_info:
+                    base_key, va_path = model_info
+                    base_path = base_paths.get(base_key)
+                    if base_path:
+                        full_path = base_path / va_path
+                        if full_path.exists():
+                            from openvaf_jax.cache import compute_va_hash
+
+                            current_hash = compute_va_hash(full_path)
+                            if current_hash != cached_hash:
+                                log(
+                                    f"  {model_type}: VA source changed "
+                                    f"(hash {cached_hash[:8]}→{current_hash[:8]}), "
+                                    "recompiling..."
+                                )
+                                # Release old model memory before recompiling
+                                release_model_memory([model_type])
+                                del COMPILED_MODEL_CACHE[model_type]
+                                cache_valid = False
+
+            if cache_valid:
+                log(
+                    f"  {model_type}: reusing cached ({len(cached['param_names'])} params, {len(cached['nodes'])} nodes)"
+                )
+                compiled_models[model_type] = cached
+                continue
 
         model_info = model_paths.get(model_type)
         if not model_info:
@@ -478,6 +505,7 @@ def compile_openvaf_models(
         compiled = {
             "module": module,
             "translator": translator,
+            "va_hash": va_hash,
             "dae_metadata": dae_metadata,
             "param_names": param_names,
             "param_kinds": param_kinds,
