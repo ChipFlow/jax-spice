@@ -148,6 +148,8 @@ jobs:
             arch: aarch64
           - os: macos-14
             arch: arm64
+          - os: windows-latest
+            arch: x86_64
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -168,13 +170,19 @@ jobs:
         with:
           disable_annotations: true
 
-      - name: Prepare sccache dir
+      - name: Prepare sccache dir (Unix)
+        if: runner.os != 'Windows'
         run: mkdir -p /tmp/sccache
+
+      - name: Prepare sccache dir (Windows)
+        if: runner.os == 'Windows'
+        run: mkdir -Force "${{ runner.temp }}\sccache"
+        shell: pwsh
 
       - name: Restore sccache cache
         uses: actions/cache@v4
         with:
-          path: /tmp/sccache
+          path: ${{ runner.os == 'Windows' && format('{0}\sccache', runner.temp) || '/tmp/sccache' }}
           key: sccache-osdi-py-${{ matrix.os }}-${{ matrix.arch }}-${{ hashFiles('openvaf_jax/osdi_py/Cargo.lock') }}
           restore-keys: sccache-osdi-py-${{ matrix.os }}-${{ matrix.arch }}-
           save-always: true
@@ -188,6 +196,7 @@ jobs:
           CIBW_ENVIRONMENT_MACOS: "RUSTC_WRAPPER=sccache SCCACHE_DIR=/tmp/sccache"
           CIBW_CONTAINER_ENGINE: "docker; create_args: --volume ${{ env.SCCACHE_PATH }}:/usr/local/bin/sccache:ro --volume /tmp/sccache:/sccache"
           CIBW_ENVIRONMENT_LINUX: "RUSTC_WRAPPER=sccache SCCACHE_DIR=/sccache"
+          CIBW_ENVIRONMENT_WINDOWS: "RUSTC_WRAPPER=sccache SCCACHE_DIR=${{ runner.temp }}\\sccache"
 
       - name: Fix sccache permissions (Linux)
         if: runner.os == 'Linux'
@@ -210,6 +219,8 @@ jobs:
             arch: aarch64
           - os: macos-14
             arch: arm64
+          - os: windows-latest
+            arch: x86_64
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -232,13 +243,19 @@ jobs:
         with:
           disable_annotations: true
 
-      - name: Prepare sccache dir
+      - name: Prepare sccache dir (Unix)
+        if: runner.os != 'Windows'
         run: mkdir -p /tmp/sccache
+
+      - name: Prepare sccache dir (Windows)
+        if: runner.os == 'Windows'
+        run: mkdir -Force "${{ runner.temp }}\sccache"
+        shell: pwsh
 
       - name: Restore sccache cache
         uses: actions/cache@v4
         with:
-          path: /tmp/sccache
+          path: ${{ runner.os == 'Windows' && format('{0}\sccache', runner.temp) || '/tmp/sccache' }}
           key: sccache-openvaf-py-${{ matrix.os }}-${{ matrix.arch }}-${{ hashFiles('openvaf_jax/openvaf_py/Cargo.lock') }}
           restore-keys: sccache-openvaf-py-${{ matrix.os }}-${{ matrix.arch }}-
           save-always: true
@@ -252,6 +269,7 @@ jobs:
           CIBW_ENVIRONMENT_MACOS: "RUSTC_WRAPPER=sccache SCCACHE_DIR=/tmp/sccache"
           CIBW_CONTAINER_ENGINE: "docker; create_args: --volume ${{ env.SCCACHE_PATH }}:/usr/local/bin/sccache:ro --volume /tmp/sccache:/sccache"
           CIBW_ENVIRONMENT_LINUX: "RUSTC_WRAPPER=sccache SCCACHE_DIR=/sccache"
+          CIBW_ENVIRONMENT_WINDOWS: "RUSTC_WRAPPER=sccache SCCACHE_DIR=${{ runner.temp }}\\sccache"
 
       - name: Fix sccache permissions (Linux)
         if: runner.os == 'Linux'

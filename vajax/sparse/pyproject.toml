@@ -34,8 +34,10 @@ cmake.build-type = "Release"
 build.verbose = true
 
 [tool.cibuildwheel]
-build = ["cp311-*", "cp312-*"]
-skip = ["*-musllinux_*", "*-win32", "*_i686"]
+build = ["cp311-*", "cp312-*", "cp313-*"]
+# TODO: Windows skipped — SuiteSparse build via FetchContent needs BLAS/LAPACK
+# which is non-trivial to set up on Windows CI. Revisit when vcpkg integration is ready.
+skip = ["*-musllinux_*", "*_i686", "*-win_amd64", "*-win32"]
 # Use manylinux_2_28 (AlmaLinux 8) — scipy has pre-built wheels for this platform
 manylinux-x86_64-image = "manylinux_2_28"
 manylinux-aarch64-image = "manylinux_2_28"

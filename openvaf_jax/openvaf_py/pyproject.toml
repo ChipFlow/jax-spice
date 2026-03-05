@@ -16,12 +16,11 @@ Repository = "https://github.com/ChipFlow/vajax/tree/main/openvaf_jax/openvaf_py
 Issues = "https://github.com/ChipFlow/vajax/issues"
 
 [tool.maturin]
-features = ["pyo3/extension-module"]
+features = ["pyo3/extension-module", "pyo3/gil-refs"]
 
 [tool.cibuildwheel]
-# pyo3 0.19.2 doesn't support Python 3.13
-build = ["cp311-*", "cp312-*"]
-skip = ["*-musllinux_*", "*-win32", "*_i686"]
+build = ["cp311-*", "cp312-*", "cp313-*"]
+skip = ["*-musllinux_*", "*_i686"]
 
 [tool.cibuildwheel.linux]
 before-all = "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y"
