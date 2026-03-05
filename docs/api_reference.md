@@ -413,18 +413,12 @@ voltages = data['voltages']
 
 ---
 
-## Sparse Solver Functions
+## Sparse Solvers
 
-For large circuits (>1000 nodes), use sparse matrix solvers:
-
-```python
-from vajax.analysis.sparse import (
-    build_csr_arrays,    # COO to CSR conversion
-    sparse_solve_csr,    # Sparse linear solve
-)
-```
-
-See `vajax/analysis/sparse.py` for details.
+For large circuits (>1000 nodes), enable sparse solving via `engine.prepare(use_sparse=True)`.
+The backend is auto-selected: Spineax/cuDSS on CUDA GPUs, UMFPACK on CPU.
+See [GPU Solver Architecture](gpu_solver_architecture.md) for details on the pluggable
+solver backends in `vajax/analysis/solver_factories.py`.
 
 ---
 

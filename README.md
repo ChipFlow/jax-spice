@@ -17,10 +17,19 @@ VAJAX is in active development as a proof-of-concept. All VACASK benchmark circu
 
 **[Documentation & benchmark results →](https://docs.chipflow.io/vajax/)**
 
+### Help Us Improve
+
+Are you an analog designer evaluating VAJAX? We'd love your feedback! Send us your
+circuits and simulation traces (from Spectre, ngspice, or any SPICE simulator) and
+we'll add them to our validation test suite. Open an [issue](https://github.com/ChipFlow/vajax/issues)
+or email us.
+
 ## Validation: Three-Way Comparison
 
-VAJAX results are validated against VACASK (reference simulator) and ngspice.
-All simulators use identical netlists and device models (PSP103 MOSFETs via OSDI).
+VAJAX results are validated against [VACASK](https://github.com/nickg/vacask) (a C++
+reference circuit simulator) and [ngspice](https://ngspice.sourceforge.io/) (open-source
+SPICE simulator). All simulators use identical netlists and device models (PSP103 MOSFETs
+via OSDI).
 
 ### RC Low-Pass Filter
 Simple RC circuit demonstrating basic transient behavior. VAJAX matches VACASK and ngspice exactly.
@@ -97,8 +106,24 @@ for the full analysis.
 
 ## Quick Start
 
+### Install from PyPI
+
 ```bash
-# Install with uv (recommended)
+pip install vajax
+
+# macOS alternative: brew install vajax
+
+# Run a simulation
+vajax circuit.sim
+```
+
+### Install from Source (for development)
+
+Requires [uv](https://docs.astral.sh/uv/).
+
+```bash
+git clone https://github.com/ChipFlow/vajax.git
+cd vajax
 uv sync
 
 # Run tests
@@ -112,13 +137,13 @@ JAX_PLATFORMS=cpu uv run vajax benchmark ring
 ### Installation Options
 
 ```bash
-# CPU only (default)
-uv sync
-
 # With CUDA 12 support (Linux)
+pip install "vajax[cuda12]"
+
+# From source with CUDA 12
 uv sync --extra cuda12
 
-# With SAX integration
+# From source with SAX integration
 uv sync --extra sax
 ```
 
@@ -209,13 +234,13 @@ and evaluated in parallel using `jax.vmap` for GPU efficiency.
 
 ```python
 # Devices are loaded from Verilog-A via OpenVAF
-# Example from a VACASK .sim file:
-load "resistor.osdi"    # Compiled from resistor.va
-load "capacitor.osdi"   # Compiled from capacitor.va
-load "psp103.osdi"      # PSP103 MOSFET model
+# Example from a .sim netlist file:
+load "resistor.va"      # SPICE resistor model
+load "capacitor.va"     # SPICE capacitor model
+load "psp103.va"        # PSP103 MOSFET model
 
-model r sp_resistor
-model c sp_capacitor
+model r resistor
+model c capacitor
 model nmos psp103va
 ```
 
@@ -353,6 +378,8 @@ JAX_PLATFORMS=cpu uv run pytest tests/test_vacask_suite.py -v
 
 ## Documentation
 
+- `docs/getting_started.md` - **Getting Started** guide with installation and first simulation
+- `docs/for_spectre_users.md` - **For Spectre/ngspice Users** — concept mapping and migration guide
 - `docs/api_reference.md` - **API Reference** (CircuitEngine, result types, I/O)
 - `docs/cli_reference.md` - Command-line interface reference
 - `docs/architecture_overview.md` - System architecture and design
@@ -370,4 +397,4 @@ See `CONTRIBUTING.md` for development setup and guidelines.
 
 ## License
 
-MIT (prototype/research code)
+Apache-2.0

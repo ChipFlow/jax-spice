@@ -5,22 +5,36 @@ This guide walks you through installing VAJAX and running your first circuit sim
 ## Prerequisites
 
 - Python 3.11-3.13
-- [uv](https://docs.astral.sh/uv/) package manager
 
 ## Installation
 
-```bash
-# Clone the repository
-git clone <repo-url>
-cd vajax
+### From PyPI (recommended)
 
-# Install dependencies
-uv sync
+```bash
+pip install vajax
+
+# With GPU support (Linux + NVIDIA CUDA 12)
+pip install "vajax[cuda12]"
 ```
 
-For GPU support on NVIDIA:
+This installs VAJAX and all dependencies (JAX, openvaf-py, umfpack-jax).
+
+### On macOS (via Homebrew)
 
 ```bash
+brew install vajax
+```
+
+### From Source (for development)
+
+Requires [uv](https://docs.astral.sh/uv/) package manager.
+
+```bash
+git clone https://github.com/ChipFlow/vajax.git
+cd vajax
+uv sync
+
+# With CUDA 12 support
 uv sync --extra cuda12
 ```
 
@@ -31,11 +45,11 @@ Here's a simple RC circuit excited by a pulse train. Create a file called `rc.si
 ```spice
 RC circuit excited by a pulse train
 
-load "spice/resistor.osdi"
-load "spice/capacitor.osdi"
+load "spice/resistor.va"
+load "spice/capacitor.va"
 
-model r sp_resistor
-model c sp_capacitor
+model r resistor
+model c capacitor
 model vsource vsource
 
 vs (1 0) vsource dc=0 type="pulse" val0=0 val1=1 rise=1u fall=1u width=1m period=2m
@@ -98,10 +112,12 @@ plt.show()
 VAJAX includes a CLI for running simulations:
 
 ```bash
-# Run a VACASK benchmark
-uv run vajax run vendor/VACASK/benchmark/rc/vacask/runme.sim
+# If installed via pip:
+vajax circuit.sim
+vajax --help
 
-# See all CLI options
+# If running from source:
+uv run vajax run vendor/VACASK/benchmark/rc/vacask/runme.sim
 uv run vajax --help
 ```
 
@@ -144,8 +160,30 @@ result = engine.run_transient()
 - **Float32 only on Metal/TPU** backends (float64 on CPU/CUDA)
 - **No interactive waveform viewer** built-in (use matplotlib or export to raw files)
 
+## Importing SPICE Netlists
+
+VAJAX can convert netlists from ngspice, HSPICE, LTspice, and Spectre:
+
+```bash
+vajax convert my_circuit.sp my_circuit.sim                    # ngspice (default)
+vajax convert my_circuit.scs my_circuit.sim --dialect spectre # Spectre
+```
+
+See [For Spectre Users](for_spectre_users.md) for a detailed migration guide.
+
+## Model Search Paths
+
+When a netlist contains `load "path/to/model.va"`, VAJAX resolves the path as follows:
+
+1. **Relative to the netlist file** — checked first
+2. **Bundled models** — VAJAX ships with common models (resistor, capacitor, diode,
+   PSP103, BSIM-BULK, BSIM-CMG, HiSIM2, and more) that are available automatically
+
+For `include` statements, the same relative-to-netlist resolution applies.
+
 ## Next Steps
 
+- See [For Spectre Users](for_spectre_users.md) for migrating from commercial simulators
 - See [Architecture Overview](architecture_overview.md) for how VAJAX works internally
 - See [Supported Devices](supported_devices.md) for available device models
 - See [API Reference](api_reference.md) for full API documentation

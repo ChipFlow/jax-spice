@@ -7,18 +7,16 @@ Options can be specified in the netlist and are automatically used as defaults.
 
 ```python
 from vajax import CircuitEngine
-from vajax.analysis.transient import FullMNAStrategy
 
 engine = CircuitEngine('circuit.sim')
 engine.parse()
-
-strategy = FullMNAStrategy(engine)
+engine.prepare()
 
 # Run with all defaults from netlist - no args needed!
-times, V, stats = strategy.run()
+result = engine.run_transient()
 ```
 
-The `run()` method uses:
+The `run_transient()` method uses:
 - `stop` from netlist analysis line as `t_stop`
 - `step` from netlist analysis line as `dt`
 - `tran_lteratio`, `nr_convtol`, etc. from netlist options
@@ -35,14 +33,13 @@ analysis top tran step=1p stop=10n
 
 ```python
 from vajax import CircuitEngine
-from vajax.analysis.transient import FullMNAStrategy
 
 engine = CircuitEngine('circuit.sim')
 engine.parse()
 
-# Strategy automatically uses netlist options
-strategy = FullMNAStrategy(engine, use_sparse=True)
-# strategy.config.lte_ratio == 1.5  (from tran_lteratio)
+# prepare() automatically uses netlist options
+engine.prepare(use_sparse=True)
+# engine.adaptive_config.lte_ratio == 1.5  (from tran_lteratio)
 ```
 
 ## Supported Options
@@ -99,16 +96,16 @@ strategy = FullMNAStrategy(engine, use_sparse=True)
 
 ## Default Behavior
 
-When no explicit `AdaptiveConfig` is passed to `FullMNAStrategy`:
+When no explicit `AdaptiveConfig` is passed to `engine.prepare()`:
 
 1. **Netlist options are parsed** during `engine.parse()` and stored in `engine.analysis_params`
-2. **Strategy builds config** from `analysis_params` automatically
+2. **`prepare()` builds config** from `analysis_params` automatically
 3. **Defaults apply** for any options not specified in the netlist
 
 Example with defaults:
 ```python
 # No options in netlist - uses all defaults
-strategy = FullMNAStrategy(engine)
+engine.prepare()
 # lte_ratio=3.5, redo_factor=2.5, reltol=1e-3, etc.
 ```
 
@@ -117,7 +114,7 @@ strategy = FullMNAStrategy(engine)
 Explicit `AdaptiveConfig` completely overrides netlist options:
 
 ```python
-from vajax.analysis.transient import AdaptiveConfig, FullMNAStrategy
+from vajax.analysis.transient import AdaptiveConfig
 
 # Override specific options
 config = AdaptiveConfig(
@@ -125,7 +122,7 @@ config = AdaptiveConfig(
     tran_fs=0.1,        # Even smaller initial timesteps
     debug_steps=True,   # Enable per-step debugging
 )
-strategy = FullMNAStrategy(engine, config=config)
+engine.prepare(adaptive_config=config)
 ```
 
 ## VACASK Compatibility
@@ -175,7 +172,7 @@ engine = CircuitEngine('c6288.sim')
 engine.parse()
 
 # These options are automatically applied
-strategy = FullMNAStrategy(engine, use_sparse=True)
-assert strategy.config.lte_ratio == 1.5
-assert strategy.config.nr_convtol == 1.0
+engine.prepare(use_sparse=True)
+assert engine.adaptive_config.lte_ratio == 1.5
+assert engine.adaptive_config.nr_convtol == 1.0
 ```
