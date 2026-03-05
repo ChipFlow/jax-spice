@@ -27,10 +27,19 @@ import openvaf_jax
 
 
 def _get_rss_mb() -> float:
-    """Get current process RSS in MB."""
+    """Get current process RSS in MB (current, not peak)."""
+    if sys.platform == "linux":
+        # /proc/self/status VmRSS is current RSS in kB
+        try:
+            with open("/proc/self/status") as f:
+                for line in f:
+                    if line.startswith("VmRSS:"):
+                        return int(line.split()[1]) / 1024
+        except OSError:
+            pass
+    # macOS fallback: ru_maxrss is peak RSS in bytes
     import resource
 
-    # ru_maxrss is in bytes on macOS, KB on Linux
     usage = resource.getrusage(resource.RUSAGE_SELF)
     rss = usage.ru_maxrss
     if sys.platform == "darwin":
@@ -40,11 +49,15 @@ def _get_rss_mb() -> float:
 
 @pytest.fixture(autouse=True)
 def _report_memory_after_test(request):
-    """Log RSS after each test for memory profiling."""
+    """Log RSS after each test for memory profiling.
+
+    Writes to stderr so output appears even with xdist capture.
+    """
     yield
     rss = _get_rss_mb()
     worker = getattr(request.config, "workerinput", {}).get("workerid", "main")
-    print(f"  [{worker}] RSS after {request.node.nodeid}: {rss:.0f} MB")
+    sys.stderr.write(f"  [{worker}] RSS={rss:.0f}MB {request.node.nodeid}\n")
+    sys.stderr.flush()
 
 
 @pytest.fixture(autouse=True, scope="module")
