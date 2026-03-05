@@ -118,6 +118,23 @@ for sim_file in circuit_files:
     # Don't clear caches — the compiled model is reused
 ```
 
+### Iterating a model design
+
+When you modify a Verilog-A source file and create a new engine, VAJAX
+automatically detects the source change (via content hash) and recompiles. The
+old model's Rust/MIR memory is released before recompilation. No user action
+needed — just edit the VA file and re-run.
+
+Note: orphaned JAX XLA caches from the old compilation (~50-200 MB) remain in
+memory until `vajax.clear_caches()` is called. This is acceptable for iterative
+development; call `clear_caches()` periodically if memory pressure is a concern.
+
+```python
+# Edit my_model.va, then:
+engine = vajax.CircuitEngine(sim_file)  # auto-detects VA change, recompiles
+engine.run_transient()
+```
+
 ### Switching between different models
 
 Release the old model before loading the new one:
