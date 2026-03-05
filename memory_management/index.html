@@ -1238,6 +1238,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#iterating-a-model-design" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Iterating a model design
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#switching-between-different-models" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1393,26 +1404,38 @@ entries whose newest file is older than <code>max_age_days</code>.</p>
 <a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>    <span class="n">engine</span><span class="o">.</span><span class="n">run_transient</span><span class="p">()</span>
 <a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a>    <span class="c1"># Don&#39;t clear caches — the compiled model is reused</span>
 </code></pre></div>
+<h3 id="iterating-a-model-design">Iterating a model design<a class="headerlink" href="#iterating-a-model-design" title="Permanent link">&para;</a></h3>
+<p>When you modify a Verilog-A source file and create a new engine, VAJAX
+automatically detects the source change (via content hash) and recompiles. The
+old model's Rust/MIR memory is released before recompilation. No user action
+needed — just edit the VA file and re-run.</p>
+<p>Note: orphaned JAX XLA caches from the old compilation (~50-200 MB) remain in
+memory until <code>vajax.clear_caches()</code> is called. This is acceptable for iterative
+development; call <code>clear_caches()</code> periodically if memory pressure is a concern.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="c1"># Edit my_model.va, then:</span>
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="n">engine</span> <span class="o">=</span> <span class="n">vajax</span><span class="o">.</span><span class="n">CircuitEngine</span><span class="p">(</span><span class="n">sim_file</span><span class="p">)</span>  <span class="c1"># auto-detects VA change, recompiles</span>
+<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="n">engine</span><span class="o">.</span><span class="n">run_transient</span><span class="p">()</span>
+</code></pre></div>
 <h3 id="switching-between-different-models">Switching between different models<a class="headerlink" href="#switching-between-different-models" title="Permanent link">&para;</a></h3>
 <p>Release the old model before loading the new one:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="n">vajax</span><span class="o">.</span><span class="n">release_model</span><span class="p">(</span><span class="s1">&#39;bsim4&#39;</span><span class="p">)</span>
-<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="n">engine</span> <span class="o">=</span> <span class="n">vajax</span><span class="o">.</span><span class="n">CircuitEngine</span><span class="p">(</span><span class="n">psp103_circuit</span><span class="p">)</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="n">vajax</span><span class="o">.</span><span class="n">release_model</span><span class="p">(</span><span class="s1">&#39;bsim4&#39;</span><span class="p">)</span>
+<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="n">engine</span> <span class="o">=</span> <span class="n">vajax</span><span class="o">.</span><span class="n">CircuitEngine</span><span class="p">(</span><span class="n">psp103_circuit</span><span class="p">)</span>
 </code></pre></div>
 <h3 id="long-running-server-batch-processing">Long-running server / batch processing<a class="headerlink" href="#long-running-server-batch-processing" title="Permanent link">&para;</a></h3>
 <p>Periodically clean up:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="c1"># After each batch</span>
-<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="n">vajax</span><span class="o">.</span><span class="n">clear_caches</span><span class="p">()</span>
-<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a>
-<a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="c1"># On startup, clean stale disk cache</span>
-<a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a><span class="n">vajax</span><span class="o">.</span><span class="n">cleanup_disk_cache</span><span class="p">(</span><span class="n">max_age_days</span><span class="o">=</span><span class="mi">7</span><span class="p">)</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="c1"># After each batch</span>
+<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="n">vajax</span><span class="o">.</span><span class="n">clear_caches</span><span class="p">()</span>
+<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a>
+<a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="c1"># On startup, clean stale disk cache</span>
+<a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a><span class="n">vajax</span><span class="o">.</span><span class="n">cleanup_disk_cache</span><span class="p">(</span><span class="n">max_age_days</span><span class="o">=</span><span class="mi">7</span><span class="p">)</span>
 </code></pre></div>
 <h3 id="ci-test-environments">CI / test environments<a class="headerlink" href="#ci-test-environments" title="Permanent link">&para;</a></h3>
 <p>Clear between test modules to prevent OOM:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="nd">@pytest</span><span class="o">.</span><span class="n">fixture</span><span class="p">(</span><span class="n">autouse</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
-<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="k">def</span><span class="w"> </span><span class="nf">_cleanup</span><span class="p">():</span>
-<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a>    <span class="k">yield</span>
-<a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a>    <span class="n">jax</span><span class="o">.</span><span class="n">clear_caches</span><span class="p">()</span>
-<a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a>    <span class="n">gc</span><span class="o">.</span><span class="n">collect</span><span class="p">()</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="nd">@pytest</span><span class="o">.</span><span class="n">fixture</span><span class="p">(</span><span class="n">autouse</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="k">def</span><span class="w"> </span><span class="nf">_cleanup</span><span class="p">():</span>
+<a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a>    <span class="k">yield</span>
+<a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a>    <span class="n">jax</span><span class="o">.</span><span class="n">clear_caches</span><span class="p">()</span>
+<a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a>    <span class="n">gc</span><span class="o">.</span><span class="n">collect</span><span class="p">()</span>
 </code></pre></div>
 <h2 id="rust-allocator-behaviour">Rust Allocator Behaviour<a class="headerlink" href="#rust-allocator-behaviour" title="Permanent link">&para;</a></h2>
 <p>The Rust allocator retains freed pages internally rather than returning them to
