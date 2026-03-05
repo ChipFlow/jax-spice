@@ -26,6 +26,27 @@ import openvaf_jax
 # ---------------------------------------------------------------------------
 
 
+def _get_rss_mb() -> float:
+    """Get current process RSS in MB."""
+    import resource
+
+    # ru_maxrss is in bytes on macOS, KB on Linux
+    usage = resource.getrusage(resource.RUSAGE_SELF)
+    rss = usage.ru_maxrss
+    if sys.platform == "darwin":
+        return rss / (1024 * 1024)
+    return rss / 1024
+
+
+@pytest.fixture(autouse=True)
+def _report_memory_after_test(request):
+    """Log RSS after each test for memory profiling."""
+    yield
+    rss = _get_rss_mb()
+    worker = getattr(request.config, "workerinput", {}).get("workerid", "main")
+    print(f"  [{worker}] RSS after {request.node.nodeid}: {rss:.0f} MB")
+
+
 @pytest.fixture(autouse=True, scope="module")
 def _clear_jax_caches_between_modules():
     """Clear JAX compilation caches after each test module.
