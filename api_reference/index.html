@@ -816,10 +816,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#sparse-solver-functions" class="md-nav__link">
+  <a href="#sparse-solvers" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Sparse Solver Functions
+        Sparse Solvers
       
     </span>
   </a>
@@ -1901,10 +1901,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#sparse-solver-functions" class="md-nav__link">
+  <a href="#sparse-solvers" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Sparse Solver Functions
+        Sparse Solvers
       
     </span>
   </a>
@@ -2230,40 +2230,37 @@ called first (or will auto-prepare from netlist defaults).</p>
 <a id="__codelineno-24-5" name="__codelineno-24-5" href="#__codelineno-24-5"></a><span class="n">voltages</span> <span class="o">=</span> <span class="n">data</span><span class="p">[</span><span class="s1">&#39;voltages&#39;</span><span class="p">]</span>
 </code></pre></div>
 <hr />
-<h2 id="sparse-solver-functions">Sparse Solver Functions<a class="headerlink" href="#sparse-solver-functions" title="Permanent link">&para;</a></h2>
-<p>For large circuits (&gt;1000 nodes), use sparse matrix solvers:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-25-1" name="__codelineno-25-1" href="#__codelineno-25-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">vajax.analysis.sparse</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
-<a id="__codelineno-25-2" name="__codelineno-25-2" href="#__codelineno-25-2"></a>    <span class="n">build_csr_arrays</span><span class="p">,</span>    <span class="c1"># COO to CSR conversion</span>
-<a id="__codelineno-25-3" name="__codelineno-25-3" href="#__codelineno-25-3"></a>    <span class="n">sparse_solve_csr</span><span class="p">,</span>    <span class="c1"># Sparse linear solve</span>
-<a id="__codelineno-25-4" name="__codelineno-25-4" href="#__codelineno-25-4"></a><span class="p">)</span>
-</code></pre></div>
-<p>See <code>vajax/analysis/sparse.py</code> for details.</p>
+<h2 id="sparse-solvers">Sparse Solvers<a class="headerlink" href="#sparse-solvers" title="Permanent link">&para;</a></h2>
+<p>For large circuits (&gt;1000 nodes), enable sparse solving via <code>engine.prepare(use_sparse=True)</code>.
+The backend is auto-selected: Spineax/cuDSS on CUDA GPUs, UMFPACK on CPU.
+See <a href="../gpu_solver_architecture/">GPU Solver Architecture</a> for details on the pluggable
+solver backends in <code>vajax/analysis/solver_factories.py</code>.</p>
 <hr />
 <h2 id="example-complete-workflow">Example: Complete Workflow<a class="headerlink" href="#example-complete-workflow" title="Permanent link">&para;</a></h2>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-26-1" name="__codelineno-26-1" href="#__codelineno-26-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">vajax</span><span class="w"> </span><span class="kn">import</span> <span class="n">CircuitEngine</span><span class="p">,</span> <span class="n">configure_precision</span>
-<a id="__codelineno-26-2" name="__codelineno-26-2" href="#__codelineno-26-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">vajax.io</span><span class="w"> </span><span class="kn">import</span> <span class="n">write_rawfile</span>
-<a id="__codelineno-26-3" name="__codelineno-26-3" href="#__codelineno-26-3"></a>
-<a id="__codelineno-26-4" name="__codelineno-26-4" href="#__codelineno-26-4"></a><span class="c1"># Configure precision</span>
-<a id="__codelineno-26-5" name="__codelineno-26-5" href="#__codelineno-26-5"></a><span class="n">configure_precision</span><span class="p">(</span><span class="n">force_x64</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
-<a id="__codelineno-26-6" name="__codelineno-26-6" href="#__codelineno-26-6"></a>
-<a id="__codelineno-26-7" name="__codelineno-26-7" href="#__codelineno-26-7"></a><span class="c1"># Load and parse circuit</span>
-<a id="__codelineno-26-8" name="__codelineno-26-8" href="#__codelineno-26-8"></a><span class="n">engine</span> <span class="o">=</span> <span class="n">CircuitEngine</span><span class="p">(</span><span class="s2">&quot;ring_oscillator.sim&quot;</span><span class="p">)</span>
-<a id="__codelineno-26-9" name="__codelineno-26-9" href="#__codelineno-26-9"></a><span class="n">engine</span><span class="o">.</span><span class="n">parse</span><span class="p">()</span>
-<a id="__codelineno-26-10" name="__codelineno-26-10" href="#__codelineno-26-10"></a>
-<a id="__codelineno-26-11" name="__codelineno-26-11" href="#__codelineno-26-11"></a><span class="c1"># Run transient analysis</span>
-<a id="__codelineno-26-12" name="__codelineno-26-12" href="#__codelineno-26-12"></a><span class="n">engine</span><span class="o">.</span><span class="n">prepare</span><span class="p">(</span><span class="n">t_stop</span><span class="o">=</span><span class="mf">100e-9</span><span class="p">,</span> <span class="n">dt</span><span class="o">=</span><span class="mf">1e-9</span><span class="p">,</span> <span class="n">use_sparse</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
-<a id="__codelineno-26-13" name="__codelineno-26-13" href="#__codelineno-26-13"></a><span class="n">tran</span> <span class="o">=</span> <span class="n">engine</span><span class="o">.</span><span class="n">run_transient</span><span class="p">()</span>
-<a id="__codelineno-26-14" name="__codelineno-26-14" href="#__codelineno-26-14"></a><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Transient: </span><span class="si">{</span><span class="n">tran</span><span class="o">.</span><span class="n">num_steps</span><span class="si">}</span><span class="s2"> steps, final Vout=</span><span class="si">{</span><span class="n">tran</span><span class="o">.</span><span class="n">voltage</span><span class="p">(</span><span class="s1">&#39;out&#39;</span><span class="p">)[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span><span class="si">:</span><span class="s2">.3f</span><span class="si">}</span><span class="s2">V&quot;</span><span class="p">)</span>
-<a id="__codelineno-26-15" name="__codelineno-26-15" href="#__codelineno-26-15"></a>
-<a id="__codelineno-26-16" name="__codelineno-26-16" href="#__codelineno-26-16"></a><span class="c1"># Run AC analysis</span>
-<a id="__codelineno-26-17" name="__codelineno-26-17" href="#__codelineno-26-17"></a><span class="n">ac</span> <span class="o">=</span> <span class="n">engine</span><span class="o">.</span><span class="n">run_ac</span><span class="p">(</span><span class="n">freq_start</span><span class="o">=</span><span class="mf">1e3</span><span class="p">,</span> <span class="n">freq_stop</span><span class="o">=</span><span class="mf">1e9</span><span class="p">,</span> <span class="n">points</span><span class="o">=</span><span class="mi">100</span><span class="p">)</span>
-<a id="__codelineno-26-18" name="__codelineno-26-18" href="#__codelineno-26-18"></a><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;AC: </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">ac</span><span class="o">.</span><span class="n">frequencies</span><span class="p">)</span><span class="si">}</span><span class="s2"> frequency points&quot;</span><span class="p">)</span>
-<a id="__codelineno-26-19" name="__codelineno-26-19" href="#__codelineno-26-19"></a>
-<a id="__codelineno-26-20" name="__codelineno-26-20" href="#__codelineno-26-20"></a><span class="c1"># Run noise analysis</span>
-<a id="__codelineno-26-21" name="__codelineno-26-21" href="#__codelineno-26-21"></a><span class="n">noise</span> <span class="o">=</span> <span class="n">engine</span><span class="o">.</span><span class="n">run_noise</span><span class="p">(</span><span class="n">freq_start</span><span class="o">=</span><span class="mf">1e3</span><span class="p">,</span> <span class="n">freq_stop</span><span class="o">=</span><span class="mf">1e9</span><span class="p">,</span> <span class="n">input_source</span><span class="o">=</span><span class="s2">&quot;vin&quot;</span><span class="p">,</span> <span class="n">out</span><span class="o">=</span><span class="s2">&quot;vout&quot;</span><span class="p">)</span>
-<a id="__codelineno-26-22" name="__codelineno-26-22" href="#__codelineno-26-22"></a>
-<a id="__codelineno-26-23" name="__codelineno-26-23" href="#__codelineno-26-23"></a><span class="c1"># Save results</span>
-<a id="__codelineno-26-24" name="__codelineno-26-24" href="#__codelineno-26-24"></a><span class="n">write_rawfile</span><span class="p">(</span><span class="n">tran</span><span class="p">,</span> <span class="s2">&quot;transient.raw&quot;</span><span class="p">)</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-25-1" name="__codelineno-25-1" href="#__codelineno-25-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">vajax</span><span class="w"> </span><span class="kn">import</span> <span class="n">CircuitEngine</span><span class="p">,</span> <span class="n">configure_precision</span>
+<a id="__codelineno-25-2" name="__codelineno-25-2" href="#__codelineno-25-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">vajax.io</span><span class="w"> </span><span class="kn">import</span> <span class="n">write_rawfile</span>
+<a id="__codelineno-25-3" name="__codelineno-25-3" href="#__codelineno-25-3"></a>
+<a id="__codelineno-25-4" name="__codelineno-25-4" href="#__codelineno-25-4"></a><span class="c1"># Configure precision</span>
+<a id="__codelineno-25-5" name="__codelineno-25-5" href="#__codelineno-25-5"></a><span class="n">configure_precision</span><span class="p">(</span><span class="n">force_x64</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<a id="__codelineno-25-6" name="__codelineno-25-6" href="#__codelineno-25-6"></a>
+<a id="__codelineno-25-7" name="__codelineno-25-7" href="#__codelineno-25-7"></a><span class="c1"># Load and parse circuit</span>
+<a id="__codelineno-25-8" name="__codelineno-25-8" href="#__codelineno-25-8"></a><span class="n">engine</span> <span class="o">=</span> <span class="n">CircuitEngine</span><span class="p">(</span><span class="s2">&quot;ring_oscillator.sim&quot;</span><span class="p">)</span>
+<a id="__codelineno-25-9" name="__codelineno-25-9" href="#__codelineno-25-9"></a><span class="n">engine</span><span class="o">.</span><span class="n">parse</span><span class="p">()</span>
+<a id="__codelineno-25-10" name="__codelineno-25-10" href="#__codelineno-25-10"></a>
+<a id="__codelineno-25-11" name="__codelineno-25-11" href="#__codelineno-25-11"></a><span class="c1"># Run transient analysis</span>
+<a id="__codelineno-25-12" name="__codelineno-25-12" href="#__codelineno-25-12"></a><span class="n">engine</span><span class="o">.</span><span class="n">prepare</span><span class="p">(</span><span class="n">t_stop</span><span class="o">=</span><span class="mf">100e-9</span><span class="p">,</span> <span class="n">dt</span><span class="o">=</span><span class="mf">1e-9</span><span class="p">,</span> <span class="n">use_sparse</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<a id="__codelineno-25-13" name="__codelineno-25-13" href="#__codelineno-25-13"></a><span class="n">tran</span> <span class="o">=</span> <span class="n">engine</span><span class="o">.</span><span class="n">run_transient</span><span class="p">()</span>
+<a id="__codelineno-25-14" name="__codelineno-25-14" href="#__codelineno-25-14"></a><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Transient: </span><span class="si">{</span><span class="n">tran</span><span class="o">.</span><span class="n">num_steps</span><span class="si">}</span><span class="s2"> steps, final Vout=</span><span class="si">{</span><span class="n">tran</span><span class="o">.</span><span class="n">voltage</span><span class="p">(</span><span class="s1">&#39;out&#39;</span><span class="p">)[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span><span class="si">:</span><span class="s2">.3f</span><span class="si">}</span><span class="s2">V&quot;</span><span class="p">)</span>
+<a id="__codelineno-25-15" name="__codelineno-25-15" href="#__codelineno-25-15"></a>
+<a id="__codelineno-25-16" name="__codelineno-25-16" href="#__codelineno-25-16"></a><span class="c1"># Run AC analysis</span>
+<a id="__codelineno-25-17" name="__codelineno-25-17" href="#__codelineno-25-17"></a><span class="n">ac</span> <span class="o">=</span> <span class="n">engine</span><span class="o">.</span><span class="n">run_ac</span><span class="p">(</span><span class="n">freq_start</span><span class="o">=</span><span class="mf">1e3</span><span class="p">,</span> <span class="n">freq_stop</span><span class="o">=</span><span class="mf">1e9</span><span class="p">,</span> <span class="n">points</span><span class="o">=</span><span class="mi">100</span><span class="p">)</span>
+<a id="__codelineno-25-18" name="__codelineno-25-18" href="#__codelineno-25-18"></a><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;AC: </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">ac</span><span class="o">.</span><span class="n">frequencies</span><span class="p">)</span><span class="si">}</span><span class="s2"> frequency points&quot;</span><span class="p">)</span>
+<a id="__codelineno-25-19" name="__codelineno-25-19" href="#__codelineno-25-19"></a>
+<a id="__codelineno-25-20" name="__codelineno-25-20" href="#__codelineno-25-20"></a><span class="c1"># Run noise analysis</span>
+<a id="__codelineno-25-21" name="__codelineno-25-21" href="#__codelineno-25-21"></a><span class="n">noise</span> <span class="o">=</span> <span class="n">engine</span><span class="o">.</span><span class="n">run_noise</span><span class="p">(</span><span class="n">freq_start</span><span class="o">=</span><span class="mf">1e3</span><span class="p">,</span> <span class="n">freq_stop</span><span class="o">=</span><span class="mf">1e9</span><span class="p">,</span> <span class="n">input_source</span><span class="o">=</span><span class="s2">&quot;vin&quot;</span><span class="p">,</span> <span class="n">out</span><span class="o">=</span><span class="s2">&quot;vout&quot;</span><span class="p">)</span>
+<a id="__codelineno-25-22" name="__codelineno-25-22" href="#__codelineno-25-22"></a>
+<a id="__codelineno-25-23" name="__codelineno-25-23" href="#__codelineno-25-23"></a><span class="c1"># Save results</span>
+<a id="__codelineno-25-24" name="__codelineno-25-24" href="#__codelineno-25-24"></a><span class="n">write_rawfile</span><span class="p">(</span><span class="n">tran</span><span class="p">,</span> <span class="s2">&quot;transient.raw&quot;</span><span class="p">)</span>
 </code></pre></div>
 <hr />
 <h2 id="see-also">See Also<a class="headerlink" href="#see-also" title="Permanent link">&para;</a></h2>

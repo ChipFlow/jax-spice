@@ -1980,7 +1980,7 @@
 <a id="__codelineno-1-14" name="__codelineno-1-14" href="#__codelineno-1-14"></a>   └── Batch devices by type for vmap evaluation
 <a id="__codelineno-1-15" name="__codelineno-1-15" href="#__codelineno-1-15"></a>
 <a id="__codelineno-1-16" name="__codelineno-1-16" href="#__codelineno-1-16"></a>4. System Builder
-<a id="__codelineno-1-17" name="__codelineno-1-17" href="#__codelineno-1-17"></a>   └── _make_full_mna_build_system_fn()
+<a id="__codelineno-1-17" name="__codelineno-1-17" href="#__codelineno-1-17"></a>   └── _make_mna_build_system_fn()
 <a id="__codelineno-1-18" name="__codelineno-1-18" href="#__codelineno-1-18"></a>       ├── Creates JIT-compiled residual/Jacobian builder
 <a id="__codelineno-1-19" name="__codelineno-1-19" href="#__codelineno-1-19"></a>       ├── Uses full MNA with branch currents as unknowns
 <a id="__codelineno-1-20" name="__codelineno-1-20" href="#__codelineno-1-20"></a>       ├── Batches device evaluations via vmap
@@ -2004,16 +2004,17 @@
 <a id="__codelineno-2-15" name="__codelineno-2-15" href="#__codelineno-2-15"></a>   │   ├── Newton-Raphson iteration (lax.while_loop):
 <a id="__codelineno-2-16" name="__codelineno-2-16" href="#__codelineno-2-16"></a>   │   │   ├── Solve: delta_V = solve(J, -f)
 <a id="__codelineno-2-17" name="__codelineno-2-17" href="#__codelineno-2-17"></a>   │   │   │   ├── Dense: jax.scipy.linalg.solve()
-<a id="__codelineno-2-18" name="__codelineno-2-18" href="#__codelineno-2-18"></a>   │   │   │   └── Sparse: jax.experimental.sparse.linalg.spsolve()
-<a id="__codelineno-2-19" name="__codelineno-2-19" href="#__codelineno-2-19"></a>   │   │   ├── Update: V = V + delta_V
-<a id="__codelineno-2-20" name="__codelineno-2-20" href="#__codelineno-2-20"></a>   │   │   └── Check: max(|f|) &lt; abstol?
-<a id="__codelineno-2-21" name="__codelineno-2-21" href="#__codelineno-2-21"></a>   │   │
-<a id="__codelineno-2-22" name="__codelineno-2-22" href="#__codelineno-2-22"></a>   │   └── Store solution: V[t] appended to trajectory
-<a id="__codelineno-2-23" name="__codelineno-2-23" href="#__codelineno-2-23"></a>   │
-<a id="__codelineno-2-24" name="__codelineno-2-24" href="#__codelineno-2-24"></a>   └── Return TransientResult(times, voltages)
-<a id="__codelineno-2-25" name="__codelineno-2-25" href="#__codelineno-2-25"></a>
-<a id="__codelineno-2-26" name="__codelineno-2-26" href="#__codelineno-2-26"></a>3. GPU Efficiency
-<a id="__codelineno-2-27" name="__codelineno-2-27" href="#__codelineno-2-27"></a>   └── lax.scan enables full GPU execution without Python callbacks
+<a id="__codelineno-2-18" name="__codelineno-2-18" href="#__codelineno-2-18"></a>   │   │   │   └── Sparse: pluggable backends via solver_factories.py
+<a id="__codelineno-2-19" name="__codelineno-2-19" href="#__codelineno-2-19"></a>   │   │   │         (Spineax/cuDSS on GPU, UMFPACK on CPU)
+<a id="__codelineno-2-20" name="__codelineno-2-20" href="#__codelineno-2-20"></a>   │   │   ├── Update: V = V + delta_V
+<a id="__codelineno-2-21" name="__codelineno-2-21" href="#__codelineno-2-21"></a>   │   │   └── Check: max(|f|) &lt; abstol?
+<a id="__codelineno-2-22" name="__codelineno-2-22" href="#__codelineno-2-22"></a>   │   │
+<a id="__codelineno-2-23" name="__codelineno-2-23" href="#__codelineno-2-23"></a>   │   └── Store solution: V[t] appended to trajectory
+<a id="__codelineno-2-24" name="__codelineno-2-24" href="#__codelineno-2-24"></a>   │
+<a id="__codelineno-2-25" name="__codelineno-2-25" href="#__codelineno-2-25"></a>   └── Return TransientResult(times, voltages)
+<a id="__codelineno-2-26" name="__codelineno-2-26" href="#__codelineno-2-26"></a>
+<a id="__codelineno-2-27" name="__codelineno-2-27" href="#__codelineno-2-27"></a>3. GPU Efficiency
+<a id="__codelineno-2-28" name="__codelineno-2-28" href="#__codelineno-2-28"></a>   └── lax.scan enables full GPU execution without Python callbacks
 </code></pre></div>
 <h2 id="key-classes">Key Classes<a class="headerlink" href="#key-classes" title="Permanent link">&para;</a></h2>
 <h3 id="circuitengine-analysisenginepy">CircuitEngine (<code>analysis/engine.py</code>)<a class="headerlink" href="#circuitengine-analysisenginepy" title="Permanent link">&para;</a></h3>
@@ -2039,7 +2040,7 @@
 <a id="__codelineno-3-19" name="__codelineno-3-19" href="#__codelineno-3-19"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">run_acxf</span><span class="p">(</span><span class="n">out</span><span class="p">,</span> <span class="n">freq_start</span><span class="p">,</span> <span class="n">freq_stop</span><span class="p">,</span> <span class="o">...</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ACXFResult</span>
 <a id="__codelineno-3-20" name="__codelineno-3-20" href="#__codelineno-3-20"></a>
 <a id="__codelineno-3-21" name="__codelineno-3-21" href="#__codelineno-3-21"></a>    <span class="c1"># Internal system building</span>
-<a id="__codelineno-3-22" name="__codelineno-3-22" href="#__codelineno-3-22"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">_make_full_mna_build_system_fn</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="n">Callable</span>
+<a id="__codelineno-3-22" name="__codelineno-3-22" href="#__codelineno-3-22"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">_make_mna_build_system_fn</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="n">Callable</span>
 </code></pre></div>
 <h3 id="transientresult">TransientResult<a class="headerlink" href="#transientresult" title="Permanent link">&para;</a></h3>
 <p>The output of transient analysis.</p>
@@ -2375,8 +2376,8 @@ see <a href="../parallelism_architecture/">Parallelism Architecture: c6288 Case 
 <p>When investigating issues, start here:</p>
 <ol>
 <li><strong>Parsing issues</strong>: Check <code>CircuitEngine.parse()</code> in <code>engine.py</code></li>
-<li><strong>Device compilation</strong>: Check OpenVAF model loading in <code>_compile_openvaf_models()</code></li>
-<li><strong>System building</strong>: Check <code>_make_full_mna_build_system_fn()</code> for J/f construction</li>
+<li><strong>Device compilation</strong>: Check OpenVAF model loading in <code>vajax/analysis/openvaf_models.py</code></li>
+<li><strong>System building</strong>: Check <code>_make_mna_build_system_fn()</code> for J/f construction</li>
 <li><strong>Convergence issues</strong>: Look at Newton-Raphson loop in <code>solver.py</code></li>
 <li><strong>Sparse solver</strong>: Check <code>sparse.py</code> for BCOO/BCSR operations</li>
 <li><strong>Source waveforms</strong>: Check <code>vsource.py</code> for pulse/sine/PWL evaluation</li>
