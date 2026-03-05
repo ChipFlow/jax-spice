@@ -8,12 +8,8 @@ import math
 import jax.numpy as jnp
 import pytest
 
-from vajax.analysis import (
-    ACXFResult,
-    CircuitEngine,
-    DCIncResult,
-    DCXFResult,
-)
+from vajax.analysis import CircuitEngine
+from vajax.analysis.xfer import ACXFResult, DCIncResult, DCXFResult
 
 
 class TestDCINC:
