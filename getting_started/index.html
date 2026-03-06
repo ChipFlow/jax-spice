@@ -422,10 +422,10 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#from-pypi-recommended" class="md-nav__link">
+  <a href="#linux" class="md-nav__link">
     <span class="md-ellipsis">
       
-        From PyPI (recommended)
+        Linux
       
     </span>
   </a>
@@ -433,10 +433,21 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#on-macos-via-homebrew" class="md-nav__link">
+  <a href="#macos" class="md-nav__link">
     <span class="md-ellipsis">
       
-        On macOS (via Homebrew)
+        macOS
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#windows" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Windows
       
     </span>
   </a>
@@ -1357,10 +1368,10 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#from-pypi-recommended" class="md-nav__link">
+  <a href="#linux" class="md-nav__link">
     <span class="md-ellipsis">
       
-        From PyPI (recommended)
+        Linux
       
     </span>
   </a>
@@ -1368,10 +1379,21 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#on-macos-via-homebrew" class="md-nav__link">
+  <a href="#macos" class="md-nav__link">
     <span class="md-ellipsis">
       
-        On macOS (via Homebrew)
+        macOS
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#windows" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Windows
       
     </span>
   </a>
@@ -1546,46 +1568,71 @@
 <h2 id="prerequisites">Prerequisites<a class="headerlink" href="#prerequisites" title="Permanent link">&para;</a></h2>
 <ul>
 <li>Python 3.11-3.13</li>
+<li>For GPU acceleration: Linux with NVIDIA CUDA 12+ (or Windows with WSL2)</li>
 </ul>
 <h2 id="installation">Installation<a class="headerlink" href="#installation" title="Permanent link">&para;</a></h2>
-<h3 id="from-pypi-recommended">From PyPI (recommended)<a class="headerlink" href="#from-pypi-recommended" title="Permanent link">&para;</a></h3>
+<h3 id="linux">Linux<a class="headerlink" href="#linux" title="Permanent link">&para;</a></h3>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>pip<span class="w"> </span>install<span class="w"> </span>vajax
 <a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>
-<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="c1"># With GPU support (Linux + NVIDIA CUDA 12)</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="c1"># With CUDA GPU support</span>
 <a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>pip<span class="w"> </span>install<span class="w"> </span><span class="s2">&quot;vajax[cuda12]&quot;</span>
 </code></pre></div>
-<p>This installs VAJAX and all dependencies (JAX, openvaf-py, umfpack-jax).</p>
-<h3 id="on-macos-via-homebrew">On macOS (via Homebrew)<a class="headerlink" href="#on-macos-via-homebrew" title="Permanent link">&para;</a></h3>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>brew<span class="w"> </span>install<span class="w"> </span>vajax
+<h3 id="macos">macOS<a class="headerlink" href="#macos" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="c1"># Via Homebrew</span>
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>brew<span class="w"> </span>install<span class="w"> </span>vajax
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="c1"># Or via pip</span>
+<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>pip<span class="w"> </span>install<span class="w"> </span>vajax
 </code></pre></div>
+<p>GPU note: macOS GPU acceleration via Metal is in development. Currently runs on CPU.</p>
+<h3 id="windows">Windows<a class="headerlink" href="#windows" title="Permanent link">&para;</a></h3>
+<p>VAJAX works on Windows for CPU simulations:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="n">pip</span> <span class="n">install</span> <span class="n">vajax</span>
+</code></pre></div>
+<p>For <strong>GPU acceleration</strong>, use WSL2 — JAX's CUDA backend requires Linux, and
+WSL2 provides native GPU passthrough with no performance penalty. If you've
+used EDA tools on Linux, you'll feel right at home:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="c"># 1. Install WSL2 with Ubuntu (one-time, PowerShell as admin)</span>
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="n">wsl</span> <span class="p">-</span><span class="n">-install</span> <span class="n">-d</span> <span class="n">Ubuntu</span><span class="p">-</span><span class="n">24</span><span class="p">.</span><span class="n">04</span>
+<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>
+<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="c"># 2. Open Ubuntu and install VAJAX with CUDA</span>
+<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a><span class="n">pip</span> <span class="n">install</span> <span class="s2">&quot;vajax[cuda12]&quot;</span>
+<a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a>
+<a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a><span class="c"># 3. Verify GPU is detected</span>
+<a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a><span class="n">python</span> <span class="n">-c</span> <span class="s2">&quot;import jax; print(jax.devices())&quot;</span>
+<a id="__codelineno-3-9" name="__codelineno-3-9" href="#__codelineno-3-9"></a><span class="c"># [CudaDevice(id=0)]</span>
+</code></pre></div>
+<p>Your Windows NVIDIA driver automatically provides CUDA inside WSL2 — no
+separate Linux driver install is needed. Your Windows files are accessible
+at <code>/mnt/c/</code>.</p>
 <h3 id="from-source-for-development">From Source (for development)<a class="headerlink" href="#from-source-for-development" title="Permanent link">&para;</a></h3>
 <p>Requires <a href="https://docs.astral.sh/uv/">uv</a> package manager.</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>git<span class="w"> </span>clone<span class="w"> </span>https://github.com/ChipFlow/vajax.git
-<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="nb">cd</span><span class="w"> </span>vajax
-<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>uv<span class="w"> </span>sync
-<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>
-<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="c1"># With CUDA 12 support</span>
-<a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a>uv<span class="w"> </span>sync<span class="w"> </span>--extra<span class="w"> </span>cuda12
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>git<span class="w"> </span>clone<span class="w"> </span>https://github.com/ChipFlow/vajax.git
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="nb">cd</span><span class="w"> </span>vajax
+<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>uv<span class="w"> </span>sync
+<a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a>
+<a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a><span class="c1"># With CUDA 12 support</span>
+<a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a>uv<span class="w"> </span>sync<span class="w"> </span>--extra<span class="w"> </span>cuda12
 </code></pre></div>
 <h2 id="your-first-simulation-rc-low-pass-filter">Your First Simulation: RC Low-Pass Filter<a class="headerlink" href="#your-first-simulation-rc-low-pass-filter" title="Permanent link">&para;</a></h2>
 <p>Here's a simple RC circuit excited by a pulse train. Create a file called <code>rc.sim</code>:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="nx">RC</span><span class="w"> </span><span class="nx">circuit</span><span class="w"> </span><span class="nx">excited</span><span class="w"> </span><span class="nx">by</span><span class="w"> </span><span class="nx">a</span><span class="w"> </span><span class="nx">pulse</span><span class="w"> </span><span class="nx">train</span>
-<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>
-<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="nx">load</span><span class="w"> </span><span class="s">&quot;spice/resistor.va&quot;</span>
-<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="nx">load</span><span class="w"> </span><span class="s">&quot;spice/capacitor.va&quot;</span>
-<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a>
-<a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a><span class="nx">model</span><span class="w"> </span><span class="nx">r</span><span class="w"> </span><span class="nx">resistor</span>
-<a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a><span class="nx">model</span><span class="w"> </span><span class="nx">c</span><span class="w"> </span><span class="nx">capacitor</span>
-<a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a><span class="nx">model</span><span class="w"> </span><span class="nx">vsource</span><span class="w"> </span><span class="nx">vsource</span>
-<a id="__codelineno-3-9" name="__codelineno-3-9" href="#__codelineno-3-9"></a>
-<a id="__codelineno-3-10" name="__codelineno-3-10" href="#__codelineno-3-10"></a><span class="nx">vs</span><span class="w"> </span><span class="p">(</span><span class="mi">1</span><span class="w"> </span><span class="mi">0</span><span class="p">)</span><span class="w"> </span><span class="nx">vsource</span><span class="w"> </span><span class="nx">dc</span><span class="p">=</span><span class="mi">0</span><span class="w"> </span><span class="kd">type</span><span class="p">=</span><span class="s">&quot;pulse&quot;</span><span class="w"> </span><span class="nx">val0</span><span class="p">=</span><span class="mi">0</span><span class="w"> </span><span class="nx">val1</span><span class="p">=</span><span class="mi">1</span><span class="w"> </span><span class="nx">rise</span><span class="p">=</span><span class="mi">1u</span><span class="w"> </span><span class="nx">fall</span><span class="p">=</span><span class="mi">1u</span><span class="w"> </span><span class="nx">width</span><span class="p">=</span><span class="mi">1</span><span class="nx">m</span><span class="w"> </span><span class="nx">period</span><span class="p">=</span><span class="mi">2</span><span class="nx">m</span>
-<a id="__codelineno-3-11" name="__codelineno-3-11" href="#__codelineno-3-11"></a><span class="nx">r1</span><span class="w"> </span><span class="p">(</span><span class="mi">1</span><span class="w"> </span><span class="mi">2</span><span class="p">)</span><span class="w"> </span><span class="nx">r</span><span class="w"> </span><span class="nx">r</span><span class="p">=</span><span class="mi">1</span><span class="nx">k</span>
-<a id="__codelineno-3-12" name="__codelineno-3-12" href="#__codelineno-3-12"></a><span class="nx">c1</span><span class="w"> </span><span class="p">(</span><span class="mi">2</span><span class="w"> </span><span class="mi">0</span><span class="p">)</span><span class="w"> </span><span class="nx">c</span><span class="w"> </span><span class="nx">c</span><span class="p">=</span><span class="mi">1u</span>
-<a id="__codelineno-3-13" name="__codelineno-3-13" href="#__codelineno-3-13"></a>
-<a id="__codelineno-3-14" name="__codelineno-3-14" href="#__codelineno-3-14"></a><span class="nx">control</span>
-<a id="__codelineno-3-15" name="__codelineno-3-15" href="#__codelineno-3-15"></a><span class="w">  </span><span class="nx">options</span><span class="w"> </span><span class="nx">tran_method</span><span class="p">=</span><span class="s">&quot;trap&quot;</span>
-<a id="__codelineno-3-16" name="__codelineno-3-16" href="#__codelineno-3-16"></a><span class="w">  </span><span class="nx">analysis</span><span class="w"> </span><span class="nx">tran1</span><span class="w"> </span><span class="nx">tran</span><span class="w"> </span><span class="nx">step</span><span class="p">=</span><span class="mi">1u</span><span class="w"> </span><span class="nx">stop</span><span class="p">=</span><span class="mi">10</span><span class="nx">m</span><span class="w"> </span><span class="nx">maxstep</span><span class="p">=</span><span class="mi">1u</span>
-<a id="__codelineno-3-17" name="__codelineno-3-17" href="#__codelineno-3-17"></a><span class="nx">endc</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="nx">RC</span><span class="w"> </span><span class="nx">circuit</span><span class="w"> </span><span class="nx">excited</span><span class="w"> </span><span class="nx">by</span><span class="w"> </span><span class="nx">a</span><span class="w"> </span><span class="nx">pulse</span><span class="w"> </span><span class="nx">train</span>
+<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>
+<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="nx">load</span><span class="w"> </span><span class="s">&quot;spice/resistor.va&quot;</span>
+<a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="nx">load</span><span class="w"> </span><span class="s">&quot;spice/capacitor.va&quot;</span>
+<a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a>
+<a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a><span class="nx">model</span><span class="w"> </span><span class="nx">r</span><span class="w"> </span><span class="nx">resistor</span>
+<a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a><span class="nx">model</span><span class="w"> </span><span class="nx">c</span><span class="w"> </span><span class="nx">capacitor</span>
+<a id="__codelineno-5-8" name="__codelineno-5-8" href="#__codelineno-5-8"></a><span class="nx">model</span><span class="w"> </span><span class="nx">vsource</span><span class="w"> </span><span class="nx">vsource</span>
+<a id="__codelineno-5-9" name="__codelineno-5-9" href="#__codelineno-5-9"></a>
+<a id="__codelineno-5-10" name="__codelineno-5-10" href="#__codelineno-5-10"></a><span class="nx">vs</span><span class="w"> </span><span class="p">(</span><span class="mi">1</span><span class="w"> </span><span class="mi">0</span><span class="p">)</span><span class="w"> </span><span class="nx">vsource</span><span class="w"> </span><span class="nx">dc</span><span class="p">=</span><span class="mi">0</span><span class="w"> </span><span class="kd">type</span><span class="p">=</span><span class="s">&quot;pulse&quot;</span><span class="w"> </span><span class="nx">val0</span><span class="p">=</span><span class="mi">0</span><span class="w"> </span><span class="nx">val1</span><span class="p">=</span><span class="mi">1</span><span class="w"> </span><span class="nx">rise</span><span class="p">=</span><span class="mi">1u</span><span class="w"> </span><span class="nx">fall</span><span class="p">=</span><span class="mi">1u</span><span class="w"> </span><span class="nx">width</span><span class="p">=</span><span class="mi">1</span><span class="nx">m</span><span class="w"> </span><span class="nx">period</span><span class="p">=</span><span class="mi">2</span><span class="nx">m</span>
+<a id="__codelineno-5-11" name="__codelineno-5-11" href="#__codelineno-5-11"></a><span class="nx">r1</span><span class="w"> </span><span class="p">(</span><span class="mi">1</span><span class="w"> </span><span class="mi">2</span><span class="p">)</span><span class="w"> </span><span class="nx">r</span><span class="w"> </span><span class="nx">r</span><span class="p">=</span><span class="mi">1</span><span class="nx">k</span>
+<a id="__codelineno-5-12" name="__codelineno-5-12" href="#__codelineno-5-12"></a><span class="nx">c1</span><span class="w"> </span><span class="p">(</span><span class="mi">2</span><span class="w"> </span><span class="mi">0</span><span class="p">)</span><span class="w"> </span><span class="nx">c</span><span class="w"> </span><span class="nx">c</span><span class="p">=</span><span class="mi">1u</span>
+<a id="__codelineno-5-13" name="__codelineno-5-13" href="#__codelineno-5-13"></a>
+<a id="__codelineno-5-14" name="__codelineno-5-14" href="#__codelineno-5-14"></a><span class="nx">control</span>
+<a id="__codelineno-5-15" name="__codelineno-5-15" href="#__codelineno-5-15"></a><span class="w">  </span><span class="nx">options</span><span class="w"> </span><span class="nx">tran_method</span><span class="p">=</span><span class="s">&quot;trap&quot;</span>
+<a id="__codelineno-5-16" name="__codelineno-5-16" href="#__codelineno-5-16"></a><span class="w">  </span><span class="nx">analysis</span><span class="w"> </span><span class="nx">tran1</span><span class="w"> </span><span class="nx">tran</span><span class="w"> </span><span class="nx">step</span><span class="p">=</span><span class="mi">1u</span><span class="w"> </span><span class="nx">stop</span><span class="p">=</span><span class="mi">10</span><span class="nx">m</span><span class="w"> </span><span class="nx">maxstep</span><span class="p">=</span><span class="mi">1u</span>
+<a id="__codelineno-5-17" name="__codelineno-5-17" href="#__codelineno-5-17"></a><span class="nx">endc</span>
 </code></pre></div>
 <p>This defines:
 - A pulse voltage source <code>vs</code> switching between 0V and 1V
@@ -1593,47 +1640,47 @@
 - A 1uF capacitor <code>c1</code>
 - The RC time constant is 1ms</p>
 <h3 id="running-with-python">Running with Python<a class="headerlink" href="#running-with-python" title="Permanent link">&para;</a></h3>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">pathlib</span><span class="w"> </span><span class="kn">import</span> <span class="n">Path</span>
-<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">vajax</span><span class="w"> </span><span class="kn">import</span> <span class="n">CircuitEngine</span>
-<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>
-<a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="c1"># Load and parse the circuit</span>
-<a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a><span class="n">engine</span> <span class="o">=</span> <span class="n">CircuitEngine</span><span class="p">(</span><span class="n">Path</span><span class="p">(</span><span class="s2">&quot;rc.sim&quot;</span><span class="p">))</span>
-<a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a><span class="n">engine</span><span class="o">.</span><span class="n">parse</span><span class="p">()</span>
-<a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a>
-<a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a><span class="c1"># Configure and run transient analysis</span>
-<a id="__codelineno-4-9" name="__codelineno-4-9" href="#__codelineno-4-9"></a><span class="n">engine</span><span class="o">.</span><span class="n">prepare</span><span class="p">(</span><span class="n">t_stop</span><span class="o">=</span><span class="mf">10e-3</span><span class="p">,</span> <span class="n">dt</span><span class="o">=</span><span class="mf">1e-6</span><span class="p">)</span>
-<a id="__codelineno-4-10" name="__codelineno-4-10" href="#__codelineno-4-10"></a><span class="n">result</span> <span class="o">=</span> <span class="n">engine</span><span class="o">.</span><span class="n">run_transient</span><span class="p">()</span>
-<a id="__codelineno-4-11" name="__codelineno-4-11" href="#__codelineno-4-11"></a>
-<a id="__codelineno-4-12" name="__codelineno-4-12" href="#__codelineno-4-12"></a><span class="c1"># Access results</span>
-<a id="__codelineno-4-13" name="__codelineno-4-13" href="#__codelineno-4-13"></a><span class="n">times</span> <span class="o">=</span> <span class="n">result</span><span class="o">.</span><span class="n">times</span>
-<a id="__codelineno-4-14" name="__codelineno-4-14" href="#__codelineno-4-14"></a><span class="n">v_in</span> <span class="o">=</span> <span class="n">result</span><span class="o">.</span><span class="n">voltage</span><span class="p">(</span><span class="s2">&quot;1&quot;</span><span class="p">)</span>    <span class="c1"># Input node</span>
-<a id="__codelineno-4-15" name="__codelineno-4-15" href="#__codelineno-4-15"></a><span class="n">v_out</span> <span class="o">=</span> <span class="n">result</span><span class="o">.</span><span class="n">voltage</span><span class="p">(</span><span class="s2">&quot;2&quot;</span><span class="p">)</span>   <span class="c1"># Output node (across capacitor)</span>
-<a id="__codelineno-4-16" name="__codelineno-4-16" href="#__codelineno-4-16"></a>
-<a id="__codelineno-4-17" name="__codelineno-4-17" href="#__codelineno-4-17"></a><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Simulated </span><span class="si">{</span><span class="n">result</span><span class="o">.</span><span class="n">num_steps</span><span class="si">}</span><span class="s2"> timesteps&quot;</span><span class="p">)</span>
-<a id="__codelineno-4-18" name="__codelineno-4-18" href="#__codelineno-4-18"></a><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Final output voltage: </span><span class="si">{</span><span class="nb">float</span><span class="p">(</span><span class="n">v_out</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">])</span><span class="si">:</span><span class="s2">.4f</span><span class="si">}</span><span class="s2"> V&quot;</span><span class="p">)</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">pathlib</span><span class="w"> </span><span class="kn">import</span> <span class="n">Path</span>
+<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">vajax</span><span class="w"> </span><span class="kn">import</span> <span class="n">CircuitEngine</span>
+<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a>
+<a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="c1"># Load and parse the circuit</span>
+<a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a><span class="n">engine</span> <span class="o">=</span> <span class="n">CircuitEngine</span><span class="p">(</span><span class="n">Path</span><span class="p">(</span><span class="s2">&quot;rc.sim&quot;</span><span class="p">))</span>
+<a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a><span class="n">engine</span><span class="o">.</span><span class="n">parse</span><span class="p">()</span>
+<a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a>
+<a id="__codelineno-6-8" name="__codelineno-6-8" href="#__codelineno-6-8"></a><span class="c1"># Configure and run transient analysis</span>
+<a id="__codelineno-6-9" name="__codelineno-6-9" href="#__codelineno-6-9"></a><span class="n">engine</span><span class="o">.</span><span class="n">prepare</span><span class="p">(</span><span class="n">t_stop</span><span class="o">=</span><span class="mf">10e-3</span><span class="p">,</span> <span class="n">dt</span><span class="o">=</span><span class="mf">1e-6</span><span class="p">)</span>
+<a id="__codelineno-6-10" name="__codelineno-6-10" href="#__codelineno-6-10"></a><span class="n">result</span> <span class="o">=</span> <span class="n">engine</span><span class="o">.</span><span class="n">run_transient</span><span class="p">()</span>
+<a id="__codelineno-6-11" name="__codelineno-6-11" href="#__codelineno-6-11"></a>
+<a id="__codelineno-6-12" name="__codelineno-6-12" href="#__codelineno-6-12"></a><span class="c1"># Access results</span>
+<a id="__codelineno-6-13" name="__codelineno-6-13" href="#__codelineno-6-13"></a><span class="n">times</span> <span class="o">=</span> <span class="n">result</span><span class="o">.</span><span class="n">times</span>
+<a id="__codelineno-6-14" name="__codelineno-6-14" href="#__codelineno-6-14"></a><span class="n">v_in</span> <span class="o">=</span> <span class="n">result</span><span class="o">.</span><span class="n">voltage</span><span class="p">(</span><span class="s2">&quot;1&quot;</span><span class="p">)</span>    <span class="c1"># Input node</span>
+<a id="__codelineno-6-15" name="__codelineno-6-15" href="#__codelineno-6-15"></a><span class="n">v_out</span> <span class="o">=</span> <span class="n">result</span><span class="o">.</span><span class="n">voltage</span><span class="p">(</span><span class="s2">&quot;2&quot;</span><span class="p">)</span>   <span class="c1"># Output node (across capacitor)</span>
+<a id="__codelineno-6-16" name="__codelineno-6-16" href="#__codelineno-6-16"></a>
+<a id="__codelineno-6-17" name="__codelineno-6-17" href="#__codelineno-6-17"></a><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Simulated </span><span class="si">{</span><span class="n">result</span><span class="o">.</span><span class="n">num_steps</span><span class="si">}</span><span class="s2"> timesteps&quot;</span><span class="p">)</span>
+<a id="__codelineno-6-18" name="__codelineno-6-18" href="#__codelineno-6-18"></a><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Final output voltage: </span><span class="si">{</span><span class="nb">float</span><span class="p">(</span><span class="n">v_out</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">])</span><span class="si">:</span><span class="s2">.4f</span><span class="si">}</span><span class="s2"> V&quot;</span><span class="p">)</span>
 </code></pre></div>
 <h3 id="plotting-results">Plotting Results<a class="headerlink" href="#plotting-results" title="Permanent link">&para;</a></h3>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">matplotlib.pyplot</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">plt</span>
-<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>
-<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="n">plt</span><span class="o">.</span><span class="n">figure</span><span class="p">(</span><span class="n">figsize</span><span class="o">=</span><span class="p">(</span><span class="mi">10</span><span class="p">,</span> <span class="mi">5</span><span class="p">))</span>
-<a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="n">plt</span><span class="o">.</span><span class="n">plot</span><span class="p">(</span><span class="n">times</span> <span class="o">*</span> <span class="mi">1000</span><span class="p">,</span> <span class="n">v_in</span><span class="p">,</span> <span class="n">label</span><span class="o">=</span><span class="s2">&quot;V(in)&quot;</span><span class="p">)</span>
-<a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a><span class="n">plt</span><span class="o">.</span><span class="n">plot</span><span class="p">(</span><span class="n">times</span> <span class="o">*</span> <span class="mi">1000</span><span class="p">,</span> <span class="n">v_out</span><span class="p">,</span> <span class="n">label</span><span class="o">=</span><span class="s2">&quot;V(out)&quot;</span><span class="p">)</span>
-<a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a><span class="n">plt</span><span class="o">.</span><span class="n">xlabel</span><span class="p">(</span><span class="s2">&quot;Time [ms]&quot;</span><span class="p">)</span>
-<a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a><span class="n">plt</span><span class="o">.</span><span class="n">ylabel</span><span class="p">(</span><span class="s2">&quot;Voltage [V]&quot;</span><span class="p">)</span>
-<a id="__codelineno-5-8" name="__codelineno-5-8" href="#__codelineno-5-8"></a><span class="n">plt</span><span class="o">.</span><span class="n">title</span><span class="p">(</span><span class="s2">&quot;RC Low-Pass Filter Response&quot;</span><span class="p">)</span>
-<a id="__codelineno-5-9" name="__codelineno-5-9" href="#__codelineno-5-9"></a><span class="n">plt</span><span class="o">.</span><span class="n">legend</span><span class="p">()</span>
-<a id="__codelineno-5-10" name="__codelineno-5-10" href="#__codelineno-5-10"></a><span class="n">plt</span><span class="o">.</span><span class="n">grid</span><span class="p">(</span><span class="kc">True</span><span class="p">)</span>
-<a id="__codelineno-5-11" name="__codelineno-5-11" href="#__codelineno-5-11"></a><span class="n">plt</span><span class="o">.</span><span class="n">show</span><span class="p">()</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">matplotlib.pyplot</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">plt</span>
+<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>
+<a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a><span class="n">plt</span><span class="o">.</span><span class="n">figure</span><span class="p">(</span><span class="n">figsize</span><span class="o">=</span><span class="p">(</span><span class="mi">10</span><span class="p">,</span> <span class="mi">5</span><span class="p">))</span>
+<a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a><span class="n">plt</span><span class="o">.</span><span class="n">plot</span><span class="p">(</span><span class="n">times</span> <span class="o">*</span> <span class="mi">1000</span><span class="p">,</span> <span class="n">v_in</span><span class="p">,</span> <span class="n">label</span><span class="o">=</span><span class="s2">&quot;V(in)&quot;</span><span class="p">)</span>
+<a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a><span class="n">plt</span><span class="o">.</span><span class="n">plot</span><span class="p">(</span><span class="n">times</span> <span class="o">*</span> <span class="mi">1000</span><span class="p">,</span> <span class="n">v_out</span><span class="p">,</span> <span class="n">label</span><span class="o">=</span><span class="s2">&quot;V(out)&quot;</span><span class="p">)</span>
+<a id="__codelineno-7-6" name="__codelineno-7-6" href="#__codelineno-7-6"></a><span class="n">plt</span><span class="o">.</span><span class="n">xlabel</span><span class="p">(</span><span class="s2">&quot;Time [ms]&quot;</span><span class="p">)</span>
+<a id="__codelineno-7-7" name="__codelineno-7-7" href="#__codelineno-7-7"></a><span class="n">plt</span><span class="o">.</span><span class="n">ylabel</span><span class="p">(</span><span class="s2">&quot;Voltage [V]&quot;</span><span class="p">)</span>
+<a id="__codelineno-7-8" name="__codelineno-7-8" href="#__codelineno-7-8"></a><span class="n">plt</span><span class="o">.</span><span class="n">title</span><span class="p">(</span><span class="s2">&quot;RC Low-Pass Filter Response&quot;</span><span class="p">)</span>
+<a id="__codelineno-7-9" name="__codelineno-7-9" href="#__codelineno-7-9"></a><span class="n">plt</span><span class="o">.</span><span class="n">legend</span><span class="p">()</span>
+<a id="__codelineno-7-10" name="__codelineno-7-10" href="#__codelineno-7-10"></a><span class="n">plt</span><span class="o">.</span><span class="n">grid</span><span class="p">(</span><span class="kc">True</span><span class="p">)</span>
+<a id="__codelineno-7-11" name="__codelineno-7-11" href="#__codelineno-7-11"></a><span class="n">plt</span><span class="o">.</span><span class="n">show</span><span class="p">()</span>
 </code></pre></div>
 <h2 id="running-from-the-command-line">Running from the Command Line<a class="headerlink" href="#running-from-the-command-line" title="Permanent link">&para;</a></h2>
 <p>VAJAX includes a CLI for running simulations:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="c1"># If installed via pip:</span>
-<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>vajax<span class="w"> </span>circuit.sim
-<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a>vajax<span class="w"> </span>--help
-<a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a>
-<a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a><span class="c1"># If running from source:</span>
-<a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a>uv<span class="w"> </span>run<span class="w"> </span>vajax<span class="w"> </span>run<span class="w"> </span>vendor/VACASK/benchmark/rc/vacask/runme.sim
-<a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a>uv<span class="w"> </span>run<span class="w"> </span>vajax<span class="w"> </span>--help
+<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="c1"># If installed via pip:</span>
+<a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a>vajax<span class="w"> </span>circuit.sim
+<a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a>vajax<span class="w"> </span>--help
+<a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a>
+<a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a><span class="c1"># If running from source:</span>
+<a id="__codelineno-8-6" name="__codelineno-8-6" href="#__codelineno-8-6"></a>uv<span class="w"> </span>run<span class="w"> </span>vajax<span class="w"> </span>run<span class="w"> </span>vendor/VACASK/benchmark/rc/vacask/runme.sim
+<a id="__codelineno-8-7" name="__codelineno-8-7" href="#__codelineno-8-7"></a>uv<span class="w"> </span>run<span class="w"> </span>vajax<span class="w"> </span>--help
 </code></pre></div>
 <h2 id="available-analysis-types">Available Analysis Types<a class="headerlink" href="#available-analysis-types" title="Permanent link">&para;</a></h2>
 <table>
@@ -1728,19 +1775,18 @@
 </table>
 <h2 id="sparse-solver-for-large-circuits">Sparse Solver for Large Circuits<a class="headerlink" href="#sparse-solver-for-large-circuits" title="Permanent link">&para;</a></h2>
 <p>For circuits with more than ~1000 nodes, enable the sparse solver:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="n">engine</span><span class="o">.</span><span class="n">prepare</span><span class="p">(</span><span class="n">t_stop</span><span class="o">=</span><span class="mf">1e-6</span><span class="p">,</span> <span class="n">dt</span><span class="o">=</span><span class="mf">1e-9</span><span class="p">,</span> <span class="n">use_sparse</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
-<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="n">result</span> <span class="o">=</span> <span class="n">engine</span><span class="o">.</span><span class="n">run_transient</span><span class="p">()</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="n">engine</span><span class="o">.</span><span class="n">prepare</span><span class="p">(</span><span class="n">t_stop</span><span class="o">=</span><span class="mf">1e-6</span><span class="p">,</span> <span class="n">dt</span><span class="o">=</span><span class="mf">1e-9</span><span class="p">,</span> <span class="n">use_sparse</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a><span class="n">result</span> <span class="o">=</span> <span class="n">engine</span><span class="o">.</span><span class="n">run_transient</span><span class="p">()</span>
 </code></pre></div>
 <h2 id="known-limitations">Known Limitations<a class="headerlink" href="#known-limitations" title="Permanent link">&para;</a></h2>
 <ul>
-<li><strong>No DC sweep analysis</strong> yet (only DC operating point as part of other analyses)</li>
-<li><strong>Float32 only on Metal/TPU</strong> backends (float64 on CPU/CUDA)</li>
+<li><strong>macOS GPU</strong> — Metal backend is in development; currently CPU-only</li>
 <li><strong>No interactive waveform viewer</strong> built-in (use matplotlib or export to raw files)</li>
 </ul>
 <h2 id="importing-spice-netlists">Importing SPICE Netlists<a class="headerlink" href="#importing-spice-netlists" title="Permanent link">&para;</a></h2>
 <p>VAJAX can convert netlists from ngspice, HSPICE, LTspice, and Spectre:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>vajax<span class="w"> </span>convert<span class="w"> </span>my_circuit.sp<span class="w"> </span>my_circuit.sim<span class="w">                    </span><span class="c1"># ngspice (default)</span>
-<a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a>vajax<span class="w"> </span>convert<span class="w"> </span>my_circuit.scs<span class="w"> </span>my_circuit.sim<span class="w"> </span>--dialect<span class="w"> </span>spectre<span class="w"> </span><span class="c1"># Spectre</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a>vajax<span class="w"> </span>convert<span class="w"> </span>my_circuit.sp<span class="w"> </span>my_circuit.sim<span class="w">                    </span><span class="c1"># ngspice (default)</span>
+<a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a>vajax<span class="w"> </span>convert<span class="w"> </span>my_circuit.scs<span class="w"> </span>my_circuit.sim<span class="w"> </span>--dialect<span class="w"> </span>spectre<span class="w"> </span><span class="c1"># Spectre</span>
 </code></pre></div>
 <p>See <a href="../for_spectre_users/">For Spectre Users</a> for a detailed migration guide.</p>
 <h2 id="model-search-paths">Model Search Paths<a class="headerlink" href="#model-search-paths" title="Permanent link">&para;</a></h2>
