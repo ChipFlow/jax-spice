@@ -1,0 +1,203 @@
+name: Nightly Benchmark (mul64)
+
+# Runs mul64 (~266k MOSFETs, ~133k nodes) nightly and on main pushes.
+# Separated from benchmark-comparison.yml to avoid gating PRs with a 32-min job.
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: '0 6 * * *'  # Daily at 6am UTC
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+  JAX_COMPILATION_CACHE_DIR: /tmp/jax-xla-cache
+
+jobs:
+  benchmark-mul64:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    name: benchmark (mul64)
+    steps:
+      - name: Checkout with submodules
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            cmake ninja-build \
+            flex bison libfl-dev \
+            libsuitesparse-dev \
+            ccache \
+            bc
+
+      - name: Install LLVM 18
+        run: |
+          wget https://apt.llvm.org/llvm.sh
+          chmod +x llvm.sh
+          sudo ./llvm.sh 18
+          sudo apt-get install -y lld-18
+          echo "/usr/lib/llvm-18/bin" >> "$GITHUB_PATH"
+          echo "LLVM_SYS_181_PREFIX=/usr/lib/llvm-18" >> "$GITHUB_ENV"
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache ccache
+        uses: actions/cache@v4
+        with:
+          path: ~/.ccache
+          key: ccache-${{ runner.os }}-${{ github.sha }}
+          restore-keys: |
+            ccache-${{ runner.os }}-
+
+      - name: Configure ccache
+        run: |
+          ccache --set-config=max_size=500M
+          ccache --set-config=compression=true
+          ccache -z
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            openvaf_jax/openvaf_py
+            vendor/OpenVAF
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+
+      - name: Set up Python
+        run: uv python install 3.11
+
+      - name: Cache XLA compilation artifacts
+        uses: actions/cache@v4
+        with:
+          path: /tmp/jax-xla-cache
+          key: xla-cache-${{ runner.os }}-${{ runner.arch }}-mul64-${{ hashFiles('pyproject.toml') }}
+          restore-keys: |
+            xla-cache-${{ runner.os }}-${{ runner.arch }}-mul64-
+            xla-cache-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Build openvaf-py
+        working-directory: openvaf_jax/openvaf_py
+        run: |
+          uv sync
+          uv run maturin develop --release
+
+      - name: Build openvaf-r (standalone compiler for VACASK)
+        working-directory: vendor/OpenVAF
+        run: |
+          cargo build --release -p openvaf-driver --bin openvaf-r --no-default-features --features llvm18
+          echo "OPENVAF_DIR=${{ github.workspace }}/vendor/OpenVAF/target/release" >> "$GITHUB_ENV"
+
+      - name: Install vajax
+        run: uv sync --extra dev
+
+      # Build VACASK simulator
+      - name: Cache Boost 1.88
+        uses: actions/cache@v4
+        id: cache-boost
+        with:
+          path: /tmp/boost_1_88_0
+          key: boost-1.88.0-${{ runner.os }}
+
+      - name: Download and build Boost 1.88
+        if: steps.cache-boost.outputs.cache-hit != 'true'
+        run: |
+          cd /tmp
+          wget -q https://archives.boost.io/release/1.88.0/source/boost_1_88_0.tar.gz
+          tar -xzf boost_1_88_0.tar.gz
+          cd boost_1_88_0
+          ./bootstrap.sh --with-libraries=filesystem,process,system
+          ./b2 -j"$(nproc)" link=static
+
+      - name: Download toml++ 3.4.0
+        run: |
+          cd /tmp
+          wget -q https://github.com/marzer/tomlplusplus/archive/refs/tags/v3.4.0.tar.gz
+          tar -xzf v3.4.0.tar.gz
+
+      - name: Cache VACASK build
+        uses: actions/cache@v4
+        id: cache-vacask
+        with:
+          path: vendor/VACASK/build
+          key: vacask-build-${{ runner.os }}-${{ hashFiles('vendor/VACASK/CMakeLists.txt', 'vendor/VACASK/lib/**', 'vendor/VACASK/simulator/**', 'vendor/VACASK/devices/**', 'vendor/OpenVAF/Cargo.lock') }}
+
+      - name: Build VACASK
+        if: steps.cache-vacask.outputs.cache-hit != 'true'
+        run: |
+          cd vendor/VACASK
+          mkdir -p build && cd build
+          cmake .. \
+            -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+            -DBoost_NO_SYSTEM_PATHS=TRUE \
+            -DBoost_INCLUDE_DIR=/tmp/boost_1_88_0 \
+            -DCMAKE_PREFIX_PATH="/tmp/boost_1_88_0/stage/lib/cmake" \
+            -DTOMLPP_DIR=/tmp/tomlplusplus-3.4.0 \
+            -DOPENVAF_DIR="${OPENVAF_DIR}"
+          ninja -j"$(nproc)" vacask
+          ninja -j"$(nproc)" build_and_stage_devices || {
+            echo "Warning: OSDI device compilation failed"
+            cat /tmp/openvaf-crash-*.log 2>/dev/null || echo "No crash logs found"
+          }
+          ccache -s
+
+      # Run mul64 benchmark comparison
+      - name: Run mul64 benchmark
+        env:
+          JAX_PLATFORMS: cpu
+          JAX_ENABLE_X64: "1"
+          VAJAX_NO_PROGRESS: "1"
+          JAX_LOG_COMPILES: "1"
+        run: |
+          echo "Running mul64 benchmark (~266k MOSFETs, ~133k nodes)..."
+          uv run python scripts/compare_vacask.py \
+            --benchmark mul64 \
+            --use-scan \
+            --use-sparse \
+            --json-output /tmp/benchmark-summary.json 2>&1 | tee /tmp/benchmark-comparison.log || true
+
+      - name: Generate comparison summary
+        if: always()
+        run: |
+          {
+            echo "## Nightly Benchmark: mul64"
+            echo ""
+            echo "~266k PSP103 MOSFETs, ~133k nodes, sparse solver"
+            echo ""
+            echo "### Per-Step Timing"
+            echo ""
+            echo "| Benchmark | Steps | VAJAX (ms/step) | VACASK (ms/step) | Ratio |"
+            echo "|-----------|-------|---------------------|------------------|-------|"
+
+            grep -A 10 "Summary (per-step timing)" /tmp/benchmark-comparison.log | \
+              grep "^|" | tail -n +3 | while read -r line; do
+              echo "$line"
+            done
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload benchmark logs
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: benchmark-logs-mul64
+          path: |
+            /tmp/benchmark-comparison.log
+
+      - name: Upload benchmark summary JSON
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: benchmark-summary-mul64
+          path: /tmp/benchmark-summary.json
+          if-no-files-found: ignore

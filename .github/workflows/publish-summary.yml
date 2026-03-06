@@ -2,7 +2,7 @@ name: Publish Summary
 
 on:
   workflow_run:
-    workflows: ["Tests", "Benchmark Comparison", "GPU Tests"]
+    workflows: ["Tests", "Benchmark Comparison", "Nightly Benchmark (mul64)", "GPU Tests"]
     types: [completed]
     branches: [main]
 
