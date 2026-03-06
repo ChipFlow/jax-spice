@@ -292,6 +292,8 @@ jobs:
             arch: aarch64
           - os: macos-14
             arch: arm64
+          - os: windows-latest
+            arch: x86_64
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -309,13 +311,19 @@ jobs:
         with:
           disable_annotations: true
 
-      - name: Prepare sccache dir
+      - name: Prepare sccache dir (Unix)
+        if: runner.os != 'Windows'
         run: mkdir -p /tmp/sccache
+
+      - name: Prepare sccache dir (Windows)
+        if: runner.os == 'Windows'
+        run: mkdir -Force "${{ runner.temp }}\sccache"
+        shell: pwsh
 
       - name: Restore sccache cache
         uses: actions/cache@v4
         with:
-          path: /tmp/sccache
+          path: ${{ runner.os == 'Windows' && format('{0}\sccache', runner.temp) || '/tmp/sccache' }}
           key: sccache-umfpack-jax-${{ matrix.os }}-${{ matrix.arch }}-${{ hashFiles('vajax/sparse/CMakeLists.txt') }}
           restore-keys: sccache-umfpack-jax-${{ matrix.os }}-${{ matrix.arch }}-
           save-always: true
@@ -329,6 +337,7 @@ jobs:
           CIBW_ENVIRONMENT_MACOS: "CMAKE_C_COMPILER_LAUNCHER=sccache CMAKE_CXX_COMPILER_LAUNCHER=sccache SCCACHE_DIR=/tmp/sccache"
           CIBW_CONTAINER_ENGINE: "docker; create_args: --volume ${{ env.SCCACHE_PATH }}:/usr/local/bin/sccache:ro --volume /tmp/sccache:/sccache"
           CIBW_ENVIRONMENT_LINUX: "CMAKE_C_COMPILER_LAUNCHER=sccache CMAKE_CXX_COMPILER_LAUNCHER=sccache SCCACHE_DIR=/sccache"
+          CIBW_ENVIRONMENT_WINDOWS: "CMAKE_C_COMPILER_LAUNCHER=sccache CMAKE_CXX_COMPILER_LAUNCHER=sccache SCCACHE_DIR=${{ runner.temp }}\\sccache"
 
       - name: Fix sccache permissions (Linux)
         if: runner.os == 'Linux'

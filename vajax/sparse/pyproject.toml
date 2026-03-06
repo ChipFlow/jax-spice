@@ -35,15 +35,13 @@ build.verbose = true
 
 [tool.cibuildwheel]
 build = ["cp311-*", "cp312-*", "cp313-*"]
-# TODO: Windows skipped — SuiteSparse build via FetchContent needs BLAS/LAPACK
-# which is non-trivial to set up on Windows CI. Revisit when vcpkg integration is ready.
-skip = ["*-musllinux_*", "*_i686", "*-win_amd64", "*-win32"]
+skip = ["*-musllinux_*", "*_i686", "*-win32"]
 # Use manylinux_2_28 (AlmaLinux 8) — scipy has pre-built wheels for this platform
 manylinux-x86_64-image = "manylinux_2_28"
 manylinux-aarch64-image = "manylinux_2_28"
 
 # FetchContent in CMakeLists.txt downloads + builds SuiteSparse v7.8.3 from source.
-# Only system BLAS is needed (openblas on Linux, Accelerate on macOS).
+# System BLAS is needed: openblas on Linux, Accelerate on macOS, vcpkg openblas on Windows.
 
 [tool.cibuildwheel.linux]
 before-all = [
@@ -53,3 +51,9 @@ before-all = [
 
 [tool.cibuildwheel.macos]
 # macOS uses Accelerate framework (always available) - no extra deps needed
+
+[tool.cibuildwheel.windows]
+before-all = [
+    "vcpkg install openblas:x64-windows",
+]
+environment = { CMAKE_TOOLCHAIN_FILE = "C:/vcpkg/scripts/buildsystems/vcpkg.cmake" }
