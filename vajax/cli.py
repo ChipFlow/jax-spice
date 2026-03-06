@@ -394,7 +394,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         and argv[0] not in ("run", "benchmark", "bench", "convert", "info")
     ):
         # Check if it looks like a file path
-        if "." in argv[0] or "/" in argv[0]:
+        if "." in argv[0] or "/" in argv[0] or "\\" in argv[0]:
             argv = ["run"] + list(argv)
 
     args = parser.parse_args(argv)

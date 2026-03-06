@@ -145,7 +145,7 @@ def run_vacask(
     venv_bin = venv_path / "bin"
     if venv_bin.exists():
         env["VIRTUAL_ENV"] = str(venv_path)
-        env["PATH"] = f"{venv_bin}:{env.get('PATH', '')}"
+        env["PATH"] = f"{venv_bin}{os.pathsep}{env.get('PATH', '')}"
         env.pop("PYTHONHOME", None)
 
     try:
