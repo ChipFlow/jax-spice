@@ -3,7 +3,6 @@
 Tests against known analytical solutions for simple circuits.
 """
 
-import jax.numpy as jnp
 import pytest
 
 from vajax.analysis import CircuitEngine, DCSweepResult
