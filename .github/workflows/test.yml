@@ -47,7 +47,7 @@ jobs:
         uses: astral-sh/setup-uv@v4
 
       - name: Set up Python
-        run: uv python install 3.10
+        run: uv python install 3.11
 
       - name: Build and install openvaf-py
         working-directory: openvaf_jax/openvaf_py

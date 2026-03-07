@@ -6,7 +6,7 @@ build-backend = "maturin"
 name = "osdi-py"
 version = "0.1.0"
 description = "Python bindings for OSDI (Open Simulator Device Interface) shared libraries"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 license = "Apache-2.0"
 classifiers = [
     "Programming Language :: Rust",
