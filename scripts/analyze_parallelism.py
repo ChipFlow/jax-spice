@@ -51,9 +51,7 @@ def symmetrize_pattern(A: sp.spmatrix) -> sp.csc_matrix:
     """Compute |A| + |A^T| as a binary pattern (no values, just structure)."""
     A_csc = sp.csc_matrix(A)
     # Binary pattern: set all values to 1
-    A_bin = sp.csc_matrix(
-        (np.ones(A_csc.nnz), A_csc.indices, A_csc.indptr), shape=A_csc.shape
-    )
+    A_bin = sp.csc_matrix((np.ones(A_csc.nnz), A_csc.indices, A_csc.indptr), shape=A_csc.shape)
     A_sym = A_bin + A_bin.T
     # Re-binarize (eliminates any 2s from diagonal overlap)
     A_sym.data[:] = 1.0
@@ -658,7 +656,7 @@ def analyze_matrix(
         "elimination_tree": {
             **etree_stats,
             "parallelism_efficiency": parallelism_efficiency,
-            "parent_array_sample": parent[:min(50, n)].tolist(),
+            "parent_array_sample": parent[: min(50, n)].tolist(),
             "note": (
                 f"Height {etree_stats['height']} levels with max width "
                 f"{etree_stats['max_parallelism']}. Columns at the same level "
@@ -759,12 +757,16 @@ def analyze_eval_branches(engine) -> dict:
             if n_devices > 1:
                 vals = dp[:, col_idx]
                 unique_vals = np.unique(vals)
-                varying_param_info.append({
-                    "name": name,
-                    "kind": kind,
-                    "n_unique": len(unique_vals),
-                    "values": unique_vals.tolist() if len(unique_vals) <= 10 else f"{len(unique_vals)} values",
-                })
+                varying_param_info.append(
+                    {
+                        "name": name,
+                        "kind": kind,
+                        "n_unique": len(unique_vals),
+                        "values": unique_vals.tolist()
+                        if len(unique_vals) <= 10
+                        else f"{len(unique_vals)} values",
+                    }
+                )
 
         result[model_type] = {
             "n_devices": n_devices,
@@ -984,7 +986,9 @@ def write_analysis(analysis: dict, output_dir: Path):
     analysis_json = json.loads(json.dumps(analysis_json, default=str))
     widths = analysis_json.get("elimination_tree", {}).get("level_widths", [])
     if len(widths) > 100:
-        analysis_json["elimination_tree"]["level_widths_truncated"] = widths[:50] + ["..."] + widths[-50:]
+        analysis_json["elimination_tree"]["level_widths_truncated"] = (
+            widths[:50] + ["..."] + widths[-50:]
+        )
         del analysis_json["elimination_tree"]["level_widths"]
 
     with open(json_path, "w") as f:
@@ -1000,11 +1004,15 @@ def write_analysis(analysis: dict, output_dir: Path):
         f.write(f"{'=' * 70}\n\n")
 
         mat = analysis["matrix"]
-        f.write(f"Matrix: {mat['size']}x{mat['size']}, {mat['nnz']} nonzeros ({mat['density_pct']:.4f}%)\n")
+        f.write(
+            f"Matrix: {mat['size']}x{mat['size']}, {mat['nnz']} nonzeros ({mat['density_pct']:.4f}%)\n"
+        )
         f.write(f"Bandwidth: {mat['bandwidth']}, Symmetric: {mat['is_structurally_symmetric']}\n")
         f.write(f"Connected components: {mat['connected_components']}\n")
         deg = mat["degree_stats"]
-        f.write(f"Row degree: min={deg['row_min']}, max={deg['row_max']}, mean={deg['row_mean']:.1f}\n")
+        f.write(
+            f"Row degree: min={deg['row_min']}, max={deg['row_max']}, mean={deg['row_mean']:.1f}\n"
+        )
         f.write(f"Diagonal dominance: {mat['diagonal_dominance']['pct']:.1f}% of rows\n\n")
 
         et = analysis["elimination_tree"]
@@ -1063,7 +1071,9 @@ def write_analysis(analysis: dict, output_dir: Path):
                 f.write(f"{mi['jac_entries_per_device']} Jacobian entries/device, ")
                 f.write(f"{mi['nodes_per_device']['mean']:.0f} nodes/device\n")
             sc = dp["scatter_conflicts"]
-            f.write(f"Scatter conflicts: {sc['conflict_positions']}/{sc['total_positions']} positions ")
+            f.write(
+                f"Scatter conflicts: {sc['conflict_positions']}/{sc['total_positions']} positions "
+            )
             f.write(f"({sc['conflict_pct']:.1f}%), max fan-in={sc['max_fan_in']}\n")
             f.write(f"Fan-in distribution: {sc['fan_in_distribution']}\n\n")
 
@@ -1081,7 +1091,9 @@ def write_analysis(analysis: dict, output_dir: Path):
                 f.write(f" (sizes: {info['config_sizes']})\n")
                 if info.get("varying_static_params"):
                     for vp in info["varying_static_params"]:
-                        f.write(f"      {vp['name']} ({vp['kind']}): {vp['n_unique']} unique values\n")
+                        f.write(
+                            f"      {vp['name']} ({vp['kind']}): {vp['n_unique']} unique values\n"
+                        )
                 f.write(f"    {info['specialization_note']}\n")
             f.write("\n")
 

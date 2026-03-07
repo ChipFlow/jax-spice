@@ -40,20 +40,30 @@ _phase_clock: dict[str, float] = {}
 
 def _start_phase(phase_name_bytes):
     """Record start time for a phase."""
-    phase_name = phase_name_bytes.tobytes().decode() if hasattr(phase_name_bytes, "tobytes") else str(phase_name_bytes)
+    phase_name = (
+        phase_name_bytes.tobytes().decode()
+        if hasattr(phase_name_bytes, "tobytes")
+        else str(phase_name_bytes)
+    )
     _phase_clock[phase_name] = time.perf_counter_ns()
 
 
 def _end_phase(phase_name_bytes, iteration):
     """Record end time for a phase."""
-    phase_name = phase_name_bytes.tobytes().decode() if hasattr(phase_name_bytes, "tobytes") else str(phase_name_bytes)
+    phase_name = (
+        phase_name_bytes.tobytes().decode()
+        if hasattr(phase_name_bytes, "tobytes")
+        else str(phase_name_bytes)
+    )
     start = _phase_clock.get(phase_name, 0)
     elapsed_ns = time.perf_counter_ns() - start
-    phase_timings.append({
-        "phase": phase_name,
-        "iteration": int(iteration),
-        "elapsed_us": elapsed_ns / 1000,
-    })
+    phase_timings.append(
+        {
+            "phase": phase_name,
+            "iteration": int(iteration),
+            "elapsed_us": elapsed_ns / 1000,
+        }
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -141,12 +151,16 @@ def main():
 
     parser = argparse.ArgumentParser(description="Profile NR phase breakdown")
     parser.add_argument("benchmark", help="Benchmark name (e.g. ring, c6288)")
-    parser.add_argument("--trace-dir", type=Path, default=None,
-                        help="Directory for Perfetto trace (default: /tmp/claude/<benchmark>_trace)")
-    parser.add_argument("--t-stop", type=float, default=None,
-                        help="Override stop time")
-    parser.add_argument("--n-steps", type=int, default=10,
-                        help="Number of timesteps to profile (default: 10)")
+    parser.add_argument(
+        "--trace-dir",
+        type=Path,
+        default=None,
+        help="Directory for Perfetto trace (default: /tmp/claude/<benchmark>_trace)",
+    )
+    parser.add_argument("--t-stop", type=float, default=None, help="Override stop time")
+    parser.add_argument(
+        "--n-steps", type=int, default=10, help="Number of timesteps to profile (default: 10)"
+    )
     args = parser.parse_args()
 
     logging.getLogger("vajax").setLevel(logging.WARNING)
