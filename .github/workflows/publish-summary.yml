@@ -2,7 +2,7 @@ name: Publish Summary
 
 on:
   workflow_run:
-    workflows: ["Tests", "Benchmark Comparison", "Nightly Benchmark (mul64)", "GPU Tests"]
+    workflows: ["Tests", "Benchmark Comparison"]
     types: [completed]
     branches: [main]
 
@@ -35,7 +35,7 @@ jobs:
             fs.mkdirSync(artifactsDir, { recursive: true });
 
             // Get recent artifacts from the three workflows
-            const workflowNames = ['Tests', 'Benchmark Comparison', 'GPU Tests'];
+            const workflowNames = ['Tests', 'Benchmark Comparison'];
 
             for (const wfName of workflowNames) {
               // Find the workflow

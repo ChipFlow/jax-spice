@@ -12,58 +12,99 @@ on:
 env:
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: 0
-  # XLA compilation cache - keyed by OS and architecture to avoid mismatches
-  # This significantly speeds up JAX compilation (4-10x on complex models)
   JAX_COMPILATION_CACHE_DIR: /tmp/jax-xla-cache
 
 jobs:
   benchmark:
-    runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
+        solver: [dense, sparse]
+        platform: [cpu, cuda]
         include:
-          - name: standard
+          - solver: dense
             benchmarks: "rc,graetz,mul,ring,tb_dp"
-            run_tests: true
-            timeout: 60
-          - name: c6288
-            benchmarks: "c6288"
-            run_tests: false
-            timeout: 60
-    name: benchmark (${{ matrix.name }})
-    timeout-minutes: ${{ matrix.timeout }}
+          - solver: sparse
+            benchmarks: "c6288,mul64"
+          - platform: cpu
+            runner: ubuntu-latest
+          - platform: cuda
+            runner: nvidia-runner-1
+
+    name: benchmark (${{ matrix.solver }}-${{ matrix.platform }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: ${{ matrix.solver == 'sparse' && matrix.platform == 'cuda' && 360 || 90 }}
+    concurrency:
+      group: benchmark-${{ matrix.solver }}-${{ matrix.platform }}-${{ github.ref }}
+
     steps:
       - name: Checkout with submodules
         uses: actions/checkout@v4
         with:
           submodules: recursive
 
-      - name: Install system dependencies
+      # ── CUDA diagnostics ─────────────────────────────────────────
+      - name: CUDA environment diagnostics
+        if: matrix.platform == 'cuda'
+        run: |
+          echo "=== GPU Info ==="
+          nvidia-smi || echo "nvidia-smi not available"
+          echo ""
+          echo "=== CUDA Version ==="
+          nvcc --version 2>/dev/null || echo "nvcc not in PATH"
+
+      # ── System dependencies ──────────────────────────────────────
+      - name: Install system dependencies (CPU)
+        if: matrix.platform == 'cpu'
         run: |
           sudo apt-get update
           sudo apt-get install -y \
             cmake ninja-build \
             flex bison libfl-dev \
             libsuitesparse-dev libopenblas-dev \
-            ccache \
-            bc
+            ccache bc
 
+      - name: Install system dependencies (CUDA)
+        if: matrix.platform == 'cuda'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            cmake pkg-config swig \
+            libsuitesparse-dev libopenblas-dev
+
+      # ── LLVM 18 (idempotent, works on all runners) ──────────────
       - name: Install LLVM 18
         run: |
-          wget https://apt.llvm.org/llvm.sh
-          chmod +x llvm.sh
-          sudo ./llvm.sh 18
-          # Install additional LLVM tools needed by OpenVAF
+          if ! llvm-config-18 --version 2>/dev/null; then
+            wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | \
+              sudo tee /etc/apt/trusted.gpg.d/apt.llvm.org.asc > /dev/null
+            sudo chmod a+r /etc/apt/trusted.gpg.d/apt.llvm.org.asc
+            wget -q https://apt.llvm.org/llvm.sh
+            chmod +x llvm.sh
+            sudo ./llvm.sh 18
+            rm llvm.sh
+          fi
           sudo apt-get install -y lld-18
-          # Add LLVM tools to PATH and set environment
           echo "/usr/lib/llvm-18/bin" >> "$GITHUB_PATH"
           echo "LLVM_SYS_181_PREFIX=/usr/lib/llvm-18" >> "$GITHUB_ENV"
 
+      # ── Rust toolchain ───────────────────────────────────────────
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Set up sccache
+        if: matrix.platform == 'cuda'
+        uses: mozilla-actions/sccache-action@v0.0.7
+        with:
+          disable_annotations: true
+
+      - name: Enable sccache for Rust
+        if: matrix.platform == 'cuda'
+        run: echo "RUSTC_WRAPPER=sccache" >> "$GITHUB_ENV"
+
+      # ── Build caches ─────────────────────────────────────────────
       - name: Cache ccache
+        if: matrix.platform == 'cpu'
         uses: actions/cache@v4
         with:
           path: ~/.ccache
@@ -72,10 +113,11 @@ jobs:
             ccache-${{ runner.os }}-
 
       - name: Configure ccache
+        if: matrix.platform == 'cpu'
         run: |
           ccache --set-config=max_size=500M
           ccache --set-config=compression=true
-          ccache -z  # Zero stats
+          ccache -z
 
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
@@ -84,39 +126,58 @@ jobs:
             openvaf_jax/openvaf_py
             vendor/OpenVAF
 
+      # ── CUDA toolkit ─────────────────────────────────────────────
+      - name: Install CUDA toolkit
+        if: matrix.platform == 'cuda'
+        run: |
+          sudo apt-get install -y cuda-toolkit-12-6 libcudnn9-cuda-12 libcudss0-cuda-12
+          echo "/usr/local/cuda-12.6/bin" >> "$GITHUB_PATH"
+          CUDSS_LIB=$(dpkg -L libcudss0-cuda-12 | grep '\.so' | head -1)
+          if [ -n "$CUDSS_LIB" ]; then
+            CUDSS_DIR=$(dirname "$CUDSS_LIB")
+            echo "LD_LIBRARY_PATH=${CUDSS_DIR}:${LD_LIBRARY_PATH}" >> "$GITHUB_ENV"
+            echo "cuDSS library found at: $CUDSS_LIB"
+          fi
+
+      # ── Python environment ──────────────────────────────────────
       - name: Install uv
         uses: astral-sh/setup-uv@v4
 
       - name: Set up Python
-        run: uv python install 3.11
+        run: uv python install 3.12
 
-      # Cache XLA compiled artifacts to speed up JAX compilation
-      # Key includes OS, arch, and JAX version to avoid binary incompatibilities
       - name: Cache XLA compilation artifacts
         uses: actions/cache@v4
         with:
           path: /tmp/jax-xla-cache
-          key: xla-cache-${{ runner.os }}-${{ runner.arch }}-${{ matrix.name }}-${{ hashFiles('pyproject.toml') }}
+          key: xla-cache-${{ runner.os }}-${{ runner.arch }}-${{ matrix.solver }}-${{ matrix.platform }}-${{ hashFiles('pyproject.toml') }}
           restore-keys: |
-            xla-cache-${{ runner.os }}-${{ runner.arch }}-${{ matrix.name }}-
+            xla-cache-${{ runner.os }}-${{ runner.arch }}-${{ matrix.solver }}-${{ matrix.platform }}-
             xla-cache-${{ runner.os }}-${{ runner.arch }}-
 
+      # ── Build openvaf-py ─────────────────────────────────────────
       - name: Build openvaf-py
         working-directory: openvaf_jax/openvaf_py
         run: |
           uv sync
           uv run maturin develop --release
 
-      - name: Build openvaf-r (standalone compiler for VACASK)
+      # ── Build openvaf-r (CPU only, for VACASK OSDI compilation) ─
+      - name: Build openvaf-r
+        if: matrix.platform == 'cpu'
         working-directory: vendor/OpenVAF
         run: |
-          # Build openvaf-r binary for OSDI compilation
-          # Use --no-default-features --features llvm18 to build with LLVM 18 (default is LLVM 21)
           cargo build --release -p openvaf-driver --bin openvaf-r --no-default-features --features llvm18
           echo "OPENVAF_DIR=${{ github.workspace }}/vendor/OpenVAF/target/release" >> "$GITHUB_ENV"
 
-      - name: Install vajax
+      # ── Install vajax ────────────────────────────────────────────
+      - name: Install vajax (CPU)
+        if: matrix.platform == 'cpu'
         run: uv sync --extra dev --extra umfpack
+
+      - name: Install vajax (CUDA)
+        if: matrix.platform == 'cuda'
+        run: uv sync --extra cuda12 --extra test --extra umfpack
 
       - name: Build UMFPACK FFI extension
         working-directory: vajax/sparse
@@ -124,14 +185,16 @@ jobs:
           uv pip install scikit-build-core nanobind
           uv pip install --no-build-isolation .
 
+      # ── Run VAJAX unit tests (CPU dense only) ────────────────────
       - name: Run VAJAX tests
-        if: matrix.run_tests
+        if: matrix.platform == 'cpu' && matrix.solver == 'dense'
         env:
           JAX_PLATFORMS: cpu
         run: uv run pytest tests/test_vacask_suite.py tests/test_vacask_jax.py -v --tb=short
 
-      # Build VACASK simulator
+      # ── Build VACASK (CPU only) ─────────────────────────────────
       - name: Cache Boost 1.88
+        if: matrix.platform == 'cpu'
         uses: actions/cache@v4
         id: cache-boost
         with:
@@ -139,7 +202,7 @@ jobs:
           key: boost-1.88.0-${{ runner.os }}
 
       - name: Download and build Boost 1.88
-        if: steps.cache-boost.outputs.cache-hit != 'true'
+        if: matrix.platform == 'cpu' && steps.cache-boost.outputs.cache-hit != 'true'
         run: |
           cd /tmp
           wget -q https://archives.boost.io/release/1.88.0/source/boost_1_88_0.tar.gz
@@ -149,21 +212,22 @@ jobs:
           ./b2 -j"$(nproc)" link=static
 
       - name: Download toml++ 3.4.0
+        if: matrix.platform == 'cpu'
         run: |
           cd /tmp
           wget -q https://github.com/marzer/tomlplusplus/archive/refs/tags/v3.4.0.tar.gz
           tar -xzf v3.4.0.tar.gz
 
       - name: Cache VACASK build
+        if: matrix.platform == 'cpu'
         uses: actions/cache@v4
         id: cache-vacask
         with:
           path: vendor/VACASK/build
-          # Include OpenVAF sources since openvaf-r changes affect OSDI compilation
           key: vacask-build-${{ runner.os }}-${{ hashFiles('vendor/VACASK/CMakeLists.txt', 'vendor/VACASK/lib/**', 'vendor/VACASK/simulator/**', 'vendor/VACASK/devices/**', 'vendor/OpenVAF/Cargo.lock') }}
 
       - name: Build VACASK
-        if: steps.cache-vacask.outputs.cache-hit != 'true'
+        if: matrix.platform == 'cpu' && steps.cache-vacask.outputs.cache-hit != 'true'
         run: |
           cd vendor/VACASK
           mkdir -p build && cd build
@@ -177,48 +241,36 @@ jobs:
             -DCMAKE_PREFIX_PATH="/tmp/boost_1_88_0/stage/lib/cmake" \
             -DTOMLPP_DIR=/tmp/tomlplusplus-3.4.0 \
             -DOPENVAF_DIR="${OPENVAF_DIR}"
-          # Build simulator and OSDI device files (parallel)
           ninja -j"$(nproc)" vacask
-          # Try to build device OSDI files (may fail on some platforms)
           ninja -j"$(nproc)" build_and_stage_devices || {
             echo "Warning: OSDI device compilation failed"
             echo "=== OpenVAF crash logs ==="
             cat /tmp/openvaf-crash-*.log 2>/dev/null || echo "No crash logs found"
           }
-          # Show ccache stats
           echo "=== ccache stats ==="
           ccache -s
 
-      # Run automated VACASK result comparison tests (standard benchmarks only)
-      # These tests compare simulation waveforms between VAJAX and VACASK
-      # Tests marked with xfail are expected to fail and won't break CI
+      # ── VACASK comparison tests (CPU dense only) ─────────────────
       - name: Run VACASK result comparison tests
-        if: matrix.run_tests
+        if: matrix.platform == 'cpu' && matrix.solver == 'dense'
         timeout-minutes: 90
         env:
           JAX_PLATFORMS: cpu
           JAX_ENABLE_X64: "1"
           VACASK_BIN: ${{ github.workspace }}/vendor/VACASK/build/simulator/vacask
-          # Limit steps in CI to avoid timeout (full 1M steps takes too long)
           VAJAX_MAX_STEPS: "10000"
-          # Disable progress callbacks to allow XLA compilation caching
           VAJAX_NO_PROGRESS: "1"
-          # Enable JAX compilation tracing to debug CI slowdowns
           JAX_LOG_COMPILES: "1"
           JAX_EXPLAIN_CACHE_MISSES: "1"
         run: |
           echo "Running automated VACASK result comparison tests..."
           echo "Note: Limiting to 10k steps per benchmark for CI (full run uses up to 1M)"
-          # Run pytest with the VACASK comparison tests
-          # Tests marked xfail won't cause failure, but unexpected failures will
-          # Using --tb=long for full tracebacks, --log-cli-level=INFO for timing
           uv run pytest tests/test_vacask_benchmarks.py -v \
             -k "TestVACASKResultComparison" \
             --tb=long --log-cli-level=INFO 2>&1 | tee /tmp/vacask-result-tests.log
 
-      # Summarize XLA compilation times for CI debugging
       - name: Summarize XLA compilation times
-        if: always() && matrix.run_tests
+        if: always() && matrix.platform == 'cpu' && matrix.solver == 'dense'
         run: |
           echo "=== XLA Compilation Summary ==="
           echo "Top 20 slowest XLA compilations:"
@@ -230,40 +282,124 @@ jobs:
           echo "Cache hits: $(grep -c "Persistent compilation cache hit" /tmp/vacask-result-tests.log 2>/dev/null || echo 0)"
           echo "Cache misses: $(grep -c "PERSISTENT COMPILATION CACHE MISS" /tmp/vacask-result-tests.log 2>/dev/null || echo 0)"
 
-      # Run benchmark performance comparison
-      - name: Run benchmark performance comparison
+      # ── GPU verification (CUDA only) ────────────────────────────
+      - name: Verify JAX GPU detection
+        if: matrix.platform == 'cuda'
         env:
-          JAX_PLATFORMS: cpu
+          JAX_PLATFORMS: cuda,cpu
+        run: |
+          uv run python -c "
+          import jax
+          print('JAX version:', jax.__version__)
+          print('JAX backend:', jax.default_backend())
+          print('JAX devices:', jax.devices())
+          gpu_devices = [d for d in jax.devices() if d.platform != 'cpu']
+          if gpu_devices:
+              print('GPU devices found:', gpu_devices)
+              print('GPU device kind:', gpu_devices[0].device_kind)
+          else:
+              print('ERROR: No GPU devices found')
+              raise SystemExit(1)
+          "
+
+      - name: Verify Spineax/cuDSS availability
+        if: matrix.platform == 'cuda'
+        env:
+          JAX_PLATFORMS: cuda,cpu
+        run: |
+          uv run python -c "
+          import sys
+          print('Python:', sys.version)
+
+          try:
+              from spineax.cudss.solver import CuDSSSolver
+              print('cuDSS solver imported successfully')
+          except ImportError as e:
+              print(f'cuDSS import failed: {e}')
+          except Exception as e:
+              print(f'cuDSS import error: {type(e).__name__}: {e}')
+
+          try:
+              import spineax
+              print(f'spineax location: {spineax.__file__}')
+              import spineax.cudss
+              print(f'spineax.cudss location: {spineax.cudss.__file__}')
+          except Exception as e:
+              print(f'spineax structure error: {e}')
+
+          from vajax.analysis.spineax_solver import is_spineax_available
+          print('is_spineax_available():', is_spineax_available())
+          "
+
+      # ── Run benchmarks ──────────────────────────────────────────
+      - name: Run benchmarks
+        env:
+          JAX_PLATFORMS: ${{ matrix.platform == 'cuda' && 'cuda,cpu' || 'cpu' }}
           JAX_ENABLE_X64: "1"
           VAJAX_NO_PROGRESS: "1"
           JAX_LOG_COMPILES: "1"
-          JAX_EXPLAIN_CACHE_MISSES: "1"
+          XLA_FLAGS: ${{ matrix.platform == 'cuda' && '--xla_gpu_autotune_level=0' || '' }}
+          XLA_PYTHON_CLIENT_PREALLOCATE: ${{ matrix.platform == 'cuda' && 'false' || '' }}
+          XLA_PYTHON_CLIENT_ALLOCATOR: ${{ matrix.platform == 'cuda' && 'platform' || '' }}
+          TF_CPP_MIN_LOG_LEVEL: ${{ matrix.platform == 'cuda' && '2' || '' }}
+          VACASK_BIN: ${{ github.workspace }}/vendor/VACASK/build/simulator/vacask
         run: |
-          echo "Running VAJAX vs VACASK comparison (${{ matrix.name }})..."
+          SPARSE_FLAG=""
+          GPU_FLAG=""
+          PROFILE_FLAGS=""
+
+          if [ "${{ matrix.solver }}" = "sparse" ]; then
+            SPARSE_FLAG="--use-sparse"
+          fi
+
+          if [ "${{ matrix.platform }}" = "cuda" ]; then
+            GPU_FLAG="--force-gpu --analyze"
+            if [ "${{ matrix.solver }}" = "sparse" ]; then
+              PROFILE_FLAGS="--profile-mode jax --profile-dir /tmp/vajax-traces"
+            fi
+          fi
+
+          echo "Running benchmarks (${{ matrix.solver }}-${{ matrix.platform }})..."
           echo "Benchmarks: ${{ matrix.benchmarks }}"
+
+          set +e
           uv run python scripts/compare_vacask.py \
             --benchmark ${{ matrix.benchmarks }} \
             --use-scan \
-            --use-sparse \
-            --json-output /tmp/benchmark-summary.json 2>&1 | tee /tmp/benchmark-comparison.log || true
+            $SPARSE_FLAG \
+            $GPU_FLAG \
+            $PROFILE_FLAGS \
+            --json-output /tmp/benchmark-summary.json 2>&1 | tee /tmp/benchmark-comparison.log
+          BENCHMARK_STATUS=${PIPESTATUS[0]}
+          set -e
 
+          BENCHMARK_OK=false
+          if grep -q "Summary (per-step timing)" /tmp/benchmark-comparison.log 2>/dev/null; then
+            BENCHMARK_OK=true
+            echo "Benchmarks completed successfully"
+          fi
+
+          if [ $BENCHMARK_STATUS -ne 0 ]; then
+            echo "Benchmark script exited with status $BENCHMARK_STATUS"
+            if [ "$BENCHMARK_OK" = true ]; then
+              echo "Benchmark completed - likely a cleanup error, treating as success"
+            else
+              echo "ERROR: Benchmarks did not complete"
+              exit $BENCHMARK_STATUS
+            fi
+          fi
+
+      # ── Post-benchmark checks ────────────────────────────────────
       - name: Check for JIT recompilation
         if: always()
         run: |
           if [ -f /tmp/benchmark-comparison.log ]; then
-            # Count total compilations in the benchmark run
             TOTAL=$(grep -c "Finished XLA compilation" /tmp/benchmark-comparison.log 2>/dev/null || echo 0)
             echo "Total XLA compilations: $TOTAL"
 
-            # Each benchmark in the job legitimately compiles simulation functions
-            # with different shapes, so we expect up to N_BENCHMARKS compilations
-            # per function. Only warn if a function compiles MORE than that.
             N_BENCHMARKS=$(echo "${{ matrix.benchmarks }}" | tr ',' '\n' | wc -l | tr -d ' ')
             echo "Benchmarks in this job: $N_BENCHMARKS"
 
-            # Filter to simulation-critical functions (exclude JAX primitives like add, multiply, etc.)
-            # JAX primitives recompile with different shapes during setup — this is expected.
-            # We only care about our own simulation functions recompiling unexpectedly.
             SIMULATION_FNS=$(grep "Finished XLA compilation" /tmp/benchmark-comparison.log 2>/dev/null | \
               sed 's/.*of jit(\([^)]*\)).*/\1/' | \
               grep -E '(full_mna|nr_solve|scan_body|step_fn|transient|simulate|warmup|_solve_step|_time_step)' || true)
@@ -274,7 +410,6 @@ jobs:
 
               echo "Simulation function compilations: $TOTAL_SIM (unique: $UNIQUE_SIM, expected per fn: <=$N_BENCHMARKS)"
 
-              # Find functions that compiled more times than the number of benchmarks
               UNEXPECTED=$(echo "$SIMULATION_FNS" | sort | uniq -c | sort -rn | \
                 awk -v max="$N_BENCHMARKS" '$1 > max {print "  " $1 "x: " $2 " (expected <=" max ")"}')
 
@@ -291,12 +426,8 @@ jobs:
             fi
           fi
 
-      # Report XLA compilation cache status
       - name: Report XLA cache status
         if: always()
-        env:
-          JAX_PLATFORMS: cpu
-          JAX_ENABLE_X64: "1"
         run: |
           echo "=== XLA Compilation Cache Status ==="
           echo "Cache directory: ${JAX_COMPILATION_CACHE_DIR}"
@@ -310,46 +441,42 @@ jobs:
             echo "Cache directory not found (first run or cache miss)"
           fi
 
-      # Generate comparison summary for GitHub step output
+      # ── Summary ─────────────────────────────────────────────────
       - name: Generate comparison summary
         if: always()
         run: |
           {
-            echo "## Benchmark Comparison: ${{ matrix.name }}"
+            echo "## Benchmark: ${{ matrix.solver }}-${{ matrix.platform }}"
             echo ""
             echo "### Environment"
-            echo "- **Platform**: CPU (GitHub Actions runner)"
-            echo "- **JAX Backend**: cpu"
+            echo "- **Platform**: ${{ matrix.platform == 'cuda' && 'GPU (nvidia-runner-1)' || 'CPU (GitHub Actions runner)' }}"
+            echo "- **JAX Backend**: ${{ matrix.platform }}"
+            echo "- **Solver**: ${{ matrix.solver }}"
             echo "- **Mode**: lax.scan (JIT-compiled)"
             echo "- **Benchmarks**: ${{ matrix.benchmarks }}"
             echo ""
 
-            # Report VACASK result comparison tests (standard only)
+            # VACASK result accuracy (CPU dense only)
             if [ -f "/tmp/vacask-result-tests.log" ]; then
               echo "### Result Accuracy (vs VACASK)"
               echo ""
               echo "| Benchmark | Solver | RMS Error | Threshold | Status |"
               echo "|-----------|--------|-----------|-----------|--------|"
 
-              # Parse log: "BENCH comparison summary:" followed by "  solver: X.XX% (max allowed: Y%)"
-              # Use awk to track current benchmark name
               awk '
                 /comparison summary:/ {
-                  # Extract benchmark name (uppercase, before "comparison")
                   match($0, /([A-Z0-9_]+) comparison summary/, arr)
                   if (arr[1] != "") bench = tolower(arr[1])
                 }
                 /: [0-9]+\.[0-9]+% \(max allowed: [0-9]+%\)/ {
-                  # Extract solver, rms, threshold
                   match($0, /([a-z]+): ([0-9.]+)% \(max allowed: ([0-9]+)%\)/, arr)
                   if (arr[1] != "") {
                     printf "| %s | %s | %s%% | %s%% | PASS |\n", bench, arr[1], arr[2], arr[3]
-                    bench = ""  # Only show benchmark name on first line
+                    bench = ""
                   }
                 }
               ' /tmp/vacask-result-tests.log
 
-              # Also show xfail/skip/fail status for benchmarks
               grep -oP 'test_transient_matches_vacask\[\K[^\]]+' /tmp/vacask-result-tests.log | sort -u | while read -r bench; do
                 if grep -q "test_transient_matches_vacask\[${bench}\].*XFAIL" /tmp/vacask-result-tests.log; then
                   echo "| ${bench} | - | - | - | XFAIL |"
@@ -361,9 +488,7 @@ jobs:
               echo ""
             fi
 
-            # Extract and display the comparison output
             if [ -f "/tmp/benchmark-comparison.log" ]; then
-              # Check if VACASK was available and working
               if grep -q "VACASK binary: NOT FOUND" /tmp/benchmark-comparison.log; then
                 echo "### VACASK Binary Not Found"
                 echo ""
@@ -372,11 +497,7 @@ jobs:
               elif grep -q "\.osdi' not found" /tmp/benchmark-comparison.log; then
                 echo "### VACASK OSDI Files Missing"
                 echo ""
-                echo "VACASK binary exists but OSDI device files are missing."
-                echo "openvaf-r OSDI compilation fails on Linux/LLVM18 (known upstream issue)."
-                echo "VAJAX benchmarks ran successfully - showing VAJAX only results."
-                echo ""
-                echo "For full comparison results, run locally on macOS."
+                echo "OSDI device files are missing. VAJAX-only results shown."
                 echo ""
               fi
 
@@ -385,7 +506,6 @@ jobs:
               echo "| Benchmark | Steps | VAJAX (ms/step) | VACASK (ms/step) | Ratio |"
               echo "|-----------|-------|---------------------|------------------|-------|"
 
-              # Parse the per-step summary table from the log
               grep -A 10 "Summary (per-step timing)" /tmp/benchmark-comparison.log | \
                 grep "^|" | tail -n +3 | while read -r line; do
                 echo "$line"
@@ -397,7 +517,6 @@ jobs:
               echo "| Benchmark | Steps | VAJAX (ms) | VACASK (ms) | Ratio |"
               echo "|-----------|-------|----------------|-------------|-------|"
 
-              # Parse the total time summary table from the log
               grep -A 10 "Summary (total wall time)" /tmp/benchmark-comparison.log | \
                 grep "^|" | tail -n +3 | while read -r line; do
                 echo "$line"
@@ -414,11 +533,12 @@ jobs:
             fi
           } >> "$GITHUB_STEP_SUMMARY"
 
+      # ── Artifacts ───────────────────────────────────────────────
       - name: Upload benchmark logs
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: benchmark-logs-${{ matrix.name }}
+          name: benchmark-logs-${{ matrix.solver }}-${{ matrix.platform }}
           path: |
             /tmp/benchmark-comparison.log
             /tmp/vacask-result-tests.log
@@ -427,6 +547,15 @@ jobs:
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: benchmark-summary-${{ matrix.name }}
+          name: benchmark-summary-${{ matrix.solver }}-${{ matrix.platform }}
           path: /tmp/benchmark-summary.json
           if-no-files-found: ignore
+
+      - name: Upload profiling traces
+        if: always() && matrix.platform == 'cuda' && matrix.solver == 'sparse'
+        uses: actions/upload-artifact@v4
+        with:
+          name: profiling-traces-${{ github.sha }}
+          path: /tmp/vajax-traces/
+          if-no-files-found: ignore
+          retention-days: 30
