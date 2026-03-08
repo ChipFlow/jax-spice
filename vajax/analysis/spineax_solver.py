@@ -28,8 +28,10 @@ try:
 
     _SPINEAX_AVAILABLE = True
     logger.info("Spineax (cuDSS) solver available")
-except ImportError:
-    logger.debug("Spineax not available, will use JAX spsolve fallback")
+except Exception as e:
+    # Catch broadly: ImportError (missing package), SyntaxError (corrupted wheel),
+    # OSError (missing shared library), etc.
+    logger.debug(f"Spineax not available ({type(e).__name__}: {e}), will use fallback")
 
 
 def is_spineax_available() -> bool:
