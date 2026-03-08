@@ -162,7 +162,43 @@ jobs:
           print('is_spineax_available():', is_spineax_available())
           "
 
-      - name: Run GPU benchmarks
+      - name: Run GPU benchmarks (standard)
+        timeout-minutes: 30
+        env:
+          JAX_PLATFORMS: cuda,cpu
+          XLA_FLAGS: "--xla_gpu_autotune_level=0"
+          XLA_PYTHON_CLIENT_PREALLOCATE: "false"
+          XLA_PYTHON_CLIENT_ALLOCATOR: platform
+          TF_CPP_MIN_LOG_LEVEL: "2"
+          JAX_LOG_COMPILES: "1"
+        run: |
+          set +e
+          uv run python scripts/compare_vacask.py \
+            --benchmark rc,graetz,mul,ring \
+            --use-scan \
+            --force-gpu \
+            --analyze \
+            --json-output /tmp/gpu-benchmark-standard.json 2>&1 | tee /tmp/benchmark_standard.txt
+          BENCHMARK_STATUS=${PIPESTATUS[0]}
+          set -e
+
+          BENCHMARK_OK=false
+          if grep -q "Summary (per-step timing)" /tmp/benchmark_standard.txt 2>/dev/null; then
+            BENCHMARK_OK=true
+            echo "Standard benchmarks completed successfully"
+          fi
+
+          if [ $BENCHMARK_STATUS -ne 0 ]; then
+            echo "Benchmark script exited with status $BENCHMARK_STATUS"
+            if [ "$BENCHMARK_OK" = true ]; then
+              echo "Benchmark completed - likely a CUDA cleanup error, treating as success"
+            else
+              echo "ERROR: Standard benchmarks did not complete"
+              exit $BENCHMARK_STATUS
+            fi
+          fi
+
+      - name: Run GPU benchmarks (large sparse)
         timeout-minutes: 300
         env:
           JAX_PLATFORMS: cuda,cpu
@@ -174,22 +210,21 @@ jobs:
         run: |
           set +e
           uv run python scripts/compare_vacask.py \
-            --benchmark rc,graetz,mul,ring,c6288,mul64 \
+            --benchmark c6288,mul64 \
             --use-scan \
             --use-sparse \
             --force-gpu \
             --analyze \
             --profile-mode jax \
             --profile-dir /tmp/vajax-traces \
-            --json-output /tmp/gpu-benchmark-summary.json 2>&1 | tee /tmp/benchmark_output.txt
+            --json-output /tmp/gpu-benchmark-large.json 2>&1 | tee /tmp/benchmark_large.txt
           BENCHMARK_STATUS=${PIPESTATUS[0]}
           set -e
 
-          # Check if benchmark completed by looking for success markers
           BENCHMARK_OK=false
-          if grep -q "Summary (per-step timing)" /tmp/benchmark_output.txt 2>/dev/null; then
+          if grep -q "Summary (per-step timing)" /tmp/benchmark_large.txt 2>/dev/null; then
             BENCHMARK_OK=true
-            echo "Benchmark completed successfully (found summary table)"
+            echo "Large benchmarks completed successfully"
           fi
 
           if [ $BENCHMARK_STATUS -ne 0 ]; then
@@ -197,7 +232,7 @@ jobs:
             if [ "$BENCHMARK_OK" = true ]; then
               echo "Benchmark completed - likely a CUDA cleanup error, treating as success"
             else
-              echo "ERROR: Benchmark did not complete"
+              echo "ERROR: Large benchmarks did not complete"
               exit $BENCHMARK_STATUS
             fi
           fi
@@ -205,41 +240,45 @@ jobs:
       - name: Extract benchmark comparison to summary
         if: always()
         run: |
-          if [ -f /tmp/benchmark_output.txt ]; then
-            {
-              echo "## VAJAX vs VACASK Benchmark Comparison (GPU)"
-              echo ""
-              echo "### Environment"
-              echo "- **Platform**: GPU (nvidia-runner-1)"
-              echo "- **Mode**: lax.scan (JIT-compiled)"
-              echo "- **Steps**: Full netlist duration"
-              echo ""
+          {
+            echo "## VAJAX vs VACASK Benchmark Comparison (GPU)"
+            echo ""
+            echo "### Environment"
+            echo "- **Platform**: GPU (nvidia-runner-1)"
+            echo "- **Mode**: lax.scan (JIT-compiled)"
+            echo "- **Steps**: Full netlist duration"
+            echo ""
 
-              echo "### Per-Step Timing"
-              echo ""
-              echo "| Benchmark | Steps | VAJAX (ms/step) | VACASK (ms/step) | Ratio |"
-              echo "|-----------|-------|---------------------|------------------|-------|"
+            for OUTPUT_FILE in /tmp/benchmark_standard.txt /tmp/benchmark_large.txt; do
+              if [ -f "$OUTPUT_FILE" ]; then
+                LABEL=$(basename "$OUTPUT_FILE" .txt | sed 's/benchmark_//')
+                echo "### Per-Step Timing ($LABEL)"
+                echo ""
+                echo "| Benchmark | Steps | VAJAX (ms/step) | VACASK (ms/step) | Ratio |"
+                echo "|-----------|-------|---------------------|------------------|-------|"
 
-              grep -A 10 "Summary (per-step timing)" /tmp/benchmark_output.txt | \
-                grep "^|" | tail -n +3 || true
+                grep -A 10 "Summary (per-step timing)" "$OUTPUT_FILE" | \
+                  grep "^|" | tail -n +3 || true
 
-              echo ""
-              echo "### Total Wall Time"
-              echo ""
-              echo "| Benchmark | Steps | VAJAX (ms) | VACASK (ms) | Ratio |"
-              echo "|-----------|-------|----------------|-------------|-------|"
+                echo ""
+                echo "### Total Wall Time ($LABEL)"
+                echo ""
+                echo "| Benchmark | Steps | VAJAX (ms) | VACASK (ms) | Ratio |"
+                echo "|-----------|-------|----------------|-------------|-------|"
 
-              grep -A 10 "Summary (total wall time)" /tmp/benchmark_output.txt | \
-                grep "^|" | tail -n +3 || true
+                grep -A 10 "Summary (total wall time)" "$OUTPUT_FILE" | \
+                  grep "^|" | tail -n +3 || true
 
-              echo ""
-              echo "### Interpretation"
-              echo ""
-              echo "- **Ratio < 1.0**: VAJAX is faster"
-              echo "- **Ratio > 1.0**: VAJAX is slower"
-              echo "- **N/A**: VACASK comparison not available"
-            } >> "$GITHUB_STEP_SUMMARY"
-          fi
+                echo ""
+              fi
+            done
+
+            echo "### Interpretation"
+            echo ""
+            echo "- **Ratio < 1.0**: VAJAX is faster"
+            echo "- **Ratio > 1.0**: VAJAX is slower"
+            echo "- **N/A**: VACASK comparison not available"
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Diagnose LTE divergence (V_new/V_pred at early steps)
         timeout-minutes: 10
@@ -292,7 +331,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: gpu-benchmark-summary
-          path: /tmp/gpu-benchmark-summary.json
+          path: /tmp/gpu-benchmark-*.json
           if-no-files-found: ignore
 
       - name: Upload profiling traces
