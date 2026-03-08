@@ -170,7 +170,7 @@ jobs:
           XLA_PYTHON_CLIENT_PREALLOCATE: "false"
           XLA_PYTHON_CLIENT_ALLOCATOR: platform
           TF_CPP_MIN_LOG_LEVEL: "2"
-          JAX_LOG_COMPILES: "1"
+          VAJAX_NO_PROGRESS: "1"
         run: |
           set +e
           uv run python scripts/compare_vacask.py \
@@ -206,7 +206,7 @@ jobs:
           XLA_PYTHON_CLIENT_PREALLOCATE: "false"
           XLA_PYTHON_CLIENT_ALLOCATOR: platform
           TF_CPP_MIN_LOG_LEVEL: "2"
-          JAX_LOG_COMPILES: "1"
+          VAJAX_NO_PROGRESS: "1"
         run: |
           set +e
           uv run python scripts/compare_vacask.py \
