@@ -14,6 +14,12 @@ except ModuleNotFoundError:
 
 logger = logging.getLogger("vajax")
 
+# Suppress JAX tracing cache miss warnings. These fire once per unique circuit
+# configuration because our NR solver uses closures in factory functions
+# (_make_nr_solver_common). Each circuit has different n_nodes/n_vsources/etc.,
+# so new closures are expected and the warnings are just noise.
+logging.getLogger("jax._src.interpreters.partial_eval").setLevel(logging.ERROR)
+
 
 def _get_xdg_cache_dir() -> Path:
     """Get XDG cache directory, following XDG Base Directory Specification.

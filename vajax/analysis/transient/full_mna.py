@@ -826,6 +826,10 @@ class FullMNAStrategy(TransientStrategy):
             # Note: The state may not be at DC equilibrium - this is expected for UIC
             # Use gmin from netlist options (default 1e-12)
             dc_gmin = getattr(self.runner.options, "gmin", 1e-12)
+            # Pass zero arrays (not None) for optional args to keep the pytree
+            # structure consistent with the NR solver's body_fn, avoiding JAX
+            # tracing cache misses from structure changes.
+            total_limit_states = self._total_limit_states
             _, _, Q_init, I_vsource_dc, _, _ = self._cached_build_system_jit(
                 X0,
                 vsource_vals_init,
@@ -837,10 +841,10 @@ class FullMNAStrategy(TransientStrategy):
                 0.0,
                 0.0,
                 0.0,
-                None,
+                jnp.zeros(n_unknowns, dtype=dtype),  # dQdt_prev
                 0.0,
-                None,
-                None,  # limit_state_in
+                jnp.zeros(n_unknowns, dtype=dtype),  # Q_prev2
+                jnp.zeros(total_limit_states, dtype=dtype),  # limit_state_in
                 1,  # nr_iteration=1 for initial Q computation (iniLim=1)
             )
             # No DC solve, so no historic max yet
