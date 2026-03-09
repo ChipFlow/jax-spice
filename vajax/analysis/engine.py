@@ -1015,10 +1015,13 @@ class CircuitEngine:
         # Extract sliced numpy results for TransientResult
         times_np, voltages, currents = extract_results(times_full, V_out, stats)
 
+        # Keep as numpy arrays — avoids creating dynamically-sized JAX arrays
+        # that trigger jit(dynamic_slice) recompilation on CUDA when n_steps
+        # varies between runs (the shape gets baked into the XLA kernel).
         return TransientResult(
-            times=jnp.asarray(times_np),
-            voltages={k: jnp.asarray(v) for k, v in voltages.items()},
-            currents={k: jnp.asarray(v) for k, v in currents.items()},
+            times=times_np,
+            voltages=voltages,
+            currents=currents,
             stats=stats,
         )
 

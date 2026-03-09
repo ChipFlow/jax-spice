@@ -35,6 +35,7 @@ import subprocess
 from vajax._logging import enable_performance_logging
 
 enable_performance_logging(with_memory=True, with_perf_counter=True)
+
 import re
 import sys
 import time
@@ -367,13 +368,11 @@ def run_vajax(
         print(
             f"AFTER_RUN_TRANSIENT: {after_transient:.6f} (elapsed: {after_transient - start:.6f}s)"
         )
-        # Force completion of async JAX operations
-        first_node = next(iter(result.voltages))
-        _ = float(result.voltages[first_node][0])
+        # Results are numpy arrays (materialized by block_until_ready in full_mna)
         end = time.perf_counter()
         external_elapsed = end - start
         print(
-            f"TIMED_RUN_END: {end:.6f} (elapsed: {external_elapsed:.6f}s, sync took: {end - after_transient:.6f}s)"
+            f"TIMED_RUN_END: {end:.6f} (elapsed: {external_elapsed:.6f}s, extract took: {end - after_transient:.6f}s)"
         )
 
         # Use wall_time from stats (excludes trace saving overhead)
