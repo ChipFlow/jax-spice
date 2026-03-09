@@ -176,12 +176,12 @@ jobs:
             # Generate key stats reports
             for report in cuda_gpu_kern_sum cuda_api_sum cuda_gpu_mem_time_sum cuda_gpu_mem_size_sum; do
               nsys stats "$REPORT" --report "$report" --format csv \
-                --output "${STATS_DIR}/${report}" 2>/dev/null || true
+                --force-export=true --output "${STATS_DIR}/${report}" 2>/dev/null || true
             done
 
             # Full kernel trace (top 100 by duration)
             nsys stats "$REPORT" --report cuda_gpu_trace --format csv \
-              --output "${STATS_DIR}/cuda_gpu_trace" 2>/dev/null || true
+              --force-export=true --output "${STATS_DIR}/cuda_gpu_trace" 2>/dev/null || true
           fi
 
       - name: Generate summary
@@ -199,17 +199,17 @@ jobs:
             if [ -f "$REPORT" ]; then
               echo "### GPU Kernel Summary"
               echo '```'
-              nsys stats "$REPORT" --report cuda_gpu_kern_sum 2>&1 | head -50 || true
+              nsys stats "$REPORT" --report cuda_gpu_kern_sum --force-export=true 2>&1 | head -50 || true
               echo '```'
               echo ""
               echo "### CUDA API Summary"
               echo '```'
-              nsys stats "$REPORT" --report cuda_api_sum 2>&1 | head -30 || true
+              nsys stats "$REPORT" --report cuda_api_sum --force-export=true 2>&1 | head -30 || true
               echo '```'
               echo ""
               echo "### GPU Memory Transfers"
               echo '```'
-              nsys stats "$REPORT" --report cuda_gpu_mem_time_sum 2>&1 | head -20 || true
+              nsys stats "$REPORT" --report cuda_gpu_mem_time_sum --force-export=true 2>&1 | head -20 || true
               echo '```'
             else
               echo "**No profile report found.**"
