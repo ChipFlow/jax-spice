@@ -119,7 +119,7 @@ jobs:
       - name: Run nsys profiling
         env:
           JAX_PLATFORMS: cuda,cpu
-          XLA_FLAGS: "--xla_gpu_autotune_level=0"
+          XLA_FLAGS: "--xla_gpu_autotune_level=0 --xla_gpu_enable_command_buffer=+WHILE,+CONDITIONAL"
           XLA_PYTHON_CLIENT_PREALLOCATE: "false"
           XLA_PYTHON_CLIENT_ALLOCATOR: platform
           TF_CPP_MIN_LOG_LEVEL: "2"
