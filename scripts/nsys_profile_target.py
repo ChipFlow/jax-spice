@@ -1,20 +1,17 @@
 #!/usr/bin/env python3
 """Target script for nsys GPU profiling - runs circuit simulation.
 
-Uses CUDA profiler API to capture ONLY the simulation run (not warmup/JIT).
-Run with nsys --capture-range=cudaProfilerApi to enable selective capture.
-
 Usage:
-    nsys profile --capture-range=cudaProfilerApi --capture-range-end=stop \\
-        -o profile uv run python scripts/nsys_profile_target.py ring 500
+    nsys profile -o profile uv run python scripts/nsys_profile_target.py ring 500
 
 Arguments:
     circuit: One of rc, graetz, mul, ring, c6288 (default: ring)
     timesteps: Number of timesteps to simulate (default: 500)
+
+Use 500+ timesteps so JIT warmup overhead is <5% of total profile.
 """
 
 import argparse
-import ctypes
 import sys
 from pathlib import Path
 
@@ -24,25 +21,6 @@ sys.path.insert(0, ".")
 
 # Import vajax first to auto-configure precision based on backend
 from vajax.analysis import CircuitEngine
-
-
-def _cuda_profiler_start():
-    """Start CUDA profiler capture via cudaProfilerStart()."""
-    try:
-        libcudart = ctypes.CDLL("libcudart.so")
-        libcudart.cudaProfilerStart()
-        return True
-    except OSError:
-        return False
-
-
-def _cuda_profiler_stop():
-    """Stop CUDA profiler capture via cudaProfilerStop()."""
-    try:
-        libcudart = ctypes.CDLL("libcudart.so")
-        libcudart.cudaProfilerStop()
-    except OSError:
-        pass
 
 
 def main():
@@ -102,7 +80,7 @@ def main():
     print(f"Using dt={dt}")
     print()
 
-    # Prepare (includes 1-step JIT warmup) — NOT profiled
+    # Prepare (includes 1-step JIT warmup)
     print(f"Preparing ({args.timesteps} timesteps, includes JIT warmup)...")
     engine.prepare(
         t_stop=args.timesteps * dt,
@@ -112,19 +90,10 @@ def main():
     print("Prepare complete")
     print()
 
-    # Start CUDA profiler capture — only the simulation run is profiled
-    has_profiler = _cuda_profiler_start()
-    if has_profiler:
-        print("CUDA profiler capture started (warmup excluded)")
-    else:
-        print("WARNING: cudaProfilerStart() unavailable — profiling entire process")
-
+    # Profiled run — nsys captures everything including warmup above,
+    # but with 500+ steps the warmup is a small fraction of total time
     print(f"Starting profiled run ({args.timesteps} timesteps)...")
     result = engine.run_transient()
-
-    # Stop CUDA profiler capture
-    if has_profiler:
-        _cuda_profiler_stop()
 
     print()
     print(f"Completed: {result.num_steps} timesteps")

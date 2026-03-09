@@ -141,14 +141,12 @@ jobs:
           echo "Sparse: ${{ inputs.sparse }}"
           echo "Commit: ${{ github.sha }}"
 
-          # Use cudaProfilerApi capture range to profile ONLY the simulation run
-          # (excludes JIT warmup, module loading, memory allocation setup)
-          # Tolerate exit code 139 (SIGSEGV during JAX/CUDA teardown) — the nsys
-          # report is still valid if "Capture range ended" was logged
+          # Full capture with enough timesteps (500+) that warmup overhead is <5%
+          # Note: cudaProfilerApi capture range doesn't work with JAX/XLA — XLA uses
+          # its own CUDA runtime internally, so ctypes cudaProfilerStart() has no effect
+          # Tolerate exit code 139 (SIGSEGV during JAX/CUDA teardown)
           nsys profile \
             --trace=cuda,nvtx,osrt \
-            --capture-range=cudaProfilerApi \
-            --capture-range-end=stop \
             --output "/tmp/${PROFILE_NAME}" \
             uv run python scripts/nsys_profile_target.py \
               ${{ inputs.circuit }} ${{ inputs.timesteps }} ${SPARSE_FLAG} \
