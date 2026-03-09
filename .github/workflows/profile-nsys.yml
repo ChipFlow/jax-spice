@@ -131,6 +131,9 @@ jobs:
 
           TIMESTAMP=$(date +%s)
           PROFILE_NAME="nsys-${{ inputs.circuit }}-${TIMESTAMP}"
+          # Export profile_name early so subsequent steps can find the report
+          # even if nsys exits non-zero (e.g. SIGSEGV during teardown)
+          echo "profile_name=${PROFILE_NAME}" >> "$GITHUB_ENV"
 
           echo "=== Starting nsys GPU Profiling ==="
           echo "Circuit: ${{ inputs.circuit }}"
@@ -158,8 +161,6 @@ jobs:
               exit 1
             fi
           fi
-
-          echo "profile_name=${PROFILE_NAME}" >> "$GITHUB_ENV"
 
       - name: Export stats and SQLite
         if: always()
