@@ -141,9 +141,32 @@ jobs:
 
           echo "profile_name=${PROFILE_NAME}" >> "$GITHUB_ENV"
 
+      - name: Export stats and SQLite
+        if: always()
+        run: |
+          REPORT="/tmp/${profile_name}.nsys-rep"
+          STATS_DIR="/tmp/nsys-stats"
+          mkdir -p "$STATS_DIR"
+
+          if [ -f "$REPORT" ]; then
+            # Export to SQLite for offline analysis
+            nsys export --type=sqlite --output="/tmp/${profile_name}.sqlite" "$REPORT" || true
+
+            # Generate key stats reports
+            for report in cuda_gpu_kern_sum cuda_api_sum cuda_gpu_mem_time_sum cuda_gpu_mem_size_sum; do
+              nsys stats "$REPORT" --report "$report" --format csv \
+                --output "${STATS_DIR}/${report}" 2>/dev/null || true
+            done
+
+            # Full kernel trace (top 100 by duration)
+            nsys stats "$REPORT" --report cuda_gpu_trace --format csv \
+              --output "${STATS_DIR}/cuda_gpu_trace" 2>/dev/null || true
+          fi
+
       - name: Generate summary
         if: always()
         run: |
+          REPORT="/tmp/${profile_name}.nsys-rep"
           {
             echo "## nsys GPU Profiling Results"
             echo ""
@@ -152,20 +175,34 @@ jobs:
             echo "**Sparse:** ${{ inputs.sparse }}"
             echo "**Commit:** \`${{ github.sha }}\`"
             echo ""
-            if [ -f "/tmp/${profile_name}.nsys-rep" ]; then
-              echo "### Profile Summary"
+            if [ -f "$REPORT" ]; then
+              echo "### GPU Kernel Summary"
+              echo '```'
+              nsys stats "$REPORT" --report cuda_gpu_kern_sum 2>&1 | head -50 || true
+              echo '```'
               echo ""
+              echo "### CUDA API Summary"
               echo '```'
-              nsys stats "/tmp/${profile_name}.nsys-rep" --report cuda_gpu_kern_sum 2>&1 | head -40 || true
+              nsys stats "$REPORT" --report cuda_api_sum 2>&1 | head -30 || true
               echo '```'
+              echo ""
+              echo "### GPU Memory Transfers"
+              echo '```'
+              nsys stats "$REPORT" --report cuda_gpu_mem_time_sum 2>&1 | head -20 || true
+              echo '```'
+            else
+              echo "**No profile report found.**"
             fi
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Upload nsys report
+      - name: Upload nsys report and stats
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: nsys-profile-${{ inputs.circuit }}-${{ github.sha }}
-          path: /tmp/nsys-*.nsys-rep
+          path: |
+            /tmp/nsys-*.nsys-rep
+            /tmp/nsys-*.sqlite
+            /tmp/nsys-stats/
           if-no-files-found: ignore
           retention-days: 30
