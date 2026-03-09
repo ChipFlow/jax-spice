@@ -248,6 +248,101 @@ These functions are for debugging/output and are safely ignored during simulatio
 
 ---
 
+## VAMS LRM Semantics: Variability and Temperature
+
+### Simparam Variability (Static vs Dynamic)
+
+The VAMS LRM 2023 does **not** explicitly classify simparams as "constant during simulation"
+vs "varying per iteration." Table 9-27 only provides units and descriptions. However, the
+descriptions implicitly reveal which must vary:
+
+**Implicitly dynamic** (must change during simulation for their described purpose):
+
+| Parameter | Why it must vary |
+|-----------|-----------------|
+| `iteration` | "Iteration number of the analog solver" — changes each NR iteration |
+| `gdev` | "Conductance homotopy convergence algorithm" — ramped during homotopy |
+| `gmin` | "Minimum conductance" — may be ramped during gmin stepping |
+| `sourceScaleFactor` | "Source stepping homotopy" — ramped during source stepping |
+
+**Implicitly static** (fixed for a simulation run):
+
+| Parameter | Why it's static |
+|-----------|----------------|
+| `tnom` | "Default value of temperature at which model parameters were extracted" |
+| `simulatorVersion` / `simulatorSubversion` | Version numbers |
+| `scale` / `shrink` | Geometry factors set at elaboration |
+| `timeUnit` / `timePrecision` | From `'timescale`, fixed at elaboration |
+| `imelt` | Device failure threshold, not a control knob |
+| `imax` | Linearization threshold (could vary per solver phase, but unusual) |
+
+> **Note**: The LRM explicitly states that hierarchy detection functions (`$param_given`,
+> `$port_connected`) are "constant during a simulation; the value is fixed during
+> elaboration" (Section 9.19). No equivalent statement exists for `$simparam` — the
+> variability is left to the simulator's discretion.
+
+### `$temperature` Semantics
+
+The LRM definition (Section 9.15) is minimal:
+
+> `$temperature` does not take any input arguments and returns the circuit's ambient
+> temperature in Kelvin units.
+
+The spec does **not** address:
+- Whether `$temperature` can change during a transient simulation
+- Whether it is constant per analysis run
+- Whether it can vary per instance (self-heating)
+- How it relates to `$simparam("tnom")`
+
+In practice, commercial simulators (Spectre, HSPICE) treat `$temperature` as constant per
+analysis point, but allow temperature sweeps across analysis runs.
+
+### Self-Heating
+
+The term "self-heating" does not appear anywhere in the VAMS LRM 2023. However, the LRM
+provides the mechanism for self-heating through the standard `thermal` discipline defined
+in Annex D:
+
+```verilog
+nature Temperature;
+    units = "K";
+    access = Temp;
+    abstol = 1e-4;
+endnature
+
+nature Power;
+    units = "W";
+    access = Pwr;
+    abstol = 1e-9;
+endnature
+
+discipline thermal;
+    potential Temperature;
+    flow Power;
+enddiscipline
+```
+
+Compact models (PSP103, BSIM-CMG) implement self-heating by:
+1. Declaring a thermal node with the `thermal` discipline
+2. Contributing power dissipation as a flow to that node
+3. Reading back the node temperature via `Temp()` access function
+4. Using that temperature instead of `$temperature` for device equations
+
+The LRM does not describe this pattern or explain the relationship between `$temperature`
+(ambient) and thermal node temperature (device). This is entirely a compact model design
+convention.
+
+### Implications for VAJAX
+
+| Aspect | Current handling | LRM guidance |
+|--------|-----------------|--------------|
+| `$temperature` | Static per simulation | Correct for non-self-heating models |
+| Homotopy simparams | Not implemented | `gdev`, `sourceScaleFactor` would need to vary per iteration |
+| `iteration` simparam | Returns default (10) | Should track actual NR iteration count |
+| Thermal nodes | Not supported | Would need `thermal` discipline support for self-heating models |
+
+---
+
 ## Gap Analysis
 
 ### Currently Missing in JAX Path
