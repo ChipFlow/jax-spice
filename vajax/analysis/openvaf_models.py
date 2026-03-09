@@ -915,22 +915,27 @@ def prepare_static_inputs(
             shared_cache_indices = []
             varying_cache_indices = []
 
-        # Split cache arrays (needed before eval codegen for inlining)
+        # Split cache arrays
         shared_cache = cache[0, shared_cache_indices]
         device_cache = cache[:, varying_cache_indices]
 
-        # Prepare concrete values for branch specialization:
-        # Inline shared params and shared cache as Python literals in the
-        # generated eval function. JAX tracing evaluates constant expressions
-        # at trace time, so downstream jnp.where(const_bool, a, b) only
-        # traces the taken branch — eliminating all static-param branches.
-        concrete_shared_values = shared_params_list  # already List[float]
-        concrete_shared_cache_values = [float(v) for v in np.asarray(shared_cache)]
-        logger.info(
-            f"{model_type}: branch specialization: inlining "
-            f"{len(concrete_shared_values)} shared params + "
-            f"{len(concrete_shared_cache_values)} shared cache values as literals"
+        # Build SCCP known values for dead-block elimination.
+        # Shared params and cache are constant per simulation, so SCCP can
+        # resolve static branches and eliminate dead MIR blocks at codegen time.
+        # NOTE: values are used for SCCP analysis only — NOT inlined as literals
+        # in generated code (literal inlining causes 7.8x GPU regression).
+        shared_cache_values = [float(v) for v in np.asarray(shared_cache)]
+        sccp_known_values = translator.build_sccp_known_values(
+            shared_indices,
+            shared_params_list,
+            shared_cache_indices,
+            shared_cache_values,
         )
+        if sccp_known_values:
+            logger.info(
+                f"{model_type}: SCCP dead-block elimination with "
+                f"{len(sccp_known_values)} known values"
+            )
 
         # Generate eval function with cache split
         from vajax.analysis.limiting import fetlim, pnjlim
@@ -947,8 +952,7 @@ def prepare_static_inputs(
             varying_cache_indices,
             use_limit_functions=use_device_limiting,
             limit_param_map=limit_param_map,
-            concrete_shared_values=concrete_shared_values,
-            concrete_shared_cache=concrete_shared_cache_values,
+            sccp_known_values=sccp_known_values,
         )
         # Safety check: if limiting is enabled but lim_rhs could not be computed
         # (model uses inline limiting without $limit/BuiltinLimit calls), disable
@@ -969,8 +973,7 @@ def prepare_static_inputs(
                     varying_cache_indices,
                     use_limit_functions=False,
                     limit_param_map=limit_param_map,
-                    concrete_shared_values=concrete_shared_values,
-                    concrete_shared_cache=concrete_shared_cache_values,
+                    sccp_known_values=sccp_known_values,
                 )
 
         split_fn = partial(split_fn, limit_funcs=limit_funcs)
