@@ -140,13 +140,24 @@ jobs:
 
           # Use cudaProfilerApi capture range to profile ONLY the simulation run
           # (excludes JIT warmup, module loading, memory allocation setup)
+          # Tolerate exit code 139 (SIGSEGV during JAX/CUDA teardown) — the nsys
+          # report is still valid if "Capture range ended" was logged
           nsys profile \
             --trace=cuda,nvtx,osrt \
             --capture-range=cudaProfilerApi \
             --capture-range-end=stop \
             --output "/tmp/${PROFILE_NAME}" \
             uv run python scripts/nsys_profile_target.py \
-              ${{ inputs.circuit }} ${{ inputs.timesteps }} ${SPARSE_FLAG}
+              ${{ inputs.circuit }} ${{ inputs.timesteps }} ${SPARSE_FLAG} \
+            || NSYS_EXIT=$?
+
+          if [ "${NSYS_EXIT:-0}" -ne 0 ]; then
+            echo "::warning::nsys exited with code ${NSYS_EXIT} (139=SIGSEGV during teardown, report may still be valid)"
+            if [ ! -f "/tmp/${PROFILE_NAME}.nsys-rep" ]; then
+              echo "::error::nsys report not generated"
+              exit 1
+            fi
+          fi
 
           echo "profile_name=${PROFILE_NAME}" >> "$GITHUB_ENV"
 
