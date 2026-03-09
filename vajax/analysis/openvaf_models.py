@@ -919,23 +919,16 @@ def prepare_static_inputs(
         shared_cache = cache[0, shared_cache_indices]
         device_cache = cache[:, varying_cache_indices]
 
-        # Build SCCP known values for dead-block elimination.
-        # Shared params and cache are constant per simulation, so SCCP can
-        # resolve static branches and eliminate dead MIR blocks at codegen time.
-        # NOTE: values are used for SCCP analysis only — NOT inlined as literals
-        # in generated code (literal inlining causes 7.8x GPU regression).
-        shared_cache_values = [float(v) for v in np.asarray(shared_cache)]
-        sccp_known_values = translator.build_sccp_known_values(
-            shared_indices,
-            shared_params_list,
-            shared_cache_indices,
-            shared_cache_values,
-        )
-        if sccp_known_values:
-            logger.info(
-                f"{model_type}: SCCP dead-block elimination with "
-                f"{len(sccp_known_values)} known values"
-            )
+        # SCCP dead-block elimination is DISABLED for the unified eval function.
+        # While SCCP can eliminate ~695/954 blocks for PSP103, the benefit is
+        # marginal (same code size, same XLA ops — XLA already CSEs branches).
+        # The cost is high: SCCP changes the JIT function hash, invalidating
+        # the persistent XLA compilation cache and adding ~99s cold-compile
+        # penalty for ring (49.5s × 2 compilations vs 0.58s cache hit).
+        # SCCP would be valuable for config-group-specialized eval functions
+        # where each group has a unique TYPE value, but that's deferred.
+        # Infrastructure is preserved in build_sccp_known_values() for reuse.
+        sccp_known_values = None
 
         # Generate eval function with cache split
         from vajax.analysis.limiting import fetlim, pnjlim
