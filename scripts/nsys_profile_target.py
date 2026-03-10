@@ -12,12 +12,16 @@ Use 500+ timesteps so JIT warmup overhead is <5% of total profile.
 """
 
 import argparse
+import logging
 import sys
 from pathlib import Path
 
 import jax
 
 sys.path.insert(0, ".")
+
+# Enable INFO logging so solver selection messages are visible
+logging.basicConfig(level=logging.INFO, format="%(name)s: %(message)s")
 
 # Import vajax first to auto-configure precision based on backend
 from vajax.analysis import CircuitEngine
@@ -56,6 +60,29 @@ def main():
     print(f"JAX devices: {jax.devices()}")
     print(f"Circuit: {args.circuit}")
     print(f"Timesteps: {args.timesteps}")
+
+    # Explicit solver availability check
+    print()
+    print("=== Solver Availability ===")
+    try:
+        from spineax.cudss.dense_baspacho_solver import is_available
+
+        print("  BaSpaCho dense import: OK")
+        print(f"  BaSpaCho dense available: {is_available()}")
+    except ImportError as e:
+        print(f"  BaSpaCho dense import: FAILED ({e})")
+    try:
+        from spineax.cudss.solver import CuDSSSolver  # noqa: F401
+
+        print("  cuDSS sparse import: OK")
+    except ImportError as e:
+        print(f"  cuDSS sparse import: FAILED ({e})")
+    try:
+        from spineax import baspacho_dense_solve as _mod
+
+        print(f"  baspacho_dense_solve C++ module: OK ({_mod})")
+    except ImportError as e:
+        print(f"  baspacho_dense_solve C++ module: FAILED ({e})")
     print()
 
     # Find benchmark .sim file
