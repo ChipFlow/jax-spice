@@ -75,7 +75,10 @@ jobs:
         with:
           packages: >-
             llvm-18-dev clang-18 libclang-18-dev lld-18
-            cuda-toolkit-12-6 libcudnn9-cuda-12 libcudss0-cuda-12
+            cuda-nvcc-12-6 cuda-cudart-dev-12-6 cuda-driver-dev-12-6
+            libcublas-dev-12-6 libcusolver-dev-12-6 libcusparse-dev-12-6
+            libnvjitlink-dev-12-6
+            libcudnn9-cuda-12 libcudss0-cuda-12
             cmake pkg-config swig
             libsuitesparse-dev libopenblas-dev
           apt-sources: |

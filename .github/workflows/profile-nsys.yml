@@ -69,7 +69,10 @@ jobs:
         with:
           packages: >-
             llvm-18-dev clang-18 libclang-18-dev lld-18
-            cuda-toolkit-12-6 libcudnn9-cuda-12 libcudss0-cuda-12
+            cuda-nvcc-12-6 cuda-cudart-dev-12-6 cuda-driver-dev-12-6
+            libcublas-dev-12-6 libcusolver-dev-12-6 libcusparse-dev-12-6
+            libnvjitlink-dev-12-6
+            libcudnn9-cuda-12 libcudss0-cuda-12
             cuda-nsight-systems-12-6
             libsuitesparse-dev libopenblas-dev swig cmake pkg-config
           # NVIDIA CUDA repo is already on the runner image (cuda-archive-keyring.gpg).
@@ -81,19 +84,6 @@ jobs:
       - name: Set up LLVM and CUDA environment
         run: |
           echo "LLVM_SYS_181_PREFIX=/usr/lib/llvm-18" >> $GITHUB_ENV
-
-          sudo ldconfig
-
-          # Diagnostic: check dpkg state and file existence
-          echo "=== dpkg status for key packages ==="
-          dpkg -l cuda-toolkit-12-6 cuda-nsight-systems-12-6 libcudss0-cuda-12 2>&1 | tail -5 || true
-          echo ""
-          echo "=== /usr/local/cuda* directories ==="
-          ls -la /usr/local/cuda* 2>/dev/null || echo "  (none)"
-          echo ""
-          echo "=== nvcc locations ==="
-          find / -name nvcc -type f 2>/dev/null | head -5 || echo "  (none)"
-          echo ""
 
           # Find CUDA toolkit (may be at /usr/local/cuda-12.6 or elsewhere)
           CUDA_ROOT=$(find /usr/local -maxdepth 1 -name "cuda-12*" -type d 2>/dev/null | sort -V | tail -1)
