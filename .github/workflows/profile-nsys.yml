@@ -136,7 +136,8 @@ jobs:
 
           uv pip install --reinstall --no-cache -v \
             "spineax-vajax @ git+https://github.com/robtaylor/spineax.git@main" \
-            -C cmake.define.SPINEAX_USE_BASPACHO=ON
+            -C cmake.define.SPINEAX_USE_BASPACHO=ON \
+            -C cmake.define.CUDAToolkit_ROOT=/usr/local/cuda-12.6
 
           # Verify the module was installed
           echo "=== Installed spineax files ==="
