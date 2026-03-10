@@ -10,9 +10,6 @@ concurrency:
   group: cuda-cache-test
   cancel-in-progress: false
 
-env:
-  SHELLOPTS: errexit:pipefail
-
 jobs:
   apt_upgrade_analysis:
     runs-on: nvidia-runner-1
@@ -31,96 +28,98 @@ jobs:
           echo "=== Pre-installed gcc-14-base ==="
           dpkg -s gcc-14-base 2>&1 | grep -E "^(Package|Version|Architecture)" || echo "(not installed)"
           dpkg -s gcc-14-base:i386 2>&1 | grep -E "^(Package|Version|Architecture)" || echo "(no i386 variant)"
+          echo ""
+          echo "=== Packages with pending upgrades ==="
+          apt list --upgradable 2>/dev/null | head -30 || true
         shell: bash
 
       - name: Simulate cuda-nvcc-12-6 install
         run: |
           sudo apt-get update -qq
 
-          echo "=== apt-get install --simulate cuda-nvcc-12-6 ==="
-          sudo apt-get install --simulate cuda-nvcc-12-6 2>&1 | tee /tmp/simulate-default.txt
+          # Upgrade lines: "Inst pkg [old_ver] (new_ver repo [arch])"
+          # New install:   "Inst pkg (new_ver repo [arch])"
+          echo "=== apt-get install --simulate --show-upgraded cuda-nvcc-12-6 ==="
+          sudo apt-get install --simulate --show-upgraded cuda-nvcc-12-6 2>&1 | tee /tmp/simulate-default.txt
           echo ""
 
-          echo "=== Summary: Inst (new) vs Inst (upgrade) ==="
-          echo "New installs:"
-          grep "^Inst " /tmp/simulate-default.txt | grep -v '\[' | wc -l
-          grep "^Inst " /tmp/simulate-default.txt | grep -v '\[' | head -20
+          echo "=== Summary ==="
+          echo "New installs: $(grep "^Inst " /tmp/simulate-default.txt | grep -cv "^Inst [^ ]* \[" || echo 0)"
+          echo "Upgrades:     $(grep -c "^Inst [^ ]* \[" /tmp/simulate-default.txt || echo 0)"
           echo ""
-          echo "Upgrades (have existing version in [brackets]):"
-          grep "^Inst " /tmp/simulate-default.txt | grep '\[' | wc -l
-          grep "^Inst " /tmp/simulate-default.txt | grep '\[' | head -20
+          echo "Upgraded packages:"
+          grep "^Inst [^ ]* \[" /tmp/simulate-default.txt || echo "(none)"
           echo ""
 
           echo "=== With --no-install-recommends ==="
-          sudo apt-get install --simulate --no-install-recommends cuda-nvcc-12-6 2>&1 | tee /tmp/simulate-no-recommends.txt
+          sudo apt-get install --simulate --show-upgraded --no-install-recommends cuda-nvcc-12-6 2>&1 | tee /tmp/simulate-no-recommends.txt
           echo ""
-          echo "New installs (no recommends):"
-          grep "^Inst " /tmp/simulate-no-recommends.txt | grep -v '\[' | wc -l
-          echo "Upgrades (no recommends):"
-          grep "^Inst " /tmp/simulate-no-recommends.txt | grep '\[' | wc -l
+          echo "New installs: $(grep "^Inst " /tmp/simulate-no-recommends.txt | grep -cv "^Inst [^ ]* \[" || echo 0)"
+          echo "Upgrades:     $(grep -c "^Inst [^ ]* \[" /tmp/simulate-no-recommends.txt || echo 0)"
         shell: bash
 
       - name: Simulate cuda-toolkit-12-6 install (full toolkit)
         run: |
-          echo "=== apt-get install --simulate cuda-toolkit-12-6 ==="
-          sudo apt-get install --simulate cuda-toolkit-12-6 2>&1 | tee /tmp/simulate-toolkit.txt
+          echo "=== apt-get install --simulate --show-upgraded cuda-toolkit-12-6 ==="
+          sudo apt-get install --simulate --show-upgraded cuda-toolkit-12-6 2>&1 | tee /tmp/simulate-toolkit.txt
           echo ""
 
           echo "=== Summary ==="
-          echo "Total packages:"
-          grep "^Inst " /tmp/simulate-toolkit.txt | wc -l
+          TOTAL=$(grep -c "^Inst " /tmp/simulate-toolkit.txt || echo 0)
+          NEW=$(grep "^Inst " /tmp/simulate-toolkit.txt | grep -cv "^Inst [^ ]* \[" || echo 0)
+          UPG=$(grep -c "^Inst [^ ]* \[" /tmp/simulate-toolkit.txt || echo 0)
+          echo "Total: ${TOTAL}  (New: ${NEW}, Upgrades: ${UPG})"
           echo ""
-          echo "New installs:"
-          grep "^Inst " /tmp/simulate-toolkit.txt | grep -v '\[' | wc -l
-          echo ""
-          echo "Upgrades:"
-          UPGRADES=$(grep "^Inst " /tmp/simulate-toolkit.txt | grep '\[' || true)
-          echo "$UPGRADES" | wc -l
-          echo "$UPGRADES"
+          echo "Upgraded packages:"
+          grep "^Inst [^ ]* \[" /tmp/simulate-toolkit.txt || echo "(none)"
           echo ""
 
           echo "=== With --no-install-recommends ==="
-          sudo apt-get install --simulate --no-install-recommends cuda-toolkit-12-6 2>&1 | tee /tmp/simulate-toolkit-no-rec.txt
+          sudo apt-get install --simulate --show-upgraded --no-install-recommends cuda-toolkit-12-6 2>&1 | tee /tmp/simulate-toolkit-no-rec.txt
           echo ""
-          echo "Total (no recommends):"
-          grep "^Inst " /tmp/simulate-toolkit-no-rec.txt | wc -l
-          echo "New installs (no recommends):"
-          grep "^Inst " /tmp/simulate-toolkit-no-rec.txt | grep -v '\[' | wc -l
-          echo "Upgrades (no recommends):"
-          grep "^Inst " /tmp/simulate-toolkit-no-rec.txt | grep '\[' | wc -l
+          TOTAL_NR=$(grep -c "^Inst " /tmp/simulate-toolkit-no-rec.txt || echo 0)
+          NEW_NR=$(grep "^Inst " /tmp/simulate-toolkit-no-rec.txt | grep -cv "^Inst [^ ]* \[" || echo 0)
+          UPG_NR=$(grep -c "^Inst [^ ]* \[" /tmp/simulate-toolkit-no-rec.txt || echo 0)
+          echo "Total: ${TOTAL_NR}  (New: ${NEW_NR}, Upgrades: ${UPG_NR})"
           echo ""
 
-          echo "=== Packages ONLY in default (i.e. Recommends) ==="
-          diff <(grep "^Inst " /tmp/simulate-toolkit-no-rec.txt | awk '{print $2}' | sort) \
-               <(grep "^Inst " /tmp/simulate-toolkit.txt | awk '{print $2}' | sort) \
-               | grep "^>" | sed 's/^> /  /' | head -40
+          echo "=== Recommends-only packages (${TOTAL} - ${TOTAL_NR} = $((TOTAL - TOTAL_NR))) ==="
+          comm -13 \
+            <(grep "^Inst " /tmp/simulate-toolkit-no-rec.txt | awk '{print $2}' | sort) \
+            <(grep "^Inst " /tmp/simulate-toolkit.txt | awk '{print $2}' | sort) \
+            | head -60
         shell: bash
 
       - name: Simulate vajax full package list
         run: |
-          echo "=== Simulating the full vajax package list ==="
           PKGS="llvm-18-dev clang-18 libclang-18-dev lld-18 libsuitesparse-dev libopenblas-dev swig cmake cuda-toolkit-12-6 cuda-nsight-systems-12-6 libcudnn9-cuda-12 libcudss0-cuda-12 pkg-config"
 
-          sudo apt-get install --simulate ${PKGS} 2>&1 | tee /tmp/simulate-vajax.txt
+          echo "=== apt-get install --simulate --show-upgraded ${PKGS} ==="
+          sudo apt-get install --simulate --show-upgraded ${PKGS} 2>&1 | tee /tmp/simulate-vajax.txt
           echo ""
-          echo "Total: $(grep "^Inst " /tmp/simulate-vajax.txt | wc -l)"
-          echo "New:   $(grep "^Inst " /tmp/simulate-vajax.txt | grep -v '\[' | wc -l)"
-          echo "Upgrades: $(grep "^Inst " /tmp/simulate-vajax.txt | grep '\[' | wc -l)"
+
+          TOTAL=$(grep -c "^Inst " /tmp/simulate-vajax.txt || echo 0)
+          NEW=$(grep "^Inst " /tmp/simulate-vajax.txt | grep -cv "^Inst [^ ]* \[" || echo 0)
+          UPG=$(grep -c "^Inst [^ ]* \[" /tmp/simulate-vajax.txt || echo 0)
+          echo "=== Summary ==="
+          echo "Total: ${TOTAL}  (New: ${NEW}, Upgrades: ${UPG})"
           echo ""
           echo "Upgraded packages:"
-          grep "^Inst " /tmp/simulate-vajax.txt | grep '\[' || echo "(none)"
+          grep "^Inst [^ ]* \[" /tmp/simulate-vajax.txt || echo "(none)"
           echo ""
 
-          sudo apt-get install --simulate --no-install-recommends ${PKGS} 2>&1 | tee /tmp/simulate-vajax-no-rec.txt
-          echo ""
           echo "=== With --no-install-recommends ==="
-          echo "Total: $(grep "^Inst " /tmp/simulate-vajax-no-rec.txt | wc -l)"
-          echo "New:   $(grep "^Inst " /tmp/simulate-vajax-no-rec.txt | grep -v '\[' | wc -l)"
-          echo "Upgrades: $(grep "^Inst " /tmp/simulate-vajax-no-rec.txt | grep '\[' | wc -l)"
+          sudo apt-get install --simulate --show-upgraded --no-install-recommends ${PKGS} 2>&1 | tee /tmp/simulate-vajax-no-rec.txt
+          echo ""
+          TOTAL_NR=$(grep -c "^Inst " /tmp/simulate-vajax-no-rec.txt || echo 0)
+          NEW_NR=$(grep "^Inst " /tmp/simulate-vajax-no-rec.txt | grep -cv "^Inst [^ ]* \[" || echo 0)
+          UPG_NR=$(grep -c "^Inst [^ ]* \[" /tmp/simulate-vajax-no-rec.txt || echo 0)
+          echo "Total: ${TOTAL_NR}  (New: ${NEW_NR}, Upgrades: ${UPG_NR})"
           echo ""
 
-          echo "=== Recommends-only packages ==="
-          diff <(grep "^Inst " /tmp/simulate-vajax-no-rec.txt | awk '{print $2}' | sort) \
-               <(grep "^Inst " /tmp/simulate-vajax.txt | awk '{print $2}' | sort) \
-               | grep "^>" | sed 's/^> /  /' | head -60
+          echo "=== Recommends-only packages (${TOTAL} - ${TOTAL_NR} = $((TOTAL - TOTAL_NR))) ==="
+          comm -13 \
+            <(grep "^Inst " /tmp/simulate-vajax-no-rec.txt | awk '{print $2}' | sort) \
+            <(grep "^Inst " /tmp/simulate-vajax.txt | awk '{print $2}' | sort) \
+            | head -80
         shell: bash
