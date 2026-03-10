@@ -76,7 +76,7 @@ jobs:
             https://apt.llvm.org/llvm-snapshot.gpg.key | deb http://apt.llvm.org/noble/ llvm-toolchain-noble-18 main
             https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/3bf863cc.pub | deb https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/ /
           execute_install_scripts: true
-          version: 1.1
+          version: 1.1-${{ inputs.runner }}
 
       - name: Set up LLVM and CUDA environment
         run: |
