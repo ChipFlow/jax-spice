@@ -27,12 +27,16 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Install LLVM 18
-        run: |
-          wget https://apt.llvm.org/llvm.sh
-          chmod +x llvm.sh
-          sudo ./llvm.sh 18
-          echo "LLVM_SYS_181_PREFIX=/usr/lib/llvm-18" >> $GITHUB_ENV
+      - name: Install apt dependencies
+        uses: robtaylor/cache-apt-pkgs-action@feat/apt-sources
+        with:
+          packages: llvm-18-dev clang-18 libclang-18-dev lld-18
+          apt-sources: |
+            https://apt.llvm.org/llvm-snapshot.gpg.key | deb http://apt.llvm.org/noble/ llvm-toolchain-noble-18 main
+          execute_install_scripts: true
+
+      - name: Set LLVM environment
+        run: echo "LLVM_SYS_181_PREFIX=/usr/lib/llvm-18" >> $GITHUB_ENV
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
@@ -110,12 +114,19 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Install LLVM 18
-        run: |
-          wget https://apt.llvm.org/llvm.sh
-          chmod +x llvm.sh
-          sudo ./llvm.sh 18
-          echo "LLVM_SYS_181_PREFIX=/usr/lib/llvm-18" >> $GITHUB_ENV
+      - name: Install apt dependencies
+        uses: robtaylor/cache-apt-pkgs-action@feat/apt-sources
+        with:
+          packages: >-
+            llvm-18-dev clang-18 libclang-18-dev lld-18
+            libsuitesparse-dev libopenblas-dev swig cmake
+            ${{ matrix.test-group.extra_packages }}
+          apt-sources: |
+            https://apt.llvm.org/llvm-snapshot.gpg.key | deb http://apt.llvm.org/noble/ llvm-toolchain-noble-18 main
+          execute_install_scripts: true
+
+      - name: Set LLVM environment
+        run: echo "LLVM_SYS_181_PREFIX=/usr/lib/llvm-18" >> $GITHUB_ENV
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
@@ -129,11 +140,6 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: openvaf_jax/openvaf_py
-
-      - name: Install system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libsuitesparse-dev libopenblas-dev swig cmake ${{ matrix.test-group.extra_packages }}
 
       - name: Install uv
         uses: astral-sh/setup-uv@v6
