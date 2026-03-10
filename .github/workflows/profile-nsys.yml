@@ -82,6 +82,15 @@ jobs:
         run: |
           echo "LLVM_SYS_181_PREFIX=/usr/lib/llvm-18" >> $GITHUB_ENV
 
+          # Ensure ldconfig and BLAS symlinks are correct after apt cache restore.
+          # The cache-apt-pkgs-action may restore .so files without the expected
+          # symlinks (e.g. libopenblas.so -> libopenblas.so.0), causing CMake's
+          # FindBLAS to fail. Running ldconfig regenerates the symlinks.
+          sudo ldconfig
+          echo "=== OpenBLAS library check ==="
+          ls -la /usr/lib/x86_64-linux-gnu/libopenblas* 2>/dev/null || echo "  (not found)"
+          ldconfig -p | grep openblas || echo "  (not in ldconfig)"
+
           # Diagnostic: check dpkg state and file existence
           echo "=== dpkg status for key packages ==="
           dpkg -l cuda-toolkit-12-6 cuda-nsight-systems-12-6 libcudss0-cuda-12 2>&1 | tail -5 || true
