@@ -162,7 +162,7 @@ jobs:
           echo ""
 
           echo "=== apt-get install --simulate --show-upgraded --no-install-recommends (with holds) ==="
-          sudo apt-get install --simulate --show-upgraded --no-install-recommends ${PKGS} 2>&1 | tee /tmp/simulate-held-norec.txt
+          sudo apt-get install --simulate --show-upgraded --no-install-recommends ${PKGS} 2>&1 | tee /tmp/simulate-held-norec.txt || true
           echo ""
 
           TOTAL=$(grep -c "^Inst " /tmp/simulate-held-norec.txt || echo 0)
@@ -176,8 +176,8 @@ jobs:
             echo "=== ERRORS ==="
             grep "^E:" /tmp/simulate-held-norec.txt
             echo ""
-            echo "=== Broken packages ==="
-            grep -B2 "^E:" /tmp/simulate-held-norec.txt || true
+            echo "=== Unmet deps ==="
+            grep "Depends:" /tmp/simulate-held-norec.txt || true
           else
             echo "=== SUCCESS: No errors with combined approach ==="
             echo ""
@@ -189,9 +189,14 @@ jobs:
           sudo xargs apt-mark unhold < /tmp/held.txt > /dev/null 2>&1
         shell: bash
 
-      - name: Simulate holds-only (for comparison)
+      - name: Simulate without clang-18 (holds only)
         run: |
-          PKGS="llvm-18-dev clang-18 libclang-18-dev lld-18 libsuitesparse-dev libopenblas-dev swig cmake cuda-toolkit-12-6 cuda-nsight-systems-12-6 libcudnn9-cuda-12 libcudss0-cuda-12 pkg-config"
+          # Drop clang-18 and libclang-18-dev — they pull in libobjc-13-dev
+          PKGS="llvm-18-dev lld-18 libsuitesparse-dev libopenblas-dev swig cmake cuda-toolkit-12-6 cuda-nsight-systems-12-6 libcudnn9-cuda-12 libcudss0-cuda-12 pkg-config"
+
+          echo "=== Package list (no clang-18, no libclang-18-dev): ==="
+          echo "${PKGS}"
+          echo ""
 
           echo "=== Holding all installed packages ==="
           dpkg-query -W -f='${Package}\n' > /tmp/held.txt
@@ -199,24 +204,57 @@ jobs:
           echo "Held $(wc -l < /tmp/held.txt) packages"
           echo ""
 
-          echo "=== apt-get install --simulate --show-upgraded (holds only, no --no-install-recommends) ==="
-          sudo apt-get install --simulate --show-upgraded ${PKGS} 2>&1 | tee /tmp/simulate-held.txt
+          echo "=== With holds only ==="
+          sudo apt-get install --simulate --show-upgraded ${PKGS} 2>&1 | tee /tmp/simulate-noclang-held.txt
           echo ""
 
-          TOTAL=$(grep -c "^Inst " /tmp/simulate-held.txt || echo 0)
-          NEW=$(grep "^Inst " /tmp/simulate-held.txt | grep -cv "^Inst [^ ]* \[" || echo 0)
-          UPG=$(grep -c "^Inst [^ ]* \[" /tmp/simulate-held.txt || echo 0)
-          echo "=== Summary (holds only) ==="
+          TOTAL=$(grep -c "^Inst " /tmp/simulate-noclang-held.txt || echo 0)
+          NEW=$(grep "^Inst " /tmp/simulate-noclang-held.txt | grep -cv "^Inst [^ ]* \[" || echo 0)
+          UPG=$(grep -c "^Inst [^ ]* \[" /tmp/simulate-noclang-held.txt || echo 0)
+          echo "=== Summary (no clang, holds) ==="
           echo "Total: ${TOTAL}  (New: ${NEW}, Upgrades: ${UPG})"
           echo ""
 
-          if grep -q "^E:" /tmp/simulate-held.txt; then
-            echo "=== ERRORS (holds only) ==="
-            grep "^E:" /tmp/simulate-held.txt
+          if grep -q "^E:" /tmp/simulate-noclang-held.txt; then
+            echo "=== ERRORS ==="
+            grep "^E:" /tmp/simulate-noclang-held.txt
+            echo ""
+            echo "=== Unmet deps ==="
+            grep "Depends:" /tmp/simulate-noclang-held.txt || true
           else
-            echo "=== SUCCESS: No errors with holds only ==="
+            echo "=== SUCCESS: No errors without clang + holds ==="
+            echo ""
+            echo "Upgraded packages:"
+            grep "^Inst [^ ]* \[" /tmp/simulate-noclang-held.txt || echo "(none)"
           fi
 
-          # Clean up holds
+          sudo xargs apt-mark unhold < /tmp/held.txt > /dev/null 2>&1
+          echo ""
+
+          echo "=== With holds + --no-install-recommends ==="
+          sudo xargs apt-mark hold < /tmp/held.txt > /dev/null 2>&1
+          sudo apt-get install --simulate --show-upgraded --no-install-recommends ${PKGS} 2>&1 | tee /tmp/simulate-noclang-held-norec.txt
+          echo ""
+
+          TOTAL2=$(grep -c "^Inst " /tmp/simulate-noclang-held-norec.txt || echo 0)
+          NEW2=$(grep "^Inst " /tmp/simulate-noclang-held-norec.txt | grep -cv "^Inst [^ ]* \[" || echo 0)
+          UPG2=$(grep -c "^Inst [^ ]* \[" /tmp/simulate-noclang-held-norec.txt || echo 0)
+          echo "=== Summary (no clang, holds, no-recommends) ==="
+          echo "Total: ${TOTAL2}  (New: ${NEW2}, Upgrades: ${UPG2})"
+          echo ""
+
+          if grep -q "^E:" /tmp/simulate-noclang-held-norec.txt; then
+            echo "=== ERRORS ==="
+            grep "^E:" /tmp/simulate-noclang-held-norec.txt
+            echo ""
+            echo "=== Unmet deps ==="
+            grep "Depends:" /tmp/simulate-noclang-held-norec.txt || true
+          else
+            echo "=== SUCCESS: No errors without clang + holds + no-recommends ==="
+            echo ""
+            echo "Upgraded packages:"
+            grep "^Inst [^ ]* \[" /tmp/simulate-noclang-held-norec.txt || echo "(none)"
+          fi
+
           sudo xargs apt-mark unhold < /tmp/held.txt > /dev/null 2>&1
         shell: bash
