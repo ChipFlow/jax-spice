@@ -127,7 +127,7 @@ jobs:
           # --reinstall forces rebuild even if same version is cached from PyPI.
           # --no-cache avoids reusing a wheel built without SPINEAX_USE_BASPACHO.
           # FetchContent auto-fetches BaSpaCho + deps (SuiteSparse, dispenso, Eigen).
-          uv pip install --reinstall --no-cache \
+          uv pip install --reinstall --no-cache -vvv \
             "spineax-vajax @ git+https://github.com/robtaylor/spineax.git@main" \
             -C cmake.define.SPINEAX_USE_BASPACHO=ON
 
