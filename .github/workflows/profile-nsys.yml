@@ -28,7 +28,7 @@ on:
 # Only one profiling job at a time on the GPU runner
 concurrency:
   group: nsys-profile
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 env:
   CARGO_TERM_COLOR: always
