@@ -134,6 +134,8 @@ jobs:
           # Verify the module was installed
           echo "=== Installed spineax files ==="
           python -c "import spineax; import pathlib; p = pathlib.Path(spineax.__file__).parent; [print(f'  {f.name}') for f in sorted(p.iterdir())]"
+          echo "=== spineax directory listing ==="
+          ls -lR .venv/lib/python*/site-packages/spineax/ || true
           echo "=== Checking baspacho_dense_solve import ==="
           python -c "from spineax import baspacho_dense_solve; print('  OK:', baspacho_dense_solve)" || echo "  FAILED"
 
