@@ -1,0 +1,143 @@
+name: CUDA Cache Restore Test (GPU Runner)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [debug/cuda-cache-test]
+
+# Only one job at a time on the GPU runner
+concurrency:
+  group: cuda-cache-test
+  cancel-in-progress: false
+
+env:
+  SHELLOPTS: errexit:pipefail
+
+jobs:
+  cuda_cache_test:
+    runs-on: nvidia-runner-1
+    timeout-minutes: 30
+    name: Test CUDA package cache on GPU runner
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Pre-install diagnostics
+        run: |
+          echo "=== Runner info ==="
+          uname -a
+          cat /etc/os-release | head -5
+          echo ""
+
+          echo "=== GPU Info ==="
+          nvidia-smi --query-gpu=name,driver_version,compute_cap --format=csv 2>/dev/null || echo "nvidia-smi not available"
+          echo ""
+
+          echo "=== Pre-existing CUDA packages ==="
+          dpkg -l | grep -i cuda | head -20 || echo "(none)"
+          echo ""
+
+          echo "=== Pre-existing CUDA directories ==="
+          ls -la /usr/local/cuda* 2>/dev/null || echo "(none)"
+          echo ""
+
+          echo "=== Pre-existing nvcc ==="
+          which nvcc 2>/dev/null && nvcc --version || echo "nvcc not in PATH"
+          find /usr/local -name nvcc -type f 2>/dev/null | head -5 || echo "(none on filesystem)"
+          echo ""
+
+          echo "=== Pre-existing nsys ==="
+          which nsys 2>/dev/null && nsys --version || echo "nsys not in PATH"
+          find /opt -name nsys -type f 2>/dev/null | head -5 || echo "(none in /opt)"
+          echo ""
+
+          echo "=== APT CUDA sources ==="
+          ls -la /etc/apt/sources.list.d/*cuda* /etc/apt/sources.list.d/*nvidia* 2>/dev/null || echo "(none)"
+          cat /etc/apt/sources.list.d/*cuda* /etc/apt/sources.list.d/*nvidia* 2>/dev/null || true
+          echo ""
+
+          echo "=== Keyring files ==="
+          ls -la /usr/share/keyrings/*cuda* /usr/share/keyrings/*nvidia* 2>/dev/null || echo "(none)"
+        shell: bash
+
+      - name: Install CUDA nvcc via cache action
+        id: install
+        uses: robtaylor/cache-apt-pkgs-action@feat/apt-sources
+        with:
+          packages: cuda-nvcc-12-6
+          version: cuda-gpu-runner-test-v1
+          execute_install_scripts: "true"
+          debug: "true"
+
+      - name: Post-install diagnostics
+        run: |
+          echo "=== cache-hit: ${{ steps.install.outputs.cache-hit }} ==="
+          echo ""
+
+          echo "=== dpkg status for cuda-nvcc-12-6 ==="
+          dpkg -s cuda-nvcc-12-6 2>&1 | head -10 || echo "NOT REGISTERED"
+          echo ""
+
+          echo "=== dpkg -L cuda-nvcc-12-6 (first 30 lines) ==="
+          dpkg -L cuda-nvcc-12-6 2>/dev/null | head -30 || echo "FAILED"
+          echo ""
+
+          echo "=== Symlink analysis for nvcc ==="
+          NVCC_PATH=$(dpkg -L cuda-nvcc-12-6 2>/dev/null | grep '/nvcc$' | head -1)
+          if [ -n "$NVCC_PATH" ]; then
+            echo "dpkg says nvcc is at: $NVCC_PATH"
+            echo "  exists: $(test -e "$NVCC_PATH" && echo YES || echo NO)"
+            echo "  is file: $(test -f "$NVCC_PATH" && echo YES || echo NO)"
+            echo "  is symlink: $(test -L "$NVCC_PATH" && echo YES || echo NO)"
+            if [ -L "$NVCC_PATH" ]; then
+              echo "  symlink target: $(readlink "$NVCC_PATH")"
+              echo "  resolved target: $(readlink -f "$NVCC_PATH")"
+              RESOLVED=$(readlink -f "$NVCC_PATH")
+              echo "  resolved exists: $(test -e "$RESOLVED" && echo YES || echo NO)"
+            fi
+            echo "  ls -la: $(ls -la "$NVCC_PATH" 2>&1)"
+          else
+            echo "nvcc not found in dpkg -L output"
+          fi
+          echo ""
+
+          echo "=== All symlinks in cuda-nvcc-12-6 ==="
+          dpkg -L cuda-nvcc-12-6 2>/dev/null | while IFS= read -r f; do
+            if [ -L "$f" ]; then
+              echo "  $f -> $(readlink "$f") (resolved: $(readlink -f "$f"), target exists: $(test -e "$(readlink -f "$f")" && echo YES || echo NO))"
+            fi
+          done || true
+          echo ""
+
+          echo "=== Directory symlinks in path to nvcc ==="
+          for p in /usr/local/cuda-12.6 /usr/local/cuda-12 /usr/local/cuda; do
+            if [ -e "$p" ] || [ -L "$p" ]; then
+              echo "  $p: $(ls -ld "$p" 2>&1)"
+            else
+              echo "  $p: DOES NOT EXIST"
+            fi
+          done
+          echo ""
+
+          echo "=== find nvcc on filesystem ==="
+          find /usr/local -name nvcc -type f 2>/dev/null | head -5 || echo "(none)"
+          find /usr/local -name nvcc -type l 2>/dev/null | head -5 || echo "(no symlinks)"
+          echo ""
+
+          echo "=== Check /usr/local/cuda-12.6/bin/ contents ==="
+          ls -la /usr/local/cuda-12.6/bin/ 2>/dev/null | head -20 || echo "DIRECTORY DOES NOT EXIST"
+          echo ""
+
+          echo "=== Tar file analysis ==="
+          if [ -d ~/cache-apt-pkgs ]; then
+            echo "Cache dir exists"
+            ls -lh ~/cache-apt-pkgs/cuda-nvcc-12-6*.tar 2>/dev/null || echo "No cuda-nvcc tar found"
+            echo ""
+            echo "=== Tar contents (first 30 entries) ==="
+            tar -tf ~/cache-apt-pkgs/cuda-nvcc-12-6*.tar 2>/dev/null | head -30 || echo "Cannot list tar"
+            echo ""
+            echo "=== Tar symlinks ==="
+            tar -tvf ~/cache-apt-pkgs/cuda-nvcc-12-6*.tar 2>/dev/null | grep "^l" | head -20 || echo "No symlinks in tar"
+          else
+            echo "Cache dir already cleaned up (expected on cache hit)"
+          fi
+        shell: bash
