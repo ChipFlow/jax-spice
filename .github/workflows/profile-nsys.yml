@@ -83,10 +83,12 @@ jobs:
           echo "LLVM_SYS_181_PREFIX=/usr/lib/llvm-18" >> $GITHUB_ENV
 
           # Workaround: cache-apt-pkgs-action may register dpkg metadata without
-          # actually restoring library files. Reinstall openblas if the .so is missing.
+          # actually restoring library files, and may create version conflicts
+          # between cached and pre-installed packages. Fix both issues.
           if ! ls /usr/lib/x86_64-linux-gnu/libopenblas* >/dev/null 2>&1; then
             echo "OpenBLAS .so missing after cache restore, reinstalling..."
-            sudo apt-get install -y --reinstall libopenblas-dev
+            sudo apt-get --fix-broken install -y || true
+            sudo apt-get install -y --reinstall libopenblas-dev libsuitesparse-dev
           fi
           sudo ldconfig
 
