@@ -154,10 +154,9 @@ jobs:
         run: |
           # Replace PyPI spineax with git version that has BaSpaCho dense solver.
           # --reinstall forces rebuild even if same version is cached from PyPI.
-          # --no-cache avoids reusing a wheel built without SPINEAX_USE_BASPACHO.
           # FetchContent auto-fetches BaSpaCho + deps (SuiteSparse, dispenso, Eigen).
           # sccache caches C++/CUDA compilation (BaSpaCho + SuiteSparse = 344 objects)
-          uv pip install --reinstall --no-cache -v \
+          uv pip install --reinstall -v \
             "spineax-vajax @ git+https://github.com/robtaylor/spineax.git@main" \
             -C cmake.define.SPINEAX_USE_BASPACHO=ON \
             -C cmake.define.CUDAToolkit_ROOT=${CUDAToolkit_ROOT:-/usr/local/cuda-12.6} \
@@ -200,13 +199,12 @@ jobs:
           echo "Sparse: ${{ inputs.sparse }}"
           echo "Commit: ${{ github.sha }}"
 
-          # Capture only the run_transient() window via NVTX range marker,
-          # excluding JIT warmup and Python startup overhead.
+          # NVTX "run_transient" marker annotates the transient window for filtering.
+          # Cannot use --capture-range=nvtx: SIGSEGV during JAX teardown prevents
+          # nsys from finalizing the report in NVTX capture mode.
           # Tolerate exit code 139 (SIGSEGV during JAX/CUDA teardown)
           nsys profile \
             --trace=cuda,nvtx,osrt \
-            --capture-range=nvtx \
-            --nvtx-capture="run_transient" \
             --output "/tmp/${PROFILE_NAME}" \
             uv run python scripts/nsys_profile_target.py \
               ${{ inputs.circuit }} ${{ inputs.timesteps }} ${SPARSE_FLAG} \

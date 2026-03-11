@@ -153,15 +153,15 @@ def main():
         _nvtx_push(b"run_transient")
 
     with timed("transient simulation"):
-        print(f"Starting profiled run ({args.timesteps} timesteps)...")
+        print(f"Starting profiled run ({args.timesteps} timesteps)...", flush=True)
         result = engine.run_transient()
 
     if _nvtx_pop:
         _nvtx_pop()
 
-    print()
-    print(f"Completed: {result.num_steps} timesteps")
-    print(f"Wall time: {result.stats.get('wall_time', 0):.3f}s")
+    print(flush=True)
+    print(f"Completed: {result.num_steps} timesteps", flush=True)
+    print(f"Wall time: {result.stats.get('wall_time', 0):.3f}s", flush=True)
 
 
 if __name__ == "__main__":
