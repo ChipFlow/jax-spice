@@ -94,6 +94,9 @@ jobs:
           if [ -n "$CUDA_ROOT" ]; then
             echo "${CUDA_ROOT}/bin" >> $GITHUB_PATH
             echo "CUDAToolkit_ROOT=${CUDA_ROOT}" >> $GITHUB_ENV
+            # CUDA runtime libs (cuSPARSE, cuFFT, etc.) live in lib64;
+            # JAX checks all of them at startup via dlopen.
+            echo "LD_LIBRARY_PATH=${CUDA_ROOT}/lib64:${LD_LIBRARY_PATH}" >> "$GITHUB_ENV"
             echo "CUDA found at: ${CUDA_ROOT}"
           else
             echo "::warning::CUDA toolkit not found under /usr/local"

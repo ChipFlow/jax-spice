@@ -139,6 +139,9 @@ jobs:
           fi
           if [ -n "$CUDA_ROOT" ]; then
             echo "${CUDA_ROOT}/bin" >> "$GITHUB_PATH"
+            # CUDA runtime libs (cuSPARSE, cuFFT, etc.) live in lib64;
+            # JAX checks all of them at startup via dlopen.
+            echo "LD_LIBRARY_PATH=${CUDA_ROOT}/lib64:${LD_LIBRARY_PATH}" >> "$GITHUB_ENV"
           fi
           CUDSS_LIB=$(dpkg -L libcudss0-cuda-12 2>/dev/null | grep '\.so' | head -1)
           if [ -n "$CUDSS_LIB" ]; then
