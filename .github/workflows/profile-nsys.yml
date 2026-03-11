@@ -181,6 +181,8 @@ jobs:
           XLA_PYTHON_CLIENT_PREALLOCATE: "false"
           XLA_PYTHON_CLIENT_ALLOCATOR: platform
           TF_CPP_MIN_LOG_LEVEL: "2"
+          # Debug: show which thunks prevent command buffer capture for while loops
+          TF_CPP_VLOG_FLAGS: "--vmodule=command_buffer_conversion_pass=2,command_buffer_cmd_emitter=2,while_thunk=3,command_buffer_cmd=5"
         run: |
           SPARSE_FLAG=""
           if [ "${{ inputs.sparse }}" = "true" ]; then
