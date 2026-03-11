@@ -12,6 +12,7 @@ Use 500+ timesteps so JIT warmup overhead is <5% of total profile.
 """
 
 import argparse
+import ctypes
 import logging
 import sys
 import time
@@ -139,11 +140,24 @@ def main():
     print("Prepare complete")
     print()
 
-    # Profiled run — nsys captures everything including warmup above,
-    # but with 500+ steps the warmup is a small fraction of total time
+    # NVTX range for nsys --capture-range=nvtx scoping
+    try:
+        _nvtx = ctypes.CDLL("libnvToolsExt.so")
+        _nvtx_push = _nvtx.nvtxRangePushA
+        _nvtx_push.argtypes = [ctypes.c_char_p]
+        _nvtx_pop = _nvtx.nvtxRangePop
+    except OSError:
+        _nvtx_push = _nvtx_pop = None
+
+    if _nvtx_push:
+        _nvtx_push(b"run_transient")
+
     with timed("transient simulation"):
         print(f"Starting profiled run ({args.timesteps} timesteps)...")
         result = engine.run_transient()
+
+    if _nvtx_pop:
+        _nvtx_pop()
 
     print()
     print(f"Completed: {result.num_steps} timesteps")

@@ -200,12 +200,13 @@ jobs:
           echo "Sparse: ${{ inputs.sparse }}"
           echo "Commit: ${{ github.sha }}"
 
-          # Full capture with enough timesteps (500+) that warmup overhead is <5%
-          # Note: cudaProfilerApi capture range doesn't work with JAX/XLA — XLA uses
-          # its own CUDA runtime internally, so ctypes cudaProfilerStart() has no effect
+          # Capture only the run_transient() window via NVTX range marker,
+          # excluding JIT warmup and Python startup overhead.
           # Tolerate exit code 139 (SIGSEGV during JAX/CUDA teardown)
           nsys profile \
             --trace=cuda,nvtx,osrt \
+            --capture-range=nvtx \
+            --nvtx-capture="run_transient" \
             --output "/tmp/${PROFILE_NAME}" \
             uv run python scripts/nsys_profile_target.py \
               ${{ inputs.circuit }} ${{ inputs.timesteps }} ${SPARSE_FLAG} \
