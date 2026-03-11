@@ -151,6 +151,7 @@ jobs:
         uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
+          prune-cache: false
           python-version: "3.12"
 
       - name: Set up Python
