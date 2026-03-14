@@ -265,10 +265,9 @@ def run_batched_benchmark(
     batch_sizes: List[int],
     n_iter: int = 100,
 ) -> List[Tuple[BenchmarkResult, BenchmarkResult]]:
-    """Run batched (vmap-equivalent) benchmark.
+    """Run batched benchmark: JAX vmap (CPU) vs MLX vmap (GPU).
 
-    JAX uses jax.vmap; MLX uses a Python loop (no vmap equivalent for
-    arbitrary functions, though mx.vmap exists for some ops).
+    Both backends use their native vmap for vectorized evaluation.
     """
     import jax
     import jax.numpy as jnp
@@ -278,52 +277,55 @@ def run_batched_benchmark(
     results = []
 
     for batch_size in batch_sizes:
-        # JAX: vmap over device_params
+        # JAX: vmap over device_params + device_cache
         jax_cache_single = model.jax_init_fn(jnp.array(model.init_meta["init_inputs"]))[0]
         jax_shared = jnp.array(model.eval_meta["shared_inputs"])
         jax_shared_cache = jnp.array([])
         jax_simparams = jnp.array([0.0, 1.0, 1e-12])
         jax_limit = jnp.zeros(1)
 
-        # Batch: replicate device_params and cache
         jax_device_batch = jnp.tile(jnp.array(voltages), (batch_size, 1))
         jax_cache_batch = jnp.tile(jax_cache_single, (batch_size, 1))
 
-        # vmap over (device_params, device_cache), broadcast rest
-        vmapped = jax.vmap(
+        jax_vmapped = jax.vmap(
             model.jax_eval_fn,
             in_axes=(None, 0, None, 0, None, None, None),
         )
-        jax_args = (jax_shared, jax_device_batch, jax_shared_cache, jax_cache_batch, jax_simparams, jax_limit, None)
+        jax_args = (jax_shared, jax_device_batch, jax_shared_cache, jax_cache_batch,
+                     jax_simparams, jax_limit, None)
 
         jax_res = BenchmarkResult(model=model.name, backend="JAX", batch_size=batch_size)
-        mean, std = _time_fn(vmapped, *jax_args, n_iter=n_iter)
+        mean, std = _time_fn(jax_vmapped, *jax_args, n_iter=n_iter)
         jax_res.batched_eval_mean_us = mean
         jax_res.batched_eval_std_us = std
 
-        # MLX: loop (or try mx.vmap if available)
-        mlx_cache_single = model.mlx_init_fn(mx.array(model.init_meta["init_inputs"], dtype=mx.float32))[0]
+        # MLX: vmap (wrapping to remove None limit_funcs arg)
+        mlx_cache_single = model.mlx_init_fn(
+            mx.array(model.init_meta["init_inputs"], dtype=mx.float32)
+        )[0]
         mx.eval(mlx_cache_single)
         mlx_shared = mx.array(model.eval_meta["shared_inputs"], dtype=mx.float32)
         mlx_shared_cache = mx.array([], dtype=mx.float32)
         mlx_simparams = mx.array([0.0, 1.0, 1e-12], dtype=mx.float32)
         mlx_limit = mx.zeros(1)
 
-        mlx_device_batch = [mx.array(voltages, dtype=mx.float32) for _ in range(batch_size)]
-        mlx_cache_batch = [mlx_cache_single for _ in range(batch_size)]
+        mlx_device_batch = mx.stack(
+            [mx.array(voltages, dtype=mx.float32)] * batch_size
+        )
+        mlx_cache_batch = mx.stack([mlx_cache_single] * batch_size)
 
-        def mlx_batched_eval():
-            results = []
-            for i in range(batch_size):
-                r = model.mlx_eval_fn(
-                    mlx_shared, mlx_device_batch[i], mlx_shared_cache,
-                    mlx_cache_batch[i], mlx_simparams, mlx_limit, None,
-                )
-                results.append(r)
-            return results
+        def _mlx_eval_no_limitfuncs(shared, device, sc, dc, sp, ls):
+            return model.mlx_eval_fn(shared, device, sc, dc, sp, ls, None)
+
+        mlx_vmapped = mx.vmap(
+            _mlx_eval_no_limitfuncs,
+            in_axes=(None, 0, None, 0, None, None),
+        )
+        mlx_args = (mlx_shared, mlx_device_batch, mlx_shared_cache, mlx_cache_batch,
+                     mlx_simparams, mlx_limit)
 
         mlx_res = BenchmarkResult(model=model.name, backend="MLX", batch_size=batch_size)
-        mean, std = _time_fn(mlx_batched_eval, n_iter=n_iter, eval_fn=lambda r: mx.eval([x for t in r for x in t]))
+        mean, std = _time_fn(mlx_vmapped, *mlx_args, n_iter=n_iter, eval_fn=mx.eval)
         mlx_res.batched_eval_mean_us = mean
         mlx_res.batched_eval_std_us = std
 
@@ -368,15 +370,15 @@ def print_batched_results(results: List[Tuple[BenchmarkResult, BenchmarkResult]]
         return
 
     print("\n" + "=" * 80)
-    print("BATCHED EVALUATION BENCHMARK (JAX vmap vs MLX loop)")
+    print("BATCHED EVALUATION BENCHMARK (JAX vmap CPU vs MLX vmap GPU)")
     print("=" * 80)
 
-    print(f"\n{'Model':<12} {'Batch':>6} {'JAX vmap (us)':>14} {'MLX loop (us)':>14} {'Speedup':>10}")
+    print(f"\n{'Model':<12} {'Batch':>6} {'JAX vmap (us)':>14} {'MLX vmap (us)':>14} {'Speedup':>10}")
     print("-" * 60)
 
     for jax_r, mlx_r in results:
-        speedup = mlx_r.batched_eval_mean_us / jax_r.batched_eval_mean_us if jax_r.batched_eval_mean_us > 0 else 0
-        winner = "JAX" if speedup > 1 else "MLX"
+        speedup = jax_r.batched_eval_mean_us / mlx_r.batched_eval_mean_us if mlx_r.batched_eval_mean_us > 0 else 0
+        winner = "MLX" if speedup > 1 else "JAX"
         print(f"{jax_r.model:<12} {jax_r.batch_size:>6} "
               f"{jax_r.batched_eval_mean_us:>13.1f} {mlx_r.batched_eval_mean_us:>13.1f} "
               f"  {winner} {max(speedup, 1/speedup):.1f}x")
