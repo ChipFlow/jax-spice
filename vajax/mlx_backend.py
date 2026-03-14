@@ -638,17 +638,16 @@ def make_mlx_nr_solver(
             if residual_conv_mask_mx is not None:
                 f_check = mx.where(residual_conv_mask_mx, f, mx.array(0.0, dtype=mx.float32))
 
-            mx.eval(f_check, res_tol)
-            max_f = float(mx.max(mx.abs(f_check)).item())
-            residual_converged = bool(mx.all(mx.abs(f_check) < res_tol).item())
-
-            # Enforce NOI and solve
+            # Enforce NOI and solve - batch all lazy ops before eval
             J, f_solve = enforce_noi(J, f)
-            mx.eval(J, f_solve)
-
             reg = 1e-14 * mx.eye(J.shape[0], dtype=mx.float32)
             delta = mx.linalg.solve(J + reg, -f_solve, stream=mx.cpu)
-            mx.eval(delta)
+
+            # Single eval for solve + convergence check inputs
+            mx.eval(f_check, res_tol, delta, limit_state_out)
+
+            max_f = float(mx.max(mx.abs(f_check)).item())
+            residual_converged = bool(mx.all(mx.abs(f_check) < res_tol).item())
 
             # Delta convergence (same formula as solver_factories)
             conv_delta = mx.concatenate([delta[:n_unknowns] * nr_damping, delta[n_unknowns:]])
@@ -656,6 +655,7 @@ def make_mlx_nr_solver(
             tol = mx.maximum(mx.abs(X_ref) * reltol, delta_abs_tol)
             if residual_mask_mx is not None:
                 conv_delta = mx.where(residual_mask_mx, conv_delta, mx.array(0.0, dtype=mx.float32))
+            mx.eval(conv_delta, tol)
             delta_converged = (iteration == 0) or bool(mx.all(mx.abs(conv_delta) < tol).item())
 
             # Update solution (same step limiting as solver_factories)
@@ -671,7 +671,7 @@ def make_mlx_nr_solver(
                 for noi_idx in noi_circuit_indices.tolist():
                     X[noi_idx] = mx.array(0.0, dtype=mx.float32)
 
-            mx.eval(X, limit_state_out)
+            mx.eval(X)
 
             # Convergence check using shared logic
             converged = check_nr_convergence(
@@ -697,7 +697,7 @@ def make_mlx_nr_solver(
         )
 
         dQdt_final = integ_c0 * Q_final + integ_c1 * Q_prev + integ_d1 * _dQdt_prev + integ_c2 * _Q_prev2
-        mx.eval(X, Q_final, dQdt_final, I_vsource, limit_state, max_res_contrib_final)
+        mx.eval(X, Q_final, dQdt_final, I_vsource, limit_state_out, max_res_contrib_final)
 
         return (X, final_iter, converged, max_f, Q_final, dQdt_final,
                 I_vsource, limit_state, max_res_contrib_final)
@@ -785,3 +785,481 @@ def mlx_dc_operating_point(
         logger.info(f"    Node {name} (idx {i}): {float(V[i]):.6f}V")
 
     return V
+
+
+# =============================================================================
+# MLX Transient Solver — Adaptive timestep with Python while loop
+# =============================================================================
+# Same algorithm as full_mna.py but using MLX arrays and a Python while loop.
+# Reuses AdaptiveConfig and IntegrationMethod from the JAX path.
+# Prediction and LTE computation are reimplemented for MLX (no jnp).
+
+
+def _predict_voltage_mlx(
+    V_history: "mx.array",  # (max_history, n_total)
+    dt_history: "mx.array",  # (max_history,)
+    history_count: int,
+    new_dt: float,
+    max_order: int,
+) -> Tuple["mx.array", float]:
+    """Compute predictor using MLX arrays.
+
+    Same algorithm as adaptive.predict_voltage_jax but uses numpy for
+    coefficient computation (scalars) and MLX for the final matrix multiply.
+    """
+    order = min(max(history_count - 1, 0), max_order)
+
+    # Use numpy for coefficient computation (scalar math)
+    dt_hist_np = np.asarray(dt_history)
+
+    if order == 0:
+        a = np.array([1.0, 0.0, 0.0])
+        err_coeff = 1.0
+    elif order == 1:
+        ratio1 = new_dt / max(float(dt_hist_np[0]), 1e-30)
+        a = np.array([1.0 + ratio1, -ratio1, 0.0])
+        err_coeff = -ratio1 * (1 + ratio1) / 2
+    else:  # order == 2
+        cumsum_dt = np.cumsum(dt_hist_np)
+        tau = np.zeros(3)
+        tau[0] = -1.0  # t_n position (normalized)
+        tau[1] = -(new_dt + float(cumsum_dt[0])) / new_dt
+        tau[2] = -(new_dt + float(cumsum_dt[1])) / new_dt
+
+        denom0 = (tau[0] - tau[1]) * (tau[0] - tau[2])
+        denom1 = (tau[1] - tau[0]) * (tau[1] - tau[2])
+        denom2 = (tau[2] - tau[0]) * (tau[2] - tau[1])
+
+        denom0 = denom0 if abs(denom0) >= 1e-30 else 1e-30
+        denom1 = denom1 if abs(denom1) >= 1e-30 else 1e-30
+        denom2 = denom2 if abs(denom2) >= 1e-30 else 1e-30
+
+        l0 = (-tau[1]) * (-tau[2]) / denom0
+        l1 = (-tau[0]) * (-tau[2]) / denom1
+        l2 = (-tau[0]) * (-tau[1]) / denom2
+
+        a = np.array([l0, l1, l2])
+        err_coeff = -tau[0] * tau[1] * tau[2] / 6
+
+    # MLX matrix multiply: V_pred = sum_i a_i * V_history[i]
+    # Mask unused entries
+    mask = np.arange(3) <= order
+    a_masked = np.where(mask, a, 0.0)
+
+    # V_history[:3] is (3, n_total), a_masked is (3,)
+    a_mx = mx.array(a_masked.astype(np.float32))
+    V_pred = mx.sum(a_mx[:, None] * V_history[:3], axis=0)
+
+    return V_pred, float(err_coeff)
+
+
+def _compute_lte_timestep_mlx(
+    V_new: "mx.array",
+    V_pred: "mx.array",
+    pred_err_coeff: float,
+    dt: float,
+    history_count: int,
+    reltol: float,
+    abstol: float,
+    lte_ratio: float,
+    max_order: int,
+    grow_factor: float,
+    error_coeff_integ: float,
+    V_max_historic: Optional["mx.array"] = None,
+) -> Tuple[float, float]:
+    """Compute LTE-based new timestep using MLX.
+
+    Same algorithm as adaptive.compute_lte_timestep_jax.
+    Returns (dt_new, lte_norm) as Python floats.
+    """
+    scale = error_coeff_integ / (error_coeff_integ - pred_err_coeff)
+    lte = (V_new - V_pred) * scale
+
+    V_current = mx.maximum(mx.abs(V_new), mx.abs(V_pred))
+    if V_max_historic is not None:
+        V_scale = mx.maximum(V_max_historic, V_current)
+    else:
+        V_scale = V_current
+    tol = reltol * V_scale + abstol
+    lte_normalized = mx.abs(lte) / tol
+    lte_norm_mx = mx.max(lte_normalized)
+    mx.eval(lte_norm_mx)
+    lte_norm = float(lte_norm_mx.item())
+
+    # dt_new = dt * (lte_ratio / lte_norm)^(1/(order+1))
+    order = min(max(history_count - 1, 0), max_order)
+    factor = (lte_ratio / max(lte_norm, 1e-10)) ** (1.0 / (order + 1))
+    factor = max(0.1, min(factor, grow_factor))
+    dt_new = dt * factor
+
+    return dt_new, lte_norm
+
+
+def make_mlx_source_eval(
+    source_device_data: Dict[str, Any],
+    source_fn: Callable,
+) -> Callable:
+    """Create an MLX-compatible source evaluator.
+
+    Returns a function that takes time t and returns (vsource_vals, isource_vals)
+    as MLX arrays. Same logic as FullMNAStrategy._make_jit_source_eval but for MLX.
+    """
+    vsource_data = source_device_data.get("vsource", {"names": [], "dc_values": []})
+    isource_data = source_device_data.get("isource", {"names": [], "dc_values": []})
+
+    vsource_names = vsource_data.get("names", [])
+    isource_names = isource_data.get("names", [])
+    n_vsources = len(vsource_names)
+    n_isources = len(isource_names)
+
+    vsource_dc_list = vsource_data.get("dc_values", [0.0] * n_vsources)
+    isource_dc_list = isource_data.get("dc_values", [0.0] * n_isources)
+
+    def eval_sources(t: float) -> Tuple["mx.array", "mx.array"]:
+        source_values = source_fn(t)
+
+        if n_vsources == 0:
+            vsource_vals = mx.zeros(0, dtype=mx.float32)
+        else:
+            vals = [
+                float(source_values.get(name, dc))
+                for name, dc in zip(vsource_names, vsource_dc_list)
+            ]
+            vsource_vals = mx.array(vals, dtype=mx.float32)
+
+        if n_isources == 0:
+            isource_vals = mx.zeros(0, dtype=mx.float32)
+        else:
+            vals = [
+                float(source_values.get(name, dc))
+                for name, dc in zip(isource_names, isource_dc_list)
+            ]
+            isource_vals = mx.array(vals, dtype=mx.float32)
+
+        return vsource_vals, isource_vals
+
+    return eval_sources
+
+
+def run_transient_mlx(
+    nr_solve: Callable,
+    build_system_fn: Callable,
+    source_eval: Callable,
+    device_arrays: Dict[str, "mx.array"],
+    X0: "mx.array",
+    Q_init: "mx.array",
+    n_total: int,
+    n_unknowns: int,
+    n_external: int,
+    n_vsources: int,
+    t_stop: float,
+    dt: float,
+    max_steps: int = 10000,
+    config: Optional[Any] = None,
+    dc_max_res_contrib: Optional["mx.array"] = None,
+    total_limit_states: int = 0,
+    progress_interval: int = 100,
+) -> Tuple["mx.array", "mx.array", "mx.array", Dict]:
+    """Run adaptive transient analysis using MLX backend.
+
+    Same algorithm as FullMNAStrategy.run + _make_full_mna_while_loop_fns body_fn
+    but uses Python while loop + MLX arrays.
+
+    Args:
+        nr_solve: MLX NR solver from make_mlx_nr_solver
+        build_system_fn: MLX build system function
+        source_eval: Source evaluator returning (vsource_vals, isource_vals)
+        device_arrays: MLX device arrays
+        X0: Initial solution [V; I_branch]
+        Q_init: Initial charge state
+        n_total, n_unknowns, n_external, n_vsources: Circuit dimensions
+        t_stop: Simulation stop time
+        dt: Initial timestep
+        max_steps: Maximum number of steps
+        config: AdaptiveConfig (imported lazily to avoid circular imports)
+        dc_max_res_contrib: Historic max residual contribution from DC solve
+        total_limit_states: Total limit states across all devices
+        progress_interval: Report progress every N steps (0 to disable)
+
+    Returns:
+        Tuple of (times, V_out, I_out, stats)
+    """
+    import time as time_module
+
+    from vajax.analysis.integration import IntegrationMethod
+    from vajax.analysis.transient.adaptive import AdaptiveConfig
+
+    if config is None:
+        config = AdaptiveConfig()
+
+    # Integration method
+    integ_method = config.integration_method
+
+    # Compute effective max_dt from tran_minpts
+    effective_max_dt = config.max_dt
+    if config.tran_minpts > 0:
+        hmax_from_minpts = t_stop / config.tran_minpts
+        effective_max_dt = min(effective_max_dt, hmax_from_minpts)
+
+    # Apply initial timestep scaling
+    if config.tran_fs != 1.0:
+        dt = dt * config.tran_fs
+
+    # History buffers
+    max_history = config.max_order + 2
+    V_history = mx.zeros((max_history, n_total), dtype=mx.float32)
+    V_history[0] = X0[:n_total]
+    dt_history_np = np.full(max_history, dt, dtype=np.float32)
+    dt_history = mx.array(dt_history_np)
+
+    # Output arrays (numpy, accumulated from MLX)
+    times_out = np.zeros(max_steps, dtype=np.float32)
+    times_out[0] = 0.0
+    V_out = np.zeros((max_steps, n_external), dtype=np.float32)
+    V_out[0] = np.asarray(X0[:n_external])
+    I_out = np.zeros((max_steps, max(n_vsources, 1)), dtype=np.float32)
+
+    # State
+    t = 0.0
+    dt_cur = dt
+    X = X0
+    Q_prev = Q_init
+    dQdt_prev = mx.zeros(n_unknowns, dtype=mx.float32)
+    Q_prev2 = mx.zeros(n_unknowns, dtype=mx.float32)
+    history_count = 1
+    step_idx = 1  # 0 is initial condition
+    warmup_count = 0
+    warmup_steps = config.warmup_steps
+    V_max_historic = mx.abs(X0[:n_total])
+    historic_max_res_contrib = (
+        dc_max_res_contrib if dc_max_res_contrib is not None
+        else mx.zeros(n_unknowns, dtype=mx.float32)
+    )
+    limit_state = mx.zeros(max(total_limit_states, 1), dtype=mx.float32)
+    consecutive_rejects = 0
+    total_nr_iters = 0
+    rejected_steps = 0
+    min_dt_used = dt
+    max_dt_used = dt
+
+    # Gshunt config
+    gshunt_init = config.gshunt_init
+    gshunt_target = config.gshunt_target
+    gshunt_steps = config.gshunt_steps
+
+    # NR tolerances
+    nr_reltol = config.reltol
+    nr_abstol = config.abstol
+
+    logger.info(
+        f"MLX transient: t_stop={t_stop:.2e}s, dt={dt:.2e}s, "
+        f"max_steps={max_steps}, method={integ_method.value}"
+    )
+    t_wall_start = time_module.perf_counter()
+
+    while t < t_stop and step_idx < max_steps:
+        inv_dt = 1.0 / dt_cur
+
+        # Integration coefficients
+        if integ_method == IntegrationMethod.BACKWARD_EULER:
+            c0 = inv_dt
+            c1 = -inv_dt
+            d1 = 0.0
+            c2 = 0.0
+            error_coeff_integ = -0.5
+        elif integ_method == IntegrationMethod.TRAPEZOIDAL:
+            c0 = 2.0 * inv_dt
+            c1 = -2.0 * inv_dt
+            d1 = -1.0
+            c2 = 0.0
+            error_coeff_integ = 1.0 / 24.0
+        else:  # GEAR2/BDF2
+            dt_prev = float(dt_history_np[0])
+            omega = dt_cur / dt_prev if dt_prev > 0 else 1.0
+            omega_p1 = 1.0 + omega
+            c0 = (1.0 + 2.0 * omega) / (omega_p1 * dt_cur)
+            c1 = -omega_p1 / dt_cur
+            d1 = 0.0
+            c2 = (omega * omega) / (omega_p1 * dt_cur)
+            error_coeff_integ = -2.0 / 9.0
+
+        t_next = t + dt_cur
+        vsource_vals, isource_vals = source_eval(t_next)
+
+        # Prediction
+        warmup_complete = warmup_count >= warmup_steps
+        can_predict = warmup_complete and history_count >= 2
+
+        if can_predict:
+            V_pred, pred_err_coeff = _predict_voltage_mlx(
+                V_history, dt_history, history_count, dt_cur, config.max_order
+            )
+            X_init = mx.concatenate([V_pred, X[n_total:]])
+        else:
+            V_pred = X[:n_total]
+            pred_err_coeff = 1.0
+            X_init = X
+
+        # Gshunt ramping
+        if gshunt_steps > 0:
+            ramp_progress = min(step_idx / gshunt_steps, 1.0)
+        else:
+            ramp_progress = 1.0
+        current_gshunt = gshunt_init + ramp_progress * (gshunt_target - gshunt_init)
+
+        # Historic tolerance floor
+        res_tol_floor = mx.maximum(
+            historic_max_res_contrib * nr_reltol,
+            mx.array(nr_abstol, dtype=mx.float32),
+        )
+
+        # NR solve
+        (
+            X_new, iterations, converged, max_f,
+            Q, dQdt_out, I_vsource, limit_state_out, max_res_contrib_out,
+        ) = nr_solve(
+            X_init, vsource_vals, isource_vals, Q_prev, c0,
+            device_arrays, 1e-12, current_gshunt,
+            c1, d1, dQdt_prev, c2, Q_prev2,
+            limit_state_in=limit_state,
+            res_tol_floor=res_tol_floor,
+        )
+
+        total_nr_iters += iterations
+
+        # Handle NR failure
+        nr_failed = not converged
+        at_min_dt = dt_cur <= config.min_dt
+        nr_failed_at_min_dt = nr_failed and at_min_dt
+
+        # LTE estimation
+        V_new = X_new[:n_total]
+        if can_predict and converged:
+            dt_lte, lte_norm = _compute_lte_timestep_mlx(
+                V_new, V_pred, pred_err_coeff, dt_cur, history_count,
+                config.reltol, config.abstol, config.lte_ratio,
+                config.max_order, config.grow_factor,
+                error_coeff_integ, V_max_historic,
+            )
+        else:
+            dt_lte = dt_cur
+
+        # Accept/reject decision
+        lte_reject = (
+            can_predict and converged
+            and (dt_cur / dt_lte > config.redo_factor)
+        )
+        nr_reject = nr_failed and not at_min_dt
+        force_accept = consecutive_rejects >= config.max_consecutive_rejects
+        reject_step = (lte_reject or nr_reject) and not force_accept
+        accept_step = not reject_step
+
+        # Track consecutive rejects
+        if accept_step:
+            consecutive_rejects = 0
+        elif lte_reject:
+            consecutive_rejects += 1
+
+        # Compute new dt
+        dt_from_lte = dt_lte if can_predict else dt_cur
+
+        if nr_failed:
+            if at_min_dt:
+                # Recovery dt
+                last_good_dt = float(dt_history_np[0]) if history_count > 0 else config.min_dt * 16.0
+                new_dt = max(last_good_dt / 8.0, config.min_dt * 2.0)
+            else:
+                new_dt = max(dt_cur * config.tran_ft, config.min_dt)
+        else:
+            new_dt = dt_from_lte
+
+        new_dt = max(config.min_dt, min(new_dt, effective_max_dt))
+        new_dt = min(new_dt, t_stop - t_next)
+
+        # Update state
+        use_new_solution = accept_step and not nr_failed_at_min_dt
+
+        if accept_step:
+            t = t_next
+
+        if use_new_solution:
+            X = X_new
+            Q_prev2 = Q_prev
+            Q_prev = Q
+            dQdt_prev = dQdt_out
+
+            # Update history (shift and insert new)
+            V_history = mx.concatenate([
+                V_new[None, :], V_history[:-1]
+            ], axis=0)
+            dt_history_np = np.roll(dt_history_np, 1)
+            dt_history_np[0] = dt_cur
+            dt_history = mx.array(dt_history_np)
+            history_count = min(history_count + 1, max_history)
+            warmup_count += 1
+
+            # Update historic max voltage
+            V_max_historic = mx.maximum(V_max_historic, mx.abs(V_new))
+            historic_max_res_contrib = mx.maximum(
+                historic_max_res_contrib, max_res_contrib_out
+            )
+            limit_state = limit_state_out
+
+        if accept_step:
+            # Record output
+            V_to_record = np.asarray(X[:n_external])
+            times_out[step_idx] = t_next
+            V_out[step_idx] = V_to_record
+            if n_vsources > 0 and not nr_failed_at_min_dt:
+                I_out[step_idx] = np.asarray(I_vsource[:n_vsources])
+            step_idx += 1
+            min_dt_used = min(min_dt_used, dt_cur)
+            max_dt_used = max(max_dt_used, dt_cur)
+        else:
+            rejected_steps += 1
+
+        dt_cur = new_dt
+
+        # Progress reporting
+        if progress_interval > 0 and step_idx % progress_interval == 0:
+            pct = 100.0 * t / t_stop if t_stop > 0 else 0.0
+            print(
+                f"Step {step_idx:6d}: t={t:.3e}s ({pct:5.1f}%), "
+                f"dt={dt_cur:.2e}s, rejected={rejected_steps}"
+            )
+
+        # Force MLX evaluation to avoid graph buildup
+        mx.eval(X)
+
+    wall_time = time_module.perf_counter() - t_wall_start
+
+    # Trim output arrays
+    times = mx.array(times_out[:step_idx])
+    V_result = mx.array(V_out[:step_idx])
+    I_result = mx.array(I_out[:step_idx])
+
+    n_steps = step_idx
+    stats = {
+        "n_steps": n_steps,
+        "total_timesteps": n_steps,
+        "accepted_steps": n_steps,
+        "rejected_steps": rejected_steps,
+        "total_nr_iterations": total_nr_iters,
+        "avg_nr_iterations": total_nr_iters / max(n_steps, 1),
+        "wall_time": wall_time,
+        "time_per_step_ms": wall_time / n_steps * 1000 if n_steps > 0 else 0,
+        "min_dt_used": min_dt_used,
+        "max_dt_used": max_dt_used,
+        "convergence_rate": n_steps / max(n_steps + rejected_steps, 1),
+        "strategy": "adaptive_full_mna_mlx",
+        "solver": "dense_mlx",
+    }
+
+    logger.info(
+        f"MLX transient: Completed {n_steps} steps in {wall_time:.3f}s "
+        f"({stats['time_per_step_ms']:.2f}ms/step, "
+        f"{rejected_steps} rejected, "
+        f"dt range [{min_dt_used:.2e}, {max_dt_used:.2e}])"
+    )
+
+    return times, V_result, I_result, stats

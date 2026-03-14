@@ -1331,6 +1331,191 @@ class CircuitEngine:
 
         return X[:n_total]
 
+    def run_transient_mlx(
+        self,
+        t_stop: Optional[float] = None,
+        dt: Optional[float] = None,
+        max_steps: int = 10000,
+        config=None,
+    ):
+        """Run transient analysis using the MLX backend.
+
+        Requires MLX to be available. Uses dense solver only.
+        Same algorithm as FullMNAStrategy but with Python while loop + MLX arrays.
+
+        Args:
+            t_stop: Simulation stop time. If None, uses netlist 'stop'.
+            dt: Initial timestep. If None, uses netlist 'step'.
+            max_steps: Maximum number of output steps.
+            config: AdaptiveConfig instance. If None, built from netlist params.
+
+        Returns:
+            Tuple of (times, V_out, I_out, stats)
+        """
+        from vajax.mlx_backend import (
+            MLX_AVAILABLE,
+            make_mlx_build_system_fn,
+            make_mlx_nr_solver,
+            make_mlx_source_eval,
+        )
+        from vajax.mlx_backend import (
+            run_transient_mlx as _run_transient_mlx,
+        )
+
+        if not MLX_AVAILABLE:
+            raise ImportError("MLX is not available")
+
+        import mlx.core as mx
+
+        # Use netlist analysis params as defaults
+        params = getattr(self, "analysis_params", {})
+        if t_stop is None:
+            t_stop = params.get("stop")
+            if t_stop is None:
+                raise ValueError("t_stop not specified and 'stop' not found in netlist")
+        if dt is None:
+            dt = params.get("step")
+            if dt is None:
+                raise ValueError("dt not specified and 'step' not found in netlist")
+
+        # Build config from netlist params if not provided
+        if config is None:
+            from vajax.analysis.transient.adaptive import AdaptiveConfig
+
+            kwargs = {}
+            if "tran_lteratio" in params:
+                kwargs["lte_ratio"] = float(params["tran_lteratio"])
+            if "tran_redofactor" in params:
+                kwargs["redo_factor"] = float(params["tran_redofactor"])
+            if "nr_convtol" in params:
+                kwargs["nr_convtol"] = float(params["nr_convtol"])
+            if "tran_gshunt" in params:
+                kwargs["gshunt_init"] = float(params["tran_gshunt"])
+            if "reltol" in params:
+                kwargs["reltol"] = float(params["reltol"])
+            if "abstol" in params:
+                kwargs["abstol"] = float(params["abstol"])
+            if "tran_fs" in params:
+                kwargs["tran_fs"] = float(params["tran_fs"])
+            if "tran_ft" in params:
+                kwargs["tran_ft"] = float(params["tran_ft"])
+            if "tran_minpts" in params:
+                kwargs["tran_minpts"] = int(params["tran_minpts"])
+            if "maxstep" in params:
+                kwargs["max_dt"] = float(params["maxstep"])
+            if "tran_method" in params:
+                kwargs["integration_method"] = params["tran_method"]
+            config = AdaptiveConfig(**kwargs)
+
+        # Build setup (reuse JAX path for compilation and static inputs)
+        setup = self._build_transient_setup(backend="cpu", use_dense=True)
+        n_total = setup["n_total"]
+        n_unknowns = setup["n_unknowns"]
+        n_external = self.num_nodes  # External (user-visible) nodes
+        source_device_data = setup["source_device_data"]
+        static_inputs_cache = setup["static_inputs_cache"]
+        device_internal_nodes = setup["device_internal_nodes"]
+
+        n_vsources = len(source_device_data.get("vsource", {}).get("names", []))
+        n_isources = len(source_device_data.get("isource", {}).get("names", []))
+
+        # Build MLX system function
+        gmin = float(self.options.gmin)
+        build_system_fn, device_arrays_mlx, total_limit_states = make_mlx_build_system_fn(
+            source_device_data=source_device_data,
+            static_inputs_cache=static_inputs_cache,
+            compiled_models=self._compiled_models,
+            gmin=gmin,
+            n_unknowns=n_unknowns,
+        )
+
+        # Collect NOI and internal node indices
+        noi_indices = []
+        all_internal_indices = []
+        if device_internal_nodes:
+            for dev_name, internal_nodes in device_internal_nodes.items():
+                for node_name, node_idx in internal_nodes.items():
+                    all_internal_indices.append(node_idx)
+                    if node_name == "node4":
+                        noi_indices.append(node_idx)
+        noi_indices_arr = np.array(noi_indices, dtype=np.int32) if noi_indices else None
+        internal_device_indices = (
+            np.array(sorted(set(all_internal_indices)), dtype=np.int32)
+            if all_internal_indices
+            else None
+        )
+
+        # Create NR solver
+        nr_solve = make_mlx_nr_solver(
+            build_system_fn=build_system_fn,
+            n_nodes=n_total,
+            n_vsources=n_vsources,
+            noi_indices=noi_indices_arr,
+            internal_device_indices=internal_device_indices,
+            total_limit_states=total_limit_states,
+            reltol=float(self.options.reltol),
+            vntol=float(self.options.vntol),
+            abstol=float(self.options.abstol),
+        )
+
+        # Source evaluator
+        source_fn = setup["source_fn"]
+        source_eval = make_mlx_source_eval(source_device_data, source_fn)
+
+        # DC operating point
+        vsource_dc_vals_jax, isource_dc_vals_jax = self._get_dc_source_values(
+            n_vsources, n_isources
+        )
+        vsource_dc_vals = mx.array(np.asarray(vsource_dc_vals_jax, dtype=np.float32))
+        isource_dc_vals = mx.array(np.asarray(isource_dc_vals_jax, dtype=np.float32))
+
+        from vajax.analysis.dc_operating_point import initialize_dc_voltages
+
+        V_init_jax, _ = initialize_dc_voltages(
+            n_nodes=n_total,
+            vdd_value=self._get_vdd_value(),
+            node_names=self.node_names,
+            devices=self.devices,
+            device_internal_nodes=device_internal_nodes,
+        )
+        V_init_np = np.asarray(V_init_jax, dtype=np.float32)
+        X0 = mx.array(
+            np.concatenate([V_init_np, np.zeros(n_vsources, dtype=np.float32)])
+        )
+        Q_prev = mx.zeros(n_unknowns, dtype=mx.float32)
+
+        # DC solve
+        logger.info("MLX transient: Computing DC operating point...")
+        X_dc, _, dc_converged, dc_residual, Q_dc, _, _, _, dc_max_res_contrib = nr_solve(
+            X0, vsource_dc_vals, isource_dc_vals, Q_prev, 0.0, device_arrays_mlx,
+        )
+        mx.eval(X_dc, Q_dc, dc_max_res_contrib)
+
+        if dc_converged:
+            logger.info(f"  DC converged, V[1]={float(X_dc[1]):.4f}V")
+        else:
+            logger.warning(f"  DC did not converge (residual={dc_residual:.2e})")
+
+        # Run transient
+        return _run_transient_mlx(
+            nr_solve=nr_solve,
+            build_system_fn=build_system_fn,
+            source_eval=source_eval,
+            device_arrays=device_arrays_mlx,
+            X0=X_dc,
+            Q_init=Q_dc,
+            n_total=n_total,
+            n_unknowns=n_unknowns,
+            n_external=n_external,
+            n_vsources=n_vsources,
+            t_stop=float(t_stop),
+            dt=float(dt),
+            max_steps=max_steps,
+            config=config,
+            dc_max_res_contrib=dc_max_res_contrib,
+            total_limit_states=total_limit_states,
+        )
+
     def _get_source_fn_for_device(self, dev: Dict):
         """Get the source function for a device, or None if not a source."""
         return get_source_fn_for_device(dev, self.parse_spice_number)
