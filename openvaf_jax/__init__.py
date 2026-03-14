@@ -1392,6 +1392,11 @@ class OpenVAFToJAX:
         t2 = time.perf_counter()
         logger.info(f"    translate_eval_array_with_cache_split: exec() done in {t2 - t1:.1f}s")
 
+        # Also compile MLX version if available
+        mlx_eval_fn = exec_with_cache_mlx(code, fn_name)
+        if mlx_eval_fn is not None:
+            logger.info("    translate_eval_array_with_cache_split: MLX eval function compiled")
+
         # Build metadata using v2 API for clean node names
         node_names = [res["node_name"] for res in self.dae_data["residuals"]]
         node_indices = [res["node_idx"] for res in self.dae_data["residuals"]]
@@ -1429,6 +1434,9 @@ class OpenVAFToJAX:
             "simparams_used": simparam_meta.get("simparams_used", ["$analysis_type"]),
             "simparam_indices": simparam_meta.get("simparam_indices", {"$analysis_type": 0}),
             "simparam_count": simparam_meta.get("simparam_count", 1),
+            # MLX eval function (None if MLX not available)
+            "mlx_eval_fn": mlx_eval_fn,
+            "eval_code": code,
         }
 
         return eval_fn, metadata

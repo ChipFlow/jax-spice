@@ -1010,6 +1010,7 @@ def prepare_static_inputs(
         compiled["simparam_indices"] = split_meta.get("simparam_indices", {})
         compiled["use_device_limiting"] = use_device_limiting
         compiled["limit_param_map"] = limit_param_map
+        compiled["eval_meta"] = split_meta
 
         if use_device_limiting and split_meta.get("limit_metadata"):
             compiled["limit_metadata"] = split_meta["limit_metadata"]
