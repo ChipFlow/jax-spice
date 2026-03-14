@@ -89,7 +89,7 @@ class CompiledModel:
 def compile_model(name: str) -> CompiledModel:
     """Compile a model and produce both JAX and MLX eval functions."""
     from openvaf_jax import OpenVAFToJAX
-    from scripts.jax_to_mlx import get_mlx_exec_namespace, jax_to_mlx
+    from openvaf_jax.mlx_transform import get_mlx_exec_namespace, jax_to_mlx
 
     va_path = MODEL_PATHS[name]
     params = MODEL_PARAMS.get(name, {})

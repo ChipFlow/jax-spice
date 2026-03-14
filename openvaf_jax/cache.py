@@ -1,8 +1,9 @@
-"""Function caching utilities for OpenVAF to JAX translation.
+"""Function caching utilities for OpenVAF to JAX/MLX translation.
 
 This module provides caching for:
 - Compiled Python functions (by code hash)
 - vmapped+jit'd functions (by code hash + in_axes)
+- MLX-transformed functions (by code hash + "mlx" suffix)
 - Persistent code cache (stores generated Python code to disk)
 """
 
@@ -25,6 +26,27 @@ _exec_fn_cache: Dict[str, Callable] = {}
 # Module-level cache for vmapped+jit'd functions (keyed by (code_hash, in_axes))
 # This avoids repeated JIT compilation for the same function with same vmap axes
 _vmapped_jit_cache: Dict[Tuple[str, Tuple], Callable] = {}
+
+# Module-level cache for MLX exec'd functions (keyed by code hash + "mlx")
+_mlx_exec_fn_cache: Dict[str, Callable] = {}
+
+# Module-level cache for MLX vmapped+compiled functions
+_mlx_vmapped_cache: Dict[Tuple[str, Tuple], Callable] = {}
+
+# Lazy MLX availability check
+_mlx_available: Optional[bool] = None
+
+
+def is_mlx_available() -> bool:
+    """Check if MLX is available (cached after first check)."""
+    global _mlx_available
+    if _mlx_available is None:
+        try:
+            import mlx.core  # noqa: F401
+            _mlx_available = True
+        except ImportError:
+            _mlx_available = False
+    return _mlx_available
 
 
 @overload
@@ -102,22 +124,98 @@ def get_vmapped_jit(code_hash: str, fn: Callable, in_axes: Tuple) -> Callable:
     return vmapped_jit_fn
 
 
+def exec_with_cache_mlx(
+    jax_code: str, fn_name: str
+) -> Optional[Callable]:
+    """Transform JAX code to MLX and execute, caching by code hash.
+
+    Args:
+        jax_code: Python source code using jnp.*, jax.*, lax.* APIs
+        fn_name: Name of function to extract from executed code
+
+    Returns:
+        The MLX function, or None if MLX is not available
+    """
+    if not is_mlx_available():
+        return None
+
+    from openvaf_jax.mlx_transform import get_mlx_exec_namespace, jax_to_mlx
+
+    code_hash = hashlib.sha256(jax_code.encode()).hexdigest()
+    mlx_key = code_hash + "_mlx"
+
+    if mlx_key in _mlx_exec_fn_cache:
+        logger.debug(f"    {fn_name}: using cached MLX function (hash={code_hash[:8]})")
+        return _mlx_exec_fn_cache[mlx_key]
+
+    mlx_code = jax_to_mlx(jax_code)
+    ns = get_mlx_exec_namespace()
+    exec(mlx_code, ns)
+    fn = cast(Callable, ns[fn_name])
+
+    _mlx_exec_fn_cache[mlx_key] = fn
+    logger.debug(f"    {fn_name}: cached new MLX function (hash={code_hash[:8]})")
+    return fn
+
+
+def get_vmapped_compiled_mlx(
+    code_hash: str, fn: Callable, in_axes: Tuple
+) -> Optional[Callable]:
+    """Get a cached mx.vmap'd + mx.compile'd version of a function.
+
+    Args:
+        code_hash: Hash of the function's source code
+        fn: The function to vmap and compile
+        in_axes: vmap in_axes specification (same format as JAX)
+
+    Returns:
+        vmapped and compiled MLX function, or None if MLX unavailable
+    """
+    if not is_mlx_available():
+        return None
+
+    import mlx.core as mx
+
+    cache_key = (code_hash + "_mlx", in_axes)
+
+    if cache_key in _mlx_vmapped_cache:
+        logger.debug(f"    mlx_vmapped: using cached (hash={code_hash[:8]}, in_axes={in_axes})")
+        return _mlx_vmapped_cache[cache_key]
+
+    # mx.vmap can't handle None in in_axes, so we wrap the function
+    # to remove the limit_funcs arg (always None for MLX)
+    def wrapped(shared, device, sc, dc, sp, ls):
+        return fn(shared, device, sc, dc, sp, ls, None)
+
+    # Filter in_axes to remove the last one (limit_funcs=None)
+    mlx_in_axes = in_axes[:-1] if len(in_axes) > 6 else in_axes
+
+    vmapped_fn = mx.compile(mx.vmap(wrapped, in_axes=mlx_in_axes))
+    _mlx_vmapped_cache[cache_key] = vmapped_fn
+    logger.debug(f"    mlx_vmapped: cached new (hash={code_hash[:8]}, in_axes={in_axes})")
+    return vmapped_fn
+
+
 def clear_cache():
     """Clear all function caches (useful for testing or memory management)."""
-    global _exec_fn_cache, _vmapped_jit_cache
+    global _exec_fn_cache, _vmapped_jit_cache, _mlx_exec_fn_cache, _mlx_vmapped_cache
     _exec_fn_cache.clear()
     _vmapped_jit_cache.clear()
+    _mlx_exec_fn_cache.clear()
+    _mlx_vmapped_cache.clear()
 
 
 def cache_stats() -> Dict[str, int]:
     """Get cache statistics.
 
     Returns:
-        Dict with 'exec_fn_count' and 'vmapped_jit_count'
+        Dict with counts for JAX and MLX caches
     """
     return {
         "exec_fn_count": len(_exec_fn_cache),
         "vmapped_jit_count": len(_vmapped_jit_cache),
+        "mlx_exec_fn_count": len(_mlx_exec_fn_cache),
+        "mlx_vmapped_count": len(_mlx_vmapped_cache),
     }
 
 

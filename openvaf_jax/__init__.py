@@ -35,7 +35,15 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 logger = logging.getLogger("vajax.openvaf")
 
 # Re-export key types
-from .cache import cache_stats, clear_cache, exec_with_cache, get_vmapped_jit
+from .cache import (
+    cache_stats,
+    clear_cache,
+    exec_with_cache,
+    exec_with_cache_mlx,
+    get_vmapped_compiled_mlx,
+    get_vmapped_jit,
+    is_mlx_available,
+)
 from .mir import (
     Block,
     CFGAnalyzer,
@@ -669,6 +677,11 @@ class OpenVAFToJAX:
         t2 = time.perf_counter()
         logger.info(f"    translate_init: exec() done in {t2 - t1:.1f}s")
 
+        # Generate MLX init function if MLX is available
+        mlx_init_fn = exec_with_cache_mlx(code, fn_name)
+        if mlx_init_fn is not None:
+            logger.info("    translate_init: MLX init function generated")
+
         metadata = {
             "param_names": init_param_names,
             "param_kinds": init_param_kinds,
@@ -681,6 +694,9 @@ class OpenVAFToJAX:
             "temperature": temperature,
             "mfactor": mfactor,
             "warnings": warnings,
+            # MLX backend (None if MLX not available)
+            "mlx_init_fn": mlx_init_fn,
+            "init_code": code,
         }
 
         return init_fn, metadata
@@ -974,6 +990,11 @@ class OpenVAFToJAX:
                 print(f"    Param constants: {sccp_stats['param_constants']}")
                 print(f"    Computed (propagated): {sccp_stats['computed_constants']}")
 
+        # Generate MLX eval function if MLX is available
+        mlx_eval_fn = exec_with_cache_mlx(code, fn_name)
+        if mlx_eval_fn is not None:
+            logger.info("    translate_eval: MLX eval function generated")
+
         metadata = {
             "param_names": eval_param_names,
             "param_kinds": eval_param_kinds,
@@ -998,6 +1019,9 @@ class OpenVAFToJAX:
             "simparam_count": simparam_meta.get("simparam_count", 1),
             "sccp_stats": sccp_stats,
             "warnings": warnings,
+            # MLX backend (None if MLX not available)
+            "mlx_eval_fn": mlx_eval_fn,
+            "eval_code": code,
         }
 
         return eval_fn, metadata
@@ -1422,7 +1446,10 @@ __all__ = [
     "PHIResolution",
     "parse_mir_function",
     "exec_with_cache",
+    "exec_with_cache_mlx",
     "get_vmapped_jit",
+    "get_vmapped_compiled_mlx",
+    "is_mlx_available",
     "clear_cache",
     "cache_stats",
 ]
