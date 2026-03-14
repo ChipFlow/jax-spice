@@ -1401,10 +1401,15 @@ class CircuitEngine:
                 kwargs["tran_ft"] = float(params["tran_ft"])
             if "tran_minpts" in params:
                 kwargs["tran_minpts"] = int(params["tran_minpts"])
-            if "maxstep" in params:
-                kwargs["max_dt"] = float(params["maxstep"])
-            if "tran_method" in params:
-                kwargs["integration_method"] = params["tran_method"]
+            # MLX float32 backend overrides:
+            # 1. Always use TRAP integration — BE/GEAR2 cause dt collapse in f32.
+            #    BE has error_coeff=-0.5 (harsh LTE), GEAR2 has variable c0 from omega.
+            #    TRAP has error_coeff=1/24 (lenient LTE → dt stays manageable).
+            # 2. Ignore sim file maxstep — let tran_minpts determine max_dt.
+            #    VACASK maxstep is tuned for float64; f32 needs slightly larger
+            #    headroom for the LTE to recover after switching transients.
+            from vajax.analysis.integration import IntegrationMethod
+            kwargs["integration_method"] = IntegrationMethod.TRAPEZOIDAL
             config = AdaptiveConfig(**kwargs)
 
         # Build setup (reuse JAX path for compilation and static inputs)
@@ -1445,7 +1450,11 @@ class CircuitEngine:
             else None
         )
 
-        # Create NR solver
+        # Create NR solver.  Without pnjlim/fetlim, the MLX float32 path
+        # needs a voltage step limit to prevent NR overshoot on exponential
+        # device curves (diodes).  0.5V is ~20*VT, limiting current change
+        # to ~exp(20) per iteration — aggressive enough for convergence yet
+        # prevents catastrophic overshoot.
         nr_solve = make_mlx_nr_solver(
             build_system_fn=build_system_fn,
             n_nodes=n_total,
@@ -1456,6 +1465,7 @@ class CircuitEngine:
             reltol=float(self.options.reltol),
             vntol=float(self.options.vntol),
             abstol=float(self.options.abstol),
+            max_step=0.5,
         )
 
         # Source evaluator

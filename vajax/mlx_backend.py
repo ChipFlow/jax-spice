@@ -192,6 +192,70 @@ def check_nr_convergence(
 # =============================================================================
 
 
+def _bucketed_scatter_add(indices: "mx.array", values: "mx.array",
+                          size: int, bucket_size: int) -> "mx.array":
+    """Deterministic scatter-add via bucketing (JAX-style).
+
+    GPU scatter-add with duplicate indices is non-deterministic because
+    parallel threads add to the same location in arbitrary order, and
+    float32 addition is non-associative.  This causes different results
+    across runs, which destabilises the adaptive timestep controller.
+
+    Fix: split entries into buckets of ``bucket_size``.  If indices are
+    unique within each bucket (true when bucket_size = entries_per_device),
+    the per-bucket scatter has no races.  The cross-bucket sum is a
+    standard dense reduction, which is always deterministic.
+
+    See jax/_src/ops/scatter.py ``_segment_update`` for the same idea.
+    """
+    n = indices.shape[0]
+    if n == 0:
+        return mx.zeros(size, dtype=values.dtype)
+
+    num_buckets = (n + bucket_size - 1) // bucket_size
+    pad_n = num_buckets * bucket_size
+
+    if pad_n > n:
+        indices = mx.concatenate([indices, mx.zeros(pad_n - n, dtype=indices.dtype)])
+        values = mx.concatenate([values, mx.zeros(pad_n - n, dtype=values.dtype)])
+
+    # 2D scatter: row = bucket id, col = target index.
+    # Each bucket scatters into its own row → no cross-bucket races.
+    bucket_ids = mx.arange(pad_n) // bucket_size
+    flat_2d_idx = bucket_ids * size + indices
+
+    out_flat = mx.zeros(num_buckets * size, dtype=values.dtype)
+    out_flat = out_flat.at[flat_2d_idx].add(values)
+    out_2d = out_flat.reshape(num_buckets, size)
+
+    # Dense sum across buckets — deterministic.
+    return mx.sum(out_2d, axis=0)
+
+
+def _bucketed_scatter_max(indices: "mx.array", values: "mx.array",
+                          size: int, bucket_size: int) -> "mx.array":
+    """Deterministic scatter-max via bucketing (same idea as scatter-add)."""
+    n = indices.shape[0]
+    if n == 0:
+        return mx.zeros(size, dtype=values.dtype)
+
+    num_buckets = (n + bucket_size - 1) // bucket_size
+    pad_n = num_buckets * bucket_size
+
+    if pad_n > n:
+        indices = mx.concatenate([indices, mx.zeros(pad_n - n, dtype=indices.dtype)])
+        values = mx.concatenate([values, mx.zeros(pad_n - n, dtype=values.dtype)])
+
+    bucket_ids = mx.arange(pad_n) // bucket_size
+    flat_2d_idx = bucket_ids * size + indices
+
+    out_flat = mx.zeros(num_buckets * size, dtype=values.dtype)
+    out_flat = out_flat.at[flat_2d_idx].maximum(mx.abs(values))
+    out_2d = out_flat.reshape(num_buckets, size)
+
+    return mx.max(out_2d, axis=0)
+
+
 def _stamp_vector_mlx(vec, indices, values):
     """Stamp values into vector at indices, masking invalid (-1)."""
     valid = indices >= 0
@@ -376,21 +440,24 @@ def make_mlx_build_system_fn(
         I_branch = X[n_total:] if n_vsources > 0 else mx.zeros(0, dtype=mx.float32)
         limit_state_out = mx.zeros(max(total_limit_states, 1), dtype=mx.float32)
 
-        # Accumulators for COO parts
-        res_parts_idx, res_parts_val = [], []
-        react_parts_idx, react_parts_val = [], []
-        j_parts_rows, j_parts_cols, j_parts_vals = [], [], []
-        lim_res_parts_idx, lim_res_parts_val = [], []
-        lim_react_parts_idx, lim_react_parts_val = [], []
+        # Accumulators for COO parts: (indices, values, bucket_size) triples.
+        # bucket_size = entries per device instance (unique indices within bucket
+        # → deterministic GPU scatter-add).
+        res_parts: List[Tuple["mx.array", "mx.array", int]] = []
+        react_parts: List[Tuple["mx.array", "mx.array", int]] = []
+        jac_parts: List[Tuple["mx.array", "mx.array", "mx.array", int]] = []  # (rows, cols, vals, bucket)
+        lim_res_parts: List[Tuple["mx.array", "mx.array", int]] = []
+        lim_react_parts: List[Tuple["mx.array", "mx.array", int]] = []
 
-        # Current sources
+        # Current sources (2 entries per source: +I at node_p, -I at node_n)
         if isource_f_indices is not None and isource_vals.size > 0:
             f_vals = isource_vals[:, None] * mx.array([[1.0, -1.0]])
             f_idx = isource_f_indices.reshape(-1)
             f_val = f_vals.reshape(-1)
             valid = f_idx >= 0
-            res_parts_idx.append(mx.where(valid, f_idx, mx.array(0, dtype=mx.int32)))
-            res_parts_val.append(mx.where(valid, f_val, mx.array(0.0, dtype=mx.float32)))
+            idx = mx.where(valid, f_idx, mx.array(0, dtype=mx.int32))
+            val = mx.where(valid, f_val, mx.array(0.0, dtype=mx.float32))
+            res_parts.append((idx, val, 2))  # 2 entries per isource
 
         # OpenVAF devices (same loop structure as mna_builder._build_system_coo)
         for model_type in model_types:
@@ -433,43 +500,78 @@ def make_mlx_build_system_fn(
                 off, _, nl = limit_state_offsets[model_type]
                 limit_state_out[off:off + n_dev * nl] = lso.reshape(-1)
 
-            ri = stamp_mlx["res_indices"].reshape(-1)
-            jri = stamp_mlx["jac_row_indices"].reshape(-1)
-            jci = stamp_mlx["jac_col_indices"].reshape(-1)
+            ri = stamp_mlx["res_indices"]  # (n_devices, entries_per_dev) or (total,)
+            jri = stamp_mlx["jac_row_indices"]
+            jci = stamp_mlx["jac_col_indices"]
 
-            valid_r = ri >= 0
-            res_parts_idx.append(mx.where(valid_r, ri, mx.array(0, dtype=mx.int32)))
-            res_parts_val.append(mx.where(valid_r, rr.reshape(-1), mx.array(0.0, dtype=mx.float32)))
-            react_parts_idx.append(mx.where(valid_r, ri, mx.array(0, dtype=mx.int32)))
-            react_parts_val.append(mx.where(valid_r, rc.reshape(-1), mx.array(0.0, dtype=mx.float32)))
+            # bucket_size = entries per device instance (unique indices within)
+            res_bucket = ri.shape[-1] if ri.ndim > 1 else ri.shape[0]
+            jac_bucket = jri.shape[-1] if jri.ndim > 1 else jri.shape[0]
 
-            valid_j = (jri >= 0) & (jci >= 0)
+            ri_flat = ri.reshape(-1)
+            jri_flat = jri.reshape(-1)
+            jci_flat = jci.reshape(-1)
+
+            valid_r = ri_flat >= 0
+            r_idx = mx.where(valid_r, ri_flat, mx.array(0, dtype=mx.int32))
+            res_parts.append((r_idx, mx.where(valid_r, rr.reshape(-1), mx.array(0.0, dtype=mx.float32)), res_bucket))
+            react_parts.append((r_idx, mx.where(valid_r, rc.reshape(-1), mx.array(0.0, dtype=mx.float32)), res_bucket))
+
+            valid_j = (jri_flat >= 0) & (jci_flat >= 0)
             cj = jr.reshape(-1) + integ_c0 * jc.reshape(-1)
             cj = mx.where(mx.isnan(cj), mx.array(0.0, dtype=mx.float32), cj)
-            j_parts_rows.append(mx.where(valid_j, jri, mx.array(0, dtype=mx.int32)))
-            j_parts_cols.append(mx.where(valid_j, jci, mx.array(0, dtype=mx.int32)))
-            j_parts_vals.append(mx.where(valid_j, cj, mx.array(0.0, dtype=mx.float32)))
+            jac_parts.append((
+                mx.where(valid_j, jri_flat, mx.array(0, dtype=mx.int32)),
+                mx.where(valid_j, jci_flat, mx.array(0, dtype=mx.int32)),
+                mx.where(valid_j, cj, mx.array(0.0, dtype=mx.float32)),
+                jac_bucket,
+            ))
 
-            lim_res_parts_idx.append(mx.where(valid_r, ri, mx.array(0, dtype=mx.int32)))
-            lim_res_parts_val.append(mx.where(valid_r, lrr.reshape(-1), mx.array(0.0, dtype=mx.float32)))
-            lim_react_parts_idx.append(mx.where(valid_r, ri, mx.array(0, dtype=mx.int32)))
-            lim_react_parts_val.append(mx.where(valid_r, lrc.reshape(-1), mx.array(0.0, dtype=mx.float32)))
+            lim_res_parts.append((r_idx, mx.where(valid_r, lrr.reshape(-1), mx.array(0.0, dtype=mx.float32)), res_bucket))
+            lim_react_parts.append((r_idx, mx.where(valid_r, lrc.reshape(-1), mx.array(0.0, dtype=mx.float32)), res_bucket))
 
-        # --- Assemble vectors ---
-        def _cat_and_assemble(idx_parts, val_parts, size):
-            if not idx_parts:
+        # --- Assemble vectors (bucketed scatter for determinism) ---
+        def _bucketed_assemble(parts, size):
+            """Sum bucketed scatter-add results across all model contributions."""
+            if not parts:
                 return mx.zeros(size, dtype=mx.float32)
-            return _assemble_coo_vector_mlx(mx.concatenate(idx_parts), mx.concatenate(val_parts), size)
+            result = mx.zeros(size, dtype=mx.float32)
+            for idx, val, bucket_sz in parts:
+                result = result + _bucketed_scatter_add(idx, val, size, bucket_sz)
+            return result
 
-        f_resist = _cat_and_assemble(res_parts_idx, res_parts_val, n_unknowns)
-        Q = _cat_and_assemble(react_parts_idx, react_parts_val, n_unknowns)
-        lim_rhs_resist = _cat_and_assemble(lim_res_parts_idx, lim_res_parts_val, n_unknowns)
-        lim_rhs_react = _cat_and_assemble(lim_react_parts_idx, lim_react_parts_val, n_unknowns)
+        def _bucketed_max_abs(parts, size):
+            """Max abs across all model contributions (bucketed scatter-max)."""
+            if not parts:
+                return mx.zeros(size, dtype=mx.float32)
+            result = mx.zeros(size, dtype=mx.float32)
+            for idx, val, bucket_sz in parts:
+                result = mx.maximum(result, _bucketed_scatter_max(idx, val, size, bucket_sz))
+            return result
 
-        max_res_contrib = (
-            _assemble_coo_max_abs_mlx(mx.concatenate(res_parts_idx), mx.concatenate(res_parts_val), n_unknowns)
-            if res_parts_idx else mx.zeros(n_unknowns, dtype=mx.float32)
-        )
+        f_resist = _bucketed_assemble(res_parts, n_unknowns)
+        Q = _bucketed_assemble(react_parts, n_unknowns)
+        lim_rhs_resist = _bucketed_assemble(lim_res_parts, n_unknowns)
+        lim_rhs_react = _bucketed_assemble(lim_react_parts, n_unknowns)
+        max_res_contrib = _bucketed_max_abs(res_parts, n_unknowns)
+
+        _dQdt_prev = dQdt_prev if dQdt_prev is not None else mx.zeros(n_unknowns, dtype=mx.float32)
+        _Q_prev2 = Q_prev2 if Q_prev2 is not None else mx.zeros(n_unknowns, dtype=mx.float32)
+
+        # Include integration term magnitudes in max_res_contrib.
+        # Float32 precision of computing f_node = f_resist + integ_c0*Q + ...
+        # is limited by the largest term.  When dt is small, integ_c0 = 2/dt
+        # can be huge, making the integration terms dominate.  Without this,
+        # the f32 tolerance floor (max(mrc) * _F32_REL_TOL) won't scale with dt
+        # and NR will never converge for trapezoidal/GEAR2 at small dt.
+        if integ_c0 != 0.0:
+            max_res_contrib = mx.maximum(max_res_contrib, mx.abs(integ_c0 * (Q - lim_rhs_react)))
+            if integ_c1 != 0.0:
+                max_res_contrib = mx.maximum(max_res_contrib, mx.abs(integ_c1 * Q_prev))
+            if integ_d1 != 0.0:
+                max_res_contrib = mx.maximum(max_res_contrib, mx.abs(integ_d1 * _dQdt_prev))
+            if integ_c2 != 0.0:
+                max_res_contrib = mx.maximum(max_res_contrib, mx.abs(integ_c2 * _Q_prev2))
 
         # --- Build residual (same formula as mna_builder._build_residual) ---
         f_resist = f_resist - lim_rhs_resist
@@ -480,9 +582,6 @@ def make_mlx_build_system_fn(
             I_vsource_kcl = -mx.where(valid_p, f_resist[p_mna], mx.array(0.0, dtype=mx.float32))
         else:
             I_vsource_kcl = mx.zeros(0, dtype=mx.float32)
-
-        _dQdt_prev = dQdt_prev if dQdt_prev is not None else mx.zeros(n_unknowns, dtype=mx.float32)
-        _Q_prev2 = Q_prev2 if Q_prev2 is not None else mx.zeros(n_unknowns, dtype=mx.float32)
 
         # Branch current KCL contribution
         if n_vsources > 0:
@@ -498,18 +597,31 @@ def make_mlx_build_system_fn(
                 mx.where(bp_valid, I_branch, mx.array(0.0, dtype=mx.float32)),
                 mx.where(bn_valid, -I_branch, mx.array(0.0, dtype=mx.float32)),
             ])
-            f_resist = f_resist + _assemble_coo_vector_mlx(br_idx, br_val, n_unknowns)
+            f_resist = f_resist + _bucketed_scatter_add(br_idx, br_val, n_unknowns, 2)
 
-        # Transient residual combination (same formula as mna.combine_transient_residual)
+        # Transient residual combination in float64 (same formula as
+        # mna.combine_transient_residual).  When integ_c0 is large (small dt or
+        # GEAR2 with unequal steps), the integration terms dominate and their
+        # cancellation with f_resist exceeds float32 precision.  Computing in
+        # float64 via numpy avoids this (~10us overhead for small circuits).
         effective_shunt = min_diag_reg + gshunt
-        f_node = (
-            f_resist - mx.zeros_like(f_resist)  # lim_rhs_resist already subtracted
-            + integ_c0 * (Q - lim_rhs_react)
-            + integ_c1 * Q_prev
-            + integ_d1 * _dQdt_prev
-            + integ_c2 * _Q_prev2
-            + effective_shunt * V[1:]
+        mx.eval(f_resist, Q, lim_rhs_react, V)
+        fr64 = np.asarray(f_resist).astype(np.float64)
+        Q64 = np.asarray(Q).astype(np.float64)
+        lr64 = np.asarray(lim_rhs_react).astype(np.float64)
+        Qp64 = np.asarray(Q_prev).astype(np.float64)
+        dQ64 = np.asarray(_dQdt_prev).astype(np.float64)
+        Qp264 = np.asarray(_Q_prev2).astype(np.float64)
+        V64 = np.asarray(V[1:]).astype(np.float64)
+        f_node_64 = (
+            fr64
+            + integ_c0 * (Q64 - lr64)
+            + integ_c1 * Qp64
+            + integ_d1 * dQ64
+            + integ_c2 * Qp264
+            + effective_shunt * V64
         )
+        f_node = mx.array(f_node_64.astype(np.float32))
 
         # Vsource equations: V_p - V_n - E = 0
         if n_vsources > 0:
@@ -518,25 +630,26 @@ def make_mlx_build_system_fn(
             f_branch = mx.zeros(0, dtype=mx.float32)
         f_augmented = mx.concatenate([f_node, f_branch])
 
-        # --- Assemble Jacobian ---
-        if j_parts_rows:
-            cat_jr = mx.concatenate(j_parts_rows)
-            cat_jc = mx.concatenate(j_parts_cols)
-            cat_jv = mx.concatenate(j_parts_vals)
-        else:
-            cat_jr = mx.zeros(0, dtype=mx.int32)
-            cat_jc = mx.zeros(0, dtype=mx.int32)
-            cat_jv = mx.zeros(0, dtype=mx.float32)
+        # --- Assemble Jacobian (bucketed scatter for determinism) ---
+        n_aug = n_augmented
+        J = mx.zeros((n_aug, n_aug), dtype=mx.float32)
+        for jr_part, jc_part, jv_part, jac_bkt in jac_parts:
+            flat_idx = jr_part * n_aug + jc_part
+            J_flat = _bucketed_scatter_add(flat_idx, jv_part, n_aug * n_aug, jac_bkt)
+            J = J + J_flat.reshape(n_aug, n_aug)
 
         if n_vsources > 0:
-            cat_jr = mx.concatenate([cat_jr, vs_inc_rows])
-            cat_jc = mx.concatenate([cat_jc, vs_inc_cols])
-            cat_jv = mx.concatenate([cat_jv, vs_inc_vals])
+            # Vsource incidence has unique indices (no bucketing needed)
+            vs_flat = vs_inc_rows * n_aug + vs_inc_cols
+            J_vs = mx.zeros(n_aug * n_aug, dtype=mx.float32)
+            J_vs = J_vs.at[vs_flat].add(vs_inc_vals)
+            J = J + J_vs.reshape(n_aug, n_aug)
 
-        J = _assemble_dense_jacobian_mlx(
-            cat_jr, cat_jc, cat_jv, n_augmented, n_unknowns, n_vsources,
-            min_diag_reg, gshunt,
-        )
+        diag_reg = mx.concatenate([
+            mx.full(n_unknowns, min_diag_reg + gshunt, dtype=mx.float32),
+            mx.zeros(n_vsources, dtype=mx.float32),
+        ])
+        J = J + mx.diag(diag_reg)
 
         return J, f_augmented, Q, I_vsource_kcl, limit_state_out, max_res_contrib
 
@@ -546,6 +659,57 @@ def make_mlx_build_system_fn(
 # =============================================================================
 # MLX NR Solver
 # =============================================================================
+
+
+def _solve_f64_refined(J_f32: "mx.array", f_f32: "mx.array") -> "mx.array":
+    """Solve J @ delta = -f with iterative refinement using float64 on CPU.
+
+    Same approach as solver_factories._solve_f32_refined but using MLX:
+    1. Solve in float32 on CPU
+    2. Compute residual r = f + J @ delta in float64 on CPU (catches cancellation errors)
+    3. Solve correction in float32 on CPU
+    4. Return (delta + correction) in float32
+
+    Metal GPU only supports float32, but mx.linalg.solve on CPU supports float64.
+    The f64 residual computation catches cancellation errors that f32 misses,
+    giving near-float64 accuracy for the linear solve step.
+    """
+    # Step 1: Initial solve in float32
+    delta_f32 = mx.linalg.solve(J_f32, -f_f32, stream=mx.cpu)
+    mx.eval(delta_f32)
+
+    # Step 2: Compute residual in float64 on CPU
+    # r = f + J @ delta  (should be near zero, but f32 accumulation loses precision)
+    J_np = np.asarray(J_f32)
+    f_np = np.asarray(f_f32)
+    delta_np = np.asarray(delta_f32)
+    r_f64 = f_np.astype(np.float64) + J_np.astype(np.float64) @ delta_np.astype(np.float64)
+
+    # Step 3: Solve correction in float32
+    r_f32 = mx.array(r_f64.astype(np.float32))
+    corr_f32 = mx.linalg.solve(J_f32, -r_f32, stream=mx.cpu)
+    mx.eval(corr_f32)
+
+    # Step 4: Apply correction (delta + corr in float32)
+    return delta_f32 + corr_f32
+
+
+# Float32 relative precision floor for residual convergence.
+# Device evaluation in float32 accumulates rounding errors through chains of
+# operations (exp, log, multiply, ...).  These errors are amplified by the
+# integration coefficient c0 = O(1/dt).  The achievable residual is roughly
+# max_res_contrib * _F32_REL_TOL.  This works for c0 < ~2e12 (dt > ~1ps).
+_F32_REL_TOL = 5e-3
+
+# When c0 is larger (smaller dt, e.g. from tran_fs scaling), the device-eval
+# noise exceeds even the _F32_REL_TOL floor and the NR oscillates without
+# converging.  Stagnation detection declares convergence when:
+#  (a) at least _F32_STALL_MIN_ITERS NR iterations have run,
+#  (b) max_f hasn't improved by >50% for _F32_STALL_COUNT consecutive iters, AND
+#  (c) max_f < max(max_res_contrib) * _F32_STALL_TOL.
+_F32_STALL_MIN_ITERS = 5
+_F32_STALL_COUNT = 3
+_F32_STALL_TOL = 0.1  # 10% — relaxed but safe for float32 precision floor
 
 
 def make_mlx_nr_solver(
@@ -566,6 +730,10 @@ def make_mlx_nr_solver(
 
     Same convergence algorithm as solver_factories._make_nr_solver_common
     but uses Python while loop + MLX arrays instead of lax.while_loop + JAX.
+
+    Key difference from JAX solver: uses float64 iterative refinement for the
+    linear solve (f32 factorize, f64 residual on CPU, f32 correction) and a
+    float32-aware residual tolerance floor to handle Metal's lack of f64.
 
     Setup uses shared numpy computation (compute_noi_masks_np).
     Convergence check uses shared logic (check_nr_convergence).
@@ -603,7 +771,8 @@ def make_mlx_nr_solver(
     ):
         """Newton-Raphson solver (Python while loop, MLX arrays).
 
-        Same convergence criteria as _make_nr_solver_common.
+        Uses float64 iterative refinement for the linear solve step and
+        float32-aware convergence tolerances.
         """
         X = X_init
         _dQdt_prev = dQdt_prev if dQdt_prev is not None else mx.zeros(n_unknowns, dtype=mx.float32)
@@ -622,6 +791,10 @@ def make_mlx_nr_solver(
         Q_final = mx.zeros(n_unknowns, dtype=mx.float32)
         final_iter = 0
 
+        # Float32 stagnation tracking: detect when NR oscillates at precision floor
+        best_max_f = float("inf")
+        stall_count = 0
+
         for iteration in range(max_iterations):
             J, f, Q_cur, _, limit_state_out, max_res_contrib = build_system_fn(
                 X, vsource_vals, isource_vals, Q_prev, integ_c0,
@@ -630,21 +803,28 @@ def make_mlx_nr_solver(
                 limit_state, iteration,
             )
 
-            # Residual tolerance (VACASK-style, same formula as solver_factories)
-            res_tol_nodes = mx.maximum(max_res_contrib * reltol, _res_tol_floor)
+            # Residual tolerance (VACASK-style + float32 precision floor)
+            # Standard: max_res_contrib * reltol per node, floored by abstol.
+            # Float32 addition: global floor = max(all mrc) * _F32_REL_TOL.
+            # This accounts for float32 accumulation errors in MNA assembly that
+            # affect ALL nodes, not just those with large individual contributions.
+            f32_global_floor = mx.max(max_res_contrib) * _F32_REL_TOL
+            res_tol_nodes = mx.maximum(
+                mx.maximum(max_res_contrib * reltol, _res_tol_floor),
+                f32_global_floor,
+            )
             res_tol = mx.concatenate([res_tol_nodes, mx.full(n_vsources, vntol, dtype=mx.float32)])
 
             f_check = f
             if residual_conv_mask_mx is not None:
                 f_check = mx.where(residual_conv_mask_mx, f, mx.array(0.0, dtype=mx.float32))
 
-            # Enforce NOI and solve - batch all lazy ops before eval
+            # Enforce NOI and solve with f64 iterative refinement
             J, f_solve = enforce_noi(J, f)
             reg = 1e-14 * mx.eye(J.shape[0], dtype=mx.float32)
-            delta = mx.linalg.solve(J + reg, -f_solve, stream=mx.cpu)
-
-            # Single eval for solve + convergence check inputs
-            mx.eval(f_check, res_tol, delta, limit_state_out)
+            J_reg = J + reg
+            mx.eval(J_reg, f_solve, f_check, res_tol, limit_state_out)
+            delta = _solve_f64_refined(J_reg, f_solve)
 
             max_f = float(mx.max(mx.abs(f_check)).item())
             residual_converged = bool(mx.all(mx.abs(f_check) < res_tol).item())
@@ -687,6 +867,22 @@ def make_mlx_nr_solver(
 
             if converged:
                 break
+
+            # Float32 stagnation detection: when device eval noise prevents
+            # further convergence, the residual oscillates without improving.
+            # Accept the solution if it's within _F32_STALL_TOL of max(mrc).
+            if max_f < best_max_f * 0.5:
+                best_max_f = max_f
+                stall_count = 0
+            else:
+                stall_count += 1
+
+            if (iteration >= _F32_STALL_MIN_ITERS
+                    and stall_count >= _F32_STALL_COUNT):
+                max_mrc = float(mx.max(max_res_contrib).item())
+                if max_mrc > 0 and max_f < max_mrc * _F32_STALL_TOL:
+                    converged = True
+                    break
 
         # Recompute Q and I_vsource from converged solution
         _, _, Q_final, I_vsource, _, max_res_contrib_final = build_system_fn(
@@ -867,24 +1063,31 @@ def _compute_lte_timestep_mlx(
     error_coeff_integ: float,
     V_max_historic: Optional["mx.array"] = None,
 ) -> Tuple[float, float]:
-    """Compute LTE-based new timestep using MLX.
+    """Compute LTE-based new timestep using numpy float64 on CPU.
 
-    Same algorithm as adaptive.compute_lte_timestep_jax.
+    Same algorithm as adaptive.compute_lte_timestep_jax but runs entirely in
+    float64 via numpy. The LTE computation involves (V_new - V_pred) which is
+    a subtraction of close values — exactly the operation that loses precision
+    in float32. Using float64 on CPU avoids spurious step rejections.
+
     Returns (dt_new, lte_norm) as Python floats.
     """
-    scale = error_coeff_integ / (error_coeff_integ - pred_err_coeff)
-    lte = (V_new - V_pred) * scale
+    mx.eval(V_new, V_pred)
+    V_new_np = np.asarray(V_new).astype(np.float64)
+    V_pred_np = np.asarray(V_pred).astype(np.float64)
+    V_hist_np = (
+        np.asarray(V_max_historic).astype(np.float64)
+        if V_max_historic is not None else None
+    )
 
-    V_current = mx.maximum(mx.abs(V_new), mx.abs(V_pred))
-    if V_max_historic is not None:
-        V_scale = mx.maximum(V_max_historic, V_current)
-    else:
-        V_scale = V_current
+    scale = error_coeff_integ / (error_coeff_integ - pred_err_coeff)
+    lte = (V_new_np - V_pred_np) * scale
+
+    V_current = np.maximum(np.abs(V_new_np), np.abs(V_pred_np))
+    V_scale = np.maximum(V_hist_np, V_current) if V_hist_np is not None else V_current
     tol = reltol * V_scale + abstol
-    lte_normalized = mx.abs(lte) / tol
-    lte_norm_mx = mx.max(lte_normalized)
-    mx.eval(lte_norm_mx)
-    lte_norm = float(lte_norm_mx.item())
+    lte_normalized = np.abs(lte) / tol
+    lte_norm = float(np.max(lte_normalized))
 
     # dt_new = dt * (lte_ratio / lte_norm)^(1/(order+1))
     order = min(max(history_count - 1, 0), max_order)
@@ -1052,8 +1255,10 @@ def run_transient_mlx(
     nr_abstol = config.abstol
 
     logger.info(
-        f"MLX transient: t_stop={t_stop:.2e}s, dt={dt:.2e}s, "
-        f"max_steps={max_steps}, method={integ_method.value}"
+        f"MLX transient: t_stop={t_stop:.2e}s, dt={dt:.2e}s, dt_cur={dt_cur:.2e}s, "
+        f"max_steps={max_steps}, method={integ_method.value}, "
+        f"tran_fs={config.tran_fs}, tran_minpts={config.tran_minpts}, "
+        f"effective_max_dt={effective_max_dt:.2e}, min_dt={config.min_dt:.2e}"
     )
     t_wall_start = time_module.perf_counter()
 
@@ -1172,6 +1377,15 @@ def run_transient_mlx(
                 new_dt = max(dt_cur * config.tran_ft, config.min_dt)
         else:
             new_dt = dt_from_lte
+
+        # Float32 safety: prevent catastrophic dt shrink from noisy LTE.
+        # MLX GPU scatter-add is non-deterministic with duplicate indices,
+        # causing float32 rounding noise in the Jacobian/residual assembly.
+        # This noise can produce occasional large LTE norms that would
+        # shrink dt by 100-1000x in a single step, triggering a collapse
+        # spiral.  Limit shrink to 10x per step (matches SPICE conventions).
+        min_dt_from_shrink = dt_cur * 0.1
+        new_dt = max(new_dt, min_dt_from_shrink)
 
         new_dt = max(config.min_dt, min(new_dt, effective_max_dt))
         new_dt = min(new_dt, t_stop - t_next)
